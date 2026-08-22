@@ -1,6 +1,6 @@
 local TAG = "[KnoxSurvivors][NPC Probe]"
-local MIN_RADIUS = 3
-local MAX_RADIUS = 6
+local MIN_RADIUS = 2
+local MAX_RADIUS = 4
 local MAX_TICKS = 900
 local STATUS_INTERVAL = 300
 
@@ -18,6 +18,15 @@ local function findSpawnSquare(player)
     local centerX = playerSquare:getX()
     local centerY = playerSquare:getY()
     local z = playerSquare:getZ()
+    local playerNumber = player:getPlayerNum()
+    local playerRoom = playerSquare:getRoom()
+
+    local function isValid(square)
+        return square ~= nil
+            and square:canStand()
+            and square:isCanSee(playerNumber)
+            and square:getRoom() == playerRoom
+    end
 
     for radius = MIN_RADIUS, MAX_RADIUS do
         local cardinalCandidates = {
@@ -27,7 +36,7 @@ local function findSpawnSquare(player)
             cell:getGridSquare(centerX, centerY - radius, z),
         }
         for _, square in ipairs(cardinalCandidates) do
-            if square ~= nil and square:canStand() then
+            if isValid(square) then
                 return square
             end
         end
@@ -38,7 +47,7 @@ local function findSpawnSquare(player)
                 cell:getGridSquare(centerX + dx, centerY + radius, z),
             }
             for _, square in ipairs(candidates) do
-                if square ~= nil and square:canStand() then
+                if isValid(square) then
                     return square
                 end
             end
@@ -49,7 +58,7 @@ local function findSpawnSquare(player)
                 cell:getGridSquare(centerX + radius, centerY + dy, z),
             }
             for _, square in ipairs(candidates) do
-                if square ~= nil and square:canStand() then
+                if isValid(square) then
                     return square
                 end
             end
@@ -86,6 +95,17 @@ update = function()
     if bridge ~= nil and player ~= nil then
         local square = findSpawnSquare(player)
         if square ~= nil then
+            print(
+                TAG
+                    .. " player="
+                    .. tostring(player:getX())
+                    .. ","
+                    .. tostring(player:getY())
+                    .. " visibleSpawn="
+                    .. tostring(square:getX())
+                    .. ","
+                    .. tostring(square:getY())
+            )
             local success, result = pcall(function()
                 return bridge:spawnTestNpc(square)
             end)

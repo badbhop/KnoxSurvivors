@@ -63,7 +63,7 @@ final class KnoxNpcFactory {
         invoke(cell, "addMovingObject", classFor(body, "zombie.iso.IsoMovingObject"), body);
         Object modelManager = modelManagerClass.getField("instance").get(null);
         invoke(modelManager, "Add", classFor(body, "zombie.characters.IsoGameCharacter"), body);
-        invoke(body, "setHaloNote", String.class, "KNOX NPC TEST");
+        applyTestMarker(body);
 
         if (!sameLocalPlayers(localPlayersBefore, snapshotLocalPlayers(isoPlayerClass))) {
             safelyRemove(body);
@@ -79,6 +79,7 @@ final class KnoxNpcFactory {
 
     static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
+        applyTestMarker(body);
         Object cell = invoke(body, "getCell");
         Object currentSquare = invoke(body, "getCurrentSquare");
         Object movingSquare = invoke(body, "getMovingSquare");
@@ -107,6 +108,28 @@ final class KnoxNpcFactory {
             + activeModel
             + " alpha="
             + alpha;
+    }
+
+    private static void applyTestMarker(Object body) throws ReflectiveOperationException {
+        invoke(body, "setAlphaAndTarget", float.class, 1.0f);
+        invoke(body, "setAlphaAndTarget", int.class, float.class, 0, 1.0f);
+        invoke(body, "setOutlineHighlight", int.class, boolean.class, 0, true);
+        invoke(
+            body,
+            "setOutlineHighlightCol",
+            int.class,
+            float.class,
+            float.class,
+            float.class,
+            float.class,
+            0,
+            0.1f,
+            1.0f,
+            0.1f,
+            1.0f
+        );
+        invoke(body, "setOutlineThickness", float.class, 3.0f);
+        invoke(body, "setHaloNote", String.class, "KNOX NPC TEST");
     }
 
     private static void safelyRemove(Object body) throws ReflectiveOperationException {
@@ -157,6 +180,50 @@ final class KnoxNpcFactory {
         throws ReflectiveOperationException {
         Method method = target.getClass().getMethod(name, parameterType);
         return method.invoke(target, argument);
+    }
+
+    private static Object invoke(
+        Object target,
+        String name,
+        Class<?> firstType,
+        Class<?> secondType,
+        Object firstArgument,
+        Object secondArgument
+    ) throws ReflectiveOperationException {
+        Method method = target.getClass().getMethod(name, firstType, secondType);
+        return method.invoke(target, firstArgument, secondArgument);
+    }
+
+    private static Object invoke(
+        Object target,
+        String name,
+        Class<?> firstType,
+        Class<?> secondType,
+        Class<?> thirdType,
+        Class<?> fourthType,
+        Class<?> fifthType,
+        Object firstArgument,
+        Object secondArgument,
+        Object thirdArgument,
+        Object fourthArgument,
+        Object fifthArgument
+    ) throws ReflectiveOperationException {
+        Method method = target.getClass().getMethod(
+            name,
+            firstType,
+            secondType,
+            thirdType,
+            fourthType,
+            fifthType
+        );
+        return method.invoke(
+            target,
+            firstArgument,
+            secondArgument,
+            thirdArgument,
+            fourthArgument,
+            fifthArgument
+        );
     }
 
     private static Object invoke(Object target, String name) throws ReflectiveOperationException {
