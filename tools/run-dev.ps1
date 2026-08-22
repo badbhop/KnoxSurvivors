@@ -66,5 +66,43 @@ if ($BuildOnly) {
     exit 0
 }
 
+$zomboidUserPath = Split-Path -Parent $configuration.localModsRoot
+$consoleLogPath = Join-Path $zomboidUserPath 'console.txt'
+$knoxLogPath = Join-Path $zomboidUserPath 'KnoxIsoPlayer.log'
+$runId = Get-Date -Format 'yyyyMMdd-HHmmss'
+$diagnosticsRoot = Join-Path $repositoryRoot 'dev-runs'
+$runDirectory = Join-Path $diagnosticsRoot $runId
+$sessionPath = Join-Path $runDirectory 'session.json'
+$latestSessionPath = Join-Path $diagnosticsRoot 'latest-session.txt'
+
+New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
+
+function Get-LogLength([string]$Path) {
+    if (Test-Path -LiteralPath $Path) {
+        return (Get-Item -LiteralPath $Path).Length
+    }
+    return 0
+}
+
+$session = [ordered]@{
+    runId = $runId
+    startedAt = (Get-Date).ToUniversalTime().ToString('o')
+    runDirectory = $runDirectory
+    pzHome = $configuration.pzHome
+    consoleLogPath = $consoleLogPath
+    consoleStartOffset = Get-LogLength $consoleLogPath
+    knoxLogPath = $knoxLogPath
+    knoxStartOffset = Get-LogLength $knoxLogPath
+}
+$session | ConvertTo-Json | Set-Content -LiteralPath $sessionPath -Encoding UTF8
+Set-Content -LiteralPath $latestSessionPath -Value $sessionPath -Encoding UTF8
+
 Write-Host '[Knox Survivors] Starting Project Zomboid with the Java agent...'
-Start-Process -FilePath $gameLauncherPath -WorkingDirectory $configuration.pzHome -WindowStyle Normal
+Start-Process -FilePath $gameLauncherPath -WorkingDirectory $configuration.pzHome -WindowStyle Normal | Out-Null
+
+$monitorScriptPath = Join-Path $PSScriptRoot 'monitor-dev-run.ps1'
+$monitorArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$monitorScriptPath`" -SessionPath `"$sessionPath`""
+Start-Process -FilePath 'powershell.exe' -ArgumentList $monitorArguments -WindowStyle Hidden | Out-Null
+
+Write-Host "[Knox Survivors] Diagnostic session: $runDirectory"
+Write-Host '[Knox Survivors] New logs and an issue summary will be collected automatically when the game closes.'

@@ -28,7 +28,11 @@ Double-click `Run Knox Survivors Dev.bat` in the repository root. It performs th
 1. builds the current Java agent;
 2. deploys the current mod files to the local test and Workshop staging folders;
 3. verifies that `ProjectZomboid64.bat` points at the newly built agent;
-4. launches Project Zomboid through that patched batch file.
+4. records the current log positions;
+5. launches Project Zomboid through that patched batch file;
+6. monitors the game and collects only the new log output after it closes.
+
+Each run writes local diagnostics under `dev-runs/<timestamp>/`, including the new console output, the new Knox agent output, Knox-specific events, and a filtered possible-issues report. `dev-runs/` is ignored by Git and is never pushed to GitHub.
 
 Do not use Steam's normal Play button for Java-agent development tests. Steam updates may replace the patched launcher; the development launcher detects that condition and stops with an explanation instead of silently starting without the agent.
 
