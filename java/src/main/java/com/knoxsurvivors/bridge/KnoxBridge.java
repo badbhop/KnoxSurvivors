@@ -41,6 +41,10 @@ public final class KnoxBridge {
         return npcRegistry.removeOne();
     }
 
+    public String moveTestNpc(Object square) {
+        return npcRegistry.moveOne(square);
+    }
+
     public String getTestNpcStatus() {
         return npcRegistry.status();
     }

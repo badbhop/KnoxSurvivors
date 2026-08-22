@@ -4,7 +4,7 @@ Knox Survivors is a ground-up Project Zomboid 42.20 mod that represents autonomo
 
 The long-term goal is for survivors to make decisions and use the same world-facing mechanics available to a player: movement, combat, inventory and equipment, looting, doors and windows, barricading, medical care, vehicles, camps, relationships, and persistent identity.
 
-This repository is at the foundation milestone. The current build proves the Lua mod and Java agent load paths only. It does not yet spawn an NPC.
+This repository is at the first-human milestone. The current build proves the Lua/Java bridge and a visible, off-slot `IsoPlayer`-derived NPC shell; controlled engine-pathfinding movement is the active runtime gate.
 
 ## Development layout
 

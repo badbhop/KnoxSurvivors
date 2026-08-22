@@ -79,6 +79,23 @@ final class KnoxNpcFactory {
         safelyRemove(npc.getBody());
     }
 
+    static void moveTo(KnoxNpc npc, Object square) throws ReflectiveOperationException {
+        requireClass(square, GRID_SQUARE_CLASS, "movement target square");
+        float x = ((Number) invoke(square, "getX")).floatValue() + 0.5f;
+        float y = ((Number) invoke(square, "getY")).floatValue() + 0.5f;
+        float z = ((Number) invoke(square, "getZ")).floatValue();
+        invoke(
+            npc.getBody(),
+            "pathToLocationF",
+            float.class,
+            float.class,
+            float.class,
+            x,
+            y,
+            z
+        );
+    }
+
     static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
         applyTestMarker(body);
@@ -92,6 +109,11 @@ final class KnoxNpcFactory {
         float y = ((Number) invoke(body, "getY")).floatValue();
         float alpha = ((Number) invoke(body, "getAlpha")).floatValue();
         boolean activeModel = (Boolean) invoke(body, "hasActiveModel");
+        Object pathfinder = invoke(body, "getPathFindBehavior2");
+        boolean pathing = (Boolean) invoke(body, "isPathing");
+        boolean pathRunning = (Boolean) invoke(body, "isPathfindRunning");
+        boolean movingUsingPath = (Boolean) invoke(pathfinder, "isMovingUsingPathFind");
+        boolean localSlotsSafe = !isInLocalPlayerSlots(body);
         return "ACTIVE "
             + npc.describe()
             + " class="
@@ -111,7 +133,15 @@ final class KnoxNpcFactory {
             + " model="
             + activeModel
             + " alpha="
-            + alpha;
+            + alpha
+            + " pathing="
+            + pathing
+            + " pathRunning="
+            + pathRunning
+            + " movingUsingPath="
+            + movingUsingPath
+            + " localSlotsSafe="
+            + localSlotsSafe;
     }
 
     private static void applyTestMarker(Object body) throws ReflectiveOperationException {
@@ -166,6 +196,16 @@ final class KnoxNpcFactory {
             }
         }
         return true;
+    }
+
+    private static boolean isInLocalPlayerSlots(Object body) throws ReflectiveOperationException {
+        Object[] localPlayers = snapshotLocalPlayers(classFor(body, ISO_PLAYER_CLASS));
+        for (Object localPlayer : localPlayers) {
+            if (localPlayer == body) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void requireClass(Object value, String expectedName, String label) {
@@ -228,6 +268,20 @@ final class KnoxNpcFactory {
             fourthArgument,
             fifthArgument
         );
+    }
+
+    private static Object invoke(
+        Object target,
+        String name,
+        Class<?> firstType,
+        Class<?> secondType,
+        Class<?> thirdType,
+        Object firstArgument,
+        Object secondArgument,
+        Object thirdArgument
+    ) throws ReflectiveOperationException {
+        Method method = target.getClass().getMethod(name, firstType, secondType, thirdType);
+        return method.invoke(target, firstArgument, secondArgument, thirdArgument);
     }
 
     private static Object invoke(Object target, String name) throws ReflectiveOperationException {
