@@ -18,23 +18,49 @@ val workshopRoot = providers.gradleProperty("workshopRoot")
     .orElse(localProperties.getProperty("workshopRoot") ?: "")
 
 val workshopModFolder = providers.gradleProperty("workshopModFolder")
-    .orElse(localProperties.getProperty("workshopModFolder") ?: "KnoxSurvivorsRebuild")
+    .orElse(localProperties.getProperty("workshopModFolder") ?: "KnoxSurvivors")
 
-tasks.register<Copy>("deployDev") {
+val localModsRoot = providers.gradleProperty("localModsRoot")
+    .orElse(localProperties.getProperty("localModsRoot") ?: "")
+
+tasks.register<Copy>("deployLocal") {
     group = "knox survivors"
-    description = "Builds and copies the development mod into the configured PZ Workshop directory."
+    description = "Copies the development mod into the local Project Zomboid mods directory."
+    dependsOn(":java:jar")
+
+    doFirst {
+        require(localModsRoot.get().isNotBlank()) {
+            "Set localModsRoot in local.properties before deploying."
+        }
+    }
+
+    into(localModsRoot.map { file(it).resolve("KnoxSurvivors") })
+    from(layout.projectDirectory.dir("mod"))
+}
+
+tasks.register<Copy>("stageWorkshop") {
+    group = "knox survivors"
+    description = "Builds the Steam Workshop staging layout without publishing it."
     dependsOn(":java:jar")
 
     doFirst {
         require(workshopRoot.get().isNotBlank()) {
-            "Set workshopRoot in local.properties before deploying."
+            "Set workshopRoot in local.properties before staging."
         }
     }
 
     into(workshopRoot.zip(workshopModFolder) { root, folder -> file(root).resolve(folder) })
-    from(layout.projectDirectory.dir("mod"))
+    from(layout.projectDirectory.dir("mod")) {
+        into("Contents/mods/KnoxSurvivors")
+    }
     from(project(":java").layout.buildDirectory.dir("libs")) {
         include("knox-agent-*.jar")
         into("java/build/libs")
     }
+}
+
+tasks.register("deployDev") {
+    group = "knox survivors"
+    description = "Builds and deploys both the local test mod and Workshop staging package."
+    dependsOn("deployLocal", "stageWorkshop")
 }

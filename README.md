@@ -19,7 +19,7 @@ This repository is at the foundation milestone. The current build proves the Lua
 .\gradlew.bat clean build deployDev
 ```
 
-The development deployment target is configured in `local.properties`. The current machine deploys to `C:/Users/Gary/Zomboid/Workshop/KnoxSurvivorsRebuild` so it cannot collide with the previous implementation.
+The development targets are configured in `local.properties`. `deployDev` copies the loadable mod to `C:/Users/Gary/Zomboid/mods/KnoxSurvivors` and stages the Workshop package under `C:/Users/Gary/Zomboid/Workshop/KnoxSurvivors/Contents/mods/KnoxSurvivors`.
 
 The Project Zomboid launcher must load the generated agent jar with `-javaagent`. Launcher changes are managed separately because Steam updates can replace them.
 
