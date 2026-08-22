@@ -90,7 +90,9 @@ $session = [ordered]@{
     runDirectory = $runDirectory
     pzHome = $configuration.pzHome
     consoleLogPath = $consoleLogPath
-    consoleStartOffset = Get-LogLength $consoleLogPath
+    # Project Zomboid recreates console.txt during startup. Reading from zero avoids
+    # skipping early failures when the new file grows past the previous file length.
+    consoleStartOffset = 0
     knoxLogPath = $knoxLogPath
     knoxStartOffset = Get-LogLength $knoxLogPath
 }

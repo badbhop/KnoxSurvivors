@@ -2,12 +2,15 @@ package com.knoxsurvivors.bridge;
 
 import com.knoxsurvivors.agent.KnoxAgent;
 import java.lang.instrument.Instrumentation;
+import java.lang.reflect.InvocationTargetException;
+import java.util.Collection;
 
 /** Exposes the Knox bridge only after Project Zomboid has initialized a stable Lua environment. */
 public final class KnoxBridgeBootstrap {
     private static final String LUA_MANAGER_CLASS = "zombie.Lua.LuaManager";
     private static final long DEADLINE_MILLIS = 120_000L;
     private static final long POLL_MILLIS = 250L;
+    private static final int REQUIRED_STABLE_POLLS = 4;
     private static final KnoxBridge BRIDGE = new KnoxBridge();
 
     private KnoxBridgeBootstrap() {
@@ -27,6 +30,8 @@ public final class KnoxBridgeBootstrap {
         long deadline = System.currentTimeMillis() + DEADLINE_MILLIS;
         Object previousEnvironment = null;
         Object previousExposer = null;
+        int previousLoadedCount = -1;
+        int stablePolls = 0;
 
         while (System.currentTimeMillis() < deadline) {
             try {
@@ -38,16 +43,32 @@ public final class KnoxBridgeBootstrap {
 
                 Object environment = luaManagerClass.getField("env").get(null);
                 Object exposer = luaManagerClass.getField("exposer").get(null);
-                if (environment == null || exposer == null) {
+                Object loaded = luaManagerClass.getField("loaded").get(null);
+                int loadedCount = loaded instanceof Collection<?>
+                    ? ((Collection<?>) loaded).size()
+                    : 0;
+                if (environment == null || exposer == null || loadedCount == 0) {
                     previousEnvironment = null;
                     previousExposer = null;
+                    previousLoadedCount = -1;
+                    stablePolls = 0;
                     sleep();
                     continue;
                 }
 
-                if (environment != previousEnvironment || exposer != previousExposer) {
+                if (environment != previousEnvironment
+                    || exposer != previousExposer
+                    || loadedCount != previousLoadedCount) {
                     previousEnvironment = environment;
                     previousExposer = exposer;
+                    previousLoadedCount = loadedCount;
+                    stablePolls = 0;
+                    sleep();
+                    continue;
+                }
+
+                stablePolls++;
+                if (stablePolls < REQUIRED_STABLE_POLLS) {
                     sleep();
                     continue;
                 }
@@ -66,11 +87,12 @@ public final class KnoxBridgeBootstrap {
                     return;
                 }
             } catch (Throwable throwable) {
+                Throwable cause = unwrapInvocationTarget(throwable);
                 KnoxAgent.writeLog(
                     "Lua bridge exposure attempt failed: "
-                        + throwable.getClass().getName()
+                        + cause.getClass().getName()
                         + ": "
-                        + throwable.getMessage()
+                        + cause.getMessage()
                 );
             }
 
@@ -78,6 +100,15 @@ public final class KnoxBridgeBootstrap {
         }
 
         KnoxAgent.writeLog("ERROR Lua bridge exposure deadline reached");
+    }
+
+    private static Throwable unwrapInvocationTarget(Throwable throwable) {
+        Throwable current = throwable;
+        while (current instanceof InvocationTargetException
+            && ((InvocationTargetException) current).getCause() != null) {
+            current = ((InvocationTargetException) current).getCause();
+        }
+        return current;
     }
 
     private static Class<?> findLuaManagerClass(Instrumentation instrumentation) {
