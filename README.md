@@ -21,6 +21,23 @@ This repository is at the foundation milestone. The current build proves the Lua
 
 The development targets are configured in `local.properties`. `deployDev` copies the loadable mod to `C:/Users/Gary/Zomboid/mods/KnoxSurvivors` and stages the Workshop package under `C:/Users/Gary/Zomboid/Workshop/KnoxSurvivors/Contents/mods/KnoxSurvivors`.
 
+## Launching a development test
+
+Double-click `Run Knox Survivors Dev.bat` in the repository root. It performs the following sequence every time:
+
+1. builds the current Java agent;
+2. deploys the current mod files to the local test and Workshop staging folders;
+3. verifies that `ProjectZomboid64.bat` points at the newly built agent;
+4. launches Project Zomboid through that patched batch file.
+
+Do not use Steam's normal Play button for Java-agent development tests. Steam updates may replace the patched launcher; the development launcher detects that condition and stops with an explanation instead of silently starting without the agent.
+
+To verify the complete build and deployment without opening the game, run:
+
+```powershell
+.\tools\run-dev.ps1 -BuildOnly
+```
+
 The Project Zomboid launcher must load the generated agent jar with `-javaagent`. Launcher changes are managed separately because Steam updates can replace them.
 
 ## Current acceptance gate
