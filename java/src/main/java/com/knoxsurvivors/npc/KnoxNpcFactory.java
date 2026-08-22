@@ -53,8 +53,11 @@ final class KnoxNpcFactory {
         invoke(body, "setCurrent", square.getClass(), square);
         invoke(body, "setMovingSquareNow");
         invoke(body, "setZombiesDontAttack", boolean.class, true);
+        invoke(body, "dressInRandomNonSillyOutfit");
+        invoke(body, "setAlphaAndTarget", float.class, 1.0f);
         invoke(body, "resetModelNextFrame");
         invoke(cell, "addMovingObject", classFor(body, "zombie.iso.IsoMovingObject"), body);
+        invoke(body, "setHaloNote", String.class, "KNOX NPC TEST");
 
         if (!sameLocalPlayers(localPlayersBefore, snapshotLocalPlayers(isoPlayerClass))) {
             safelyRemove(body);
@@ -66,6 +69,38 @@ final class KnoxNpcFactory {
 
     static void remove(KnoxNpc npc) throws ReflectiveOperationException {
         safelyRemove(npc.getBody());
+    }
+
+    static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        Object cell = invoke(body, "getCell");
+        Object currentSquare = invoke(body, "getCurrentSquare");
+        Object movingSquare = invoke(body, "getMovingSquare");
+        boolean inCell = ((java.util.Collection<?>) invoke(cell, "getObjectList")).contains(body);
+        boolean inSquare = movingSquare != null
+            && ((java.util.Collection<?>) invoke(movingSquare, "getMovingObjects")).contains(body);
+        float x = ((Number) invoke(body, "getX")).floatValue();
+        float y = ((Number) invoke(body, "getY")).floatValue();
+        float alpha = ((Number) invoke(body, "getAlpha")).floatValue();
+        boolean activeModel = (Boolean) invoke(body, "hasActiveModel");
+        return "ACTIVE "
+            + npc.describe()
+            + " live="
+            + x
+            + ","
+            + y
+            + " current="
+            + (currentSquare != null)
+            + " moving="
+            + (movingSquare != null)
+            + " inCell="
+            + inCell
+            + " inSquare="
+            + inSquare
+            + " model="
+            + activeModel
+            + " alpha="
+            + alpha;
     }
 
     private static void safelyRemove(Object body) throws ReflectiveOperationException {

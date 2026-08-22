@@ -49,7 +49,15 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String status() {
-        return activeNpc == null ? "NONE_ACTIVE" : "ACTIVE " + activeNpc.describe();
+        if (activeNpc == null) {
+            return "NONE_ACTIVE";
+        }
+        try {
+            return KnoxNpcFactory.describeLive(activeNpc);
+        } catch (Throwable throwable) {
+            Throwable cause = rootCause(throwable);
+            return "STATUS_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
+        }
     }
 
     private static Throwable rootCause(Throwable throwable) {

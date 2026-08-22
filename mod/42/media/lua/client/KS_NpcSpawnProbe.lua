@@ -1,7 +1,8 @@
 local TAG = "[KnoxSurvivors][NPC Probe]"
-local MIN_RADIUS = 8
-local MAX_RADIUS = 14
+local MIN_RADIUS = 3
+local MAX_RADIUS = 6
 local MAX_TICKS = 900
+local STATUS_INTERVAL = 300
 
 local ticks = 0
 local complete = false
@@ -19,6 +20,18 @@ local function findSpawnSquare(player)
     local z = playerSquare:getZ()
 
     for radius = MIN_RADIUS, MAX_RADIUS do
+        local cardinalCandidates = {
+            cell:getGridSquare(centerX + radius, centerY, z),
+            cell:getGridSquare(centerX, centerY + radius, z),
+            cell:getGridSquare(centerX - radius, centerY, z),
+            cell:getGridSquare(centerX, centerY - radius, z),
+        }
+        for _, square in ipairs(cardinalCandidates) do
+            if square ~= nil and square:canStand() then
+                return square
+            end
+        end
+
         for dx = -radius, radius do
             local candidates = {
                 cell:getGridSquare(centerX + dx, centerY - radius, z),
@@ -54,7 +67,16 @@ end
 
 update = function()
     if complete then
-        stop()
+        ticks = ticks + 1
+        if ticks % STATUS_INTERVAL == 0 then
+            local bridge = rawget(_G, "KnoxJavaBridge")
+            if bridge ~= nil then
+                local success, result = pcall(function()
+                    return bridge:getTestNpcStatus()
+                end)
+                print(TAG .. " status=" .. tostring(success) .. " result=" .. tostring(result))
+            end
+        end
         return
     end
 
@@ -70,7 +92,6 @@ update = function()
             if success then
                 print(TAG .. " " .. tostring(result))
                 complete = true
-                stop()
                 return
             end
             print(TAG .. " call failed: " .. tostring(result))
