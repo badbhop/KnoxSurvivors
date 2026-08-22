@@ -1,5 +1,6 @@
 package com.knoxsurvivors.agent;
 
+import com.knoxsurvivors.bridge.KnoxBridgeBootstrap;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
 import java.nio.charset.StandardCharsets;
@@ -30,13 +31,17 @@ public final class KnoxAgent {
         } catch (ClassNotFoundException exception) {
             writeLog("ERROR missing zombie.characters.IsoPlayer: " + exception);
         }
+
+        if ("pz-game".equals(arguments)) {
+            KnoxBridgeBootstrap.start(instrumentation);
+        }
     }
 
     public static void agentmain(String arguments, Instrumentation instrumentation) {
         premain(arguments, instrumentation);
     }
 
-    private static void writeLog(String message) {
+    public static void writeLog(String message) {
         Path logFile = Path.of(System.getProperty("user.home"), "Zomboid", LOG_NAME);
         String line = Instant.now() + " [KnoxSurvivors] " + message + System.lineSeparator();
 
