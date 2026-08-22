@@ -68,4 +68,3 @@ if ($BuildOnly) {
 
 Write-Host '[Knox Survivors] Starting Project Zomboid with the Java agent...'
 Start-Process -FilePath $gameLauncherPath -WorkingDirectory $configuration.pzHome -WindowStyle Normal
-
