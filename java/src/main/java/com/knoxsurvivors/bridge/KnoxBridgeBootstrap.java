@@ -2,6 +2,7 @@ package com.knoxsurvivors.bridge;
 
 import com.knoxsurvivors.agent.KnoxAgent;
 import java.lang.instrument.Instrumentation;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Collection;
 
@@ -44,10 +45,16 @@ public final class KnoxBridgeBootstrap {
                 Object environment = luaManagerClass.getField("env").get(null);
                 Object exposer = luaManagerClass.getField("exposer").get(null);
                 Object loaded = luaManagerClass.getField("loaded").get(null);
+                Object exposerEnvironment = exposer == null
+                    ? null
+                    : getInheritedField(exposer, "environment");
                 int loadedCount = loaded instanceof Collection<?>
                     ? ((Collection<?>) loaded).size()
                     : 0;
-                if (environment == null || exposer == null || loadedCount == 0) {
+                if (environment == null
+                    || exposer == null
+                    || exposerEnvironment != environment
+                    || loadedCount == 0) {
                     previousEnvironment = null;
                     previousExposer = null;
                     previousLoadedCount = -1;
@@ -109,6 +116,21 @@ public final class KnoxBridgeBootstrap {
             current = ((InvocationTargetException) current).getCause();
         }
         return current;
+    }
+
+    private static Object getInheritedField(Object target, String fieldName)
+        throws ReflectiveOperationException {
+        Class<?> current = target.getClass();
+        while (current != null) {
+            try {
+                Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return field.get(target);
+            } catch (NoSuchFieldException notOnThisClass) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(fieldName);
     }
 
     private static Class<?> findLuaManagerClass(Instrumentation instrumentation) {
