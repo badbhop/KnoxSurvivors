@@ -1,0 +1,4 @@
+# Copy this file to local.properties and adjust paths for the development machine.
+pzHome=C:/Program Files (x86)/Steam/steamapps/common/ProjectZomboid
+workshopRoot=C:/Users/Gary/Zomboid/Workshop
+workshopModFolder=KnoxSurvivorsRebuild
