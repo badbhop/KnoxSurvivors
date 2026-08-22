@@ -1,5 +1,6 @@
 package com.knoxsurvivors.npc;
 
+import com.knoxsurvivors.engine.KnoxIsoPlayerShellDefinition;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -18,6 +19,7 @@ final class KnoxNpcFactory {
 
         ClassLoader loader = square.getClass().getClassLoader();
         Class<?> isoPlayerClass = Class.forName(ISO_PLAYER_CLASS, false, loader);
+        Class<?> isoPlayerShellClass = KnoxIsoPlayerShellDefinition.getOrDefine(loader);
         Class<?> isoCellClass = Class.forName("zombie.iso.IsoCell", false, loader);
         Class<?> survivorDescClass = Class.forName("zombie.characters.SurvivorDesc", false, loader);
         Class<?> survivorFactoryClass = Class.forName(
@@ -38,7 +40,7 @@ final class KnoxNpcFactory {
         int z = ((Number) invoke(square, "getZ")).intValue();
         Object descriptor = survivorFactoryClass.getMethod("CreateSurvivor").invoke(null);
 
-        Constructor<?> constructor = isoPlayerClass.getConstructor(
+        Constructor<?> constructor = isoPlayerShellClass.getConstructor(
             isoCellClass,
             survivorDescClass,
             int.class,
@@ -92,6 +94,8 @@ final class KnoxNpcFactory {
         boolean activeModel = (Boolean) invoke(body, "hasActiveModel");
         return "ACTIVE "
             + npc.describe()
+            + " class="
+            + body.getClass().getName()
             + " live="
             + x
             + ","

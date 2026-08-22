@@ -43,3 +43,9 @@ These are confirmed entry points, not proof that an off-slot NPC is lifecycle-sa
 - Prefer ordinary timed actions and inventory APIs when they work for an NPC.
 - Treat multiplayer as compatibility-only until authority and replication are designed and tested.
 - No feature is complete until save/load and cell unload/reload behavior are verified.
+
+## Build 42 render-shell constraint
+
+Build 42.20's FBO renderer excludes moving objects whose concrete class is exactly `IsoPlayer` and renders those objects only from the local-player array (or the multiplayer player map). Knox must not use either collection for NPC ownership.
+
+The contained engine representation is therefore a minimal `KnoxIsoPlayerShell` subclass. It remains an `IsoPlayer` for engine gameplay checks while avoiding the renderer's exact-class branch. `KnoxNpc` remains the owner of identity and behavior; the shell must never become the persistent domain model or a local-player slot.
