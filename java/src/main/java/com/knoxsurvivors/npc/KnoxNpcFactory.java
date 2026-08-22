@@ -25,6 +25,11 @@ final class KnoxNpcFactory {
             false,
             loader
         );
+        Class<?> modelManagerClass = Class.forName(
+            "zombie.core.skinnedmodel.ModelManager",
+            false,
+            loader
+        );
 
         Object[] localPlayersBefore = snapshotLocalPlayers(isoPlayerClass);
         Object cell = invoke(square, "getCell");
@@ -55,8 +60,9 @@ final class KnoxNpcFactory {
         invoke(body, "setZombiesDontAttack", boolean.class, true);
         invoke(body, "dressInRandomNonSillyOutfit");
         invoke(body, "setAlphaAndTarget", float.class, 1.0f);
-        invoke(body, "resetModelNextFrame");
         invoke(cell, "addMovingObject", classFor(body, "zombie.iso.IsoMovingObject"), body);
+        Object modelManager = modelManagerClass.getField("instance").get(null);
+        invoke(modelManager, "Add", classFor(body, "zombie.characters.IsoGameCharacter"), body);
         invoke(body, "setHaloNote", String.class, "KNOX NPC TEST");
 
         if (!sameLocalPlayers(localPlayersBefore, snapshotLocalPlayers(isoPlayerClass))) {
@@ -104,6 +110,9 @@ final class KnoxNpcFactory {
     }
 
     private static void safelyRemove(Object body) throws ReflectiveOperationException {
+        Class<?> modelManagerClass = classFor(body, "zombie.core.skinnedmodel.ModelManager");
+        Object modelManager = modelManagerClass.getField("instance").get(null);
+        invoke(modelManager, "Remove", classFor(body, "zombie.characters.IsoGameCharacter"), body);
         invoke(body, "setMovingSquare", classFor(body, GRID_SQUARE_CLASS), null);
         invoke(body, "removeFromWorld");
     }
