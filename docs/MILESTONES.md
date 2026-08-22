@@ -44,4 +44,3 @@ Success means the survivor can safely use doors and windows, climb permitted obs
 ## Later milestones
 
 Recruitment, orders, base work, camps, factions, raids, away teams, vehicles, interfaces, and multiplayer authority are rebuilt incrementally after the core human lifecycle is stable.
-

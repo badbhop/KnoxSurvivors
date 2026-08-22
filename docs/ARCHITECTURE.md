@@ -43,4 +43,3 @@ These are confirmed entry points, not proof that an off-slot NPC is lifecycle-sa
 - Prefer ordinary timed actions and inventory APIs when they work for an NPC.
 - Treat multiplayer as compatibility-only until authority and replication are designed and tested.
 - No feature is complete until save/load and cell unload/reload behavior are verified.
-

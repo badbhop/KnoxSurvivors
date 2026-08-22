@@ -13,7 +13,6 @@ val localProperties = Properties().apply {
         file.inputStream().use(::load)
     }
 }
-
 val pzHome = providers.gradleProperty("pzHome")
     .orElse(localProperties.getProperty("pzHome") ?: "")
 
@@ -61,4 +60,3 @@ tasks.jar {
         )
     }
 }
-
