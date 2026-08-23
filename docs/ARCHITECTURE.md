@@ -119,6 +119,11 @@ request does not enter `SwipeStatePlayer`, the executor makes one explicit state
 and records that fallback in the diagnostic log. This is intentionally limited to
 melee; firearm aiming and ballistics require a separate verified slice.
 
+Combat approach targets are placed inside the equipped weapon's maximum range with
+enough margin for the movement executor's arrival tolerance. A generic adjacent-square
+center is not a valid melee stopping distance: it can report arrival while the weapon's
+collision volume still cannot reach the target.
+
 ## Hard constraints
 
 - Do not place NPCs into `IsoPlayer.players[]` unless a narrowly scoped experiment requires it.

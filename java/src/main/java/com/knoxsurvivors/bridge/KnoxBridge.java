@@ -89,6 +89,10 @@ public final class KnoxBridge {
         return npcRegistry.tickCombatOne();
     }
 
+    public Object getTestNpcCharacterForAction() {
+        return npcRegistry.activeCharacterForAction();
+    }
+
     public String captureTestNpcRecord() {
         return npcRegistry.capturePersistentRecord();
     }

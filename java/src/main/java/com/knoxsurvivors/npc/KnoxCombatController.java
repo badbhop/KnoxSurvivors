@@ -19,6 +19,8 @@ final class KnoxCombatController {
     private float initialTargetHealth;
     private float lastTargetHealth;
     private int initialWeaponCondition;
+    private float weaponMaxRange;
+    private float desiredAttackRange;
     private boolean damageObserved;
     private boolean attackAnimationObserved;
     private int aimTicks;
@@ -55,6 +57,9 @@ final class KnoxCombatController {
 
         initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
             .invoke(weapon)).intValue();
+        weaponMaxRange = ((Number) weapon.getClass().getMethod("getMaxRange").invoke(weapon))
+            .floatValue();
+        desiredAttackRange = Math.max(0.55f, weaponMaxRange - 0.55f);
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
 
@@ -65,11 +70,13 @@ final class KnoxCombatController {
         target.getClass().getMethod("setTarget", classFor(target, "zombie.iso.IsoMovingObject"))
             .invoke(target, (Object) null);
 
-        KnoxNpcFactory.moveTo(npc, approachSquare);
+        KnoxNpcFactory.moveToRangeFrom(npc, target, approachSquare, desiredAttackRange);
         npc.clearMovementRoute();
         phase = "APPROACHING";
         String result = "COMBAT_STARTED targetHealth=" + initialTargetHealth
-            + " weaponCondition=" + initialWeaponCondition;
+            + " weaponCondition=" + initialWeaponCondition
+            + " maxRange=" + weaponMaxRange
+            + " desiredRange=" + desiredAttackRange;
         KnoxAgent.writeLog("NPC combat " + result);
         return result;
     }
@@ -232,6 +239,8 @@ final class KnoxCombatController {
         initialTargetHealth = 0.0f;
         lastTargetHealth = 0.0f;
         initialWeaponCondition = -1;
+        weaponMaxRange = 0.0f;
+        desiredAttackRange = 0.0f;
         damageObserved = false;
         attackAnimationObserved = false;
         aimTicks = 0;

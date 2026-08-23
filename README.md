@@ -16,31 +16,32 @@ This is an early test build, not a normal playable release yet.
 - Basic pathfinding and movement work.
 - The NPC can use doors, climb low fences, and handle open or locked windows.
 - The NPC can compare carried melee weapons and equip the better one.
+- The NPC can approach and kill a zombie with normal player melee animation and damage.
 - New survivors receive randomized skin, hair, names, and real starting clothes.
 - Some survivors have a small chance to start with a bag.
 - Identity, map position, appearance, clothing, inventory, and equipped hands now have a
   first persistence implementation.
 
-Controlled melee combat is now entering live testing. Autonomous looting, medical care,
+Controlled container looting is now entering live testing. Autonomous looting, medical care,
 recruitment, base work, factions, and normal population spawning are not playable yet.
 The development population is still limited to one test survivor.
 
 ## Current test
 
-The active test checks one controlled melee fight. Appearance, equipment, body
-reconstruction, and save persistence have passed their current gate and are hibernating
-instead of repeating on every load.
+The active test checks one controlled world-container transfer. Appearance, equipment,
+body reconstruction, traversal, combat, and save persistence have passed their current
+gates and are hibernating instead of repeating on every load.
 
-When the save loads, ordinary zombies in the currently loaded area are removed and one
-stationary test zombie is placed three clear tiles from the saved survivor. The survivor
-should approach it, face it, and attack with the equipped baseball bat until it dies.
-This does not change sandbox settings or erase distant zombies in unloaded map chunks.
+When the save loads, ordinary zombies in the currently loaded area are removed. The test
+finds a nearby world container, places one bandage in it, and asks the survivor to walk
+beside the container and take the item through the normal timed transfer action. This
+does not change sandbox settings or erase distant zombies in unloaded map chunks.
 
 If you are testing, please report:
 
-- whether the survivor approached the single test zombie;
-- whether the full bat swing animation and sound played;
-- whether the hits damaged and eventually killed the zombie;
+- whether the survivor approached and faced the selected container;
+- whether the looting animation and sound played;
+- whether the bandage moved into the survivor's inventory;
 - any repeated errors from `console.txt` or `KnoxIsoPlayer.log`.
 
 Use a backed-up or disposable save. This is experimental engine work and may break a

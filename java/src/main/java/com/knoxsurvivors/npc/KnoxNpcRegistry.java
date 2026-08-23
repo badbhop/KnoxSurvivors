@@ -162,6 +162,10 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    public synchronized Object activeCharacterForAction() {
+        return activeNpc == null ? null : activeNpc.getBody();
+    }
+
     public synchronized String seedAndEquipOne() {
         if (activeNpc == null) {
             return "EQUIP_FAILED NONE_ACTIVE";

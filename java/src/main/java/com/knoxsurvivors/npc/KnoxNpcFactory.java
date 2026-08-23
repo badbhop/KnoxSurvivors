@@ -97,6 +97,44 @@ final class KnoxNpcFactory {
         );
     }
 
+    static void moveToRangeFrom(
+        KnoxNpc npc,
+        Object target,
+        Object approachSquare,
+        float desiredRange
+    ) throws ReflectiveOperationException {
+        requireClass(approachSquare, GRID_SQUARE_CLASS, "approach square");
+        Object body = npc.getBody();
+        float targetX = ((Number) invoke(target, "getX")).floatValue();
+        float targetY = ((Number) invoke(target, "getY")).floatValue();
+        float targetZ = ((Number) invoke(target, "getZ")).floatValue();
+        float referenceX = ((Number) invoke(approachSquare, "getX")).floatValue() + 0.5f;
+        float referenceY = ((Number) invoke(approachSquare, "getY")).floatValue() + 0.5f;
+        float directionX = referenceX - targetX;
+        float directionY = referenceY - targetY;
+        float length = (float) Math.sqrt(directionX * directionX + directionY * directionY);
+        if (length <= 0.001f) {
+            directionX = ((Number) invoke(body, "getX")).floatValue() - targetX;
+            directionY = ((Number) invoke(body, "getY")).floatValue() - targetY;
+            length = (float) Math.sqrt(directionX * directionX + directionY * directionY);
+        }
+        if (length <= 0.001f) {
+            throw new IllegalArgumentException("Cannot determine a safe combat approach direction");
+        }
+        float destinationX = targetX + directionX / length * desiredRange;
+        float destinationY = targetY + directionY / length * desiredRange;
+        invoke(
+            body,
+            "pathToLocationF",
+            float.class,
+            float.class,
+            float.class,
+            destinationX,
+            destinationY,
+            targetZ
+        );
+    }
+
     static void moveAcrossAdjacentEdge(KnoxNpc npc, Object square)
         throws ReflectiveOperationException {
         requireClass(square, GRID_SQUARE_CLASS, "adjacent crossing target square");
