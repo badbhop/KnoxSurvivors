@@ -33,7 +33,9 @@ function KnoxCharacterAppearance.randomizeNewTestSurvivor(bridge)
 
     -- A restrained extra roll gives some survivors plausible carried capacity at origin.
     local bag = "none"
-    if ZombRand(100) < 15 then
+    local testConfig = rawget(_G, "KnoxDevTests")
+    local forceStarterBag = testConfig ~= nil and testConfig.forceStarterBag == true
+    if forceStarterBag or ZombRand(100) < 15 then
         bag = ZombRand(4) == 0 and "Base.Bag_DuffelBagTINT" or "Base.Bag_Schoolbag"
         local success, result = wear(bridge, bag)
         if not success then

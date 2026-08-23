@@ -59,6 +59,9 @@ final class KnoxInventorySnapshot {
             item.getClass().getMethod("setFavorite", boolean.class).invoke(item, state.favorite);
             restoreItemVisual(item, state.visual);
             Object bodyLocation = invoke(item, "getBodyLocation");
+            if (bodyLocation == null) {
+                bodyLocation = invoke(item, "canBeEquipped");
+            }
             if (state.worn && bodyLocation != null) {
                 invokeCompatible(body, "setWornItem", bodyLocation, item);
             }

@@ -9,6 +9,8 @@ KnoxDevTests.sandboxOverrides = false
 KnoxDevTests.obstacleScanRadius = 12
 -- A locked-window test permanently smashes one nearby window in the loaded save.
 KnoxDevTests.allowDestructiveWindowTest = true
+-- The current persistence gate always includes a bag so the back slot is regression-tested.
+KnoxDevTests.forceStarterBag = true
 
 KnoxDevTests.scenarios = {
     movement = "ACTIVE_IN_OBSTACLE_SUITE",

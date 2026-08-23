@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 2
+local SCHEMA_VERSION = 3
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local function root()

@@ -13,7 +13,8 @@ Use a disposable or backed-up single-player Build 42.20 save.
 2. Enable Knox Survivors on the save and load it.
 3. Wait about ten seconds without leaving the area.
 4. A green-outlined test survivor should appear a few tiles away.
-5. Check their skin, hair, clothes, and whether they have a bag.
+5. Check their skin, hair, clothes, and bag. The current gate forces one starter bag so
+   its back slot is tested on every run.
 6. They should equip a baseball bat. Their body is then rebuilt automatically.
 7. Confirm they remain clothed and visually unchanged.
 8. Quit normally to the main menu so the save is written.
