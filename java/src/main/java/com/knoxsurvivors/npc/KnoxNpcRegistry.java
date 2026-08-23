@@ -13,6 +13,7 @@ public final class KnoxNpcRegistry {
     private float movementTargetX;
     private float movementTargetY;
     private int movementTargetZ;
+    private String movementControllerState = "NotStarted";
 
     public synchronized String spawnOne(Object square) {
         if (activeNpc != null) {
@@ -22,6 +23,7 @@ public final class KnoxNpcRegistry {
         try {
             activeNpc = KnoxNpcFactory.create("ks-test-1", square);
             movementRequested = false;
+            movementControllerState = "NotStarted";
             String result = "SPAWNED " + activeNpc.describe() + " localSlotsUnchanged=true";
             KnoxAgent.writeLog("NPC probe " + result);
             return result;
@@ -52,6 +54,7 @@ public final class KnoxNpcRegistry {
             movementTargetZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
             KnoxNpcFactory.moveTo(activeNpc, square);
             movementRequested = true;
+            movementControllerState = "Working";
             String result = "MOVE_STARTED " + movementDescription();
             KnoxAgent.writeLog("NPC probe " + result);
             return result;
@@ -60,6 +63,40 @@ public final class KnoxNpcRegistry {
             String result = "MOVE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
             KnoxAgent.writeLog("ERROR NPC probe " + result);
             return result;
+        }
+    }
+
+    public synchronized String tickOne() {
+        if (activeNpc == null || !movementRequested) {
+            return "IDLE";
+        }
+        if ("Succeeded".equals(movementControllerState)
+            || "Failed".equals(movementControllerState)) {
+            return movementControllerState;
+        }
+
+        try {
+            String previousState = movementControllerState;
+            movementControllerState = KnoxNpcFactory.tickMovement(activeNpc);
+            if (!movementControllerState.equals(previousState)) {
+                KnoxAgent.writeLog(
+                    "NPC probe movement controller="
+                        + movementControllerState
+                        + " "
+                        + movementDescription()
+                );
+            }
+            return movementControllerState;
+        } catch (Throwable throwable) {
+            Throwable cause = rootCause(throwable);
+            movementControllerState = "Failed";
+            KnoxAgent.writeLog(
+                "ERROR NPC probe movement tick failed "
+                    + cause.getClass().getName()
+                    + ": "
+                    + cause.getMessage()
+            );
+            return "TICK_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
         }
     }
 
@@ -106,6 +143,8 @@ public final class KnoxNpcRegistry {
             return live
                 + " movement="
                 + state
+                + " controller="
+                + movementControllerState
                 + " target="
                 + movementTargetX
                 + ","
@@ -120,6 +159,22 @@ public final class KnoxNpcRegistry {
             Throwable cause = rootCause(throwable);
             return "STATUS_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
         }
+    }
+
+    public synchronized void abandonForEnvironmentChange() {
+        if (activeNpc == null) {
+            return;
+        }
+
+        String description = activeNpc.describe();
+        activeNpc = null;
+        movementRequested = false;
+        movementControllerState = "NotStarted";
+        KnoxAgent.writeLog(
+            "NPC probe ABANDONED_STALE_REFERENCE "
+                + description
+                + " environmentChanged=true"
+        );
     }
 
     private String movementDescription() {

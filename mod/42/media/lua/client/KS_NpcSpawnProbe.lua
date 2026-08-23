@@ -146,6 +146,24 @@ update = function()
             end
         end
 
+        if movementRequested and bridge ~= nil then
+            local tickSuccess, tickResult = pcall(function()
+                return bridge:tickTestNpc()
+            end)
+            if not tickSuccess or string.find(tostring(tickResult), "Failed", 1, true) ~= nil
+                or string.find(tostring(tickResult), "TICK_FAILED", 1, true) ~= nil then
+                print(
+                    TAG
+                        .. " MOVEMENT_FAILED controller tick="
+                        .. tostring(tickSuccess)
+                        .. " result="
+                        .. tostring(tickResult)
+                )
+                stop()
+                return
+            end
+        end
+
         if ticks % STATUS_INTERVAL == 0 then
             if bridge ~= nil then
                 local success, result = pcall(function()

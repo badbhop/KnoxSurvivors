@@ -45,8 +45,16 @@ public final class KnoxBridge {
         return npcRegistry.moveOne(square);
     }
 
+    public String tickTestNpc() {
+        return npcRegistry.tickOne();
+    }
+
     public String getTestNpcStatus() {
         return npcRegistry.status();
+    }
+
+    void abandonForEnvironmentChange() {
+        npcRegistry.abandonForEnvironmentChange();
     }
 
     @Override

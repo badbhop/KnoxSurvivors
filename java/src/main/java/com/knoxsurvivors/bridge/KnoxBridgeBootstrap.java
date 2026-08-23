@@ -9,7 +9,6 @@ import java.util.Collection;
 /** Exposes the Knox bridge only after Project Zomboid has initialized a stable Lua environment. */
 public final class KnoxBridgeBootstrap {
     private static final String LUA_MANAGER_CLASS = "zombie.Lua.LuaManager";
-    private static final long DEADLINE_MILLIS = 120_000L;
     private static final long POLL_MILLIS = 250L;
     private static final int REQUIRED_STABLE_POLLS = 4;
     private static final KnoxBridge BRIDGE = new KnoxBridge();
@@ -28,15 +27,19 @@ public final class KnoxBridgeBootstrap {
     }
 
     private static void exposeWhenReady(Instrumentation instrumentation) {
-        long deadline = System.currentTimeMillis() + DEADLINE_MILLIS;
         Object previousEnvironment = null;
         Object previousExposer = null;
         int previousLoadedCount = -1;
         int stablePolls = 0;
+        Object exposedEnvironment = null;
+        long lastFailureLogMillis = 0L;
+        Class<?> luaManagerClass = null;
 
-        while (System.currentTimeMillis() < deadline) {
+        while (!Thread.currentThread().isInterrupted()) {
             try {
-                Class<?> luaManagerClass = findLuaManagerClass(instrumentation);
+                if (luaManagerClass == null) {
+                    luaManagerClass = findLuaManagerClass(instrumentation);
+                }
                 if (luaManagerClass == null) {
                     sleep();
                     continue;
@@ -80,6 +83,17 @@ public final class KnoxBridgeBootstrap {
                     continue;
                 }
 
+                Object exposedBridge = environment.getClass().getMethod("rawget", Object.class)
+                    .invoke(environment, "KnoxJavaBridge");
+                if (environment == exposedEnvironment && exposedBridge == BRIDGE) {
+                    sleep();
+                    continue;
+                }
+
+                if (exposedEnvironment != null && environment != exposedEnvironment) {
+                    BRIDGE.abandonForEnvironmentChange();
+                }
+
                 exposer.getClass().getMethod("setExposed", Class.class)
                     .invoke(exposer, KnoxBridge.class);
                 exposer.getClass().getMethod("exposeLikeJava", Class.class)
@@ -87,26 +101,28 @@ public final class KnoxBridgeBootstrap {
                 environment.getClass().getMethod("rawset", Object.class, Object.class)
                     .invoke(environment, "KnoxJavaBridge", BRIDGE);
 
-                Object exposedBridge = environment.getClass().getMethod("rawget", Object.class)
+                exposedBridge = environment.getClass().getMethod("rawget", Object.class)
                     .invoke(environment, "KnoxJavaBridge");
                 if (exposedBridge == BRIDGE) {
+                    exposedEnvironment = environment;
                     KnoxAgent.writeLog("Lua bridge exposed global=KnoxJavaBridge");
-                    return;
                 }
             } catch (Throwable throwable) {
-                Throwable cause = unwrapInvocationTarget(throwable);
-                KnoxAgent.writeLog(
-                    "Lua bridge exposure attempt failed: "
-                        + cause.getClass().getName()
-                        + ": "
-                        + cause.getMessage()
-                );
+                long now = System.currentTimeMillis();
+                if (now - lastFailureLogMillis >= 5_000L) {
+                    Throwable cause = unwrapInvocationTarget(throwable);
+                    KnoxAgent.writeLog(
+                        "Lua bridge exposure attempt failed: "
+                            + cause.getClass().getName()
+                            + ": "
+                            + cause.getMessage()
+                    );
+                    lastFailureLogMillis = now;
+                }
             }
 
             sleep();
         }
-
-        KnoxAgent.writeLog("ERROR Lua bridge exposure deadline reached");
     }
 
     private static Throwable unwrapInvocationTarget(Throwable throwable) {

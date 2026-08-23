@@ -96,6 +96,12 @@ final class KnoxNpcFactory {
         );
     }
 
+    static String tickMovement(KnoxNpc npc) throws ReflectiveOperationException {
+        Object pathfinder = invoke(npc.getBody(), "getPathFindBehavior2");
+        Object result = invoke(pathfinder, "update");
+        return result instanceof Enum<?> ? ((Enum<?>) result).name() : String.valueOf(result);
+    }
+
     static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
         applyTestMarker(body);
