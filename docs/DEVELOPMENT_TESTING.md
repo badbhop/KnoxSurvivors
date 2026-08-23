@@ -3,40 +3,35 @@
 Knox Survivors currently runs one automatic test at a time. These tests do not change
 Project Zomboid sandbox settings and are not part of the eventual release gameplay.
 
-## Active test: appearance and persistence
+## Active test: controlled melee combat
 
 Use a disposable or backed-up single-player Build 42.20 save.
 
-### First load
+The appearance, equipment, and reconstruction probe is currently hibernating. Its code
+and saved survivor record remain available, but it will not repeat while combat is active.
 
 1. Start the game with `Run Knox Survivors Dev.bat`.
 2. Enable Knox Survivors on the save and load it.
-3. The survivor should appear as soon as the player and saved cell finish loading.
-4. A green-outlined test survivor should appear a few tiles away.
-5. Check their skin, hair, clothes, and bag. The current gate forces one starter bag so
-   its back slot is tested on every run.
-6. They should equip a baseball bat. Their body is then rebuilt automatically.
-7. Confirm they remain clothed and visually unchanged.
-8. Quit normally to the main menu so the save is written.
+3. The saved survivor should appear immediately in their saved position with their bat.
+4. The test removes ordinary zombies from the currently loaded area. It does not change
+   sandbox settings or rewrite zombies stored in distant, unloaded map chunks.
+5. One stationary test zombie appears three clear tiles from the survivor.
+6. The survivor should approach, face it, swing the bat using normal player combat, and
+   continue attacking until it dies.
+7. Do not attack the test zombie yourself. Visual animation and sound confirmation matter.
+8. Quit normally after PASS or FAIL so the diagnostic collector can finish.
 
-### Second load
-
-1. Launch the development shortcut again and load the same save.
-2. The survivor should appear as soon as the player and saved cell finish loading.
-3. The same survivor should return at the same precise saved position.
-4. Check that their skin, hair, clothes, clothing colors, bag, inventory, and baseball bat
-   match the first load.
-5. Quit normally when finished so the diagnostic collector can finish.
+After the first PASS, this save records the combat gate as complete and will not create
+another combat target on later loads. The next planned gate is one-container looting.
 
 The useful result lines in `console.txt` begin with:
 
 ```text
-[KnoxSurvivors][EquipmentTest] RESULT
+[KnoxSurvivors][TestLab] RESULT scenario=combat
 ```
 
-The first load should report `reason=new_record_created`. The second should report
-`reason=disk_record_restored`. A PASS confirms the recorded values matched; visual
-inspection still matters because rendering problems may not produce a data mismatch.
+A PASS requires observed zombie health loss followed by death. The result also records
+the number of attack requests and the bat's condition before and after the encounter.
 
 `dev-runs/<run>/live-test-status.txt` shows the latest result while the game is running.
 After the game closes, `test-results.txt` and `summary.txt` contain the collected result.
@@ -44,7 +39,7 @@ After the game closes, `test-results.txt` and `summary.txt` contain the collecte
 ## Known limits
 
 - Only one survivor is active.
-- Combat and autonomous looting are not enabled.
+- Autonomous looting is not enabled.
 - Nested bag contents, health, injuries, food age, and several detailed item properties
   are not fully persistent yet.
 - If the survivor's recorded cell is not loaded, the test leaves them stored instead of

@@ -15,6 +15,7 @@ public final class KnoxNpcRegistry {
     private int movementTargetZ;
     private String movementControllerState = "NotStarted";
     private KnoxSurvivorRecord lastRecord;
+    private final KnoxCombatController combatController = new KnoxCombatController();
 
     public synchronized String spawnOne(Object square) {
         if (activeNpc != null) {
@@ -140,7 +141,24 @@ public final class KnoxNpcRegistry {
             );
             return "REMOVE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
         } finally {
+            combatController.reset();
             activeNpc = null;
+        }
+    }
+
+    public synchronized String beginCombatOne(Object zombie, Object approachSquare) {
+        try {
+            return combatController.begin(activeNpc, zombie, approachSquare);
+        } catch (Throwable throwable) {
+            return failure("COMBAT_FAILED", throwable);
+        }
+    }
+
+    public synchronized String tickCombatOne() {
+        try {
+            return combatController.tick();
+        } catch (Throwable throwable) {
+            return failure("COMBAT_FAILED", throwable);
         }
     }
 
@@ -341,6 +359,7 @@ public final class KnoxNpcRegistry {
         }
 
         String description = activeNpc.describe();
+        combatController.reset();
         activeNpc = null;
         lastRecord = null;
         movementRequested = false;

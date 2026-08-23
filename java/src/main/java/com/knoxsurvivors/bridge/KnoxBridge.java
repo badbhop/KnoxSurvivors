@@ -81,6 +81,14 @@ public final class KnoxBridge {
         return npcRegistry.equipmentStatus();
     }
 
+    public String beginTestNpcCombat(Object zombie, Object approachSquare) {
+        return npcRegistry.beginCombatOne(zombie, approachSquare);
+    }
+
+    public String tickTestNpcCombat() {
+        return npcRegistry.tickCombatOne();
+    }
+
     public String captureTestNpcRecord() {
         return npcRegistry.capturePersistentRecord();
     }

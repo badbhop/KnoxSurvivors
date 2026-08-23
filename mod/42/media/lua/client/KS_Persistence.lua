@@ -48,6 +48,20 @@ function KnoxPersistence.captureActiveTestSurvivor()
     return KnoxPersistence.setTestRecord(encoded), encoded
 end
 
+function KnoxPersistence.isDevGateComplete(name)
+    local data = root()
+    return data.devTests ~= nil
+        and data.devTests.completed ~= nil
+        and data.devTests.completed[name] == true
+end
+
+function KnoxPersistence.markDevGateComplete(name)
+    local data = root()
+    data.devTests = data.devTests or {}
+    data.devTests.completed = data.devTests.completed or {}
+    data.devTests.completed[name] = true
+end
+
 local function onPostSave()
     KnoxPersistence.captureActiveTestSurvivor()
 end

@@ -21,24 +21,26 @@ This is an early test build, not a normal playable release yet.
 - Identity, map position, appearance, clothing, inventory, and equipped hands now have a
   first persistence implementation.
 
-Combat, autonomous looting, medical care, recruitment, base work, factions, and normal
-population spawning are not playable yet. The development population is still limited
-to one test survivor.
+Controlled melee combat is now entering live testing. Autonomous looting, medical care,
+recruitment, base work, factions, and normal population spawning are not playable yet.
+The development population is still limited to one test survivor.
 
 ## Current test
 
-The active test checks appearance, equipment, and save persistence.
+The active test checks one controlled melee fight. Appearance, equipment, body
+reconstruction, and save persistence have passed their current gate and are hibernating
+instead of repeating on every load.
 
-On the first load, a survivor appears near the player, receives randomized player-style
-clothing, chooses between a hammer and baseball bat, and has their temporary NPC body
-rebuilt. On the second load of the same save, they should return on the same tile with
-the same skin, hair, clothing, inventory, and equipped bat.
+When the save loads, ordinary zombies in the currently loaded area are removed and one
+stationary test zombie is placed three clear tiles from the saved survivor. The survivor
+should approach it, face it, and attack with the equipped baseball bat until it dies.
+This does not change sandbox settings or erase distant zombies in unloaded map chunks.
 
 If you are testing, please report:
 
-- whether the survivor appeared clothed;
-- whether their skin, hair, clothing, and colors stayed the same after reload;
-- whether they returned in the same place holding the baseball bat;
+- whether the survivor approached the single test zombie;
+- whether the full bat swing animation and sound played;
+- whether the hits damaged and eventually killed the zombie;
 - any repeated errors from `console.txt` or `KnoxIsoPlayer.log`.
 
 Use a backed-up or disposable save. This is experimental engine work and may break a
