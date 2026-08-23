@@ -15,7 +15,20 @@ local movementRequested = false
 local movementStartedAt = 0
 local suiteFailures = 0
 local obstaclePasses = 0
+local completedCases = {}
+local completedCaseCount = 0
 local update
+
+local EXPECTED_TRAVERSAL_EVIDENCE = {
+    door = { "OPENING_DOOR" },
+    window_open = { "STARTED_WINDOW_OPEN", "STARTED_WINDOW_CLIMB" },
+    window_locked = {
+        "STARTED_WINDOW_OPEN",
+        "STARTED_WINDOW_SMASH",
+        "STARTED_WINDOW_CLIMB",
+    },
+    fence = { "STARTED_FENCE_CLIMB" },
+}
 
 local function squareText(square)
     if square == nil then
@@ -109,6 +122,7 @@ local function addCase(found, name, first, second, evidence)
         startSquare = startSquare,
         targetSquare = targetSquare,
         evidence = evidence,
+        expectedTraversalEvidence = EXPECTED_TRAVERSAL_EVIDENCE[name] or {},
     }
 end
 
@@ -179,6 +193,7 @@ local function findBaselineMovementCase(player, radius)
                 startSquare = startSquare,
                 targetSquare = targetSquare,
                 evidence = "baseline=true",
+                expectedTraversalEvidence = {},
             }
         end
     end
@@ -275,6 +290,11 @@ local function removeTestNpc()
 end
 
 local function finishActiveCase(status, reason, evidence)
+    if completedCases[activeCase.name] then
+        return
+    end
+    completedCases[activeCase.name] = status
+    completedCaseCount = completedCaseCount + 1
     reportResult(activeCase.name, status, reason, evidence)
     if status == "PASS" then
         if activeCase.name ~= "movement" then
@@ -298,6 +318,8 @@ local function finishSuite()
         .. tostring(obstaclePasses)
         .. " failures="
         .. tostring(suiteFailures)
+        .. " completed="
+        .. tostring(completedCaseCount)
     if suiteFailures > 0 then
         reportResult("obstacle_suite", "FAIL", "one_or_more_cases_failed", evidence)
     elseif obstaclePasses == 0 then
@@ -351,10 +373,14 @@ end
 local function requestMovement()
     local bridge = rawget(_G, "KnoxJavaBridge")
     local success, result = pcall(function()
+        if activeCase.name ~= "movement" then
+            return bridge:crossTestNpc(activeCase.targetSquare)
+        end
         return bridge:moveTestNpc(activeCase.targetSquare)
     end)
     print(TAG .. " movement-request=" .. tostring(success) .. " result=" .. tostring(result))
-    if not success or string.find(tostring(result), "MOVE_STARTED", 1, true) ~= 1 then
+    local expectedStart = activeCase.name == "movement" and "MOVE_STARTED" or "CROSS_STARTED"
+    if not success or string.find(tostring(result), expectedStart, 1, true) ~= 1 then
         finishActiveCase("FAIL", "movement_request", result)
         return
     end
@@ -362,6 +388,18 @@ local function requestMovement()
     movementRequested = true
     movementStartedAt = ticks
     phase = "MOVING"
+end
+
+local function findMissingTraversalEvidence(bridge)
+    for _, state in ipairs(activeCase.expectedTraversalEvidence) do
+        local success, found = pcall(function()
+            return bridge:hasTestNpcTraversalEvidence(state)
+        end)
+        if not success or found ~= true then
+            return state
+        end
+    end
+    return nil
 end
 
 local function tickMovement()
@@ -381,12 +419,22 @@ local function tickMovement()
             return bridge:getTestNpcStatus()
         end)
         print(TAG .. " status=" .. tostring(statusSuccess) .. " result=" .. tostring(statusResult))
-        if statusSuccess and string.find(tostring(statusResult), "movement=ARRIVED", 1, true) ~= nil then
-            finishActiveCase(
-                "PASS",
-                "arrived",
-                activeCase.evidence .. " status=" .. tostring(statusResult)
-            )
+        if statusSuccess
+            and string.find(tostring(statusResult), "controller=Succeeded", 1, true) ~= nil then
+            local missingEvidence = findMissingTraversalEvidence(bridge)
+            if missingEvidence ~= nil then
+                finishActiveCase(
+                    "FAIL",
+                    "missing_traversal_evidence",
+                    "expected=" .. missingEvidence .. " status=" .. tostring(statusResult)
+                )
+            else
+                finishActiveCase(
+                    "PASS",
+                    "crossing_completed",
+                    activeCase.evidence .. " status=" .. tostring(statusResult)
+                )
+            end
             return
         end
     end
@@ -469,6 +517,8 @@ local function onGameStart()
     movementStartedAt = 0
     suiteFailures = 0
     obstaclePasses = 0
+    completedCases = {}
+    completedCaseCount = 0
     stop()
     Events.OnTick.Add(update)
 end

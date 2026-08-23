@@ -1,7 +1,9 @@
 package com.knoxsurvivors.npc;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Knox-owned identity paired with a temporary Project Zomboid IsoPlayer body. */
 public final class KnoxNpc {
@@ -13,6 +15,7 @@ public final class KnoxNpc {
     private final List<float[]> movementRoute = new ArrayList<>();
     private int movementRouteIndex;
     private String movementTraversalState = "NONE";
+    private final Set<String> movementTraversalEvidence = new LinkedHashSet<>();
     private Object traversalInteractionTarget;
     private String traversalInteractionStage = "NONE";
 
@@ -37,6 +40,7 @@ public final class KnoxNpc {
         movementRoute.addAll(nodes);
         movementRouteIndex = 0;
         movementTraversalState = "ROUTE_READY";
+        movementTraversalEvidence.clear();
         clearTraversalInteraction();
     }
 
@@ -44,6 +48,7 @@ public final class KnoxNpc {
         movementRoute.clear();
         movementRouteIndex = 0;
         movementTraversalState = "NONE";
+        movementTraversalEvidence.clear();
         clearTraversalInteraction();
     }
 
@@ -84,6 +89,13 @@ public final class KnoxNpc {
 
     void setMovementTraversalState(String state) {
         movementTraversalState = state;
+        if (!"CLEAR".equals(state) && !"ROUTE_READY".equals(state)) {
+            movementTraversalEvidence.add(state);
+        }
+    }
+
+    boolean hasMovementTraversalEvidence(String state) {
+        return movementTraversalEvidence.contains(state);
     }
 
     String describeMovementRoute() {
@@ -95,7 +107,9 @@ public final class KnoxNpc {
             + " next="
             + next
             + " traversal="
-            + movementTraversalState;
+            + movementTraversalState
+            + " evidence="
+            + movementTraversalEvidence;
     }
 
     public String describe() {

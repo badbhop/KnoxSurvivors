@@ -15,9 +15,13 @@ The obstacle suite automatically:
 2. scans 12 tiles for a closed unlocked door, an unlocked closed window, a locked closed
    window, and a low fence with standable squares on both sides;
 3. spawns a fresh test survivor beside each discovered fixture;
-4. commands one exact crossing and observes the movement controller;
-5. removes the survivor before starting the next case;
-6. prints a machine-readable `RESULT` line with `PASS`, `FAIL`, or `SKIP` for every case,
+4. bypasses destination path selection for obstacle cases and commands the exact adjacent
+   edge, preventing the engine from detouring through a different door or fence;
+5. requires the expected traversal evidence and a completed controller route before the
+   case can pass;
+6. records each case once, removes the survivor, and advances to the next case without
+   retrying a completed case during that suite run;
+7. prints a machine-readable `RESULT` line with `PASS`, `FAIL`, or `SKIP` for every case,
    followed by one final `obstacle_suite` result.
 
 `SKIP` means the required map fixture was not found near the player; it is not a code
@@ -26,6 +30,13 @@ development configuration: the NPC can permanently smash that window in the test
 The suite does not create, delete, lock, close, or silently alter map fixtures. Locked
 door alternate routing remains registered but inactive until its room-entry planner is
 implemented.
+
+Evidence requirements prevent arrival-only false positives: a door must record its open
+transition, a window must record its open and climb transitions, a locked window must
+also record its smash transition, and a fence must record its climb transition. The
+movement controller must report `Succeeded`; merely reaching the midpoint of a climb is
+not enough. Starting a new save load deliberately starts a fresh suite so new code can
+be regression-tested.
 
 ## Running the obstacle test
 

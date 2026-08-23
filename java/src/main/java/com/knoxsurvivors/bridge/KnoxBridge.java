@@ -45,12 +45,20 @@ public final class KnoxBridge {
         return npcRegistry.moveOne(square);
     }
 
+    public String crossTestNpc(Object square) {
+        return npcRegistry.crossOneAdjacentEdge(square);
+    }
+
     public String tickTestNpc() {
         return npcRegistry.tickOne();
     }
 
     public String getTestNpcStatus() {
         return npcRegistry.status();
+    }
+
+    public boolean hasTestNpcTraversalEvidence(String state) {
+        return npcRegistry.hasTraversalEvidence(state);
     }
 
     void abandonForEnvironmentChange() {

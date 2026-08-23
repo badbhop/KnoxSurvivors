@@ -37,6 +37,14 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String moveOne(Object square) {
+        return beginMove(square, false);
+    }
+
+    public synchronized String crossOneAdjacentEdge(Object square) {
+        return beginMove(square, true);
+    }
+
+    private String beginMove(Object square, boolean exactAdjacentCrossing) {
         if (activeNpc == null) {
             return "MOVE_FAILED NONE_ACTIVE";
         }
@@ -53,11 +61,16 @@ public final class KnoxNpcRegistry {
             movementTargetY = ((Number) square.getClass().getMethod("getY").invoke(square)).floatValue()
                 + 0.5f;
             movementTargetZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
-            KnoxNpcFactory.moveTo(activeNpc, square);
-            activeNpc.clearMovementRoute();
+            if (exactAdjacentCrossing) {
+                KnoxNpcFactory.moveAcrossAdjacentEdge(activeNpc, square);
+            } else {
+                KnoxNpcFactory.moveTo(activeNpc, square);
+                activeNpc.clearMovementRoute();
+            }
             movementRequested = true;
             movementControllerState = "Working";
-            String result = "MOVE_STARTED " + movementDescription();
+            String result = (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
+                + movementDescription();
             KnoxAgent.writeLog("NPC probe " + result);
             return result;
         } catch (Throwable throwable) {
@@ -66,6 +79,10 @@ public final class KnoxNpcRegistry {
             KnoxAgent.writeLog("ERROR NPC probe " + result);
             return result;
         }
+    }
+
+    public synchronized boolean hasTraversalEvidence(String state) {
+        return activeNpc != null && activeNpc.hasMovementTraversalEvidence(state);
     }
 
     public synchronized String tickOne() {

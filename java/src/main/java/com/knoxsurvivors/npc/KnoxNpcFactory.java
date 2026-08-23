@@ -98,6 +98,37 @@ final class KnoxNpcFactory {
         );
     }
 
+    static void moveAcrossAdjacentEdge(KnoxNpc npc, Object square)
+        throws ReflectiveOperationException {
+        requireClass(square, GRID_SQUARE_CLASS, "adjacent crossing target square");
+        Object body = npc.getBody();
+        Object currentSquare = invoke(body, "getCurrentSquare");
+        if (currentSquare == null) {
+            throw new IllegalStateException("NPC has no current square for adjacent crossing");
+        }
+
+        int currentX = ((Number) invoke(currentSquare, "getX")).intValue();
+        int currentY = ((Number) invoke(currentSquare, "getY")).intValue();
+        int currentZ = ((Number) invoke(currentSquare, "getZ")).intValue();
+        int targetX = ((Number) invoke(square, "getX")).intValue();
+        int targetY = ((Number) invoke(square, "getY")).intValue();
+        int targetZ = ((Number) invoke(square, "getZ")).intValue();
+        if (targetZ != currentZ || Math.abs(targetX - currentX) + Math.abs(targetY - currentY) != 1) {
+            throw new IllegalArgumentException(
+                "Adjacent crossing target must be one cardinal edge from the NPC"
+            );
+        }
+
+        Object pathfinder = invoke(body, "getPathFindBehavior2");
+        invoke(pathfinder, "cancel");
+        invoke(body, "setPath2", classFor(body, "zombie.pathfind.Path"), null);
+        clearHumanMovementIntent(body);
+
+        List<float[]> exactRoute = new ArrayList<>(1);
+        exactRoute.add(new float[] { targetX + 0.5f, targetY + 0.5f, targetZ });
+        npc.setMovementRoute(exactRoute);
+    }
+
     static String tickMovement(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
         Object pathfinder = invoke(body, "getPathFindBehavior2");
