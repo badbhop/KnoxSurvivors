@@ -259,12 +259,246 @@ final class KnoxNpcFactory {
         }
 
         if (node == null) {
+            npc.setMovementTraversalState("ARRIVED");
             clearHumanMovementIntent(body);
             return "Succeeded";
         }
 
+        String traversal = handleRouteTransition(body, node);
+        npc.setMovementTraversalState(traversal);
+        if (traversal.startsWith("FAILED_")) {
+            clearHumanMovementIntent(body);
+            return "FailedObstacle:" + traversal;
+        }
+        if (!"CLEAR".equals(traversal)) {
+            clearHumanMovementIntent(body);
+            return "Transition:" + traversal;
+        }
+
         applyHumanMovementIntent(body, node[0], node[1]);
         return "ManualRoute";
+    }
+
+    private static String handleRouteTransition(Object body, float[] node)
+        throws ReflectiveOperationException {
+        if ((Boolean) invoke(body, "isClimbing")) {
+            return "CLIMBING";
+        }
+
+        Object currentSquare = invoke(body, "getCurrentSquare");
+        Object cell = invoke(body, "getCell");
+        if (currentSquare == null || cell == null) {
+            return "FAILED_NO_CURRENT_SQUARE";
+        }
+
+        int currentX = ((Number) invoke(currentSquare, "getX")).intValue();
+        int currentY = ((Number) invoke(currentSquare, "getY")).intValue();
+        int currentZ = ((Number) invoke(currentSquare, "getZ")).intValue();
+        int nextX = (int) Math.floor(node[0]);
+        int nextY = (int) Math.floor(node[1]);
+        int nextZ = (int) Math.floor(node[2]);
+        int deltaX = nextX - currentX;
+        int deltaY = nextY - currentY;
+
+        if (deltaX == 0 && deltaY == 0 && nextZ == currentZ) {
+            return "CLEAR";
+        }
+        if (nextZ != currentZ) {
+            return "FAILED_UNSUPPORTED_Z_CHANGE";
+        }
+        if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
+            return "CLEAR";
+        }
+
+        Object nextSquare = invoke(
+            cell,
+            "getGridSquare",
+            int.class,
+            int.class,
+            int.class,
+            nextX,
+            nextY,
+            nextZ
+        );
+        if (nextSquare == null) {
+            return "FAILED_UNLOADED_NEXT_SQUARE";
+        }
+
+        if (Math.abs(deltaX) + Math.abs(deltaY) != 1) {
+            boolean blocked = (Boolean) invoke(
+                currentSquare,
+                "isBlockedTo",
+                currentSquare.getClass(),
+                nextSquare
+            );
+            return blocked ? "FAILED_BLOCKED_DIAGONAL" : "CLEAR";
+        }
+
+        Object door = invoke(currentSquare, "getDoorTo", currentSquare.getClass(), nextSquare);
+        if (door != null) {
+            boolean open = (Boolean) invoke(door, "IsOpen");
+            if (open) {
+                return "CLEAR";
+            }
+            boolean barricaded = (Boolean) invoke(door, "isBarricaded");
+            if (barricaded) {
+                return "FAILED_BARRICADED_DOOR";
+            }
+            faceObject(body, door);
+            if ((Boolean) invoke(body, "shouldBeTurning")) {
+                return "TURNING_TO_DOOR";
+            }
+            invoke(
+                door,
+                "ToggleDoor",
+                classFor(body, "zombie.characters.IsoGameCharacter"),
+                body
+            );
+            return (Boolean) invoke(door, "IsOpen") ? "OPENING_DOOR" : "FAILED_LOCKED_DOOR";
+        }
+
+        Object window = invoke(currentSquare, "getWindowTo", currentSquare.getClass(), nextSquare);
+        if (window != null) {
+            boolean canClimb = (Boolean) invoke(
+                window,
+                "canClimbThrough",
+                classFor(body, "zombie.characters.IsoGameCharacter"),
+                body
+            );
+            if (!canClimb) {
+                return "FAILED_BLOCKED_WINDOW";
+            }
+            faceObject(body, window);
+            if ((Boolean) invoke(body, "shouldBeTurning")) {
+                return "TURNING_TO_WINDOW";
+            }
+            invoke(
+                body,
+                "climbThroughWindow",
+                classFor(body, "zombie.iso.objects.IsoWindow"),
+                window
+            );
+            return "STARTED_WINDOW_CLIMB";
+        }
+
+        Object windowThumpable = invoke(
+            currentSquare,
+            "getWindowThumpableTo",
+            currentSquare.getClass(),
+            nextSquare
+        );
+        if (windowThumpable != null) {
+            if ((Boolean) invoke(windowThumpable, "isBarricaded")) {
+                return "FAILED_BARRICADED_WINDOW";
+            }
+            faceObject(body, windowThumpable);
+            if ((Boolean) invoke(body, "shouldBeTurning")) {
+                return "TURNING_TO_WINDOW";
+            }
+            invoke(
+                body,
+                "climbThroughWindow",
+                classFor(body, "zombie.iso.objects.IsoThumpable"),
+                windowThumpable
+            );
+            return "STARTED_WINDOW_CLIMB";
+        }
+
+        Object windowFrame = invoke(
+            currentSquare,
+            "getWindowFrameTo",
+            currentSquare.getClass(),
+            nextSquare
+        );
+        if (windowFrame != null) {
+            invoke(
+                body,
+                "climbThroughWindowFrame",
+                classFor(body, "zombie.iso.objects.IsoWindowFrame"),
+                windowFrame
+            );
+            return "STARTED_WINDOW_FRAME_CLIMB";
+        }
+
+        Object direction = cardinalDirection(body, deltaX, deltaY);
+        boolean hoppable = (Boolean) invoke(
+            currentSquare,
+            "isHoppableTo",
+            currentSquare.getClass(),
+            nextSquare
+        );
+        if (hoppable) {
+            invoke(
+                body,
+                "faceDirection",
+                classFor(body, "zombie.iso.IsoDirections"),
+                direction
+            );
+            if ((Boolean) invoke(body, "shouldBeTurning")) {
+                return "TURNING_TO_FENCE";
+            }
+            invoke(
+                body,
+                "climbOverFence",
+                classFor(body, "zombie.iso.IsoDirections"),
+                direction
+            );
+            return "STARTED_FENCE_CLIMB";
+        }
+
+        Object wallHoppable = invoke(
+            currentSquare,
+            "getWallHoppableTo",
+            currentSquare.getClass(),
+            nextSquare
+        );
+        if (wallHoppable != null) {
+            boolean canClimb = (Boolean) invoke(
+                body,
+                "canClimbOverWall",
+                classFor(body, "zombie.iso.IsoDirections"),
+                direction
+            );
+            if (!canClimb) {
+                return "FAILED_UNCLIMBABLE_WALL";
+            }
+            invoke(
+                body,
+                "climbOverWall",
+                classFor(body, "zombie.iso.IsoDirections"),
+                direction
+            );
+            return "STARTED_WALL_CLIMB";
+        }
+
+        boolean blocked = (Boolean) invoke(
+            currentSquare,
+            "isBlockedTo",
+            currentSquare.getClass(),
+            nextSquare
+        );
+        return blocked ? "FAILED_STATIC_BLOCKAGE" : "CLEAR";
+    }
+
+    private static void faceObject(Object body, Object object)
+        throws ReflectiveOperationException {
+        invoke(body, "faceThisObject", classFor(body, "zombie.iso.IsoObject"), object);
+    }
+
+    private static Object cardinalDirection(Object body, int deltaX, int deltaY)
+        throws ReflectiveOperationException {
+        Class<?> directionsClass = classFor(body, "zombie.iso.IsoDirections");
+        String name;
+        if (deltaX > 0) {
+            name = "E";
+        } else if (deltaX < 0) {
+            name = "W";
+        } else if (deltaY < 0) {
+            name = "N";
+        } else {
+            name = "S";
+        }
+        return directionsClass.getField(name).get(null);
     }
 
     private static void applyHumanMovementIntent(Object body, float nextX, float nextY)

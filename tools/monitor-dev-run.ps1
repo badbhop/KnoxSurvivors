@@ -42,6 +42,7 @@ else {
         $consolePath = [string]$session.consoleLogPath
         if (Test-Path -LiteralPath $consolePath) {
             $latestResult = Get-Content -LiteralPath $consolePath -Tail 500 -ErrorAction SilentlyContinue |
+                ForEach-Object { $_ -replace "`0", '' } |
                 Where-Object { $_ -match '(?i)\[KnoxSurvivors\]\[TestLab\].*RESULT scenario=' } |
                 Select-Object -Last 1
             if (-not [string]::IsNullOrWhiteSpace($latestResult)) {

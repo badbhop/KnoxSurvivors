@@ -87,3 +87,11 @@ component. Locomotion must pass before any other executor is added. The next sup
 slice is then: inventory ownership and equip, one-zombie melee combat, one-container
 transfer, normal injury reception, self-bandaging, and finally player-to-NPC treatment.
 Each slice is live-tested alone and across save/reload before the next one begins.
+
+Captured route waypoints are not assumed to be unobstructed floor. Before crossing into
+an adjacent square, the traversal layer asks the engine whether that edge contains a
+door, window, window frame, low fence, tall climbable wall, or hard blockage. It pauses
+walking while the normal engine open/climb action owns the body. Locked, barricaded,
+unclimbable, unloaded, and static obstructions produce an explicit route failure instead
+of allowing the survivor to walk in place forever. Smashing or dismantling an obstacle
+is a later decision-layer policy, not part of basic traversal.

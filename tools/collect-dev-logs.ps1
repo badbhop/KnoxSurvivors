@@ -44,6 +44,10 @@ function Read-NewLogText([string]$Path, [long]$StartOffset) {
 
 $consoleText = Read-NewLogText ([string]$session.consoleLogPath) ([long]$session.consoleStartOffset)
 $knoxText = Read-NewLogText ([string]$session.knoxLogPath) ([long]$session.knoxStartOffset)
+# Project Zomboid can leave NUL padding in console.txt while recreating it. Remove that
+# padding before matching Test Lab lines or the result collector may miss a valid result.
+$consoleText = $consoleText.Replace([string][char]0, '')
+$knoxText = $knoxText.Replace([string][char]0, '')
 
 $consoleOutputPath = Join-Path $runDirectory 'console-since-launch.txt'
 $knoxOutputPath = Join-Path $runDirectory 'knox-since-launch.log'

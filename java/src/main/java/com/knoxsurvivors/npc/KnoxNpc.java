@@ -12,6 +12,7 @@ public final class KnoxNpc {
     private final int spawnZ;
     private final List<float[]> movementRoute = new ArrayList<>();
     private int movementRouteIndex;
+    private String movementTraversalState = "NONE";
 
     KnoxNpc(String id, Object body, int spawnX, int spawnY, int spawnZ) {
         this.id = id;
@@ -33,11 +34,13 @@ public final class KnoxNpc {
         movementRoute.clear();
         movementRoute.addAll(nodes);
         movementRouteIndex = 0;
+        movementTraversalState = "ROUTE_READY";
     }
 
     void clearMovementRoute() {
         movementRoute.clear();
         movementRouteIndex = 0;
+        movementTraversalState = "NONE";
     }
 
     boolean hasMovementRoute() {
@@ -54,8 +57,20 @@ public final class KnoxNpc {
         }
     }
 
+    void setMovementTraversalState(String state) {
+        movementTraversalState = state;
+    }
+
     String describeMovementRoute() {
-        return movementRouteIndex + "/" + movementRoute.size();
+        float[] node = currentMovementNode();
+        String next = node == null ? "none" : node[0] + "," + node[1] + "," + node[2];
+        return movementRouteIndex
+            + "/"
+            + movementRoute.size()
+            + " next="
+            + next
+            + " traversal="
+            + movementTraversalState;
     }
 
     public String describe() {

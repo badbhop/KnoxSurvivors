@@ -73,7 +73,7 @@ public final class KnoxNpcRegistry {
             return "IDLE";
         }
         if ("Succeeded".equals(movementControllerState)
-            || "Failed".equals(movementControllerState)) {
+            || movementControllerState.startsWith("Failed")) {
             return movementControllerState;
         }
 
