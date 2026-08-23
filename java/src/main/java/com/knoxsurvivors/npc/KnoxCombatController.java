@@ -1,10 +1,14 @@
 package com.knoxsurvivors.npc;
 
 import com.knoxsurvivors.agent.KnoxAgent;
+import com.knoxsurvivors.agent.KnoxCombatGate;
+import java.util.Map;
 
 /** Drives one controlled melee encounter through IsoPlayer's normal attack entry point. */
 final class KnoxCombatController {
     private static final int ATTACK_RETRY_TICKS = 30;
+    private static final int AIM_SETTLE_TICKS = 18;
+    private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
 
     private KnoxNpc npc;
     private Object target;
@@ -17,6 +21,8 @@ final class KnoxCombatController {
     private int initialWeaponCondition;
     private boolean damageObserved;
     private boolean attackAnimationObserved;
+    private int aimTicks;
+    private boolean directStateFallbackUsed;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -31,6 +37,16 @@ final class KnoxCombatController {
         npc = activeNpc;
         target = zombie;
         Object body = npc.getBody();
+        Class.forName(
+            "zombie.ai.states.SwipeStatePlayer",
+            true,
+            body.getClass().getClassLoader()
+        );
+        if (!KnoxCombatGate.isPatchReady()) {
+            reset();
+            return "COMBAT_FAILED CALLBACK_PATCH_NOT_READY calls="
+                + KnoxCombatGate.getPatchedCallCount();
+        }
         Object weapon = body.getClass().getMethod("getPrimaryHandItem").invoke(body);
         if (weapon == null || !inherits(weapon, "zombie.inventory.types.HandWeapon")) {
             reset();
@@ -97,12 +113,13 @@ final class KnoxCombatController {
             String movement = KnoxNpcFactory.tickMovement(npc);
             if (movement.startsWith("Failed")) {
                 phase = "FAILED";
+                clearAttackIntent();
                 return "COMBAT_FAILED APPROACH " + movement;
             }
             if (!"Succeeded".equals(movement)) {
                 return "COMBAT_APPROACHING movement=" + movement + " targetHealth=" + currentHealth;
             }
-            phase = "ATTACKING";
+            phase = "AIMING";
             clearMovementIntent();
         }
 
@@ -114,11 +131,21 @@ final class KnoxCombatController {
         float targetX = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue();
         float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
         faceTarget(body, targetX, targetY);
+        applyCombatStance(body, false);
+        Object targetSquare = target.getClass().getMethod("getCurrentSquare").invoke(target);
+        body.getClass().getMethod(
+            "setAttackTargetSquare",
+            classFor(body, "zombie.iso.IsoGridSquare")
+        ).invoke(body, targetSquare);
 
-        body.getClass().getMethod("setBannedAttacking", boolean.class).invoke(body, false);
-        body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
-        body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class).invoke(body, false);
-        body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
+        if ("AIMING".equals(phase)) {
+            aimTicks++;
+            if (aimTicks < AIM_SETTLE_TICKS) {
+                return "COMBAT_AIMING ticks=" + aimTicks + "/" + AIM_SETTLE_TICKS
+                    + " targetHealth=" + currentHealth;
+            }
+            phase = "ATTACKING";
+        }
 
         boolean attackStarted = (Boolean) body.getClass().getMethod("isAttackStarted").invoke(body);
         boolean attacking = (Boolean) body.getClass().getMethod("isAttacking").invoke(body);
@@ -127,12 +154,32 @@ final class KnoxCombatController {
         boolean attackAnimation = (Boolean) body.getClass()
             .getMethod("isPerformingAttackAnimation").invoke(body);
         attackAnimationObserved = attackAnimationObserved || attackAnimation;
+        if (attackAnimation) {
+            body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
+            setAiAttackIntent(body, true, false);
+        }
+        if (attackRequests > 0 && !attackAnimationObserved && !damageObserved) {
+            setAiAttackIntent(body, true, true);
+            body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
+        }
+        if (attackRequests > 0
+            && !directStateFallbackUsed
+            && !attackAnimationObserved
+            && ticks - lastAttackTick >= DIRECT_STATE_FALLBACK_TICKS
+            && "idle".equalsIgnoreCase(String.valueOf(
+                body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
+            ))) {
+            enterSwipeState(body);
+            directStateFallbackUsed = true;
+            KnoxAgent.writeLog("NPC combat DIRECT_SWIPE_STATE_FALLBACK");
+        }
         if (attackStarted
             && attackRequests > 0
             && ticks - lastAttackTick > 180
             && !attackAnimationObserved
             && !damageObserved) {
             phase = "FAILED";
+            clearAttackIntent();
             return "COMBAT_FAILED ATTACK_STALLED state="
                 + body.getClass().getMethod("getCurrentStateName").invoke(body)
                 + " action="
@@ -143,9 +190,11 @@ final class KnoxCombatController {
                 + body.getClass().getMethod("getAttackType").invoke(body);
         }
         if (!attackStarted && !attacking && weaponReady && ticks - lastAttackTick >= ATTACK_RETRY_TICKS) {
-            body.getClass().getMethod("pressedAttack").invoke(body);
+            requestAttack(body);
             attackRequests++;
             lastAttackTick = ticks;
+            attackAnimationObserved = false;
+            directStateFallbackUsed = false;
             KnoxAgent.writeLog(
                 "NPC combat ATTACK_REQUEST count=" + attackRequests + " targetHealth=" + currentHealth
             );
@@ -157,6 +206,7 @@ final class KnoxCombatController {
             + " initiateAttack=" + initiateAttack
             + " attackAnimation=" + attackAnimation
             + " animationObserved=" + attackAnimationObserved
+            + " fallback=" + directStateFallbackUsed
             + " weaponReady=" + weaponReady
             + " damageObserved=" + damageObserved
             + " targetHealth=" + currentHealth
@@ -184,6 +234,8 @@ final class KnoxCombatController {
         initialWeaponCondition = -1;
         damageObserved = false;
         attackAnimationObserved = false;
+        aimTicks = 0;
+        directStateFallbackUsed = false;
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {
@@ -197,7 +249,65 @@ final class KnoxCombatController {
         Object body = npc.getBody();
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
+        body.getClass().getField("isCharging").setBoolean(body, false);
+        body.getClass().getField("useChargeDelta").setFloat(body, 0.0f);
         body.getClass().getMethod("clearHandToHandAttack").invoke(body);
+        setAiAttackIntent(body, false, false);
+    }
+
+    private static void applyCombatStance(Object body, boolean initiate)
+        throws ReflectiveOperationException {
+        body.getClass().getMethod("setBannedAttacking", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
+        body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
+        body.getClass().getField("isCharging").setBoolean(body, true);
+        setAiAttackIntent(body, true, initiate);
+    }
+
+    private static void requestAttack(Object body) throws ReflectiveOperationException {
+        body.getClass().getMethod("clearHandToHandAttack").invoke(body);
+        body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, false);
+        body.getClass().getField("useChargeDelta").setFloat(body, 36.0f);
+        applyCombatStance(body, false);
+        body.getClass().getMethod("pressedAttack").invoke(body);
+        body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, true);
+        body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
+        setAiAttackIntent(body, true, true);
+    }
+
+    private static void enterSwipeState(Object body) throws ReflectiveOperationException {
+        ClassLoader loader = body.getClass().getClassLoader();
+        Class<?> swipeClass = Class.forName("zombie.ai.states.SwipeStatePlayer", true, loader);
+        Object swipeState = swipeClass.getMethod("instance").invoke(null);
+        body.getClass().getMethod("changeState", classFor(body, "zombie.ai.State"))
+            .invoke(body, swipeState);
+        body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, true);
+        body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
+        setAiAttackIntent(body, true, true);
+    }
+
+    private static void setAiAttackIntent(Object body, boolean aiming, boolean initiate)
+        throws ReflectiveOperationException {
+        Class<?> aiComponentClass = classFor(body, "zombie.characters.component.AIComponent");
+        Object componentMap = body.getClass().getMethod("getECSComponentMap").invoke(body);
+        Object aiComponent = ((Map<?, ?>) componentMap).get(aiComponentClass);
+        if (aiComponent == null) {
+            throw new IllegalStateException("NPC has no AIComponent for combat input");
+        }
+        Object controlVars = aiComponent.getClass().getMethod("getHumanControlVars")
+            .invoke(aiComponent);
+        if (controlVars == null) {
+            throw new IllegalStateException("NPC has no human control variables for combat input");
+        }
+        controlVars.getClass().getField("aiming").setBoolean(controlVars, aiming);
+        controlVars.getClass().getField("melee").setBoolean(controlVars, false);
+        controlVars.getClass().getField("bannedAttacking").setBoolean(controlVars, false);
+        controlVars.getClass().getField("initiateAttack").setBoolean(controlVars, initiate);
     }
 
     private static void faceTarget(Object body, float targetX, float targetY)

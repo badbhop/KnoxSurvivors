@@ -12,9 +12,8 @@ import java.time.Instant;
 /**
  * Java-agent entry point for engine integration that cannot be implemented through Lua alone.
  *
- * <p>The foundation milestone intentionally installs no transformers. It records that the agent
- * started and that the installed game exposes the expected IsoPlayer class without initializing
- * game state prematurely.</p>
+ * <p>The agent installs narrowly scoped engine integrations before the affected game classes are
+ * loaded, records startup evidence, and verifies that the expected IsoPlayer class is present.</p>
  */
 public final class KnoxAgent {
     private static final String LOG_NAME = "KnoxIsoPlayer.log";
@@ -24,6 +23,11 @@ public final class KnoxAgent {
 
     public static void premain(String arguments, Instrumentation instrumentation) {
         writeLog("agent start arguments=" + String.valueOf(arguments));
+
+        if ("pz-game".equals(arguments)) {
+            instrumentation.addTransformer(new KnoxSwipeStateTransformer(), false);
+            writeLog("combat callback transformer installed");
+        }
 
         try {
             Class.forName("zombie.characters.IsoPlayer", false, ClassLoader.getSystemClassLoader());

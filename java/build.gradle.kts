@@ -60,3 +60,19 @@ tasks.jar {
         )
     }
 }
+
+val verifyCombatTransformer by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies the narrow melee callback patch against the configured game jar."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.agent.KnoxSwipeStateTransformerVerifier")
+    doFirst {
+        val gameJar = file(pzHome.get()).resolve("projectzomboid.jar")
+        args(gameJar.absolutePath)
+    }
+}
+
+tasks.check {
+    dependsOn(verifyCombatTransformer)
+}

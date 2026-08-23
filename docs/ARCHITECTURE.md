@@ -96,12 +96,28 @@ Inspection of the installed `projectzomboid.jar` confirms:
   `AIComponent.getHumanControlVars()` during `IsoPlayer.updateInternal2()`;
 - normal inventory and equipment live on `IsoGameCharacter` through `getInventory()`,
   `setPrimaryHandItem(...)`, and `setSecondaryHandItem(...)`;
-- player combat entry points and state exist on `IsoPlayer`, but must be verified with an
-  off-slot NPC before selecting the supported attack sequence;
+- off-slot NPC combat input is represented by `AIComponent.getHumanControlVars()` together
+  with the ordinary `IsoPlayer` aim, charge, and attack fields;
 - injuries live in the normal `BodyDamage` and `BodyPart` objects, and the shipped Lua
   actions support a doctor and a separate patient.
 
 These are confirmed entry points, not proof that an off-slot NPC is lifecycle-safe. Every affected subsystem must be tested in game.
+
+## Off-slot melee integration
+
+Build 42.20's `SwipeStatePlayer` animation callbacks restrict collision checks and swing
+sounds to local players. Knox does not make a survivor local to bypass that restriction.
+The Java agent redirects only the three relevant local-player predicates to a Knox-owned
+predicate that accepts the real local player or the exact `KnoxIsoPlayerShell` class.
+The rest of each callback remains unmodified engine code, including hit selection,
+damage, endurance, weapon condition, sound, blood, reactions, and death.
+
+The shell supplies its controller-owned forward direction as its aim vector because it
+has no mouse or controller input component. The combat executor synchronizes the human
+AI control variables, target square, facing, charge, and attack request. If the normal
+request does not enter `SwipeStatePlayer`, the executor makes one explicit state entry
+and records that fallback in the diagnostic log. This is intentionally limited to
+melee; firearm aiming and ballistics require a separate verified slice.
 
 ## Hard constraints
 

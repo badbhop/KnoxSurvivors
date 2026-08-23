@@ -47,7 +47,7 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(61);
 
-            output.writeShort(14);
+            output.writeShort(21);
             writeUtf8(output, INTERNAL_NAME);                 // 1
             writeClass(output, 1);                            // 2
             writeUtf8(output, SUPER_INTERNAL_NAME);           // 3
@@ -64,13 +64,23 @@ public final class KnoxIsoPlayerShellDefinition {
             );                                                 // 11
             writeUtf8(output, "isLocalPlayer");               // 12
             writeUtf8(output, "()Z");                         // 13
+            writeUtf8(output, "getAimVector");                // 14
+            writeUtf8(
+                output,
+                "(Lzombie/iso/Vector2;)Lzombie/iso/Vector2;"
+            );                                                  // 15
+            writeUtf8(output, "getForwardDirection");          // 16
+            writeNameAndType(output, 16, 15);                   // 17
+            writeMethodRef(output, 4, 17);                      // 18
+            writeUtf8(output, "setAngleFromAim");              // 19
+            writeUtf8(output, "()V");                          // 20
 
             output.writeShort(0x0021);
             output.writeShort(2);
             output.writeShort(4);
             output.writeShort(0);
             output.writeShort(0);
-            output.writeShort(3);
+            output.writeShort(5);
 
             output.writeShort(0x0001);
             output.writeShort(5);
@@ -118,6 +128,41 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(1);
             output.writeInt(2);
             output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            // Off-slot NPCs have no mouse/controller input component. Supply the
+            // already-controller-owned forward direction as their melee aim vector.
+            output.writeShort(0x0001);
+            output.writeShort(14);
+            output.writeShort(15);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(18);
+            output.writeShort(2);
+            output.writeShort(2);
+            output.writeInt(6);
+            output.write(new byte[] {
+                0x2A,
+                0x2B,
+                (byte) 0xB6, 0x00, 0x12,
+                (byte) 0xB0,
+            });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            // The controller sets facing explicitly. The local-player implementation
+            // would otherwise replace it with a missing mouse/controller aim source.
+            output.writeShort(0x0001);
+            output.writeShort(19);
+            output.writeShort(20);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(13);
+            output.writeShort(0);
+            output.writeShort(1);
+            output.writeInt(1);
+            output.writeByte(0xB1);
             output.writeShort(0);
             output.writeShort(0);
 

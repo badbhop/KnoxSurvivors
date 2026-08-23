@@ -16,8 +16,8 @@ and saved survivor record remain available, but it will not repeat while combat 
 4. The test removes ordinary zombies from the currently loaded area. It does not change
    sandbox settings or rewrite zombies stored in distant, unloaded map chunks.
 5. One stationary test zombie appears three clear tiles from the survivor.
-6. The survivor should approach, face it, swing the bat using normal player combat, and
-   continue attacking until it dies.
+6. The survivor should approach, face it, settle into aim for a brief moment, swing the
+   bat using normal player combat, and continue attacking until it dies.
 7. Do not attack the test zombie yourself. Visual animation and sound confirmation matter.
 8. Quit normally after PASS or FAIL so the diagnostic collector can finish.
 
@@ -32,6 +32,8 @@ The useful result lines in `console.txt` begin with:
 
 A PASS requires observed zombie health loss followed by death. The result also records
 the number of attack requests and the bat's condition before and after the encounter.
+Startup diagnostics should also contain `combat callback patch PASS calls=3`. A missing
+or mismatched patch stops the scenario instead of running a partially integrated attack.
 
 `dev-runs/<run>/live-test-status.txt` shows the latest result while the game is running.
 After the game closes, `test-results.txt` and `summary.txt` contain the collected result.
