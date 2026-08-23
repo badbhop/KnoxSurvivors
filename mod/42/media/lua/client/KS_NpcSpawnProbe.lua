@@ -21,13 +21,21 @@ local update
 
 local EXPECTED_TRAVERSAL_EVIDENCE = {
     door = { "OPENING_DOOR" },
-    window_open = { "STARTED_WINDOW_OPEN", "STARTED_WINDOW_CLIMB" },
+    window_open = {
+        "STARTED_WINDOW_OPEN",
+        "COMPLETED_WINDOW_OPEN",
+        "STARTED_WINDOW_CLIMB",
+    },
     window_locked = {
         "STARTED_WINDOW_OPEN",
         "STARTED_WINDOW_SMASH",
         "STARTED_WINDOW_CLIMB",
     },
     fence = { "STARTED_FENCE_CLIMB" },
+}
+
+local FORBIDDEN_TRAVERSAL_EVIDENCE = {
+    window_open = { "STARTED_WINDOW_SMASH", "SMASHING_WINDOW" },
 }
 
 local function squareText(square)
@@ -123,6 +131,7 @@ local function addCase(found, name, first, second, evidence)
         targetSquare = targetSquare,
         evidence = evidence,
         expectedTraversalEvidence = EXPECTED_TRAVERSAL_EVIDENCE[name] or {},
+        forbiddenTraversalEvidence = FORBIDDEN_TRAVERSAL_EVIDENCE[name] or {},
     }
 end
 
@@ -194,6 +203,7 @@ local function findBaselineMovementCase(player, radius)
                 targetSquare = targetSquare,
                 evidence = "baseline=true",
                 expectedTraversalEvidence = {},
+                forbiddenTraversalEvidence = {},
             }
         end
     end
@@ -402,6 +412,18 @@ local function findMissingTraversalEvidence(bridge)
     return nil
 end
 
+local function findForbiddenTraversalEvidence(bridge)
+    for _, state in ipairs(activeCase.forbiddenTraversalEvidence) do
+        local success, found = pcall(function()
+            return bridge:hasTestNpcTraversalEvidence(state)
+        end)
+        if success and found == true then
+            return state
+        end
+    end
+    return nil
+end
+
 local function tickMovement()
     local bridge = rawget(_G, "KnoxJavaBridge")
     local tickSuccess, tickResult = pcall(function()
@@ -421,8 +443,15 @@ local function tickMovement()
         print(TAG .. " status=" .. tostring(statusSuccess) .. " result=" .. tostring(statusResult))
         if statusSuccess
             and string.find(tostring(statusResult), "controller=Succeeded", 1, true) ~= nil then
+            local forbiddenEvidence = findForbiddenTraversalEvidence(bridge)
             local missingEvidence = findMissingTraversalEvidence(bridge)
-            if missingEvidence ~= nil then
+            if forbiddenEvidence ~= nil then
+                finishActiveCase(
+                    "FAIL",
+                    "forbidden_traversal_evidence",
+                    "found=" .. forbiddenEvidence .. " status=" .. tostring(statusResult)
+                )
+            elseif missingEvidence ~= nil then
                 finishActiveCase(
                     "FAIL",
                     "missing_traversal_evidence",

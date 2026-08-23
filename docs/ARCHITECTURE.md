@@ -107,6 +107,14 @@ traversal executor. The intended preference is:
 4. Only when the room has no usable window may the survivor force the door using a real
    equipped tool or weapon and the normal destruction action.
 
+Build 42 completes the world-state portion of `OpenWindowState` only for a local player.
+The off-slot NPC traversal adapter therefore waits for the engine animation variable
+`StopAfterAnimLooped=success` before calling the normal `IsoWindow.ToggleWindow(...)`
+completion. It must not toggle on an attempt, struggle, or failed animation. This keeps
+the animation, sound, exertion, lock outcome, alarm behavior, sprite change, path-map
+invalidation, and synchronization in their engine-owned sequence without assigning the
+NPC a local-player slot.
+
 Barricaded or otherwise unsafe openings may be rejected. Forced entry must preserve
 normal time, noise, equipment, injury, and zombie-attraction consequences. The current
 M1 traversal slice executes window open, smash, and climb states on an already selected

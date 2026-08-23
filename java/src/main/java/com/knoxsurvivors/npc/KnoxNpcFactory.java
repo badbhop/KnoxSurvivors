@@ -397,6 +397,26 @@ final class KnoxNpcFactory {
 
             String characterState = String.valueOf(invoke(body, "getCurrentStateName"));
             if (characterState.contains("OpenWindowState")) {
+                String completion = String.valueOf(
+                    invoke(body, "getVariableString", String.class, "StopAfterAnimLooped")
+                );
+                boolean open = (Boolean) invoke(window, "IsOpen");
+                if ("success".equalsIgnoreCase(completion) && !open) {
+                    // OpenWindowState only toggles the world object for a local player.
+                    // Preserve the engine animation outcome, then complete that omitted
+                    // world-state step without assigning this NPC a local-player slot.
+                    invoke(
+                        window,
+                        "ToggleWindow",
+                        classFor(body, "zombie.characters.IsoGameCharacter"),
+                        body
+                    );
+                    if (!(Boolean) invoke(window, "IsOpen")) {
+                        return "FAILED_WINDOW_OPEN_COMPLETION";
+                    }
+                    npc.setTraversalInteractionStage("OPEN_COMPLETED");
+                    return "COMPLETED_WINDOW_OPEN";
+                }
                 return "OPENING_WINDOW";
             }
             if (characterState.contains("SmashWindowState")) {

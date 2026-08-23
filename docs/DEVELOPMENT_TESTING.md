@@ -32,11 +32,11 @@ door alternate routing remains registered but inactive until its room-entry plan
 implemented.
 
 Evidence requirements prevent arrival-only false positives: a door must record its open
-transition, a window must record its open and climb transitions, a locked window must
-also record its smash transition, and a fence must record its climb transition. The
-movement controller must report `Succeeded`; merely reaching the midpoint of a climb is
-not enough. Starting a new save load deliberately starts a fresh suite so new code can
-be regression-tested.
+transition; an unlocked window must record a completed open and climb transition while
+recording no smash transition; a locked window must record its open attempt, smash, and
+climb transitions; and a fence must record its climb transition. The movement controller
+must report `Succeeded`; merely reaching the midpoint of a climb is not enough. Starting
+a new save load deliberately starts a fresh suite so new code can be regression-tested.
 
 ## Running the obstacle test
 
