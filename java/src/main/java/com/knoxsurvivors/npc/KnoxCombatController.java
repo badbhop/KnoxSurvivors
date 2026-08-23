@@ -16,6 +16,7 @@ final class KnoxCombatController {
     private float lastTargetHealth;
     private int initialWeaponCondition;
     private boolean damageObserved;
+    private boolean attackAnimationObserved;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -44,6 +45,7 @@ final class KnoxCombatController {
         // This first gate isolates outgoing player combat. Incoming injury is tested later.
         body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, true);
         target.getClass().getMethod("setCanWalk", boolean.class).invoke(target, false);
+        target.getClass().getMethod("setUseless", boolean.class).invoke(target, true);
         target.getClass().getMethod("setTarget", classFor(target, "zombie.iso.IsoMovingObject"))
             .invoke(target, (Object) null);
 
@@ -111,11 +113,7 @@ final class KnoxCombatController {
         Object body = npc.getBody();
         float targetX = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue();
         float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
-        body.getClass().getMethod("faceLocationF", float.class, float.class)
-            .invoke(body, targetX, targetY);
-        if ((Boolean) body.getClass().getMethod("shouldBeTurning").invoke(body)) {
-            return "COMBAT_ATTACKING turning=true targetHealth=" + currentHealth;
-        }
+        faceTarget(body, targetX, targetY);
 
         body.getClass().getMethod("setBannedAttacking", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
@@ -125,6 +123,25 @@ final class KnoxCombatController {
         boolean attackStarted = (Boolean) body.getClass().getMethod("isAttackStarted").invoke(body);
         boolean attacking = (Boolean) body.getClass().getMethod("isAttacking").invoke(body);
         boolean weaponReady = (Boolean) body.getClass().getMethod("isWeaponReady").invoke(body);
+        boolean initiateAttack = (Boolean) body.getClass().getMethod("isInitiateAttack").invoke(body);
+        boolean attackAnimation = (Boolean) body.getClass()
+            .getMethod("isPerformingAttackAnimation").invoke(body);
+        attackAnimationObserved = attackAnimationObserved || attackAnimation;
+        if (attackStarted
+            && attackRequests > 0
+            && ticks - lastAttackTick > 180
+            && !attackAnimationObserved
+            && !damageObserved) {
+            phase = "FAILED";
+            return "COMBAT_FAILED ATTACK_STALLED state="
+                + body.getClass().getMethod("getCurrentStateName").invoke(body)
+                + " action="
+                + body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
+                + " initiateAttack="
+                + initiateAttack
+                + " attackType="
+                + body.getClass().getMethod("getAttackType").invoke(body);
+        }
         if (!attackStarted && !attacking && weaponReady && ticks - lastAttackTick >= ATTACK_RETRY_TICKS) {
             body.getClass().getMethod("pressedAttack").invoke(body);
             attackRequests++;
@@ -137,9 +154,15 @@ final class KnoxCombatController {
         return "COMBAT_ATTACKING attacks=" + attackRequests
             + " attackStarted=" + attackStarted
             + " attacking=" + attacking
+            + " initiateAttack=" + initiateAttack
+            + " attackAnimation=" + attackAnimation
+            + " animationObserved=" + attackAnimationObserved
             + " weaponReady=" + weaponReady
             + " damageObserved=" + damageObserved
-            + " targetHealth=" + currentHealth;
+            + " targetHealth=" + currentHealth
+            + " state=" + body.getClass().getMethod("getCurrentStateName").invoke(body)
+            + " action=" + body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
+            + " attackType=" + body.getClass().getMethod("getAttackType").invoke(body);
     }
 
     void reset() {
@@ -160,6 +183,7 @@ final class KnoxCombatController {
         lastTargetHealth = 0.0f;
         initialWeaponCondition = -1;
         damageObserved = false;
+        attackAnimationObserved = false;
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {
@@ -174,6 +198,26 @@ final class KnoxCombatController {
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, false);
         body.getClass().getMethod("clearHandToHandAttack").invoke(body);
+    }
+
+    private static void faceTarget(Object body, float targetX, float targetY)
+        throws ReflectiveOperationException {
+        float x = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+        float y = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+        float directionX = targetX - x;
+        float directionY = targetY - y;
+        float length = (float) Math.sqrt(directionX * directionX + directionY * directionY);
+        if (length <= 0.001f) {
+            return;
+        }
+        directionX /= length;
+        directionY /= length;
+        body.getClass().getMethod("setTargetAndCurrentDirection", float.class, float.class)
+            .invoke(body, directionX, directionY);
+        body.getClass().getMethod("setForwardDirection", float.class, float.class)
+            .invoke(body, directionX, directionY);
+        body.getClass().getMethod("setDirectionAngle", float.class)
+            .invoke(body, (float) Math.toDegrees(Math.atan2(directionY, directionX)));
     }
 
     private static float health(Object character) throws ReflectiveOperationException {
