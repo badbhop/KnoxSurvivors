@@ -28,7 +28,20 @@ Population remains capped at one until every condition passes.
 
 ## M2 — Basic survival loop
 
-Success means the survivor can independently:
+M2 is split into narrow gates so failures can be attributed to one engine subsystem:
+
+1. **Inventory/equipment** — give the survivor one real carried weapon, equip it through
+   the normal hand-item path, and preserve it across reload.
+2. **Combat** — perceive, approach, attack, and kill one zombie with that weapon while
+   normal attack timing, durability, noise, and animation run.
+3. **Looting** — select one useful item from one reachable container and move it through
+   the normal transfer action into the survivor's inventory.
+4. **Health** — receive ordinary zombie/combat damage and preserve the resulting body-part
+   state across reload.
+5. **Medical** — consume a real bandage to treat the survivor's most urgent wound, then
+   verify the active player can use the normal medical flow on the NPC as patient.
+
+M2 is complete when the survivor can independently:
 
 - perceive nearby zombies and useful containers;
 - choose between threat response and resource needs;

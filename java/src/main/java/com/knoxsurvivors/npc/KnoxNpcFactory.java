@@ -134,6 +134,15 @@ final class KnoxNpcFactory {
         float moveY = moveDirection.getClass().getField("y").getFloat(moveDirection);
         Object inputComponent = invoke(body, "getCharacterInputComponent");
         Object aiComponent = getAiComponent(body);
+        float strafeX = 0.0f;
+        float strafeY = 0.0f;
+        if (aiComponent != null) {
+            Object controlVars = invoke(aiComponent, "getHumanControlVars");
+            if (controlVars != null) {
+                strafeX = controlVars.getClass().getField("strafeX").getFloat(controlVars);
+                strafeY = controlVars.getClass().getField("strafeY").getFloat(controlVars);
+            }
+        }
         return "ACTIVE "
             + npc.describe()
             + " class="
@@ -170,6 +179,10 @@ final class KnoxNpcFactory {
             + moveX
             + ","
             + moveY
+            + " strafe="
+            + strafeX
+            + ","
+            + strafeY
             + " inputComponent="
             + (inputComponent != null)
             + " aiComponent="
@@ -213,8 +226,21 @@ final class KnoxNpcFactory {
         if (aiComponent != null) {
             Object controlVars = invoke(aiComponent, "getHumanControlVars");
             if (controlVars != null) {
+                // Build 42 skips normal input processing for isNpc() players. Recreate the
+                // same world-to-animation control-space conversion used by IsoPlayer so its
+                // NPC update can supply the movement delta later in the frame.
+                float animationAngle = ((Number) invoke(body, "getAnimAngleRadians"))
+                    .floatValue();
+                float controlX = directionX;
+                float controlY = -directionY;
+                float cosine = (float) Math.cos(animationAngle);
+                float sine = (float) Math.sin(animationAngle);
+                float strafeX = controlX * cosine - controlY * sine;
+                float strafeY = controlX * sine + controlY * cosine;
                 controlVars.getClass().getField("justMoved").setBoolean(controlVars, true);
                 controlVars.getClass().getField("running").setBoolean(controlVars, false);
+                controlVars.getClass().getField("strafeX").setFloat(controlVars, strafeX);
+                controlVars.getClass().getField("strafeY").setFloat(controlVars, strafeY);
             }
         }
     }
