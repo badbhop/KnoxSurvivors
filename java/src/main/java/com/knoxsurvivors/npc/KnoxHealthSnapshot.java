@@ -50,6 +50,7 @@ final class KnoxHealthSnapshot {
         damage.getClass().getMethod("load", ByteBuffer.class, int.class)
             .invoke(damage, buffer, worldVersion);
         damage.getClass().getMethod("calculateOverallHealth").invoke(damage);
+        KnoxHealthPresentation.refresh(body);
     }
 
     String encode() {

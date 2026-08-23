@@ -221,6 +221,17 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    public synchronized String refreshHealthPresentationOne() {
+        if (activeNpc == null) {
+            return "HEALTH_PRESENTATION_FAILED NONE_ACTIVE";
+        }
+        try {
+            return KnoxHealthController.refreshPresentation(activeNpc.getBody());
+        } catch (Throwable throwable) {
+            return failure("HEALTH_PRESENTATION_FAILED", throwable);
+        }
+    }
+
     public synchronized String directZombieAtOne(Object zombie) {
         if (activeNpc == null) {
             return "ZOMBIE_DIRECT_FAILED NONE_ACTIVE";
@@ -306,6 +317,9 @@ public final class KnoxNpcRegistry {
             if (before.health != null) {
                 before.health.restore(activeNpc.getBody());
             }
+            if (before.physiology != null) {
+                before.physiology.restore(activeNpc.getBody());
+            }
             KnoxSurvivorRecord after = captureRecord(activeNpc);
             boolean matches = before.encode().equals(after.encode());
             lastRecord = after;
@@ -352,13 +366,19 @@ public final class KnoxNpcRegistry {
             if (record.health != null) {
                 record.health.restore(activeNpc.getBody());
             }
+            if (record.physiology != null) {
+                record.physiology.restore(activeNpc.getBody());
+            }
             lastRecord = captureRecord(activeNpc);
             String result = "RESTORED id=" + record.id
                 + " location=" + record.x + "," + record.y + "," + record.z
                 + " items=" + record.inventory.size()
                 + " primary=" + record.inventory.primaryType()
                 + " appearance=" + record.appearance.summary()
-                + " " + (record.health == null ? "health=migrated_default" : record.health.summary());
+                + " " + (record.health == null ? "health=migrated_default" : record.health.summary())
+                + " " + (record.physiology == null
+                    ? "physiology=migrated_default"
+                    : record.physiology.summary());
             KnoxAgent.writeLog("NPC persistence " + result);
             return result;
         } catch (Throwable throwable) {
@@ -468,7 +488,8 @@ public final class KnoxNpcRegistry {
             positionY,
             KnoxAppearanceSnapshot.capture(body),
             KnoxInventorySnapshot.capture(body),
-            KnoxHealthSnapshot.capture(body)
+            KnoxHealthSnapshot.capture(body),
+            KnoxPhysiologySnapshot.capture(body)
         );
     }
 

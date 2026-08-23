@@ -5,7 +5,7 @@ import java.util.Base64;
 
 /** Versioned persistent identity and world state independent of an IsoPlayer body. */
 final class KnoxSurvivorRecord {
-    static final int SCHEMA_VERSION = 4;
+    static final int SCHEMA_VERSION = 5;
 
     final String id;
     final int x;
@@ -16,6 +16,7 @@ final class KnoxSurvivorRecord {
     final KnoxAppearanceSnapshot appearance;
     final KnoxInventorySnapshot inventory;
     final KnoxHealthSnapshot health;
+    final KnoxPhysiologySnapshot physiology;
 
     KnoxSurvivorRecord(
         String id,
@@ -26,7 +27,8 @@ final class KnoxSurvivorRecord {
         float positionY,
         KnoxAppearanceSnapshot appearance,
         KnoxInventorySnapshot inventory,
-        KnoxHealthSnapshot health
+        KnoxHealthSnapshot health,
+        KnoxPhysiologySnapshot physiology
     ) {
         this.id = id;
         this.x = x;
@@ -37,6 +39,7 @@ final class KnoxSurvivorRecord {
         this.appearance = appearance;
         this.inventory = inventory;
         this.health = health;
+        this.physiology = physiology;
     }
 
     String encode() {
@@ -49,7 +52,8 @@ final class KnoxSurvivorRecord {
             + "|" + positionY
             + "|" + text(appearance.encode())
             + "|" + text(inventory.encode())
-            + "|" + text(health.encode());
+            + "|" + text(health.encode())
+            + "|" + text(physiology.encode());
     }
 
     static KnoxSurvivorRecord decode(String encoded) {
@@ -67,6 +71,7 @@ final class KnoxSurvivorRecord {
                 y + 0.5f,
                 KnoxAppearanceSnapshot.decode(untext(fields[5])),
                 KnoxInventorySnapshot.decode(untext(fields[6])),
+                null,
                 null
             );
         }
@@ -80,10 +85,25 @@ final class KnoxSurvivorRecord {
                 Float.parseFloat(fields[6]),
                 KnoxAppearanceSnapshot.decode(untext(fields[7])),
                 KnoxInventorySnapshot.decode(untext(fields[8])),
+                null,
                 null
             );
         }
-        if (version != SCHEMA_VERSION || fields.length != 10) {
+        if (version == 4 && fields.length == 10) {
+            return new KnoxSurvivorRecord(
+                untext(fields[1]),
+                Integer.parseInt(fields[2]),
+                Integer.parseInt(fields[3]),
+                Integer.parseInt(fields[4]),
+                Float.parseFloat(fields[5]),
+                Float.parseFloat(fields[6]),
+                KnoxAppearanceSnapshot.decode(untext(fields[7])),
+                KnoxInventorySnapshot.decode(untext(fields[8])),
+                KnoxHealthSnapshot.decode(untext(fields[9])),
+                null
+            );
+        }
+        if (version != SCHEMA_VERSION || fields.length != 11) {
             throw new IllegalArgumentException("Unsupported survivor record schema");
         }
         return new KnoxSurvivorRecord(
@@ -95,7 +115,8 @@ final class KnoxSurvivorRecord {
             Float.parseFloat(fields[6]),
             KnoxAppearanceSnapshot.decode(untext(fields[7])),
             KnoxInventorySnapshot.decode(untext(fields[8])),
-            KnoxHealthSnapshot.decode(untext(fields[9]))
+            KnoxHealthSnapshot.decode(untext(fields[9])),
+            KnoxPhysiologySnapshot.decode(untext(fields[10]))
         );
     }
 

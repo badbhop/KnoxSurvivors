@@ -1,10 +1,12 @@
 require "TimedActions/ISApplyBandage"
 require "TimedActions/ISTimedActionQueue"
+require "KS_SurvivalMedical"
 
 local TAG = "[KnoxSurvivors][TestLab]"
 local MAX_TEST_TICKS = 900
 local STATUS_INTERVAL_TICKS = 60
 local MEDICAL_GATE_KEY = "medical_self_bandage_v1"
+local MEDICAL_RELOAD_GATE_KEY = "medical_self_bandage_reload_v1"
 
 local KnoxNpcApplyBandage = ISApplyBandage:derive("KnoxNpcApplyBandage")
 
@@ -44,17 +46,10 @@ function KnoxNpcApplyBandage:stop()
 end
 
 function KnoxNpcApplyBandage:complete()
-    local bandageLife = self.item:getBandagePower()
-    self.character:getBodyDamage():SetBandaged(
-        self.bodyPart:getIndex(),
-        true,
-        bandageLife,
-        self.item:isAlcoholic(),
-        self.item:getFullType()
-    )
-    self.character:getInventory():Remove(self.item)
-    self.bodyPart:setManipulatingUsername(nil)
-    return true
+    -- Completion has no local-player UI dependency. Keep the engine's complete
+    -- treatment rules so Doctor XP, traits, dirty/infected rags, bandage life,
+    -- item consumption, and body-part synchronization behave like a player.
+    return ISApplyBandage.complete(self)
 end
 
 function KnoxNpcApplyBandage:perform()
@@ -77,12 +72,13 @@ local bodyPart = nil
 local bandage = nil
 local action = nil
 local actionObserved = false
+local reportScenario = "medical"
 local update
 
 local function report(status, reason, evidence)
     print(
         TAG
-            .. " RESULT scenario=medical status="
+            .. " RESULT scenario=" .. tostring(reportScenario) .. " status="
             .. tostring(status)
             .. " reason="
             .. tostring(reason)
@@ -176,12 +172,6 @@ update = function()
         print(TAG .. " survivor=" .. tostring(result))
 
         local persistence = rawget(_G, "KnoxPersistence")
-        if persistence.isDevGateComplete(MEDICAL_GATE_KEY) then
-            report("SKIP", "already_passed", "next=needs_food_water")
-            phase = "FINISHED"
-            stop()
-            return
-        end
         if not persistence.isDevGateComplete("health_reload_v1") then
             fail("health_reload_prerequisite_missing", "run_health_scenario_first=true")
             return
@@ -192,9 +182,50 @@ update = function()
             fail("no_saved_injury", "health=" .. tostring(bridge:getTestNpcHealth()))
             return
         end
-        bandage = npc:getInventory():getFirstTypeRecurse("Base.Bandage")
+        if persistence.isDevGateComplete(MEDICAL_GATE_KEY) then
+            reportScenario = "medical_reload"
+            if persistence.isDevGateComplete(MEDICAL_RELOAD_GATE_KEY) then
+                report("SKIP", "already_passed", "next=medical_supplies")
+                phase = "FINISHED"
+                stop()
+                return
+            end
+            if not bodyPart:bandaged() then
+                fail(
+                    "saved_treatment_not_restored",
+                    "injury=" .. tostring(bodyPart:getType())
+                        .. " bandaged=" .. tostring(bodyPart:bandaged())
+                )
+                return
+            end
+            local presentation = tostring(bridge:refreshTestNpcHealthPresentation())
+            if string.find(presentation, "HEALTH_PRESENTATION", 1, true) ~= 1 then
+                fail("bandage_visual_restore_failed", presentation)
+                return
+            end
+            persistence.markDevGateComplete(MEDICAL_RELOAD_GATE_KEY)
+            report(
+                "PASS",
+                "treatment_restored",
+                "injury=" .. tostring(bodyPart:getType())
+                    .. " bandaged=" .. tostring(bodyPart:bandaged())
+                    .. " health=" .. tostring(bridge:getTestNpcHealth())
+                    .. " presentation=" .. presentation
+                    .. " next=medical_supplies"
+            )
+            phase = "FINISHED"
+            stop()
+            return
+        end
+
+        bandage = KnoxMedicalSupplies.findTreatment(npc)
         if bandage == nil then
-            fail("no_bandage_in_inventory", "loot_gate_item_missing=true")
+            local plan = KnoxMedicalSupplies.plan(npc, 8)
+            fail(
+                "no_treatment_item_in_inventory",
+                "fallbackPlan=" .. tostring(plan.kind)
+                    .. " source=" .. tostring(plan.item and plan.item:getFullType() or "none")
+            )
             return
         end
         action = KnoxNpcApplyBandage:new(npc, bandage, bodyPart)
@@ -229,6 +260,11 @@ update = function()
             fail("treatment_without_timed_action", tostring(bodyPart:getType()))
             return
         end
+        local presentation = tostring(bridge:refreshTestNpcHealthPresentation())
+        if string.find(presentation, "HEALTH_PRESENTATION", 1, true) ~= 1 then
+            fail("bandage_visual_failed", presentation)
+            return
+        end
         local persistence = rawget(_G, "KnoxPersistence")
         local saved, record = persistence.captureActiveTestSurvivor()
         if not saved then
@@ -247,7 +283,8 @@ update = function()
                 .. " bandaged=" .. tostring(bodyPart:bandaged())
                 .. " bleeding=" .. tostring(bodyPart:bleeding())
                 .. " inventoryItems=" .. tostring(npc:getInventory():getItems():size())
-                .. " next=needs_food_water"
+                .. " presentation=" .. presentation
+                .. " next=medical_reload"
         )
         phase = "FINISHED"
         stop()
@@ -289,6 +326,7 @@ local function onGameStart()
     bandage = nil
     action = nil
     actionObserved = false
+    reportScenario = "medical"
     stop()
     Events.OnTick.Add(update)
 end

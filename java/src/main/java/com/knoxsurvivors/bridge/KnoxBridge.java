@@ -101,6 +101,10 @@ public final class KnoxBridge {
         return npcRegistry.healthOne();
     }
 
+    public String refreshTestNpcHealthPresentation() {
+        return npcRegistry.refreshHealthPresentationOne();
+    }
+
     public int getTestNpcInjuredPartCount() {
         return npcRegistry.injuredPartsOne();
     }

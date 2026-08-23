@@ -4,7 +4,7 @@ _G.KnoxDevTests = KnoxDevTests
 -- Development builds run one narrow automated gate at a time.
 -- This file never reads or writes Project Zomboid sandbox options.
 KnoxDevTests.enabled = true
-KnoxDevTests.activeScenario = "health"
+KnoxDevTests.activeScenario = "medical"
 KnoxDevTests.sandboxOverrides = false
 KnoxDevTests.obstacleScanRadius = 12
 -- A locked-window test permanently smashes one nearby window in the loaded save.
@@ -22,7 +22,9 @@ KnoxDevTests.scenarios = {
     equipment = "LIVE_PASS_HIBERNATING",
     combat = "LIVE_PASS_HIBERNATING",
     loot = "LIVE_PASS_HIBERNATING",
-    health = "ACTIVE_NATIVE_INJURY_THEN_RELOAD",
-    medical = "READY_AFTER_HEALTH_RELOAD",
-    persistence = "ACTIVE_ACROSS_EQUIPMENT_INVENTORY_HEALTH",
+    health = "LIVE_PASS_HIBERNATING",
+    medical = "ACTIVE_SELF_TREATMENT_THEN_RELOAD",
+    medical_supplies = "IMPLEMENTED_DORMANT_AFTER_MEDICAL_RELOAD",
+    needs = "ENGINE_STATE_PERSISTENCE_IMPLEMENTED_DORMANT",
+    persistence = "ACTIVE_ACROSS_APPEARANCE_INVENTORY_HEALTH_NEEDS",
 }

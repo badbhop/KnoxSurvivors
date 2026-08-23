@@ -67,9 +67,15 @@ final class KnoxHealthController {
         part.getClass().getMethod("setBleedingTime", float.class).invoke(part, 20.0f);
         damage.getClass().getMethod("calculateOverallHealth").invoke(damage);
         body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, true);
+        String presentation = KnoxHealthPresentation.refresh(body);
         return "CONTROLLED_INJURY injury=ForeArm_L wound=scratch "
             + status(body)
-            + " zombieVulnerable=false";
+            + " zombieVulnerable=false "
+            + presentation;
+    }
+
+    static String refreshPresentation(Object body) throws ReflectiveOperationException {
+        return KnoxHealthPresentation.refresh(body);
     }
 
     static String directZombieAt(Object zombie, Object body) throws ReflectiveOperationException {
