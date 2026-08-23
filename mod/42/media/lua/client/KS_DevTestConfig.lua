@@ -1,14 +1,22 @@
 local KnoxDevTests = rawget(_G, "KnoxDevTests") or {}
 _G.KnoxDevTests = KnoxDevTests
 
--- Development builds run the smallest currently supported scenario automatically.
+-- Development builds run the current controlled obstacle suite automatically.
 -- This file never reads or writes Project Zomboid sandbox options.
 KnoxDevTests.enabled = true
-KnoxDevTests.activeScenario = "movement"
+KnoxDevTests.activeScenario = "obstacle_suite"
 KnoxDevTests.sandboxOverrides = false
+KnoxDevTests.obstacleScanRadius = 12
+-- A locked-window test permanently smashes one nearby window in the loaded save.
+KnoxDevTests.allowDestructiveWindowTest = true
 
 KnoxDevTests.scenarios = {
-    movement = "ACTIVE",
+    movement = "ACTIVE_IN_OBSTACLE_SUITE",
+    door = "ACTIVE_IN_OBSTACLE_SUITE",
+    window_open = "ACTIVE_IN_OBSTACLE_SUITE",
+    window_locked = "ACTIVE_DESTRUCTIVE_IN_OBSTACLE_SUITE",
+    fence = "ACTIVE_IN_OBSTACLE_SUITE",
+    locked_entry = "WAITING_FOR_ALTERNATE_ROUTE_PLANNER",
     equipment = "WAITING_FOR_IMPLEMENTATION",
     combat = "WAITING_FOR_IMPLEMENTATION",
     loot = "WAITING_FOR_IMPLEMENTATION",
@@ -16,4 +24,3 @@ KnoxDevTests.scenarios = {
     medical = "WAITING_FOR_IMPLEMENTATION",
     persistence = "WAITING_FOR_IMPLEMENTATION",
 }
-

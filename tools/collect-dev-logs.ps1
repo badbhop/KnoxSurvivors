@@ -70,6 +70,7 @@ $testResults = @($combinedLines | Where-Object {
 $testPassCount = @($testResults | Where-Object { $_ -match '(?i)status=PASS' }).Count
 $testFailCount = @($testResults | Where-Object { $_ -match '(?i)status=FAIL' }).Count
 $testBlockedCount = @($testResults | Where-Object { $_ -match '(?i)status=BLOCKED' }).Count
+$testSkipCount = @($testResults | Where-Object { $_ -match '(?i)status=SKIP' }).Count
 
 Set-Content -LiteralPath $eventsOutputPath -Value $knoxEvents -Encoding UTF8
 Set-Content -LiteralPath $issuesOutputPath -Value $possibleIssues -Encoding UTF8
@@ -87,6 +88,7 @@ $summary = @(
     "Test passes: $testPassCount"
     "Test failures: $testFailCount"
     "Test blocked: $testBlockedCount"
+    "Test skipped: $testSkipCount"
     "Console extract: $consoleOutputPath"
     "Knox extract: $knoxOutputPath"
     "Issue extract: $issuesOutputPath"
