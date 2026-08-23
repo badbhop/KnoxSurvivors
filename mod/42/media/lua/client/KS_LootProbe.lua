@@ -7,6 +7,8 @@ local MAX_TEST_TICKS = 2400
 local STATUS_INTERVAL_TICKS = 60
 local CONTAINER_SCAN_RADIUS = 24
 local TEST_ITEM_TYPE = "Base.Bandage"
+local VISIBLE_TRANSFER_TICKS = 120
+local LOOT_GATE_KEY = "loot_visible_transfer_v2"
 
 local KnoxNpcInventoryTransferAction = ISInventoryTransferAction:derive(
     "KnoxNpcInventoryTransferAction"
@@ -16,11 +18,27 @@ local KnoxNpcInventoryTransferAction = ISInventoryTransferAction:derive(
 -- off-slot NPC has no loot UI, so preserve the normal action while omitting that UI reference.
 function KnoxNpcInventoryTransferAction:startActionAnim()
     ISInventoryTransferAction.startActionAnim(self)
+    self.knoxLootAnimationRequested = true
     self.selectedContainer = nil
 end
 
+function KnoxNpcInventoryTransferAction:start()
+    ISInventoryTransferAction.start(self)
+    self.knoxRummageSoundStarted = self.loopSound ~= nil
+end
+
 function KnoxNpcInventoryTransferAction:new(character, item, source, destination)
-    return ISInventoryTransferAction.new(self, character, item, source, destination, nil)
+    -- Small items normally transfer in only a handful of ticks. Keep this
+    -- development gate visible long enough to confirm the stock Loot animation
+    -- and rummaging sound on an off-slot IsoPlayer NPC.
+    return ISInventoryTransferAction.new(
+        self,
+        character,
+        item,
+        source,
+        destination,
+        VISIBLE_TRANSFER_TICKS
+    )
 end
 
 local ticks = 0
@@ -174,6 +192,12 @@ local function beginTransfer()
             .. tostring(targetItem:getFullType())
             .. " source="
             .. tostring(sourceContainer:getType())
+            .. " durationTicks="
+            .. tostring(transferAction.maxTime)
+            .. " animationRequested="
+            .. tostring(transferAction.knoxLootAnimationRequested == true)
+            .. " rummageSound="
+            .. tostring(transferAction.knoxRummageSoundStarted == true)
     )
     return true
 end
@@ -212,7 +236,7 @@ update = function()
         print(TAG .. " survivor=" .. tostring(result))
 
         local persistence = rawget(_G, "KnoxPersistence")
-        if persistence.isDevGateComplete("loot") then
+        if persistence.isDevGateComplete(LOOT_GATE_KEY) then
             report("SKIP", "already_passed", "next=health")
             phase = "FINISHED"
             stop()
@@ -290,11 +314,16 @@ update = function()
             return
         end
         persistence.markDevGateComplete("loot")
+        persistence.markDevGateComplete(LOOT_GATE_KEY)
         report(
             "PASS",
             "item_transferred",
             "item=" .. targetItem:getFullType()
                 .. " actionObserved=" .. tostring(actionObserved)
+                .. " animationRequested="
+                .. tostring(transferAction.knoxLootAnimationRequested == true)
+                .. " rummageSound="
+                .. tostring(transferAction.knoxRummageSoundStarted == true)
                 .. " inventoryItems=" .. tostring(destination:getItems():size())
         )
         phase = "FINISHED"
