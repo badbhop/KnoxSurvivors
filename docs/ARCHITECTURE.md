@@ -91,7 +91,24 @@ Each slice is live-tested alone and across save/reload before the next one begin
 Captured route waypoints are not assumed to be unobstructed floor. Before crossing into
 an adjacent square, the traversal layer asks the engine whether that edge contains a
 door, window, window frame, low fence, tall climbable wall, or hard blockage. It pauses
-walking while the normal engine open/climb action owns the body. Locked, barricaded,
-unclimbable, unloaded, and static obstructions produce an explicit route failure instead
-of allowing the survivor to walk in place forever. Smashing or dismantling an obstacle
-is a later decision-layer policy, not part of basic traversal.
+walking while a normal engine interaction or climb state owns the body. Unloaded,
+barricaded, unclimbable, and static obstructions produce an explicit route failure
+instead of allowing the survivor to walk in place forever.
+
+## Building entry policy
+
+Entry selection belongs to the controller; crossing the selected edge belongs to the
+traversal executor. The intended preference is:
+
+1. Try a window first. Open it normally; if it remains closed, smash it and climb through.
+2. If there is no usable window, try the door normally.
+3. If a selected door is locked, search the destination room for a usable window and
+   route to that window instead.
+4. Only when the room has no usable window may the survivor force the door using a real
+   equipped tool or weapon and the normal destruction action.
+
+Barricaded or otherwise unsafe openings may be rejected. Forced entry must preserve
+normal time, noise, equipment, injury, and zombie-attraction consequences. The current
+M1 traversal slice executes window open, smash, and climb states on an already selected
+route edge. Room-wide alternate-entry planning and legitimate door destruction remain
+separate gates; traversal must never delete an obstacle or alter its health directly.

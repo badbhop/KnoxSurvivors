@@ -264,7 +264,7 @@ final class KnoxNpcFactory {
             return "Succeeded";
         }
 
-        String traversal = handleRouteTransition(body, node);
+        String traversal = handleRouteTransition(npc, body, node);
         npc.setMovementTraversalState(traversal);
         if (traversal.startsWith("FAILED_")) {
             clearHumanMovementIntent(body);
@@ -279,7 +279,7 @@ final class KnoxNpcFactory {
         return "ManualRoute";
     }
 
-    private static String handleRouteTransition(Object body, float[] node)
+    private static String handleRouteTransition(KnoxNpc npc, Object body, float[] node)
         throws ReflectiveOperationException {
         if ((Boolean) invoke(body, "isClimbing")) {
             return "CLIMBING";
@@ -359,18 +359,59 @@ final class KnoxNpcFactory {
 
         Object window = invoke(currentSquare, "getWindowTo", currentSquare.getClass(), nextSquare);
         if (window != null) {
+            npc.useTraversalInteractionTarget(window);
+            if ((Boolean) invoke(window, "isBarricaded")) {
+                return "FAILED_BARRICADED_WINDOW";
+            }
+
+            String characterState = String.valueOf(invoke(body, "getCurrentStateName"));
+            if (characterState.contains("OpenWindowState")) {
+                return "OPENING_WINDOW";
+            }
+            if (characterState.contains("SmashWindowState")) {
+                return "SMASHING_WINDOW";
+            }
+
+            boolean open = (Boolean) invoke(window, "IsOpen");
+            boolean smashed = (Boolean) invoke(window, "isSmashed");
             boolean canClimb = (Boolean) invoke(
                 window,
                 "canClimbThrough",
                 classFor(body, "zombie.characters.IsoGameCharacter"),
                 body
             );
-            if (!canClimb) {
-                return "FAILED_BLOCKED_WINDOW";
-            }
             faceObject(body, window);
             if ((Boolean) invoke(body, "shouldBeTurning")) {
                 return "TURNING_TO_WINDOW";
+            }
+
+            if (!open && !smashed) {
+                String stage = npc.getTraversalInteractionStage();
+                if ("NONE".equals(stage)) {
+                    invoke(
+                        body,
+                        "openWindow",
+                        classFor(body, "zombie.iso.objects.IsoWindow"),
+                        window
+                    );
+                    npc.setTraversalInteractionStage("OPEN_ATTEMPTED");
+                    return "STARTED_WINDOW_OPEN";
+                }
+                if ("OPEN_ATTEMPTED".equals(stage)) {
+                    invoke(
+                        body,
+                        "smashWindow",
+                        classFor(body, "zombie.iso.objects.IsoWindow"),
+                        window
+                    );
+                    npc.setTraversalInteractionStage("SMASH_ATTEMPTED");
+                    return "STARTED_WINDOW_SMASH";
+                }
+                return "FAILED_WINDOW_SMASH_DID_NOT_BREAK";
+            }
+
+            if (!canClimb) {
+                return "FAILED_BLOCKED_WINDOW";
             }
             invoke(
                 body,
