@@ -36,17 +36,27 @@ if ($null -eq $gameProcess) {
 else {
     Set-Content -LiteralPath $monitorStatusPath -Value "Monitoring Project Zomboid process $($gameProcess.Id)." -Encoding UTF8
     $liveTestStatusPath = Join-Path ([string]$session.runDirectory) 'live-test-status.txt'
+    $liveRenderStatusPath = Join-Path ([string]$session.runDirectory) 'live-render-status.txt'
     Set-Content -LiteralPath $liveTestStatusPath -Value 'Waiting for Knox Test Lab result.' -Encoding UTF8
+    Set-Content -LiteralPath $liveRenderStatusPath -Value 'No local-player alpha corruption observed.' -Encoding UTF8
 
     while ($null -ne (Get-Process -Id $gameProcess.Id -ErrorAction SilentlyContinue)) {
         $consolePath = [string]$session.consoleLogPath
         if (Test-Path -LiteralPath $consolePath) {
-            $latestResult = Get-Content -LiteralPath $consolePath -Tail 500 -ErrorAction SilentlyContinue |
+            $recentLines = @(Get-Content -LiteralPath $consolePath -Tail 1000 -ErrorAction SilentlyContinue |
                 ForEach-Object { $_ -replace "`0", '' } |
-                Where-Object { $_ -match '(?i)\[KnoxSurvivors\]\[TestLab\].*RESULT scenario=' } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            $latestResult = $recentLines |
+                Where-Object { $_ -match '(?i)\[KnoxSurvivors\]\[(TestLab|Autonomy)\].*RESULT scenario=' } |
                 Select-Object -Last 1
             if (-not [string]::IsNullOrWhiteSpace($latestResult)) {
                 Set-Content -LiteralPath $liveTestStatusPath -Value $latestResult -Encoding UTF8
+            }
+            $renderFailure = $recentLines |
+                Where-Object { $_ -match '(?i)RENDER_DIAGNOSTICS.*local0=[^}]*alpha=0(?:\.0+)?,targetAlpha=0(?:\.0+)?' } |
+                Select-Object -Last 1
+            if (-not [string]::IsNullOrWhiteSpace($renderFailure)) {
+                Set-Content -LiteralPath $liveRenderStatusPath -Value $renderFailure -Encoding UTF8
             }
         }
         Start-Sleep -Seconds 2

@@ -50,6 +50,11 @@ PASS proves both stable identities made and completed decisions through separate
 controllers, then captures both records. The controllers continue running after PASS so
 longer observation can reveal combat, looting, needs, or navigation problems.
 
+The development launcher monitors the run and collects its logs when the game closes.
+`summary.txt` now counts both Test Lab and autonomy results, local-player alpha corruption,
+alternate-entry events, and movement/combat failures. This keeps the next diagnosis
+available without requiring the tester to copy console output manually.
+
 The social result sequence is `meeting`, `greeting-approach`, `greeting-started`, then
 `travel-group`. A two-person travelling group is not a faction. Adding a third consenting
 survivor is the faction boundary.
