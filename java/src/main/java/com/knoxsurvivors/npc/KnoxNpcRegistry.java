@@ -166,6 +166,72 @@ public final class KnoxNpcRegistry {
         return activeNpc == null ? null : activeNpc.getBody();
     }
 
+    public synchronized String prepareHealthGateOne() {
+        if (activeNpc == null) {
+            return "HEALTH_GATE_FAILED NONE_ACTIVE";
+        }
+        try {
+            return KnoxHealthController.prepareControlledAttack(activeNpc.getBody());
+        } catch (Throwable throwable) {
+            return failure("HEALTH_GATE_FAILED", throwable);
+        }
+    }
+
+    public synchronized float healthOne() {
+        if (activeNpc == null) {
+            throw new IllegalStateException("No active NPC");
+        }
+        try {
+            return KnoxHealthController.health(activeNpc.getBody());
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to read NPC health", exception);
+        }
+    }
+
+    public synchronized int injuredPartsOne() {
+        if (activeNpc == null) {
+            throw new IllegalStateException("No active NPC");
+        }
+        try {
+            return KnoxHealthController.injuredParts(activeNpc.getBody());
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to read NPC injuries", exception);
+        }
+    }
+
+    public synchronized int bleedingPartsOne() {
+        if (activeNpc == null) {
+            throw new IllegalStateException("No active NPC");
+        }
+        try {
+            return KnoxHealthController.bleedingParts(activeNpc.getBody());
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to read NPC bleeding", exception);
+        }
+    }
+
+    public synchronized String normalizeMinorInjuryOne() {
+        if (activeNpc == null) {
+            return "CONTROLLED_INJURY_FAILED NONE_ACTIVE";
+        }
+        try {
+            return KnoxHealthController.normalizeToTreatableScratch(activeNpc.getBody());
+        } catch (Throwable throwable) {
+            return failure("CONTROLLED_INJURY_FAILED", throwable);
+        }
+    }
+
+    public synchronized String directZombieAtOne(Object zombie) {
+        if (activeNpc == null) {
+            return "ZOMBIE_DIRECT_FAILED NONE_ACTIVE";
+        }
+        try {
+            return KnoxHealthController.directZombieAt(zombie, activeNpc.getBody());
+        } catch (Throwable throwable) {
+            return failure("ZOMBIE_DIRECT_FAILED", throwable);
+        }
+    }
+
     public synchronized String seedAndEquipOne() {
         if (activeNpc == null) {
             return "EQUIP_FAILED NONE_ACTIVE";
@@ -237,6 +303,9 @@ public final class KnoxNpcRegistry {
             restoreExactPosition(activeNpc.getBody(), before);
             before.appearance.restore(activeNpc.getBody());
             before.inventory.restore(activeNpc.getBody());
+            if (before.health != null) {
+                before.health.restore(activeNpc.getBody());
+            }
             KnoxSurvivorRecord after = captureRecord(activeNpc);
             boolean matches = before.encode().equals(after.encode());
             lastRecord = after;
@@ -280,12 +349,16 @@ public final class KnoxNpcRegistry {
             restoreExactPosition(activeNpc.getBody(), record);
             record.appearance.restore(activeNpc.getBody());
             record.inventory.restore(activeNpc.getBody());
+            if (record.health != null) {
+                record.health.restore(activeNpc.getBody());
+            }
             lastRecord = captureRecord(activeNpc);
             String result = "RESTORED id=" + record.id
                 + " location=" + record.x + "," + record.y + "," + record.z
                 + " items=" + record.inventory.size()
                 + " primary=" + record.inventory.primaryType()
-                + " appearance=" + record.appearance.summary();
+                + " appearance=" + record.appearance.summary()
+                + " " + (record.health == null ? "health=migrated_default" : record.health.summary());
             KnoxAgent.writeLog("NPC persistence " + result);
             return result;
         } catch (Throwable throwable) {
@@ -394,7 +467,8 @@ public final class KnoxNpcRegistry {
             positionX,
             positionY,
             KnoxAppearanceSnapshot.capture(body),
-            KnoxInventorySnapshot.capture(body)
+            KnoxInventorySnapshot.capture(body),
+            KnoxHealthSnapshot.capture(body)
         );
     }
 

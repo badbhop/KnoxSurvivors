@@ -5,7 +5,7 @@ import java.util.Base64;
 
 /** Versioned persistent identity and world state independent of an IsoPlayer body. */
 final class KnoxSurvivorRecord {
-    static final int SCHEMA_VERSION = 3;
+    static final int SCHEMA_VERSION = 4;
 
     final String id;
     final int x;
@@ -15,6 +15,7 @@ final class KnoxSurvivorRecord {
     final float positionY;
     final KnoxAppearanceSnapshot appearance;
     final KnoxInventorySnapshot inventory;
+    final KnoxHealthSnapshot health;
 
     KnoxSurvivorRecord(
         String id,
@@ -24,7 +25,8 @@ final class KnoxSurvivorRecord {
         float positionX,
         float positionY,
         KnoxAppearanceSnapshot appearance,
-        KnoxInventorySnapshot inventory
+        KnoxInventorySnapshot inventory,
+        KnoxHealthSnapshot health
     ) {
         this.id = id;
         this.x = x;
@@ -34,6 +36,7 @@ final class KnoxSurvivorRecord {
         this.positionY = positionY;
         this.appearance = appearance;
         this.inventory = inventory;
+        this.health = health;
     }
 
     String encode() {
@@ -45,7 +48,8 @@ final class KnoxSurvivorRecord {
             + "|" + positionX
             + "|" + positionY
             + "|" + text(appearance.encode())
-            + "|" + text(inventory.encode());
+            + "|" + text(inventory.encode())
+            + "|" + text(health.encode());
     }
 
     static KnoxSurvivorRecord decode(String encoded) {
@@ -62,10 +66,24 @@ final class KnoxSurvivorRecord {
                 x + 0.5f,
                 y + 0.5f,
                 KnoxAppearanceSnapshot.decode(untext(fields[5])),
-                KnoxInventorySnapshot.decode(untext(fields[6]))
+                KnoxInventorySnapshot.decode(untext(fields[6])),
+                null
             );
         }
-        if (version != SCHEMA_VERSION || fields.length != 9) {
+        if (version == 3 && fields.length == 9) {
+            return new KnoxSurvivorRecord(
+                untext(fields[1]),
+                Integer.parseInt(fields[2]),
+                Integer.parseInt(fields[3]),
+                Integer.parseInt(fields[4]),
+                Float.parseFloat(fields[5]),
+                Float.parseFloat(fields[6]),
+                KnoxAppearanceSnapshot.decode(untext(fields[7])),
+                KnoxInventorySnapshot.decode(untext(fields[8])),
+                null
+            );
+        }
+        if (version != SCHEMA_VERSION || fields.length != 10) {
             throw new IllegalArgumentException("Unsupported survivor record schema");
         }
         return new KnoxSurvivorRecord(
@@ -76,7 +94,8 @@ final class KnoxSurvivorRecord {
             Float.parseFloat(fields[5]),
             Float.parseFloat(fields[6]),
             KnoxAppearanceSnapshot.decode(untext(fields[7])),
-            KnoxInventorySnapshot.decode(untext(fields[8]))
+            KnoxInventorySnapshot.decode(untext(fields[8])),
+            KnoxHealthSnapshot.decode(untext(fields[9]))
         );
     }
 

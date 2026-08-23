@@ -94,6 +94,18 @@ public final class KnoxBridgeBootstrap {
                     BRIDGE.abandonForEnvironmentChange();
                 }
 
+                // The main thread can replace LuaManager.env while changing
+                // worlds. Recheck immediately before asking the exposer to use
+                // that static environment.
+                if (luaManagerClass.getField("env").get(null) != environment) {
+                    previousEnvironment = null;
+                    previousExposer = null;
+                    previousLoadedCount = -1;
+                    stablePolls = 0;
+                    sleep();
+                    continue;
+                }
+
                 exposer.getClass().getMethod("setExposed", Class.class)
                     .invoke(exposer, KnoxBridge.class);
                 exposer.getClass().getMethod("exposeLikeJava", Class.class)
@@ -108,9 +120,17 @@ public final class KnoxBridgeBootstrap {
                     KnoxAgent.writeLog("Lua bridge exposed global=KnoxJavaBridge");
                 }
             } catch (Throwable throwable) {
+                Throwable cause = unwrapInvocationTarget(throwable);
+                if (isLuaEnvironmentTransition(cause)) {
+                    previousEnvironment = null;
+                    previousExposer = null;
+                    previousLoadedCount = -1;
+                    stablePolls = 0;
+                    sleep();
+                    continue;
+                }
                 long now = System.currentTimeMillis();
                 if (now - lastFailureLogMillis >= 5_000L) {
-                    Throwable cause = unwrapInvocationTarget(throwable);
                     KnoxAgent.writeLog(
                         "Lua bridge exposure attempt failed: "
                             + cause.getClass().getName()
@@ -132,6 +152,12 @@ public final class KnoxBridgeBootstrap {
             current = ((InvocationTargetException) current).getCause();
         }
         return current;
+    }
+
+    private static boolean isLuaEnvironmentTransition(Throwable throwable) {
+        return throwable instanceof NullPointerException
+            && throwable.getMessage() != null
+            && throwable.getMessage().contains("because \"env\" is null");
     }
 
     private static Object getInheritedField(Object target, String fieldName)

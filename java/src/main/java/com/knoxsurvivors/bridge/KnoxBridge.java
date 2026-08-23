@@ -93,6 +93,30 @@ public final class KnoxBridge {
         return npcRegistry.activeCharacterForAction();
     }
 
+    public String prepareTestNpcHealthGate() {
+        return npcRegistry.prepareHealthGateOne();
+    }
+
+    public float getTestNpcHealth() {
+        return npcRegistry.healthOne();
+    }
+
+    public int getTestNpcInjuredPartCount() {
+        return npcRegistry.injuredPartsOne();
+    }
+
+    public int getTestNpcBleedingPartCount() {
+        return npcRegistry.bleedingPartsOne();
+    }
+
+    public String normalizeTestNpcMinorInjury() {
+        return npcRegistry.normalizeMinorInjuryOne();
+    }
+
+    public String directTestZombieAtNpc(Object zombie) {
+        return npcRegistry.directZombieAtOne(zombie);
+    }
+
     public String captureTestNpcRecord() {
         return npcRegistry.capturePersistentRecord();
     }
