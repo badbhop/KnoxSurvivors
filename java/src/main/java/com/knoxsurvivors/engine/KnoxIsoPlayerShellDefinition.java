@@ -47,7 +47,7 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(61);
 
-            output.writeShort(10);
+            output.writeShort(14);
             writeUtf8(output, INTERNAL_NAME);                 // 1
             writeClass(output, 1);                            // 2
             writeUtf8(output, SUPER_INTERNAL_NAME);           // 3
@@ -57,13 +57,20 @@ public final class KnoxIsoPlayerShellDefinition {
             writeNameAndType(output, 5, 6);                   // 7
             writeMethodRef(output, 4, 7);                     // 8
             writeUtf8(output, "Code");                       // 9
+            writeUtf8(output, "getCharacterInputComponent"); // 10
+            writeUtf8(
+                output,
+                "()Lzombie/characters/component/CharacterInputComponent;"
+            );                                                 // 11
+            writeUtf8(output, "isLocalPlayer");               // 12
+            writeUtf8(output, "()Z");                         // 13
 
             output.writeShort(0x0021);
             output.writeShort(2);
             output.writeShort(4);
             output.writeShort(0);
             output.writeShort(0);
-            output.writeShort(1);
+            output.writeShort(3);
 
             output.writeShort(0x0001);
             output.writeShort(5);
@@ -87,6 +94,33 @@ public final class KnoxIsoPlayerShellDefinition {
             });
             output.writeShort(0);
             output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(10);
+            output.writeShort(11);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x01, (byte) 0xB0 });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(12);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
             output.writeShort(0);
         }
         return bytes.toByteArray();

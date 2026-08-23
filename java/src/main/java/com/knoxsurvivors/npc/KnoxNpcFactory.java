@@ -51,8 +51,8 @@ final class KnoxNpcFactory {
         Object body = constructor.newInstance(cell, descriptor, x, y, z, false);
 
         isoPlayerClass.getMethod("setNpc", boolean.class).invoke(body, true);
-        isoPlayerClass.getField("remote").setBoolean(body, true);
-        isoPlayerClass.getField("playerIndex").setInt(body, -1);
+        isoPlayerClass.getField("remote").setBoolean(body, false);
+        isoPlayerClass.getField("playerIndex").setInt(body, 0);
         isoPlayerClass.getField("serverPlayerIndex").setInt(body, -1);
         isoPlayerClass.getMethod("setOnlineID", short.class).invoke(body, (short) -1);
         isoPlayerClass.getMethod("setUsername", String.class).invoke(body, "Knox Survivor");
@@ -97,9 +97,16 @@ final class KnoxNpcFactory {
     }
 
     static String tickMovement(KnoxNpc npc) throws ReflectiveOperationException {
-        Object pathfinder = invoke(npc.getBody(), "getPathFindBehavior2");
+        Object body = npc.getBody();
+        Object pathfinder = invoke(body, "getPathFindBehavior2");
         Object result = invoke(pathfinder, "update");
-        return result instanceof Enum<?> ? ((Enum<?>) result).name() : String.valueOf(result);
+        String state = result instanceof Enum<?> ? ((Enum<?>) result).name() : String.valueOf(result);
+        if ("Working".equals(state)) {
+            applyHumanMovementIntent(body, pathfinder);
+        } else {
+            clearHumanMovementIntent(body);
+        }
+        return state;
     }
 
     static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
@@ -120,6 +127,13 @@ final class KnoxNpcFactory {
         boolean pathRunning = (Boolean) invoke(body, "isPathfindRunning");
         boolean movingUsingPath = (Boolean) invoke(pathfinder, "isMovingUsingPathFind");
         boolean localSlotsSafe = !isInLocalPlayerSlots(body);
+        boolean remote = classFor(body, ISO_PLAYER_CLASS).getField("remote").getBoolean(body);
+        int playerIndex = classFor(body, ISO_PLAYER_CLASS).getField("playerIndex").getInt(body);
+        Object moveDirection = classFor(body, ISO_PLAYER_CLASS).getField("playerMoveDir").get(body);
+        float moveX = moveDirection.getClass().getField("x").getFloat(moveDirection);
+        float moveY = moveDirection.getClass().getField("y").getFloat(moveDirection);
+        Object inputComponent = invoke(body, "getCharacterInputComponent");
+        Object aiComponent = getAiComponent(body);
         return "ACTIVE "
             + npc.describe()
             + " class="
@@ -147,7 +161,86 @@ final class KnoxNpcFactory {
             + " movingUsingPath="
             + movingUsingPath
             + " localSlotsSafe="
-            + localSlotsSafe;
+            + localSlotsSafe
+            + " remote="
+            + remote
+            + " playerIndex="
+            + playerIndex
+            + " moveDir="
+            + moveX
+            + ","
+            + moveY
+            + " inputComponent="
+            + (inputComponent != null)
+            + " aiComponent="
+            + (aiComponent != null);
+    }
+
+    private static void applyHumanMovementIntent(Object body, Object pathfinder)
+        throws ReflectiveOperationException {
+        float x = ((Number) invoke(body, "getX")).floatValue();
+        float y = ((Number) invoke(body, "getY")).floatValue();
+        boolean hasNext = pathfinder.getClass().getField("pathNextIsSet").getBoolean(pathfinder);
+        float nextX = hasNext
+            ? pathfinder.getClass().getField("pathNextX").getFloat(pathfinder)
+            : ((Number) invoke(pathfinder, "getTargetX")).floatValue();
+        float nextY = hasNext
+            ? pathfinder.getClass().getField("pathNextY").getFloat(pathfinder)
+            : ((Number) invoke(pathfinder, "getTargetY")).floatValue();
+        float deltaX = nextX - x;
+        float deltaY = nextY - y;
+        float length = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        if (length <= 0.001f) {
+            clearHumanMovementIntent(body);
+            return;
+        }
+
+        float directionX = deltaX / length;
+        float directionY = deltaY / length;
+        Class<?> isoPlayerClass = classFor(body, ISO_PLAYER_CLASS);
+        Object moveDirection = isoPlayerClass.getField("playerMoveDir").get(body);
+        moveDirection.getClass().getField("x").setFloat(moveDirection, directionX);
+        moveDirection.getClass().getField("y").setFloat(moveDirection, directionY);
+        invoke(body, "setJustMoved", boolean.class, true);
+        invoke(
+            body,
+            "setDirectionAngle",
+            float.class,
+            (float) Math.toDegrees(Math.atan2(directionY, directionX))
+        );
+
+        Object aiComponent = getAiComponent(body);
+        if (aiComponent != null) {
+            Object controlVars = invoke(aiComponent, "getHumanControlVars");
+            if (controlVars != null) {
+                controlVars.getClass().getField("justMoved").setBoolean(controlVars, true);
+                controlVars.getClass().getField("running").setBoolean(controlVars, false);
+            }
+        }
+    }
+
+    private static void clearHumanMovementIntent(Object body) throws ReflectiveOperationException {
+        Class<?> isoPlayerClass = classFor(body, ISO_PLAYER_CLASS);
+        Object moveDirection = isoPlayerClass.getField("playerMoveDir").get(body);
+        moveDirection.getClass().getField("x").setFloat(moveDirection, 0.0f);
+        moveDirection.getClass().getField("y").setFloat(moveDirection, 0.0f);
+        invoke(body, "setJustMoved", boolean.class, false);
+
+        Object aiComponent = getAiComponent(body);
+        if (aiComponent != null) {
+            Object controlVars = invoke(aiComponent, "getHumanControlVars");
+            if (controlVars != null) {
+                controlVars.getClass().getField("justMoved").setBoolean(controlVars, false);
+                controlVars.getClass().getField("running").setBoolean(controlVars, false);
+                controlVars.getClass().getField("strafeX").setFloat(controlVars, 0.0f);
+                controlVars.getClass().getField("strafeY").setFloat(controlVars, 0.0f);
+            }
+        }
+    }
+
+    private static Object getAiComponent(Object body) throws ReflectiveOperationException {
+        Class<?> aiComponentClass = classFor(body, "zombie.characters.component.AIComponent");
+        return invoke(body, "getECSComponent", Class.class, aiComponentClass);
     }
 
     private static void applyTestMarker(Object body) throws ReflectiveOperationException {
@@ -173,6 +266,11 @@ final class KnoxNpcFactory {
     }
 
     private static void safelyRemove(Object body) throws ReflectiveOperationException {
+        try {
+            clearHumanMovementIntent(body);
+        } catch (Throwable ignored) {
+            // World teardown must continue even if the old input components are already gone.
+        }
         Class<?> modelManagerClass = classFor(body, "zombie.core.skinnedmodel.ModelManager");
         Object modelManager = modelManagerClass.getField("instance").get(null);
         invoke(modelManager, "Remove", classFor(body, "zombie.characters.IsoGameCharacter"), body);
