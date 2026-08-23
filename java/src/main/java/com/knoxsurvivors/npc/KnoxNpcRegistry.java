@@ -22,6 +22,7 @@ public final class KnoxNpcRegistry {
 
         try {
             activeNpc = KnoxNpcFactory.create("ks-test-1", square);
+            activeNpc.clearMovementRoute();
             movementRequested = false;
             movementControllerState = "NotStarted";
             String result = "SPAWNED " + activeNpc.describe() + " localSlotsUnchanged=true";
@@ -53,6 +54,7 @@ public final class KnoxNpcRegistry {
                 + 0.5f;
             movementTargetZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
             KnoxNpcFactory.moveTo(activeNpc, square);
+            activeNpc.clearMovementRoute();
             movementRequested = true;
             movementControllerState = "Working";
             String result = "MOVE_STARTED " + movementDescription();

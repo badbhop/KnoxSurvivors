@@ -5,6 +5,8 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Constructs the smallest off-slot IsoPlayer body needed for the M1 lifecycle probe. */
 final class KnoxNpcFactory {
@@ -99,10 +101,18 @@ final class KnoxNpcFactory {
     static String tickMovement(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
         Object pathfinder = invoke(body, "getPathFindBehavior2");
+
+        if (npc.hasMovementRoute()) {
+            return driveCapturedRoute(npc);
+        }
+
         Object result = invoke(pathfinder, "update");
         String state = result instanceof Enum<?> ? ((Enum<?>) result).name() : String.valueOf(result);
         if ("Working".equals(state)) {
-            applyHumanMovementIntent(body, pathfinder);
+            if (captureEngineRoute(npc, body, pathfinder)) {
+                return driveCapturedRoute(npc);
+            }
+            clearHumanMovementIntent(body);
         } else {
             clearHumanMovementIntent(body);
         }
@@ -126,7 +136,13 @@ final class KnoxNpcFactory {
         boolean pathing = (Boolean) invoke(body, "isPathing");
         boolean pathRunning = (Boolean) invoke(body, "isPathfindRunning");
         boolean movingUsingPath = (Boolean) invoke(pathfinder, "isMovingUsingPathFind");
+        boolean pathAttached = invoke(body, "getPath2") != null;
         boolean localSlotsSafe = !isInLocalPlayerSlots(body);
+        boolean localPlayer = (Boolean) invoke(body, "isLocalPlayer");
+        boolean deferredMovement = (Boolean) invoke(body, "isDeferredMovementEnabled");
+        boolean animationUpdating = (Boolean) invoke(body, "isAnimationUpdatingThisFrame");
+        Class<?> gameClientClass = classFor(body, "zombie.network.GameClient");
+        boolean gameClient = gameClientClass.getField("client").getBoolean(null);
         boolean remote = classFor(body, ISO_PLAYER_CLASS).getField("remote").getBoolean(body);
         int playerIndex = classFor(body, ISO_PLAYER_CLASS).getField("playerIndex").getInt(body);
         Object moveDirection = classFor(body, ISO_PLAYER_CLASS).getField("playerMoveDir").get(body);
@@ -169,8 +185,12 @@ final class KnoxNpcFactory {
             + pathRunning
             + " movingUsingPath="
             + movingUsingPath
+            + " pathAttached="
+            + pathAttached
             + " localSlotsSafe="
             + localSlotsSafe
+            + " localPlayer="
+            + localPlayer
             + " remote="
             + remote
             + " playerIndex="
@@ -186,20 +206,71 @@ final class KnoxNpcFactory {
             + " inputComponent="
             + (inputComponent != null)
             + " aiComponent="
-            + (aiComponent != null);
+            + (aiComponent != null)
+            + " deferredMovement="
+            + deferredMovement
+            + " animationUpdating="
+            + animationUpdating
+            + " gameClient="
+            + gameClient
+            + " route="
+            + npc.describeMovementRoute();
     }
 
-    private static void applyHumanMovementIntent(Object body, Object pathfinder)
+    private static boolean captureEngineRoute(KnoxNpc npc, Object body, Object pathfinder)
+        throws ReflectiveOperationException {
+        Object path = invoke(body, "getPath2");
+        if (path == null) {
+            return false;
+        }
+
+        int size = ((Number) invoke(path, "size")).intValue();
+        if (size <= 0) {
+            return false;
+        }
+
+        List<float[]> nodes = new ArrayList<>(size);
+        for (int index = 0; index < size; index++) {
+            Object node = invoke(path, "getNode", int.class, index);
+            nodes.add(
+                new float[] {
+                    node.getClass().getField("x").getFloat(node),
+                    node.getClass().getField("y").getFloat(node),
+                    node.getClass().getField("z").getFloat(node),
+                }
+            );
+        }
+
+        invoke(pathfinder, "cancel");
+        invoke(body, "setPath2", classFor(body, "zombie.pathfind.Path"), null);
+        npc.setMovementRoute(nodes);
+        return true;
+    }
+
+    private static String driveCapturedRoute(KnoxNpc npc) throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        float x = ((Number) invoke(body, "getX")).floatValue();
+        float y = ((Number) invoke(body, "getY")).floatValue();
+
+        float[] node = npc.currentMovementNode();
+        while (node != null && distance(x, y, node[0], node[1]) <= 0.35f) {
+            npc.advanceMovementRoute();
+            node = npc.currentMovementNode();
+        }
+
+        if (node == null) {
+            clearHumanMovementIntent(body);
+            return "Succeeded";
+        }
+
+        applyHumanMovementIntent(body, node[0], node[1]);
+        return "ManualRoute";
+    }
+
+    private static void applyHumanMovementIntent(Object body, float nextX, float nextY)
         throws ReflectiveOperationException {
         float x = ((Number) invoke(body, "getX")).floatValue();
         float y = ((Number) invoke(body, "getY")).floatValue();
-        boolean hasNext = pathfinder.getClass().getField("pathNextIsSet").getBoolean(pathfinder);
-        float nextX = hasNext
-            ? pathfinder.getClass().getField("pathNextX").getFloat(pathfinder)
-            : ((Number) invoke(pathfinder, "getTargetX")).floatValue();
-        float nextY = hasNext
-            ? pathfinder.getClass().getField("pathNextY").getFloat(pathfinder)
-            : ((Number) invoke(pathfinder, "getTargetY")).floatValue();
         float deltaX = nextX - x;
         float deltaY = nextY - y;
         float length = (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
@@ -267,6 +338,12 @@ final class KnoxNpcFactory {
     private static Object getAiComponent(Object body) throws ReflectiveOperationException {
         Class<?> aiComponentClass = classFor(body, "zombie.characters.component.AIComponent");
         return invoke(body, "getECSComponent", Class.class, aiComponentClass);
+    }
+
+    private static float distance(float firstX, float firstY, float secondX, float secondY) {
+        float deltaX = firstX - secondX;
+        float deltaY = firstY - secondY;
+        return (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
     }
 
     private static void applyTestMarker(Object body) throws ReflectiveOperationException {
