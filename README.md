@@ -1,47 +1,71 @@
 # Knox Survivors
 
-Knox Survivors is an NPC mod for Project Zomboid Build 42.20. It is being rebuilt from scratch around actual `IsoPlayer` characters instead of disguising zombies as survivors.
+Knox Survivors is being rebuilt from scratch for Project Zomboid 42.20. The new version
+uses `IsoPlayer`-based NPCs instead of the old zombie shell.
 
-The idea is to make survivors feel like other people trying to live in the same world as you. They should be able to move around, fight zombies, find and carry supplies, use doors and windows, barricade buildings, get hurt, recover, and remember who they are between sessions. Later on this will grow into recruitment, groups, camps, base jobs, relationships, and factions.
+The goal is to make survivors feel like real people living in the same world as the
+player. They will eventually travel, loot, equip what they find, fight zombies, treat
+injuries, build relationships, follow orders, work around bases, form camps, and keep
+living when they are outside the loaded area.
 
-This is still very early development. It is not ready to play as a normal mod yet.
+This is an early test build, not a normal playable release yet.
 
-## Where it is now
+## What works right now
 
-The Lua mod and Java agent load correctly in Build 42.20. We can spawn one visible human NPC without taking over the real player's slot. The current test is getting that NPC to walk to a nearby location using the game's pathfinding.
+- One visible human NPC can exist without replacing the real player.
+- Basic pathfinding and movement work.
+- The NPC can use doors, climb low fences, and handle open or locked windows.
+- The NPC can compare carried melee weapons and equip the better one.
+- New survivors receive randomized skin, hair, names, and real starting clothes.
+- Some survivors have a small chance to start with a bag.
+- Identity, map position, appearance, clothing, inventory, and equipped hands now have a
+  first persistence implementation.
 
-Population is deliberately locked to one survivor while the basic character lifecycle is being worked out. Movement, saving, loading, cell changes, and clean removal all need to be reliable before combat or looting is added.
+Combat, autonomous looting, medical care, recruitment, base work, factions, and normal
+population spawning are not playable yet. The development population is still limited
+to one test survivor.
 
-The development checkpoints are kept in [docs/MILESTONES.md](docs/MILESTONES.md), and the main technical decisions are explained in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-The automatically enabled local test harness is documented in [docs/DEVELOPMENT_TESTING.md](docs/DEVELOPMENT_TESTING.md).
+## Current test
 
-## Project folders
+The active test checks appearance, equipment, and save persistence.
 
-- `mod/` — Lua files and the Project Zomboid mod package
-- `java/` — Java agent and engine-side NPC code
-- `docs/` — milestones and architecture notes
-- `tools/` — local build, launch, and log collection scripts
+On the first load, a survivor appears near the player, receives randomized player-style
+clothing, chooses between a hammer and baseball bat, and has their temporary NPC body
+rebuilt. On the second load of the same save, they should return on the same tile with
+the same skin, hair, clothing, inventory, and equipped bat.
 
-## Building locally
+If you are testing, please report:
 
-Copy `gradle.properties.example` to `local.properties` and fill in the Project Zomboid and Workshop paths for your machine. `local.properties` stays local and is not committed.
+- whether the survivor appeared clothed;
+- whether their skin, hair, clothing, and colors stayed the same after reload;
+- whether they returned in the same place holding the baseball bat;
+- any repeated errors from `console.txt` or `KnoxIsoPlayer.log`.
 
-Build and deploy the development version with:
+Use a backed-up or disposable save. This is experimental engine work and may break a
+test save.
 
-```powershell
-.\gradlew.bat clean build deployDev
-```
+## Running a development test
 
-For the normal test loop, use `Run Knox Survivors Dev.bat`. It builds the latest code, deploys the mod, checks the Java-agent launcher setup, starts the game, and collects the new logs after the game closes.
+1. Clone or download the repository after receiving testing permission.
+2. Copy `gradle.properties.example` to `local.properties` and set the four paths for your
+   computer.
+3. Build and deploy with `./gradlew.bat clean build deployDev`.
+4. Configure `ProjectZomboid64.bat` to load the built Java agent. Ask in the Knox
+   Survivors Discord if your test setup has not already been prepared.
+5. Run `Run Knox Survivors Dev.bat`, enable Knox Survivors on the test save, and load it.
+6. Quit normally after the result so Project Zomboid writes the survivor record.
+7. Launch again and load the same save to test restoration.
 
-To build and check the deployment without launching Project Zomboid:
+The normal Steam Play button does not load the Java agent used by this rebuild.
 
-```powershell
-.\tools\run-dev.ps1 -BuildOnly
-```
+More technical details are in [Development Testing](docs/DEVELOPMENT_TESTING.md),
+[Milestones](docs/MILESTONES.md), and [Architecture](docs/ARCHITECTURE.md).
 
-The Java side requires the development launcher because the agent has to be loaded when Project Zomboid starts. Steam's normal Play button does not do that.
+Discord: https://discord.gg/cTfd2WWD4s
 
-## Current support
+## Permission
 
-Development is focused on single-player Build 42.20. Multiplayer NPC AI is not supported at this stage.
+Knox Survivors is publicly visible, but it is not open source. No permission is granted
+to use, copy, modify, redistribute, repackage, publish, or reuse the project without
+asking first. Authorized testers may only use it for the testing permission they were
+given. See [LICENSE.md](LICENSE.md).
