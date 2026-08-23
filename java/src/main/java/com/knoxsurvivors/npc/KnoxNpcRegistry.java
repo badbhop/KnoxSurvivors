@@ -93,7 +93,7 @@ public final class KnoxNpcRegistry {
         }
         if ("Succeeded".equals(movementControllerState)
             || movementControllerState.startsWith("Failed")) {
-            return movementControllerState;
+            return finishMovementRequest(movementControllerState);
         }
 
         try {
@@ -107,6 +107,10 @@ public final class KnoxNpcRegistry {
                         + movementDescription()
                 );
             }
+            if ("Succeeded".equals(movementControllerState)
+                || movementControllerState.startsWith("Failed")) {
+                return finishMovementRequest(movementControllerState);
+            }
             return movementControllerState;
         } catch (Throwable throwable) {
             Throwable cause = rootCause(throwable);
@@ -117,8 +121,14 @@ public final class KnoxNpcRegistry {
                     + ": "
                     + cause.getMessage()
             );
+            movementRequested = false;
             return "TICK_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
         }
+    }
+
+    private String finishMovementRequest(String terminalState) {
+        movementRequested = false;
+        return terminalState;
     }
 
     public synchronized String removeOne() {

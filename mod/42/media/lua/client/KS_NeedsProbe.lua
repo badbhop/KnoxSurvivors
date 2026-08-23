@@ -152,11 +152,15 @@ end
 
 local function finishGate()
     local state = KnoxSurvivorNeeds.snapshot(npc)
-    if not ate or not drank or not actionObserved then
+    local hungerSatisfied = state.hunger < KnoxSurvivorNeeds.thresholds.hunger
+    local thirstSatisfied = state.thirst < KnoxSurvivorNeeds.thresholds.thirst
+    if not hungerSatisfied or not thirstSatisfied or not actionObserved then
         fail(
-            "required_actions_missing",
+            "required_consumption_result_missing",
             "ate=" .. tostring(ate)
                 .. " drank=" .. tostring(drank)
+                .. " hungerSatisfied=" .. tostring(hungerSatisfied)
+                .. " thirstSatisfied=" .. tostring(thirstSatisfied)
                 .. " actionObserved=" .. tostring(actionObserved)
         )
         return
@@ -179,7 +183,7 @@ local function finishGate()
     persistence.markDevGateComplete(NEEDS_GATE_KEY)
     report(
         "PASS",
-        "drank_ate_and_saved",
+        "needs_satisfied_and_saved",
         KnoxSurvivorNeeds.describe(state)
             .. " ate=" .. tostring(ate)
             .. " drank=" .. tostring(drank)
@@ -271,6 +275,12 @@ update = function()
     end
 
     if phase ~= "DECIDING" then
+        return
+    end
+    local currentState = KnoxSurvivorNeeds.snapshot(npc)
+    if currentState.hunger < KnoxSurvivorNeeds.thresholds.hunger
+        and currentState.thirst < KnoxSurvivorNeeds.thresholds.thirst then
+        finishGate()
         return
     end
     if ate and drank then

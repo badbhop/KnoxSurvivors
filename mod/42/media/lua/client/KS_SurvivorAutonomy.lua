@@ -10,6 +10,7 @@ local THREAT_RADIUS = 10
 local SUPPLY_SCAN_RADIUS = 20
 local ROAM_MIN_RADIUS = 6
 local ROAM_MAX_RADIUS = 18
+local AUTONOMY_GATE_KEY = "needs_consume_v1"
 
 local ticks = 0
 local state = "IDLE"
@@ -167,7 +168,29 @@ local function findRoamTarget(character)
             end
         end
     end
-    return nil
+
+    -- Random probes can all land on walls, unloaded squares, or other blocked tiles.
+    -- Fall back to reservoir-sampling every loaded standable square in the roam ring.
+    local fallback = nil
+    local candidates = 0
+    for dx = -ROAM_MAX_RADIUS, ROAM_MAX_RADIUS do
+        for dy = -ROAM_MAX_RADIUS, ROAM_MAX_RADIUS do
+            if math.max(math.abs(dx), math.abs(dy)) >= ROAM_MIN_RADIUS then
+                local square = getCell():getGridSquare(
+                    origin:getX() + dx,
+                    origin:getY() + dy,
+                    origin:getZ()
+                )
+                if square ~= nil and square:canStand() then
+                    candidates = candidates + 1
+                    if ZombRand(candidates) == 0 then
+                        fallback = square
+                    end
+                end
+            end
+        end
+    end
+    return fallback
 end
 
 local function beginCombat(bridge, target)
@@ -218,10 +241,16 @@ end
 local function beginRoam(bridge)
     local target = findRoamTarget(npc)
     if target == nil then
+        if ticks % STATUS_INTERVAL_TICKS == 0 then
+            print(TAG .. " roam-deferred=no_loaded_standable_target")
+        end
         return false
     end
     local result = tostring(bridge:moveTestNpc(target))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
+        if ticks % STATUS_INTERVAL_TICKS == 0 then
+            print(TAG .. " roam-deferred=" .. result)
+        end
         return false
     end
     state = "ROAMING"
@@ -279,7 +308,32 @@ update = function()
         return
     end
 
+    if state == "WAIT_GATE" then
+        local persistence = rawget(_G, "KnoxPersistence")
+        if persistence == nil
+            or not persistence.isDevGateComplete(AUTONOMY_GATE_KEY) then
+            return
+        end
+        npc = bridge:getTestNpcCharacterForAction()
+        if npc ~= nil then
+            npc:setZombiesDontAttack(false)
+            state = "IDLE"
+            print(TAG .. " state=IDLE promoted=needs_consumption_pass")
+        else
+            state = "WAIT_START"
+        end
+        return
+    end
+
     if state == "WAIT_START" then
+        local activeNpc = bridge:getTestNpcCharacterForAction()
+        if activeNpc ~= nil then
+            npc = activeNpc
+            npc:setZombiesDontAttack(false)
+            state = "IDLE"
+            print(TAG .. " state=IDLE adopted=already_restored_survivor")
+            return
+        end
         local restored, result = restoreSurvivor(bridge)
         if not restored then
             if string.find(tostring(result), "saved_square_not_loaded", 1, true) == nil then
@@ -387,16 +441,22 @@ end
 
 local function onGameStart()
     local config = rawget(_G, "KnoxDevTests")
-    if config == nil or config.enabled ~= true or config.activeScenario ~= "autonomy" then
+    if config == nil or config.enabled ~= true then
         return
     end
     local persistence = rawget(_G, "KnoxPersistence")
-    if persistence == nil or not persistence.isDevGateComplete("needs_consume_reload_v1") then
-        print(TAG .. " blocked=needs_reload_gate_missing")
+    local autonomyGateComplete = persistence ~= nil
+        and persistence.isDevGateComplete(AUTONOMY_GATE_KEY)
+    local explicitlySelected = config.activeScenario == "autonomy"
+    local promotedFromNeeds = config.activeScenario == "needs"
+    if not explicitlySelected and not promotedFromNeeds then
         return
     end
+    if explicitlySelected and not autonomyGateComplete then
+        print(TAG .. " blocked=needs_consumption_gate_missing")
+    end
     ticks = 0
-    state = "WAIT_START"
+    state = autonomyGateComplete and "WAIT_START" or "WAIT_GATE"
     npc = nil
     pendingSupply = nil
     activeAction = nil
