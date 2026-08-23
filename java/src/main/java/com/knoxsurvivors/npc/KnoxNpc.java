@@ -74,6 +74,10 @@ public final class KnoxNpc {
         }
     }
 
+    Object getTraversalInteractionTarget() {
+        return traversalInteractionTarget;
+    }
+
     String getTraversalInteractionStage() {
         return traversalInteractionStage;
     }

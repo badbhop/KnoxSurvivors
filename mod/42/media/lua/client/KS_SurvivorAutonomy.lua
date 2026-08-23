@@ -1,24 +1,20 @@
-require "TimedActions/ISTimedActionQueue"
-require "Util/AdjacentFreeTileFinder"
-require "KS_SurvivorNeeds"
-require "KS_SurvivorInventoryActions"
+require "KS_SurvivorAutonomyController"
+require "KS_CharacterAppearance"
+require "KS_Persistence"
+require "KS_SurvivorRelationships"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
-local THINK_INTERVAL_TICKS = 30
+local IDS = { "ks-test-1", "ks-test-2" }
 local STATUS_INTERVAL_TICKS = 300
-local THREAT_RADIUS = 10
-local SUPPLY_SCAN_RADIUS = 20
-local ROAM_MIN_RADIUS = 6
-local ROAM_MAX_RADIUS = 18
-local AUTONOMY_GATE_KEY = "needs_consume_v1"
+local RELATIONSHIP_INTERVAL_TICKS = 60
+local DECISIONS_REQUIRED = 2
+local GATE_KEY = "multi_survival_autonomy_v1"
 
+local controllers = {}
+local reservations = { threats = {}, items = {}, containers = {} }
 local ticks = 0
-local state = "IDLE"
-local npc = nil
-local pendingSupply = nil
-local activeAction = nil
-local activeDecision = nil
-local combatTarget = nil
+local populationReady = false
+local passReported = false
 local update
 
 local function stop()
@@ -33,271 +29,163 @@ local function squareForRecord(bridge, record)
             bridge:getTestNpcRecordY(record),
             bridge:getTestNpcRecordZ(record)
     end)
-    if not success then
-        return nil, x
+    if not success or getCell() == nil then
+        return nil, tostring(x)
     end
     return getCell():getGridSquare(x, y, z), tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
 end
 
-local function restoreSurvivor(bridge)
-    local persistence = rawget(_G, "KnoxPersistence")
-    local record = persistence ~= nil and persistence.getTestRecord() or nil
-    if record == nil then
-        return false, "missing_persistent_survivor"
-    end
-    local square, location = squareForRecord(bridge, record)
-    if square == nil then
-        return false, "saved_square_not_loaded location=" .. tostring(location)
-    end
-    local success, result = pcall(function()
-        return bridge:restoreTestNpcRecord(record, square)
-    end)
-    return success and string.find(tostring(result), "RESTORED", 1, true) == 1, result
-end
-
-local function distanceSquared(a, b)
-    local dx = a:getX() - b:getX()
-    local dy = a:getY() - b:getY()
+local function distanceSquared(first, second)
+    local dx = first:getX() - second:getX()
+    local dy = first:getY() - second:getY()
     return dx * dx + dy * dy
 end
 
-local function nearestThreat(character)
-    local square = character:getCurrentSquare()
-    local cell = getCell()
-    if square == nil or cell == nil then
-        return nil
-    end
-    local nearest = nil
-    local nearestDistance = THREAT_RADIUS * THREAT_RADIUS
-    local zombies = cell:getZombieList()
-    for index = 0, zombies:size() - 1 do
-        local zombie = zombies:get(index)
-        local zombieSquare = zombie:getCurrentSquare()
-        if not zombie:isDead() and zombieSquare ~= nil and zombieSquare:getZ() == square:getZ() then
-            local distance = distanceSquared(square, zombieSquare)
-            if distance <= nearestDistance then
-                nearest = zombie
-                nearestDistance = distance
-            end
-        end
-    end
-    return nearest
-end
-
-local function itemMatchesGoal(item, goal, character)
-    if goal == "find_food" then
-        return KnoxSurvivorNeeds.isSafeFood(item)
-    end
-    if goal == "find_water" then
-        local thirst = character:getStats():get(CharacterStat.THIRST)
-        return KnoxSurvivorNeeds.isWaterItem(item, thirst >= 0.90)
-    end
-    if goal == "find_medical" then
-        return item:isCanBandage()
-            or item:getFullType() == "Base.Sheet"
-            or (item:IsClothing() and item:getFabricType() == "Cotton")
-    end
-    return false
-end
-
-local function findSupply(character, goal)
-    local origin = character:getCurrentSquare()
+local function findSpawnSquare(origin)
     if origin == nil or getCell() == nil then
         return nil
     end
-    for radius = 0, SUPPLY_SCAN_RADIUS do
+    local activeCharacters = {}
+    for _, controller in pairs(controllers) do
+        activeCharacters[#activeCharacters + 1] = controller.character
+    end
+    for radius = 6, 14 do
+        local candidates = {}
         for dx = -radius, radius do
             for dy = -radius, radius do
-                if radius == 0 or math.abs(dx) == radius or math.abs(dy) == radius then
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
                     local square = getCell():getGridSquare(
                         origin:getX() + dx,
                         origin:getY() + dy,
                         origin:getZ()
                     )
-                    if square ~= nil then
-                        local objects = square:getObjects()
-                        for objectIndex = 0, objects:size() - 1 do
-                            local object = objects:get(objectIndex)
-                            for containerIndex = 0, object:getContainerCount() - 1 do
-                                local container = object:getContainerByIndex(containerIndex)
-                                if container ~= nil and container:isExistYet() then
-                                    local items = container:getItems()
-                                    for itemIndex = 0, items:size() - 1 do
-                                        local item = items:get(itemIndex)
-                                        if itemMatchesGoal(item, goal, character) then
-                                            local approach = AdjacentFreeTileFinder.Find(square, character)
-                                            if approach ~= nil then
-                                                return {
-                                                    goal = goal,
-                                                    item = item,
-                                                    container = container,
-                                                    object = object,
-                                                    approach = approach,
-                                                }
-                                            end
-                                        end
-                                    end
-                                end
+                    local separated = square ~= nil and square:canStand()
+                    if separated then
+                        for _, character in ipairs(activeCharacters) do
+                            if character:getCurrentSquare() ~= nil
+                                and distanceSquared(square, character:getCurrentSquare()) < 25 then
+                                separated = false
+                                break
                             end
                         end
                     end
+                    if separated then
+                        candidates[#candidates + 1] = square
+                    end
                 end
             end
+        end
+        if #candidates > 0 then
+            return candidates[ZombRand(#candidates) + 1]
         end
     end
     return nil
 end
 
-local function findRoamTarget(character)
-    local origin = character:getCurrentSquare()
-    if origin == nil or getCell() == nil then
-        return nil
+local function createSurvivor(bridge, id, origin)
+    local square = findSpawnSquare(origin)
+    if square == nil then
+        return nil, "no_loaded_spawn_square"
     end
-    for _ = 1, 40 do
-        local radius = ROAM_MIN_RADIUS + ZombRand(ROAM_MAX_RADIUS - ROAM_MIN_RADIUS + 1)
-        local dx = ZombRand(radius * 2 + 1) - radius
-        local dy = ZombRand(radius * 2 + 1) - radius
-        if math.max(math.abs(dx), math.abs(dy)) >= ROAM_MIN_RADIUS then
-            local square = getCell():getGridSquare(
-                origin:getX() + dx,
-                origin:getY() + dy,
-                origin:getZ()
-            )
-            if square ~= nil and square:canStand() then
-                return square
-            end
-        end
+    local result = tostring(bridge:spawnNpc(id, square))
+    if string.find(result, "SPAWNED", 1, true) ~= 1 then
+        return nil, result
     end
+    local character = bridge:getNpcCharacter(id)
+    if character == nil then
+        bridge:removeNpc(id)
+        return nil, "spawned_character_unavailable"
+    end
+    local appearanceOk, appearance = KnoxCharacterAppearance.randomizeNewSurvivor(bridge, id)
+    if not appearanceOk then
+        bridge:removeNpc(id)
+        return nil, "appearance_failed=" .. tostring(appearance)
+    end
+    local equipped = tostring(bridge:seedAndEquipNpc(id))
+    local saved, evidence = KnoxPersistence.captureActiveSurvivor(id)
+    if string.find(equipped, "EQUIPPED", 1, true) ~= 1 or not saved then
+        bridge:removeNpc(id)
+        return nil, "initialization_failed equipment=" .. equipped .. " save=" .. tostring(evidence)
+    end
+    return character, "SPAWNED " .. id .. " " .. tostring(appearance)
+end
 
-    -- Random probes can all land on walls, unloaded squares, or other blocked tiles.
-    -- Fall back to reservoir-sampling every loaded standable square in the roam ring.
-    local fallback = nil
-    local candidates = 0
-    for dx = -ROAM_MAX_RADIUS, ROAM_MAX_RADIUS do
-        for dy = -ROAM_MAX_RADIUS, ROAM_MAX_RADIUS do
-            if math.max(math.abs(dx), math.abs(dy)) >= ROAM_MIN_RADIUS then
-                local square = getCell():getGridSquare(
-                    origin:getX() + dx,
-                    origin:getY() + dy,
-                    origin:getZ()
-                )
-                if square ~= nil and square:canStand() then
-                    candidates = candidates + 1
-                    if ZombRand(candidates) == 0 then
-                        fallback = square
-                    end
+local function restoreSurvivor(bridge, id, record)
+    local square, location = squareForRecord(bridge, record)
+    if square == nil then
+        return nil, "saved_square_not_loaded=" .. tostring(location)
+    end
+    local result = tostring(bridge:restoreTestNpcRecord(record, square))
+    if string.find(result, "RESTORED", 1, true) ~= 1 then
+        return nil, result
+    end
+    return bridge:getNpcCharacter(id), result
+end
+
+local function ensurePopulation(bridge, player)
+    for _, id in ipairs(IDS) do
+        if controllers[id] == nil then
+            local character = bridge:getNpcCharacter(id)
+            local result = "ADOPTED_ACTIVE"
+            if character == nil then
+                local record = KnoxPersistence.getRecord(id)
+                if record ~= nil then
+                    character, result = restoreSurvivor(bridge, id, record)
+                else
+                    character, result = createSurvivor(bridge, id, player:getCurrentSquare())
                 end
             end
+            if character == nil then
+                return false, "id=" .. id .. " " .. tostring(result)
+            end
+            controllers[id] = KnoxAutonomyController.new(
+                id,
+                character,
+                bridge,
+                reservations,
+                ticks
+            )
+            print(TAG .. " id=" .. id .. " state=ACTIVE " .. tostring(result))
         end
     end
-    return fallback
+    return bridge:getActiveNpcCount() == #IDS,
+        "active=" .. tostring(bridge:getActiveNpcCount())
+            .. " ids=" .. tostring(bridge:getActiveNpcIds())
 end
 
-local function beginCombat(bridge, target)
-    if target == nil or target:getCurrentSquare() == nil then
-        return false
-    end
-    if not npc:getCharacterActions():isEmpty() then
-        ISTimedActionQueue.clear(npc)
-    end
-    local approach = AdjacentFreeTileFinder.Find(target:getCurrentSquare(), npc)
-    if approach == nil then
-        return false
-    end
-    local result = tostring(bridge:beginTestNpcLiveCombat(target, approach))
-    if string.find(result, "COMBAT_STARTED", 1, true) ~= 1 then
-        print(TAG .. " combat-start-failed=" .. result)
-        bridge:resetTestNpcCombat()
-        return false
-    end
-    combatTarget = target
-    pendingSupply = nil
-    activeAction = nil
-    activeDecision = nil
-    state = "COMBAT"
-    print(TAG .. " state=COMBAT " .. result)
-    return true
+local function completedDecisions(controller)
+    return controller.counts.roam
+        + controller.counts.loot
+        + controller.counts.search
+        + controller.counts.needs
+        + controller.counts.combat
 end
 
-local function beginWorldSearch(bridge, decision)
-    local supply = findSupply(npc, decision.kind)
-    if supply == nil then
-        return false
+local function reportPassIfReady(bridge)
+    if passReported then
+        return
     end
-    local result = tostring(bridge:moveTestNpc(supply.approach))
-    if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
-        return false
+    for _, id in ipairs(IDS) do
+        if controllers[id] == nil or completedDecisions(controllers[id]) < DECISIONS_REQUIRED then
+            return
+        end
     end
-    pendingSupply = supply
-    state = "MOVING_TO_SUPPLY"
+    local saved, evidence = KnoxPersistence.captureAllActiveSurvivors()
+    if not saved then
+        print(TAG .. " RESULT status=FAIL reason=capture_all_failed evidence=" .. tostring(evidence))
+        return
+    end
+    KnoxPersistence.markDevGateComplete(GATE_KEY)
+    passReported = true
     print(
         TAG
-            .. " state=MOVING_TO_SUPPLY goal=" .. tostring(supply.goal)
-            .. " item=" .. tostring(supply.item:getFullType())
+            .. " RESULT scenario=survival status=PASS"
+            .. " reason=two_independent_autonomy_controllers"
+            .. " evidence=active=" .. tostring(bridge:getActiveNpcCount())
+            .. " decisions=" .. tostring(completedDecisions(controllers[IDS[1]]))
+            .. "," .. tostring(completedDecisions(controllers[IDS[2]]))
+            .. " saved=" .. tostring(evidence)
     )
-    return true
-end
-
-local function beginRoam(bridge)
-    local target = findRoamTarget(npc)
-    if target == nil then
-        if ticks % STATUS_INTERVAL_TICKS == 0 then
-            print(TAG .. " roam-deferred=no_loaded_standable_target")
-        end
-        return false
-    end
-    local result = tostring(bridge:moveTestNpc(target))
-    if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
-        if ticks % STATUS_INTERVAL_TICKS == 0 then
-            print(TAG .. " roam-deferred=" .. result)
-        end
-        return false
-    end
-    state = "ROAMING"
-    print(TAG .. " state=ROAMING target=" .. target:getX() .. "," .. target:getY())
-    return true
-end
-
-local function think(bridge)
-    local threat = nearestThreat(npc)
-    local decision = KnoxSurvivorNeeds.decide(npc, threat)
-    if decision.kind == "fight" then
-        beginCombat(bridge, decision.target)
-        return
-    end
-    if decision.kind == "eat"
-        or decision.kind == "drink"
-        or decision.kind == "bandage"
-        or decision.kind == "improvise_medical" then
-        activeAction = KnoxSurvivorNeeds.execute(npc, decision)
-        if activeAction ~= nil then
-            activeDecision = decision.kind
-            state = "TIMED_ACTION"
-            print(
-                TAG
-                    .. " state=TIMED_ACTION kind=" .. tostring(decision.kind)
-                    .. " item=" .. tostring(decision.item ~= nil
-                        and decision.item:getFullType()
-                        or decision.supplyPlan.item:getFullType())
-            )
-        end
-        return
-    end
-    if decision.kind == "find_food"
-        or decision.kind == "find_water"
-        or decision.kind == "find_medical" then
-        if not beginWorldSearch(bridge, decision) then
-            beginRoam(bridge)
-        end
-        return
-    end
-    if decision.kind == "rest" or decision.kind == "sleep" then
-        -- Furniture selection and safe sleeping are their own verified gate.
-        -- Until then, stop expending endurance instead of faking recovery.
-        state = "WAITING_TO_RECOVER"
-        return
-    end
-    beginRoam(bridge)
 end
 
 update = function()
@@ -307,176 +195,65 @@ update = function()
     if bridge == nil or player == nil or player:getCurrentSquare() == nil or getCell() == nil then
         return
     end
-
-    if state == "WAIT_GATE" then
-        local persistence = rawget(_G, "KnoxPersistence")
-        if persistence == nil
-            or not persistence.isDevGateComplete(AUTONOMY_GATE_KEY) then
-            return
-        end
-        npc = bridge:getTestNpcCharacterForAction()
-        if npc ~= nil then
-            npc:setZombiesDontAttack(false)
-            state = "IDLE"
-            print(TAG .. " state=IDLE promoted=needs_consumption_pass")
-        else
-            state = "WAIT_START"
-        end
-        return
-    end
-
-    if state == "WAIT_START" then
-        local activeNpc = bridge:getTestNpcCharacterForAction()
-        if activeNpc ~= nil then
-            npc = activeNpc
-            npc:setZombiesDontAttack(false)
-            state = "IDLE"
-            print(TAG .. " state=IDLE adopted=already_restored_survivor")
-            return
-        end
-        local restored, result = restoreSurvivor(bridge)
-        if not restored then
-            if string.find(tostring(result), "saved_square_not_loaded", 1, true) == nil then
-                print(TAG .. " restore-failed=" .. tostring(result))
-                state = "STOPPED"
-                stop()
+    if not populationReady then
+        local ready, evidence = ensurePopulation(bridge, player)
+        if not ready then
+            if ticks % STATUS_INTERVAL_TICKS == 0 then
+                print(TAG .. " waiting=" .. tostring(evidence))
             end
             return
         end
-        npc = bridge:getTestNpcCharacterForAction()
-        if npc == nil then
-            print(TAG .. " restore-failed=npc_character_unavailable")
-            state = "STOPPED"
-            stop()
-            return
-        end
-        npc:setZombiesDontAttack(false)
-        state = "IDLE"
-        print(TAG .. " state=IDLE survivor=" .. tostring(result))
-        return
+        populationReady = true
+        print(TAG .. " state=RUNNING " .. tostring(evidence))
     end
-
-    if npc == nil then
-        return
-    end
-
-    if state ~= "COMBAT" then
-        local threat = nearestThreat(npc)
-        if threat ~= nil and beginCombat(bridge, threat) then
-            return
-        end
-    end
-
-    if state == "COMBAT" then
-        local result = tostring(bridge:tickTestNpcCombat())
-        if string.find(result, "COMBAT_SUCCEEDED", 1, true) == 1 then
-            print(TAG .. " combat-complete=" .. result)
-            combatTarget = nil
-            state = "IDLE"
-            KnoxPersistence.captureActiveTestSurvivor()
-        elseif string.find(result, "COMBAT_FAILED", 1, true) == 1 then
-            print(TAG .. " combat-failed=" .. result)
-            bridge:resetTestNpcCombat()
-            combatTarget = nil
-            state = "IDLE"
-        end
-        return
-    end
-
-    if state == "TIMED_ACTION" then
-        if npc:getCharacterActions():isEmpty() then
-            print(TAG .. " action-complete=" .. tostring(activeDecision))
-            activeAction = nil
-            activeDecision = nil
-            state = "IDLE"
-            KnoxPersistence.captureActiveTestSurvivor()
-        end
-        return
-    end
-
-    if state == "MOVING_TO_SUPPLY" or state == "ROAMING" then
-        local movement = tostring(bridge:tickTestNpc())
-        if movement == "Succeeded" then
-            if state == "MOVING_TO_SUPPLY" and pendingSupply ~= nil then
-                activeAction = KnoxInventoryActions.queueTransfer(
-                    npc,
-                    pendingSupply.item,
-                    pendingSupply.container,
-                    npc:getInventory(),
-                    nil
-                )
-                activeDecision = "loot_" .. tostring(pendingSupply.goal)
-                pendingSupply = nil
-                state = activeAction ~= nil and "TIMED_ACTION" or "IDLE"
-            else
-                state = "IDLE"
+    KnoxSurvivorRelationships.coordinate(controllers, IDS, ticks)
+    for _, id in ipairs(IDS) do
+        local controller = controllers[id]
+        if controller.state ~= "STOPPED" then
+            local success, failure = pcall(function()
+                controller:tick(ticks)
+            end)
+            if not success then
+                controller.counts.failures = controller.counts.failures + 1
+                controller.state = "STOPPED"
+                print(TAG .. " id=" .. id .. " ERROR controller_tick=" .. tostring(failure))
             end
-        elseif string.find(movement, "Failed", 1, true) == 1
-            or string.find(movement, "TICK_FAILED", 1, true) == 1 then
-            pendingSupply = nil
-            state = "IDLE"
         end
-        return
     end
-
-    if state == "WAITING_TO_RECOVER" then
-        if npc:getStats():get(CharacterStat.ENDURANCE) > KnoxSurvivorNeeds.thresholds.lowEndurance
-            and npc:getStats():get(CharacterStat.FATIGUE) < KnoxSurvivorNeeds.thresholds.fatigue then
-            state = "IDLE"
-        end
-        return
-    end
-
-    if state == "IDLE" and ticks % THINK_INTERVAL_TICKS == 0 then
-        think(bridge)
+    reportPassIfReady(bridge)
+    if ticks % RELATIONSHIP_INTERVAL_TICKS == 0 then
+        KnoxSurvivorRelationships.observe(controllers, IDS, ticks)
     end
     if ticks % STATUS_INTERVAL_TICKS == 0 then
-        print(
-            TAG
-                .. " status state=" .. tostring(state)
-                .. " " .. KnoxSurvivorNeeds.describe(KnoxSurvivorNeeds.snapshot(npc))
-        )
+        print(TAG .. " render " .. tostring(bridge:getRenderDiagnostics()))
+        for _, id in ipairs(IDS) do
+            print(TAG .. " status " .. controllers[id]:status())
+        end
     end
 end
 
 local function onGameStart()
     local config = rawget(_G, "KnoxDevTests")
-    if config == nil or config.enabled ~= true then
+    if config == nil or config.enabled ~= true
+        or (config.activeScenario ~= "survival" and config.activeScenario ~= "autonomy") then
         return
-    end
-    local persistence = rawget(_G, "KnoxPersistence")
-    local autonomyGateComplete = persistence ~= nil
-        and persistence.isDevGateComplete(AUTONOMY_GATE_KEY)
-    local explicitlySelected = config.activeScenario == "autonomy"
-    local promotedFromNeeds = config.activeScenario == "needs"
-    if not explicitlySelected and not promotedFromNeeds then
-        return
-    end
-    if explicitlySelected and not autonomyGateComplete then
-        print(TAG .. " blocked=needs_consumption_gate_missing")
     end
     ticks = 0
-    state = autonomyGateComplete and "WAIT_START" or "WAIT_GATE"
-    npc = nil
-    pendingSupply = nil
-    activeAction = nil
-    activeDecision = nil
-    combatTarget = nil
+    controllers = {}
+    reservations = { threats = {}, items = {}, containers = {} }
+    KnoxSurvivorRelationships.resetRuntime()
+    populationReady = false
+    passReported = false
     stop()
     Events.OnTick.Add(update)
+    print(TAG .. " START survivors=2 combat=true needs=true looting=true equipment=true")
 end
 
 local function onMainMenuEnter()
-    if npc ~= nil and not npc:getCharacterActions():isEmpty() then
-        ISTimedActionQueue.clear(npc)
+    for _, controller in pairs(controllers) do
+        controller:shutdown()
     end
-    local bridge = rawget(_G, "KnoxJavaBridge")
-    if bridge ~= nil then
-        bridge:resetTestNpcCombat()
-    end
-    if KnoxPersistence ~= nil then
-        KnoxPersistence.captureActiveTestSurvivor()
-    end
+    KnoxPersistence.captureAllActiveSurvivors()
     stop()
 end
 

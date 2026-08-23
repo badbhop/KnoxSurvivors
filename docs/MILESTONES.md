@@ -51,10 +51,28 @@ M2 is complete when the survivor can independently:
 - path to, open, and loot a reachable container;
 - preserve resulting health, equipment, and inventory state across reload.
 
+The current integration gate runs this planner for two persistent identities at once.
+Each owns its own action state, movement request, combat target, timers, and counters;
+world-item and zombie reservations prevent both controllers claiming one target.
+
 ## M3 — World interaction
 
 Success means the survivor can safely use doors and windows, climb permitted obstacles, and barricade one valid window using real carried materials and normal world actions.
 
+The active integration now includes room-aware locked-door recovery: preserve the
+container goal, try a usable perimeter window through normal open/smash/climb behavior,
+then attack the door with the equipped weapon only when no window route succeeds. State
+deadlines cancel stalled movement and timed actions and release their reservations.
+
 ## Later milestones
 
 Recruitment, orders, base work, camps, factions, raids, away teams, vehicles, interfaces, and multiplayer authority are rebuilt incrementally after the core human lifecycle is stable.
+
+Stable survivor IDs accumulate first/last meeting, nearby time, repeat meetings, and
+shared survival activity. Two survivors can explicitly agree to form a travelling group.
+An established group may invite a lone survivor through a separate consent dialogue.
+Three members are necessary but not sufficient for faction formation: the newest member
+must survive at least one day with the group and relationship history must show nearby
+time or shared survival activity. Faction base
+areas are a later integration and should reuse Build 42 safehouse boundaries if engine
+inspection confirms they can safely represent NPC ownership.

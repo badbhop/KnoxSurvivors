@@ -110,6 +110,16 @@ final class KnoxNpcRuntime {
         }
     }
 
+    String cancelMovement() {
+        try {
+            KnoxNpcFactory.cancelMovement(npc);
+            resetMovement();
+            return "MOVE_CANCELLED " + npc.describe();
+        } catch (Throwable throwable) {
+            return failure("MOVE_CANCEL_FAILED", throwable);
+        }
+    }
+
     boolean hasTraversalEvidence(String state) {
         return npc.hasMovementTraversalEvidence(state);
     }

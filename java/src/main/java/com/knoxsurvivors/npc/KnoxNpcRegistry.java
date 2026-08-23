@@ -75,6 +75,11 @@ public final class KnoxNpcRegistry {
         return runtime == null ? "IDLE" : runtime.tickMovement();
     }
 
+    public synchronized String cancelMove(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime == null ? "MOVE_CANCEL_FAILED NONE_ACTIVE" : runtime.cancelMovement();
+    }
+
     public synchronized String removeOne() {
         return remove(TEST_SURVIVOR_ID);
     }
@@ -115,6 +120,21 @@ public final class KnoxNpcRegistry {
 
     public synchronized String beginLiveCombat(String id, Object zombie, Object approachSquare) {
         return beginCombat(id, zombie, approachSquare, true);
+    }
+
+    public synchronized String beginLockedDoorCombat(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "COMBAT_FAILED NONE_ACTIVE";
+        }
+        try {
+            return runtime.combat().beginLockedDoor(
+                runtime.npc(),
+                runtime.npc().getTraversalInteractionTarget()
+            );
+        } catch (Throwable throwable) {
+            return failure("COMBAT_FAILED", throwable);
+        }
     }
 
     private String beginCombat(String id, Object zombie, Object approachSquare, boolean live) {
@@ -271,6 +291,21 @@ public final class KnoxNpcRegistry {
             String result = equipped + " items=" + record.inventory.size();
             KnoxAgent.writeLog("NPC equipment " + result);
             return result;
+        } catch (Throwable throwable) {
+            return failure("EQUIP_FAILED", throwable);
+        }
+    }
+
+    public synchronized String equipBest(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "EQUIP_FAILED NONE_ACTIVE";
+        }
+        try {
+            String equipped = KnoxEquipmentController.equipBestMelee(runtime.npc().getBody());
+            runtime.setLastRecord(captureRecord(runtime.npc()));
+            KnoxAgent.writeLog("NPC equipment id=" + id + " " + equipped);
+            return equipped;
         } catch (Throwable throwable) {
             return failure("EQUIP_FAILED", throwable);
         }
@@ -454,6 +489,29 @@ public final class KnoxNpcRegistry {
 
     public synchronized String activeIds() {
         return String.join(",", activeNpcs.keySet());
+    }
+
+    public synchronized String renderDiagnostics() {
+        if (activeNpcs.isEmpty()) {
+            return "RENDER_DIAGNOSTICS NONE_ACTIVE";
+        }
+        StringBuilder result = new StringBuilder("RENDER_DIAGNOSTICS");
+        for (Map.Entry<String, KnoxNpcRuntime> entry : activeNpcs.entrySet()) {
+            try {
+                result.append(" [")
+                    .append(entry.getKey())
+                    .append(' ')
+                    .append(KnoxNpcFactory.describeRenderBinding(entry.getValue().npc()))
+                    .append(']');
+            } catch (Throwable throwable) {
+                result.append(" [")
+                    .append(entry.getKey())
+                    .append(" ERROR ")
+                    .append(rootCause(throwable).getMessage())
+                    .append(']');
+            }
+        }
+        return result.toString();
     }
 
     public synchronized String equipmentStatus() {

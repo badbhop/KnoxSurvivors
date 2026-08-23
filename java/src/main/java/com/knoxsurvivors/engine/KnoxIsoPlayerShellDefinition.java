@@ -47,7 +47,7 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(61);
 
-            output.writeShort(21);
+            output.writeShort(33);
             writeUtf8(output, INTERNAL_NAME);                 // 1
             writeClass(output, 1);                            // 2
             writeUtf8(output, SUPER_INTERNAL_NAME);           // 3
@@ -74,13 +74,25 @@ public final class KnoxIsoPlayerShellDefinition {
             writeMethodRef(output, 4, 17);                      // 18
             writeUtf8(output, "setAngleFromAim");              // 19
             writeUtf8(output, "()V");                          // 20
+            writeUtf8(output, "update");                       // 21
+            writeNameAndType(output, 21, 20);                   // 22
+            writeMethodRef(output, 4, 22);                      // 23
+            writeUtf8(output, "getInstance");                  // 24
+            writeNameAndType(output, 24, 31);                   // 25
+            writeMethodRef(output, 4, 25);                      // 26
+            writeUtf8(output, "setInstance");                  // 27
+            writeUtf8(output, "(Lzombie/characters/IsoPlayer;)V"); // 28
+            writeNameAndType(output, 27, 28);                   // 29
+            writeMethodRef(output, 4, 29);                      // 30
+            writeUtf8(output, "()Lzombie/characters/IsoPlayer;"); // 31
+            writeUtf8(output, "updateLOS");                    // 32
 
             output.writeShort(0x0021);
             output.writeShort(2);
             output.writeShort(4);
             output.writeShort(0);
             output.writeShort(0);
-            output.writeShort(5);
+            output.writeShort(7);
 
             output.writeShort(0x0001);
             output.writeShort(5);
@@ -163,6 +175,48 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(1);
             output.writeInt(1);
             output.writeByte(0xB1);
+            output.writeShort(0);
+            output.writeShort(0);
+
+            // Only a real local player owns a visibility channel. The inherited
+            // updateLOS iterates every moving object and writes its playerIndex alpha
+            // channel from this character's point of view. An off-slot NPC using the
+            // render channel 0 would therefore fade the actual player and other NPCs.
+            output.writeShort(0x0001);
+            output.writeShort(32);
+            output.writeShort(20);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(13);
+            output.writeShort(0);
+            output.writeShort(1);
+            output.writeInt(1);
+            output.writeByte(0xB1);
+            output.writeShort(0);
+            output.writeShort(0);
+
+            // IsoPlayer.updateInternal2 assigns the receiver to the engine's global
+            // IsoPlayer.instance even when isLocalPlayer() is false. Preserve the
+            // actual local player around an off-slot shell update so later camera,
+            // rendering, UI, and Lua calls cannot resolve an NPC as "the player".
+            output.writeShort(0x0001);
+            output.writeShort(21);
+            output.writeShort(20);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(25);
+            output.writeShort(1);
+            output.writeShort(2);
+            output.writeInt(13);
+            output.write(new byte[] {
+                (byte) 0xB8, 0x00, 0x1A,
+                0x4C,
+                0x2A,
+                (byte) 0xB7, 0x00, 0x17,
+                0x2B,
+                (byte) 0xB8, 0x00, 0x1E,
+                (byte) 0xB1,
+            });
             output.writeShort(0);
             output.writeShort(0);
 

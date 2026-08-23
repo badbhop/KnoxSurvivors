@@ -66,7 +66,6 @@ final class KnoxNpcFactory {
         invoke(cell, "addMovingObject", classFor(body, "zombie.iso.IsoMovingObject"), body);
         Object modelManager = modelManagerClass.getField("instance").get(null);
         invoke(modelManager, "Add", classFor(body, "zombie.characters.IsoGameCharacter"), body);
-        applyTestMarker(body);
 
         if (!sameLocalPlayers(localPlayersBefore, snapshotLocalPlayers(isoPlayerClass))) {
             safelyRemove(body);
@@ -95,6 +94,15 @@ final class KnoxNpcFactory {
             y,
             z
         );
+    }
+
+    static void cancelMovement(KnoxNpc npc) throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        Object pathfinder = invoke(body, "getPathFindBehavior2");
+        invoke(pathfinder, "cancel");
+        invoke(body, "setPath2", classFor(body, "zombie.pathfind.Path"), null);
+        npc.clearMovementRoute();
+        clearHumanMovementIntent(body);
     }
 
     static void moveToRangeFrom(
@@ -189,7 +197,6 @@ final class KnoxNpcFactory {
 
     static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
-        applyTestMarker(body);
         Object cell = invoke(body, "getCell");
         Object currentSquare = invoke(body, "getCurrentSquare");
         Object movingSquare = invoke(body, "getMovingSquare");
@@ -283,6 +290,46 @@ final class KnoxNpcFactory {
             + gameClient
             + " route="
             + npc.describeMovementRoute();
+    }
+
+    static String describeRenderBinding(KnoxNpc npc) throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        Class<?> isoPlayerClass = classFor(body, ISO_PLAYER_CLASS);
+        Object instance = isoPlayerClass.getMethod("getInstance").invoke(null);
+        Object players = isoPlayerClass.getField("players").get(null);
+        Object localPlayer = Array.get(players, 0);
+        return "instanceIsLocal0="
+            + (instance == localPlayer)
+            + " local0="
+            + describeRenderObject(localPlayer)
+            + " npc="
+            + describeRenderObject(body);
+    }
+
+    private static String describeRenderObject(Object character)
+        throws ReflectiveOperationException {
+        if (character == null) {
+            return "null";
+        }
+        int playerIndex = classFor(character, ISO_PLAYER_CLASS)
+            .getField("playerIndex")
+            .getInt(character);
+        return character.getClass().getSimpleName()
+            + "{index="
+            + playerIndex
+            + ",invisible="
+            + invoke(character, "isInvisible")
+            + ",spriteInvisible="
+            + invoke(character, "isSpriteInvisible")
+            + ",alpha="
+            + invoke(character, "getAlpha", int.class, 0)
+            + ",targetAlpha="
+            + invoke(character, "getTargetAlpha", int.class, 0)
+            + ",activeModel="
+            + invoke(character, "hasActiveModel")
+            + ",modelManager="
+            + invoke(character, "isAddedToModelManager")
+            + "}";
     }
 
     private static boolean captureEngineRoute(KnoxNpc npc, Object body, Object pathfinder)
@@ -404,6 +451,7 @@ final class KnoxNpcFactory {
 
         Object door = invoke(currentSquare, "getDoorTo", currentSquare.getClass(), nextSquare);
         if (door != null) {
+            npc.useTraversalInteractionTarget(door);
             boolean open = (Boolean) invoke(door, "IsOpen");
             if (open) {
                 return "CLEAR";
@@ -707,28 +755,6 @@ final class KnoxNpcFactory {
         float deltaX = firstX - secondX;
         float deltaY = firstY - secondY;
         return (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    }
-
-    private static void applyTestMarker(Object body) throws ReflectiveOperationException {
-        invoke(body, "setAlphaAndTarget", float.class, 1.0f);
-        invoke(body, "setAlphaAndTarget", int.class, float.class, 0, 1.0f);
-        invoke(body, "setOutlineHighlight", int.class, boolean.class, 0, true);
-        invoke(
-            body,
-            "setOutlineHighlightCol",
-            int.class,
-            float.class,
-            float.class,
-            float.class,
-            float.class,
-            0,
-            0.1f,
-            1.0f,
-            0.1f,
-            1.0f
-        );
-        invoke(body, "setOutlineThickness", float.class, 3.0f);
-        invoke(body, "setHaloNote", String.class, "KNOX NPC TEST");
     }
 
     private static void safelyRemove(Object body) throws ReflectiveOperationException {

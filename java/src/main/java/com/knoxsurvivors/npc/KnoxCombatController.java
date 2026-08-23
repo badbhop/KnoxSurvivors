@@ -25,6 +25,7 @@ final class KnoxCombatController {
     private boolean attackAnimationObserved;
     private int aimTicks;
     private boolean directStateFallbackUsed;
+    private boolean obstacleTarget;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -34,6 +35,49 @@ final class KnoxCombatController {
     String beginLive(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
         return begin(activeNpc, zombie, approachSquare, false);
+    }
+
+    String beginLockedDoor(KnoxNpc activeNpc, Object door)
+        throws ReflectiveOperationException {
+        if (activeNpc == null) {
+            return "COMBAT_FAILED NONE_ACTIVE";
+        }
+        if (door == null || !inherits(door, "zombie.iso.objects.IsoDoor")) {
+            return "COMBAT_FAILED NO_LOCKED_DOOR_TARGET";
+        }
+
+        reset();
+        npc = activeNpc;
+        target = door;
+        obstacleTarget = true;
+        Object body = npc.getBody();
+        Class.forName(
+            "zombie.ai.states.SwipeStatePlayer",
+            true,
+            body.getClass().getClassLoader()
+        );
+        if (!KnoxCombatGate.isPatchReady()) {
+            reset();
+            return "COMBAT_FAILED CALLBACK_PATCH_NOT_READY calls="
+                + KnoxCombatGate.getPatchedCallCount();
+        }
+        Object weapon = body.getClass().getMethod("getPrimaryHandItem").invoke(body);
+        if (weapon == null || !inherits(weapon, "zombie.inventory.types.HandWeapon")) {
+            reset();
+            return "COMBAT_FAILED NO_EQUIPPED_WEAPON";
+        }
+        initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
+            .invoke(weapon)).intValue();
+        initialTargetHealth = health(target);
+        lastTargetHealth = initialTargetHealth;
+        phase = "AIMING";
+        clearMovementIntent();
+        String result = "COMBAT_STARTED mode=locked-door targetHealth="
+            + initialTargetHealth
+            + " weaponCondition="
+            + initialWeaponCondition;
+        KnoxAgent.writeLog("NPC combat " + result);
+        return result;
     }
 
     private String begin(
@@ -118,7 +162,7 @@ final class KnoxCombatController {
         }
         lastTargetHealth = currentHealth;
 
-        if ((Boolean) target.getClass().getMethod("isDead").invoke(target)) {
+        if (targetFinished(target)) {
             if (attackRequests == 0 || !damageObserved) {
                 phase = "FAILED";
                 clearAttackIntent();
@@ -132,7 +176,8 @@ final class KnoxCombatController {
             int condition = weapon == null
                 ? -1
                 : ((Number) weapon.getClass().getMethod("getCondition").invoke(weapon)).intValue();
-            return "COMBAT_SUCCEEDED attacks=" + attackRequests
+            return "COMBAT_SUCCEEDED target=" + (obstacleTarget ? "locked-door" : "zombie")
+                + " attacks=" + attackRequests
                 + " damageObserved=" + damageObserved
                 + " targetHealth=" + currentHealth
                 + " weaponCondition=" + initialWeaponCondition + "->" + condition;
@@ -161,7 +206,9 @@ final class KnoxCombatController {
         float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
         faceTarget(body, targetX, targetY);
         applyCombatStance(body, false);
-        Object targetSquare = target.getClass().getMethod("getCurrentSquare").invoke(target);
+        Object targetSquare = obstacleTarget
+            ? target.getClass().getMethod("getSquare").invoke(target)
+            : target.getClass().getMethod("getCurrentSquare").invoke(target);
         body.getClass().getMethod(
             "setAttackTargetSquare",
             classFor(body, "zombie.iso.IsoGridSquare")
@@ -267,6 +314,7 @@ final class KnoxCombatController {
         attackAnimationObserved = false;
         aimTicks = 0;
         directStateFallbackUsed = false;
+        obstacleTarget = false;
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {
@@ -363,6 +411,13 @@ final class KnoxCombatController {
 
     private static float health(Object character) throws ReflectiveOperationException {
         return ((Number) character.getClass().getMethod("getHealth").invoke(character)).floatValue();
+    }
+
+    private static boolean targetFinished(Object target) throws ReflectiveOperationException {
+        if (inherits(target, "zombie.iso.objects.IsoDoor")) {
+            return (Boolean) target.getClass().getMethod("isDestroyed").invoke(target);
+        }
+        return (Boolean) target.getClass().getMethod("isDead").invoke(target);
     }
 
     private static boolean inherits(Object value, String className) {

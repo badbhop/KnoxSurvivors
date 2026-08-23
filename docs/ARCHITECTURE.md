@@ -68,8 +68,8 @@ planner. Each decision update selects one state, and only one action owns the bo
 
 1. **Threat** — flee when unsafe, otherwise equip and engage one nearby zombie.
 2. **Injury** — stop somewhere safe and treat the most urgent wound with a carried item.
-3. **Loot need** — approach one reachable container and take one useful item through a
-   normal inventory transfer action.
+3. **Loot need** — approach one reachable container and take a small ranked set of useful
+   items through normal inventory transfer actions, based on current equipment and stock.
 4. **Idle travel** — choose a nearby reachable destination and walk there.
 
 The controller chooses *what* to do. Small action executors own *how* to move, equip,
@@ -139,6 +139,20 @@ Build 42.20's FBO renderer excludes moving objects whose concrete class is exact
 
 The contained engine representation is therefore a minimal `KnoxIsoPlayerShell` subclass. It remains an `IsoPlayer` for engine gameplay checks while avoiding the renderer's exact-class branch. `KnoxNpc` remains the owner of identity and behavior; the shell must never become the persistent domain model or a local-player slot.
 
+Build 42.20 also assigns the receiver to the global `IsoPlayer.instance` during every
+`IsoPlayer` update, including a non-local subclass. The shell wraps its inherited update
+and restores the actual pre-update instance before returning. Without that guard, the
+last NPC updated can be mistaken for the local player by later camera, UI, rendering, or
+Lua work. Periodic development diagnostics verify the global binding plus local-player
+and NPC alpha, invisibility, and model-manager state.
+
+The inherited `IsoPlayer.updateLOS()` is also local-player ownership code: it iterates
+the cell's moving objects and writes their alpha values for `playerIndex`. Because an
+off-slot shell uses channel 0 only so the renderer can display it, running that method
+from an NPC overwrites the real player's visibility results. The shell therefore makes
+`updateLOS()` a no-op. The actual local player remains the sole owner of channel 0 LOS
+and naturally controls whether survivor bodies are visible from the camera.
+
 ## Implementation order
 
 Engine pathfinding supplies a route, while Knox supplies human control intent to the NPC
@@ -147,11 +161,37 @@ slice is then: inventory ownership and equip, one-zombie melee combat, one-conta
 transfer, normal injury reception, self-bandaging, and finally player-to-NPC treatment.
 Each slice is live-tested alone and across save/reload before the next one begins.
 
-The verified single-survivor runtime is retained through compatibility bridge methods.
-The next slice addresses survivors by stable ID and proves two independent movement
-controllers and records. Only after this two-person lifecycle passes will autonomy be
-scheduled per survivor and relationship encounters begin. Group and faction state must
-never be inferred from transient engine bodies.
+The verified single-survivor runtime remains available through compatibility bridge
+methods. Active survival is now scheduled by one Lua autonomy controller per stable ID;
+movement and combat state remain inside that identity's Java runtime. Shared reservations
+prevent two survivors from selecting the same zombie or world item. Expensive container
+searches run only for an unmet need and use a retry cooldown instead of scanning every
+frame. Group and faction state must never be inferred from transient engine bodies.
+
+## Relationships and encounter history
+
+Social history is owned by persistent survivor IDs, never by temporary `IsoPlayer`
+shells. A low-frequency observer records an encounter only when two loaded survivors are
+actually within awareness range on the same level. The save retains their names, first
+and most recent meeting times, number of meetings, nearby world-hours, and shared
+completed roaming, looting, and combat activity.
+
+An ungrouped pair that enters awareness range now interrupts only safe, non-combat work,
+approaches, faces one another, and holds a short visible conversation. Mutual agreement
+creates a persistent travelling group. The lowest stable ID is the initial route leader;
+other members satisfy urgent personal needs but otherwise wait for or follow that leader.
+The leader waits when followers fall outside the soft travel leash. An established group
+can separately invite a lone survivor. Three consenting members unlock faction readiness,
+but promotion waits until the newest member has survived at least one day with the group
+and relationship history shows nearby time or shared survival activity. Proximity alone
+is not enough: greeting and agreement must complete without combat interruption.
+
+Purposeful exploration runs before undirected roaming. A survivor searches reachable,
+previously uninspected containers for stronger melee weapons, better protective clothing,
+a wearable bag, limited food/water/medical stock, and missing essential tools. They play
+the search animation even when a container has no useful upgrade. A visit may take up to
+three ranked items, prioritizing urgent shortages and major upgrades, instead of either
+grabbing one arbitrary object or emptying the entire container.
 
 Captured route waypoints are not assumed to be unobstructed floor. Before crossing into
 an adjacent square, the traversal layer asks the engine whether that edge contains a

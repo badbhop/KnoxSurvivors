@@ -61,12 +61,20 @@ public final class KnoxBridge {
         return npcRegistry.crossOneAdjacentEdge(square);
     }
 
+    public String crossNpc(String id, Object square) {
+        return npcRegistry.cross(id, square);
+    }
+
     public String tickTestNpc() {
         return npcRegistry.tickOne();
     }
 
     public String tickNpc(String id) {
         return npcRegistry.tick(id);
+    }
+
+    public String cancelNpcMove(String id) {
+        return npcRegistry.cancelMove(id);
     }
 
     public String getTestNpcStatus() {
@@ -85,6 +93,10 @@ public final class KnoxBridge {
         return npcRegistry.activeIds();
     }
 
+    public String getRenderDiagnostics() {
+        return npcRegistry.renderDiagnostics();
+    }
+
     public boolean hasTestNpcTraversalEvidence(String state) {
         return npcRegistry.hasTraversalEvidence(state);
     }
@@ -95,6 +107,10 @@ public final class KnoxBridge {
 
     public String seedAndEquipNpc(String id) {
         return npcRegistry.seedAndEquip(id);
+    }
+
+    public String equipBestNpc(String id) {
+        return npcRegistry.equipBest(id);
     }
 
     public boolean isTestNpcFemale() {
@@ -203,6 +219,10 @@ public final class KnoxBridge {
 
     public String beginNpcLiveCombat(String id, Object zombie, Object approachSquare) {
         return npcRegistry.beginLiveCombat(id, zombie, approachSquare);
+    }
+
+    public String beginNpcLockedDoorCombat(String id) {
+        return npcRegistry.beginLockedDoorCombat(id);
     }
 
     public String tickNpcCombat(String id) {
