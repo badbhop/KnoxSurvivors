@@ -1,33 +1,32 @@
 package com.knoxsurvivors.npc;
 
 import com.knoxsurvivors.agent.KnoxAgent;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
-/** Owns the single active NPC allowed during the M1 lifecycle probe. */
+/** Owns active IsoPlayer shells by persistent Knox survivor identity. */
 public final class KnoxNpcRegistry {
-    private static final float ARRIVAL_DISTANCE = 0.65f;
+    public static final String TEST_SURVIVOR_ID = "ks-test-1";
 
-    private KnoxNpc activeNpc;
-    private boolean movementRequested;
-    private float movementStartX;
-    private float movementStartY;
-    private float movementTargetX;
-    private float movementTargetY;
-    private int movementTargetZ;
-    private String movementControllerState = "NotStarted";
-    private KnoxSurvivorRecord lastRecord;
-    private final KnoxCombatController combatController = new KnoxCombatController();
+    private final Map<String, KnoxNpcRuntime> activeNpcs = new LinkedHashMap<>();
 
     public synchronized String spawnOne(Object square) {
-        if (activeNpc != null) {
-            return "ALREADY_ACTIVE " + activeNpc.describe();
+        return spawn(TEST_SURVIVOR_ID, square);
+    }
+
+    public synchronized String spawn(String id, Object square) {
+        if (!validId(id)) {
+            return "SPAWN_FAILED INVALID_ID";
+        }
+        KnoxNpcRuntime existing = activeNpcs.get(id);
+        if (existing != null) {
+            return "ALREADY_ACTIVE " + existing.npc().describe();
         }
 
         try {
-            activeNpc = KnoxNpcFactory.create("ks-test-1", square);
-            activeNpc.clearMovementRoute();
-            movementRequested = false;
-            movementControllerState = "NotStarted";
-            String result = "SPAWNED " + activeNpc.describe() + " localSlotsUnchanged=true";
+            KnoxNpc npc = KnoxNpcFactory.create(id, square);
+            activeNpcs.put(id, new KnoxNpcRuntime(npc));
+            String result = "SPAWNED " + npc.describe() + " localSlotsUnchanged=true";
             KnoxAgent.writeLog("NPC probe " + result);
             return result;
         } catch (Throwable throwable) {
@@ -39,106 +38,56 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String moveOne(Object square) {
-        return beginMove(square, false);
+        return move(TEST_SURVIVOR_ID, square);
     }
 
     public synchronized String crossOneAdjacentEdge(Object square) {
-        return beginMove(square, true);
+        return cross(TEST_SURVIVOR_ID, square);
     }
 
-    private String beginMove(Object square, boolean exactAdjacentCrossing) {
-        if (activeNpc == null) {
+    public synchronized String move(String id, Object square) {
+        return beginMove(id, square, false);
+    }
+
+    public synchronized String cross(String id, Object square) {
+        return beginMove(id, square, true);
+    }
+
+    private String beginMove(String id, Object square, boolean exactAdjacentCrossing) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
             return "MOVE_FAILED NONE_ACTIVE";
         }
-        if (movementRequested) {
-            return "MOVE_ALREADY_REQUESTED " + movementDescription();
-        }
-
-        try {
-            Object body = activeNpc.getBody();
-            movementStartX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
-            movementStartY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
-            movementTargetX = ((Number) square.getClass().getMethod("getX").invoke(square)).floatValue()
-                + 0.5f;
-            movementTargetY = ((Number) square.getClass().getMethod("getY").invoke(square)).floatValue()
-                + 0.5f;
-            movementTargetZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
-            if (exactAdjacentCrossing) {
-                KnoxNpcFactory.moveAcrossAdjacentEdge(activeNpc, square);
-            } else {
-                KnoxNpcFactory.moveTo(activeNpc, square);
-                activeNpc.clearMovementRoute();
-            }
-            movementRequested = true;
-            movementControllerState = "Working";
-            String result = (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
-                + movementDescription();
-            KnoxAgent.writeLog("NPC probe " + result);
-            return result;
-        } catch (Throwable throwable) {
-            Throwable cause = rootCause(throwable);
-            String result = "MOVE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
-            KnoxAgent.writeLog("ERROR NPC probe " + result);
-            return result;
-        }
+        return runtime.beginMove(square, exactAdjacentCrossing);
     }
 
     public synchronized boolean hasTraversalEvidence(String state) {
-        return activeNpc != null && activeNpc.hasMovementTraversalEvidence(state);
+        KnoxNpcRuntime runtime = activeNpcs.get(TEST_SURVIVOR_ID);
+        return runtime != null && runtime.hasTraversalEvidence(state);
     }
 
     public synchronized String tickOne() {
-        if (activeNpc == null || !movementRequested) {
-            return "IDLE";
-        }
-        if ("Succeeded".equals(movementControllerState)
-            || movementControllerState.startsWith("Failed")) {
-            return finishMovementRequest(movementControllerState);
-        }
-
-        try {
-            String previousState = movementControllerState;
-            movementControllerState = KnoxNpcFactory.tickMovement(activeNpc);
-            if (!movementControllerState.equals(previousState)) {
-                KnoxAgent.writeLog(
-                    "NPC probe movement controller="
-                        + movementControllerState
-                        + " "
-                        + movementDescription()
-                );
-            }
-            if ("Succeeded".equals(movementControllerState)
-                || movementControllerState.startsWith("Failed")) {
-                return finishMovementRequest(movementControllerState);
-            }
-            return movementControllerState;
-        } catch (Throwable throwable) {
-            Throwable cause = rootCause(throwable);
-            movementControllerState = "Failed";
-            KnoxAgent.writeLog(
-                "ERROR NPC probe movement tick failed "
-                    + cause.getClass().getName()
-                    + ": "
-                    + cause.getMessage()
-            );
-            movementRequested = false;
-            return "TICK_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
-        }
+        return tick(TEST_SURVIVOR_ID);
     }
 
-    private String finishMovementRequest(String terminalState) {
-        movementRequested = false;
-        return terminalState;
+    public synchronized String tick(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime == null ? "IDLE" : runtime.tickMovement();
     }
 
     public synchronized String removeOne() {
-        if (activeNpc == null) {
+        return remove(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized String remove(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
             return "NONE_ACTIVE";
         }
 
-        String description = activeNpc.describe();
+        String description = runtime.npc().describe();
         try {
-            KnoxNpcFactory.remove(activeNpc);
+            KnoxNpcFactory.remove(runtime.npc());
             KnoxAgent.writeLog("NPC probe REMOVED " + description);
             return "REMOVED " + description;
         } catch (Throwable throwable) {
@@ -151,132 +100,175 @@ public final class KnoxNpcRegistry {
             );
             return "REMOVE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
         } finally {
-            combatController.reset();
-            activeNpc = null;
+            runtime.reset();
+            activeNpcs.remove(id);
         }
     }
 
     public synchronized String beginCombatOne(Object zombie, Object approachSquare) {
-        try {
-            return combatController.begin(activeNpc, zombie, approachSquare);
-        } catch (Throwable throwable) {
-            return failure("COMBAT_FAILED", throwable);
-        }
+        return beginCombat(TEST_SURVIVOR_ID, zombie, approachSquare, false);
     }
 
     public synchronized String beginLiveCombatOne(Object zombie, Object approachSquare) {
+        return beginCombat(TEST_SURVIVOR_ID, zombie, approachSquare, true);
+    }
+
+    public synchronized String beginLiveCombat(String id, Object zombie, Object approachSquare) {
+        return beginCombat(id, zombie, approachSquare, true);
+    }
+
+    private String beginCombat(String id, Object zombie, Object approachSquare, boolean live) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "COMBAT_FAILED NONE_ACTIVE";
+        }
         try {
-            return combatController.beginLive(activeNpc, zombie, approachSquare);
+            return live
+                ? runtime.combat().beginLive(runtime.npc(), zombie, approachSquare)
+                : runtime.combat().begin(runtime.npc(), zombie, approachSquare);
         } catch (Throwable throwable) {
             return failure("COMBAT_FAILED", throwable);
         }
     }
 
     public synchronized void resetCombatOne() {
-        combatController.reset();
+        resetCombat(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized void resetCombat(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime != null) {
+            runtime.combat().reset();
+        }
     }
 
     public synchronized String tickCombatOne() {
+        return tickCombat(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized String tickCombat(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "COMBAT_FAILED NONE_ACTIVE";
+        }
         try {
-            return combatController.tick();
+            return runtime.combat().tick();
         } catch (Throwable throwable) {
             return failure("COMBAT_FAILED", throwable);
         }
     }
 
     public synchronized Object activeCharacterForAction() {
-        return activeNpc == null ? null : activeNpc.getBody();
+        return character(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized Object character(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime == null ? null : runtime.npc().getBody();
     }
 
     public synchronized String prepareHealthGateOne() {
-        if (activeNpc == null) {
+        KnoxNpc npc = npc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             return "HEALTH_GATE_FAILED NONE_ACTIVE";
         }
         try {
-            return KnoxHealthController.prepareControlledAttack(activeNpc.getBody());
+            return KnoxHealthController.prepareControlledAttack(npc.getBody());
         } catch (Throwable throwable) {
             return failure("HEALTH_GATE_FAILED", throwable);
         }
     }
 
     public synchronized float healthOne() {
-        if (activeNpc == null) {
+        KnoxNpc npc = requiredNpc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             throw new IllegalStateException("No active NPC");
         }
         try {
-            return KnoxHealthController.health(activeNpc.getBody());
+            return KnoxHealthController.health(npc.getBody());
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Unable to read NPC health", exception);
         }
     }
 
     public synchronized int injuredPartsOne() {
-        if (activeNpc == null) {
+        KnoxNpc npc = requiredNpc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             throw new IllegalStateException("No active NPC");
         }
         try {
-            return KnoxHealthController.injuredParts(activeNpc.getBody());
+            return KnoxHealthController.injuredParts(npc.getBody());
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Unable to read NPC injuries", exception);
         }
     }
 
     public synchronized int bleedingPartsOne() {
-        if (activeNpc == null) {
+        KnoxNpc npc = requiredNpc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             throw new IllegalStateException("No active NPC");
         }
         try {
-            return KnoxHealthController.bleedingParts(activeNpc.getBody());
+            return KnoxHealthController.bleedingParts(npc.getBody());
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Unable to read NPC bleeding", exception);
         }
     }
 
     public synchronized String normalizeMinorInjuryOne() {
-        if (activeNpc == null) {
+        KnoxNpc npc = npc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             return "CONTROLLED_INJURY_FAILED NONE_ACTIVE";
         }
         try {
-            return KnoxHealthController.normalizeToTreatableScratch(activeNpc.getBody());
+            return KnoxHealthController.normalizeToTreatableScratch(npc.getBody());
         } catch (Throwable throwable) {
             return failure("CONTROLLED_INJURY_FAILED", throwable);
         }
     }
 
     public synchronized String refreshHealthPresentationOne() {
-        if (activeNpc == null) {
+        KnoxNpc npc = npc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             return "HEALTH_PRESENTATION_FAILED NONE_ACTIVE";
         }
         try {
-            return KnoxHealthController.refreshPresentation(activeNpc.getBody());
+            return KnoxHealthController.refreshPresentation(npc.getBody());
         } catch (Throwable throwable) {
             return failure("HEALTH_PRESENTATION_FAILED", throwable);
         }
     }
 
     public synchronized String directZombieAtOne(Object zombie) {
-        if (activeNpc == null) {
+        KnoxNpc npc = npc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             return "ZOMBIE_DIRECT_FAILED NONE_ACTIVE";
         }
         try {
-            return KnoxHealthController.directZombieAt(zombie, activeNpc.getBody());
+            return KnoxHealthController.directZombieAt(zombie, npc.getBody());
         } catch (Throwable throwable) {
             return failure("ZOMBIE_DIRECT_FAILED", throwable);
         }
     }
 
     public synchronized String seedAndEquipOne() {
-        if (activeNpc == null) {
+        return seedAndEquip(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized String seedAndEquip(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
             return "EQUIP_FAILED NONE_ACTIVE";
         }
         try {
-            Object body = activeNpc.getBody();
+            Object body = runtime.npc().getBody();
             Object inventory = body.getClass().getMethod("getInventory").invoke(body);
             inventory.getClass().getMethod("AddItem", String.class).invoke(inventory, "Base.Hammer");
             inventory.getClass().getMethod("AddItem", String.class).invoke(inventory, "Base.BaseballBat");
             String equipped = KnoxEquipmentController.equipBestMelee(body);
-            lastRecord = captureRecord(activeNpc);
-            String result = equipped + " items=" + lastRecord.inventory.size();
+            KnoxSurvivorRecord record = captureRecord(runtime.npc());
+            runtime.setLastRecord(record);
+            String result = equipped + " items=" + record.inventory.size();
             KnoxAgent.writeLog("NPC equipment " + result);
             return result;
         } catch (Throwable throwable) {
@@ -285,23 +277,33 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized boolean isOneFemale() {
-        if (activeNpc == null) {
+        return isFemale(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized boolean isFemale(String id) {
+        KnoxNpc npc = requiredNpc(id);
+        if (npc == null) {
             throw new IllegalStateException("No active NPC");
         }
         try {
-            return (Boolean) activeNpc.getBody().getClass().getMethod("isFemale")
-                .invoke(activeNpc.getBody());
+            return (Boolean) npc.getBody().getClass().getMethod("isFemale")
+                .invoke(npc.getBody());
         } catch (ReflectiveOperationException exception) {
             throw new IllegalStateException("Unable to read NPC gender", exception);
         }
     }
 
     public synchronized String wearOneItem(String fullType) {
-        if (activeNpc == null) {
+        return wearItem(TEST_SURVIVOR_ID, fullType);
+    }
+
+    public synchronized String wearItem(String id, String fullType) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
             return "WEAR_FAILED NONE_ACTIVE";
         }
         try {
-            Object body = activeNpc.getBody();
+            Object body = npc.getBody();
             Object inventory = body.getClass().getMethod("getInventory").invoke(body);
             Object item = inventory.getClass().getMethod("AddItem", String.class)
                 .invoke(inventory, fullType);
@@ -324,27 +326,30 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String recreateOne() {
-        if (activeNpc == null) {
+        KnoxNpcRuntime runtime = activeNpcs.get(TEST_SURVIVOR_ID);
+        if (runtime == null) {
             return "RECREATE_FAILED NONE_ACTIVE";
         }
         try {
-            KnoxSurvivorRecord before = captureRecord(activeNpc);
-            Object square = activeNpc.getBody().getClass().getMethod("getCurrentSquare")
-                .invoke(activeNpc.getBody());
-            KnoxNpcFactory.remove(activeNpc);
-            activeNpc = KnoxNpcFactory.create(before.id, square);
-            restoreExactPosition(activeNpc.getBody(), before);
-            before.appearance.restore(activeNpc.getBody());
-            before.inventory.restore(activeNpc.getBody());
+            KnoxNpc current = runtime.npc();
+            KnoxSurvivorRecord before = captureRecord(current);
+            Object square = current.getBody().getClass().getMethod("getCurrentSquare")
+                .invoke(current.getBody());
+            KnoxNpcFactory.remove(current);
+            KnoxNpc replacement = KnoxNpcFactory.create(before.id, square);
+            runtime.replaceNpc(replacement);
+            restoreExactPosition(replacement.getBody(), before);
+            before.appearance.restore(replacement.getBody());
+            before.inventory.restore(replacement.getBody());
             if (before.health != null) {
-                before.health.restore(activeNpc.getBody());
+                before.health.restore(replacement.getBody());
             }
             if (before.physiology != null) {
-                before.physiology.restore(activeNpc.getBody());
+                before.physiology.restore(replacement.getBody());
             }
-            KnoxSurvivorRecord after = captureRecord(activeNpc);
+            KnoxSurvivorRecord after = captureRecord(replacement);
             boolean matches = before.encode().equals(after.encode());
-            lastRecord = after;
+            runtime.setLastRecord(after);
             String result = "RECREATED matches=" + matches
                 + " id=" + after.id
                 + " location=" + after.x + "," + after.y + "," + after.z
@@ -358,40 +363,49 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String capturePersistentRecord() {
+        return capturePersistentRecord(TEST_SURVIVOR_ID);
+    }
+
+    public synchronized String capturePersistentRecord(String id) {
         try {
-            if (activeNpc == null) {
+            KnoxNpcRuntime runtime = activeNpcs.get(id);
+            if (runtime == null) {
                 return "";
             }
-            lastRecord = captureRecord(activeNpc);
-            return lastRecord.encode();
+            KnoxSurvivorRecord record = captureRecord(runtime.npc());
+            runtime.setLastRecord(record);
+            return record.encode();
         } catch (Throwable throwable) {
             return failure("CAPTURE_FAILED", throwable);
         }
     }
 
     public synchronized String restorePersistentRecord(String encoded, Object square) {
-        if (activeNpc != null) {
-            return "RESTORE_FAILED ALREADY_ACTIVE";
-        }
+        KnoxNpc restored = null;
         try {
             KnoxSurvivorRecord record = KnoxSurvivorRecord.decode(encoded);
+            if (activeNpcs.containsKey(record.id)) {
+                return "RESTORE_FAILED ALREADY_ACTIVE id=" + record.id;
+            }
             int squareX = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
             int squareY = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
             int squareZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
             if (record.x != squareX || record.y != squareY || record.z != squareZ) {
                 return "RESTORE_FAILED LOCATION_MISMATCH";
             }
-            activeNpc = KnoxNpcFactory.create(record.id, square);
-            restoreExactPosition(activeNpc.getBody(), record);
-            record.appearance.restore(activeNpc.getBody());
-            record.inventory.restore(activeNpc.getBody());
+            restored = KnoxNpcFactory.create(record.id, square);
+            KnoxNpcRuntime runtime = new KnoxNpcRuntime(restored);
+            restoreExactPosition(restored.getBody(), record);
+            record.appearance.restore(restored.getBody());
+            record.inventory.restore(restored.getBody());
             if (record.health != null) {
-                record.health.restore(activeNpc.getBody());
+                record.health.restore(restored.getBody());
             }
             if (record.physiology != null) {
-                record.physiology.restore(activeNpc.getBody());
+                record.physiology.restore(restored.getBody());
             }
-            lastRecord = captureRecord(activeNpc);
+            runtime.setLastRecord(captureRecord(restored));
+            activeNpcs.put(record.id, runtime);
             String result = "RESTORED id=" + record.id
                 + " location=" + record.x + "," + record.y + "," + record.z
                 + " items=" + record.inventory.size()
@@ -404,6 +418,16 @@ public final class KnoxNpcRegistry {
             KnoxAgent.writeLog("NPC persistence " + result);
             return result;
         } catch (Throwable throwable) {
+            if (restored != null) {
+                try {
+                    KnoxNpcFactory.remove(restored);
+                } catch (Throwable cleanupFailure) {
+                    KnoxAgent.writeLog(
+                        "ERROR NPC restore cleanup failed "
+                            + rootCause(cleanupFailure).getClass().getName()
+                    );
+                }
+            }
             return failure("RESTORE_FAILED", throwable);
         }
     }
@@ -420,12 +444,25 @@ public final class KnoxNpcRegistry {
         return KnoxSurvivorRecord.decode(encoded).z;
     }
 
+    public synchronized String persistentRecordId(String encoded) {
+        return KnoxSurvivorRecord.decode(encoded).id;
+    }
+
+    public synchronized int activeCount() {
+        return activeNpcs.size();
+    }
+
+    public synchronized String activeIds() {
+        return String.join(",", activeNpcs.keySet());
+    }
+
     public synchronized String equipmentStatus() {
-        if (activeNpc == null) {
+        KnoxNpc npc = npc(TEST_SURVIVOR_ID);
+        if (npc == null) {
             return "NONE_ACTIVE";
         }
         try {
-            KnoxSurvivorRecord record = captureRecord(activeNpc);
+            KnoxSurvivorRecord record = captureRecord(npc);
             return "ACTIVE id=" + record.id
                 + " location=" + record.x + "," + record.y + "," + record.z
                 + " items=" + record.inventory.size()
@@ -436,58 +473,28 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String status() {
-        if (activeNpc == null) {
-            return "NONE_ACTIVE";
-        }
-        try {
-            String live = KnoxNpcFactory.describeLive(activeNpc);
-            if (!movementRequested) {
-                return live + " movement=NOT_REQUESTED";
-            }
+        return status(TEST_SURVIVOR_ID);
+    }
 
-            Object body = activeNpc.getBody();
-            float x = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
-            float y = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
-            float distance = distance(x, y, movementTargetX, movementTargetY);
-            float displacement = distance(x, y, movementStartX, movementStartY);
-            String state = distance <= ARRIVAL_DISTANCE ? "ARRIVED" : "IN_PROGRESS";
-            return live
-                + " movement="
-                + state
-                + " controller="
-                + movementControllerState
-                + " target="
-                + movementTargetX
-                + ","
-                + movementTargetY
-                + ","
-                + movementTargetZ
-                + " distance="
-                + distance
-                + " displacement="
-                + displacement;
-        } catch (Throwable throwable) {
-            Throwable cause = rootCause(throwable);
-            return "STATUS_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
-        }
+    public synchronized String status(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime == null ? "NONE_ACTIVE" : runtime.status();
     }
 
     public synchronized void abandonForEnvironmentChange() {
-        if (activeNpc == null) {
+        if (activeNpcs.isEmpty()) {
             return;
         }
-
-        String description = activeNpc.describe();
-        combatController.reset();
-        activeNpc = null;
-        lastRecord = null;
-        movementRequested = false;
-        movementControllerState = "NotStarted";
-        KnoxAgent.writeLog(
-            "NPC probe ABANDONED_STALE_REFERENCE "
-                + description
-                + " environmentChanged=true"
-        );
+        for (KnoxNpcRuntime runtime : activeNpcs.values()) {
+            String description = runtime.npc().describe();
+            runtime.reset();
+            KnoxAgent.writeLog(
+                "NPC probe ABANDONED_STALE_REFERENCE "
+                    + description
+                    + " environmentChanged=true"
+            );
+        }
+        activeNpcs.clear();
     }
 
     private static KnoxSurvivorRecord captureRecord(KnoxNpc npc) throws ReflectiveOperationException {
@@ -547,24 +554,21 @@ public final class KnoxNpcRegistry {
         return result;
     }
 
-    private String movementDescription() {
-        return activeNpc.describe()
-            + " from="
-            + movementStartX
-            + ","
-            + movementStartY
-            + " target="
-            + movementTargetX
-            + ","
-            + movementTargetY
-            + ","
-            + movementTargetZ;
+    private KnoxNpc npc(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime == null ? null : runtime.npc();
     }
 
-    private static float distance(float firstX, float firstY, float secondX, float secondY) {
-        float deltaX = firstX - secondX;
-        float deltaY = firstY - secondY;
-        return (float) Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    private KnoxNpc requiredNpc(String id) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
+            throw new IllegalStateException("No active NPC: " + id);
+        }
+        return npc;
+    }
+
+    private static boolean validId(String id) {
+        return id != null && id.matches("[A-Za-z0-9_-]{1,64}");
     }
 
     private static Throwable rootCause(Throwable throwable) {

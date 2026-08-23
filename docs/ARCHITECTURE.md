@@ -32,20 +32,18 @@ equipment. When that survivor's cell is active again, Knox creates a new shell w
 same stable ID and restores the snapshot. To the player this is the same person
 continuing to exist; reconstruction is only an engine lifecycle detail.
 
-Persistence schema 2 records the survivor's engine human visual (gender, skin, hair,
-beard, colors, and body-visual details), name and voice, plus top-level item type,
-condition, uses, favorite state, worn state, primary/secondary hand ownership, and each
-item's visual data. New survivors receive real wearable inventory items selected with
-the same `ClothingSelectionDefinitions.default` tables and chance rules as Build 42's
-character creator; a separate restrained roll may add a schoolbag or duffel bag.
+Survivor record schema 5 stores the engine human visual, name and voice, inventory and
+equipment snapshot, native `BodyDamage`, and native physiology/nutrition state. Older
+record schemas migrate forward by supplying engine defaults for fields they did not
+contain. New survivors receive real wearable inventory items selected with Build 42's
+`ClothingSelectionDefinitions.default` tables and chance rules; a restrained separate
+roll may add a schoolbag or duffel bag.
 
-The schema deliberately does not yet claim nested-container contents, food age,
-drainable deltas, weapon attachments, or health. Those fields must be added and migrated
-before M2 persistence is complete. The controlled equipment gate first proves same-process
-body reconstruction, then saves the same encoded record under the rebuild-specific
-`KnoxSurvivors_IsoPlayer` global ModData key so a second game load can prove disk
-continuity. This separate key prevents reused saves from confusing legacy IsoZombie-era
-Knox data with the new schema.
+Records are saved by stable ID under the rebuild-specific `KnoxSurvivors_IsoPlayer`
+global ModData key. Every loaded survivor has a separate runtime containing its temporary
+body, movement request, traversal route, combat controller, and latest record. Saving
+captures all active runtimes rather than whichever NPC happened to act last. This key
+remains separate from legacy IsoZombie-era Knox data.
 
 ## Population and origin policy
 
@@ -59,8 +57,9 @@ instead of relocating them toward the player.
 Population generation will use a low world cap, long cooldowns, and distance bands.
 Death is durable and does not trigger an immediate nearby replacement. These constraints
 make an encounter uncommon and make an individual survivor valuable without preventing
-the world from containing people beyond the player's current area. The first lifecycle
-milestone remains capped at one until persistence and cell activation pass.
+the world from containing people beyond the player's current area. The current population
+gate is deliberately capped at two loaded survivors until independent runtime ownership,
+save/reload, and teardown pass in game.
 
 ## Minimal active-survivor loop
 
@@ -147,6 +146,12 @@ component. Locomotion must pass before any other executor is added. The next sup
 slice is then: inventory ownership and equip, one-zombie melee combat, one-container
 transfer, normal injury reception, self-bandaging, and finally player-to-NPC treatment.
 Each slice is live-tested alone and across save/reload before the next one begins.
+
+The verified single-survivor runtime is retained through compatibility bridge methods.
+The next slice addresses survivors by stable ID and proves two independent movement
+controllers and records. Only after this two-person lifecycle passes will autonomy be
+scheduled per survivor and relationship encounters begin. Group and faction state must
+never be inferred from transient engine bodies.
 
 Captured route waypoints are not assumed to be unobstructed floor. Before crossing into
 an adjacent square, the traversal layer asks the engine whether that edge contains a

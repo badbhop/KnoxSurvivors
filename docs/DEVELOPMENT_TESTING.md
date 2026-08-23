@@ -1,56 +1,55 @@
 # Development testing
 
-Knox Survivors currently runs one automatic test at a time. These tests do not change
-Project Zomboid sandbox settings and are not part of the eventual release gameplay.
+Knox Survivors runs one bounded automatic gate at a time. These tests do not rewrite
+Project Zomboid sandbox settings and are not release gameplay.
 
-## Active test: controlled container looting
+## Active test: two persistent survivor runtimes
 
-Use a disposable or backed-up single-player Build 42.20 save.
+Use the existing backed-up Build 42.20 development save.
 
-The appearance, equipment, reconstruction, traversal, and combat probes are hibernating.
-Their code and saved results remain available, but passed gates do not repeat.
+1. Fully close Project Zomboid so the new Java agent can load.
+2. Start it with `Run Knox Survivors Dev.bat` and load the same save.
+3. The existing survivor should restore at their saved position.
+4. A second survivor should restore or be created on a loaded standable square with a
+   randomized human appearance, starter equipment, and a separate stable ID.
+5. Both survivors should roam independently. This gate temporarily prevents zombies
+   from targeting them so combat cannot hide movement ownership failures.
+6. A PASS requires each survivor to finish three routes and both records to save.
+7. Return to the main menu and reload once. Both survivors must restore and independently
+   complete the gate again to verify disk continuity.
 
-1. Start the game with `Run Knox Survivors Dev.bat`.
-2. Enable Knox Survivors on the save and load it.
-3. The saved survivor should appear immediately in their saved position with their bat.
-4. The test removes ordinary zombies from the currently loaded area. It does not change
-   sandbox settings or rewrite zombies stored in distant, unloaded map chunks.
-5. The test finds a nearby world-object container and adds one bandage to it as a
-   deterministic test item.
-6. The survivor should walk beside the container, turn toward it, play the looting
-   action, and take the bandage into their real inventory.
-7. Do not move items or control the survivor during the test. Animation and sound
-   confirmation matter.
-8. Quit normally after the result so the diagnostic collector can finish.
-
-After the first PASS, this save records the loot gate as complete and will not repeat it
-on later loads. The next planned gate is ordinary injury reception and health persistence.
-
-The useful result lines in `console.txt` begin with:
+Useful `console.txt` lines begin with:
 
 ```text
-[KnoxSurvivors][TestLab] RESULT scenario=loot
+[KnoxSurvivors][Population]
 ```
 
-A PASS requires the timed action to be observed, the exact item to leave the source
-container, and that same item to appear in the survivor inventory. The updated persistent
-record is captured before the gate is marked complete.
+The expected result is:
 
-The previous combat run passed with real attack animation and measured zombie health
-loss. Its controller now approaches inside the equipped weapon's usable range instead
-of stopping at the general movement arrival boundary.
+```text
+RESULT scenario=population status=PASS reason=two_independent_survivors
+```
 
-`dev-runs/<run>/live-test-status.txt` shows the latest result while the game is running.
-After the game closes, `test-results.txt` and `summary.txt` contain the collected result.
+The first PASS proves two live runtimes and captures both records. A PASS after reload
+also reports `reloadVerified=true`.
+
+## Already verified and hibernating
+
+- one-survivor spawn, appearance, equipment, reconstruction, and save/reload;
+- doors, windows, locked-window fallback, and low-fence traversal;
+- melee approach, animation, damage, weapon use, and zombie death;
+- container transfer and rummaging action;
+- native injury reception, self-bandaging, and medical presentation persistence;
+- native hunger/thirst consumption and physiology persistence;
+- repeated autonomous roaming with independent completed movement requests.
 
 ## Known limits
 
-- Only one survivor is active.
-- Loot target scoring and the autonomous survival planner are not enabled; this gate
-  proves one controlled world-container transfer first.
-- Nested bag contents, health, injuries, food age, and several detailed item properties
-  are not fully persistent yet.
-- If the survivor's recorded cell is not loaded, the test leaves them stored instead of
-  teleporting them to the player.
-- The Java agent requires the development launcher. Steam may replace a modified
-  `ProjectZomboid64.bat` during an update or file verification.
+- The two-survivor gate proves runtime and persistence ownership, not full per-survivor
+  needs, combat, looting, relationships, dialogue, or factions.
+- Zombies are temporarily prevented from attacking both survivors during this gate.
+- If a recorded square is not loaded, the survivor remains stored instead of being
+  teleported to the player.
+- Room-wide alternate-entry planning, sleep furniture selection, death, and
+  zombification remain unverified.
+- The Java agent requires the development launcher.

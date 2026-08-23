@@ -37,12 +37,24 @@ public final class KnoxBridge {
         return npcRegistry.spawnOne(square);
     }
 
+    public String spawnNpc(String id, Object square) {
+        return npcRegistry.spawn(id, square);
+    }
+
     public String removeTestNpc() {
         return npcRegistry.removeOne();
     }
 
+    public String removeNpc(String id) {
+        return npcRegistry.remove(id);
+    }
+
     public String moveTestNpc(Object square) {
         return npcRegistry.moveOne(square);
+    }
+
+    public String moveNpc(String id, Object square) {
+        return npcRegistry.move(id, square);
     }
 
     public String crossTestNpc(Object square) {
@@ -53,8 +65,24 @@ public final class KnoxBridge {
         return npcRegistry.tickOne();
     }
 
+    public String tickNpc(String id) {
+        return npcRegistry.tick(id);
+    }
+
     public String getTestNpcStatus() {
         return npcRegistry.status();
+    }
+
+    public String getNpcStatus(String id) {
+        return npcRegistry.status(id);
+    }
+
+    public int getActiveNpcCount() {
+        return npcRegistry.activeCount();
+    }
+
+    public String getActiveNpcIds() {
+        return npcRegistry.activeIds();
     }
 
     public boolean hasTestNpcTraversalEvidence(String state) {
@@ -65,12 +93,24 @@ public final class KnoxBridge {
         return npcRegistry.seedAndEquipOne();
     }
 
+    public String seedAndEquipNpc(String id) {
+        return npcRegistry.seedAndEquip(id);
+    }
+
     public boolean isTestNpcFemale() {
         return npcRegistry.isOneFemale();
     }
 
+    public boolean isNpcFemale(String id) {
+        return npcRegistry.isFemale(id);
+    }
+
     public String wearTestNpcItem(String fullType) {
         return npcRegistry.wearOneItem(fullType);
+    }
+
+    public String wearNpcItem(String id, String fullType) {
+        return npcRegistry.wearItem(id, fullType);
     }
 
     public String recreateTestNpc() {
@@ -99,6 +139,10 @@ public final class KnoxBridge {
 
     public Object getTestNpcCharacterForAction() {
         return npcRegistry.activeCharacterForAction();
+    }
+
+    public Object getNpcCharacter(String id) {
+        return npcRegistry.character(id);
     }
 
     public String prepareTestNpcHealthGate() {
@@ -133,6 +177,10 @@ public final class KnoxBridge {
         return npcRegistry.capturePersistentRecord();
     }
 
+    public String captureNpcRecord(String id) {
+        return npcRegistry.capturePersistentRecord(id);
+    }
+
     public String restoreTestNpcRecord(String encoded, Object square) {
         return npcRegistry.restorePersistentRecord(encoded, square);
     }
@@ -147,6 +195,22 @@ public final class KnoxBridge {
 
     public int getTestNpcRecordZ(String encoded) {
         return npcRegistry.persistentRecordZ(encoded);
+    }
+
+    public String getNpcRecordId(String encoded) {
+        return npcRegistry.persistentRecordId(encoded);
+    }
+
+    public String beginNpcLiveCombat(String id, Object zombie, Object approachSquare) {
+        return npcRegistry.beginLiveCombat(id, zombie, approachSquare);
+    }
+
+    public String tickNpcCombat(String id) {
+        return npcRegistry.tickCombat(id);
+    }
+
+    public void resetNpcCombat(String id) {
+        npcRegistry.resetCombat(id);
     }
 
     void abandonForEnvironmentChange() {

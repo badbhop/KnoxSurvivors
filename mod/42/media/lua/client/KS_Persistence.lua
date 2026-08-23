@@ -18,34 +18,80 @@ local function root()
 end
 
 function KnoxPersistence.getTestRecord()
-    local survivor = root().survivors[TEST_SURVIVOR_ID]
+    return KnoxPersistence.getRecord(TEST_SURVIVOR_ID)
+end
+
+function KnoxPersistence.getRecord(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
     return survivor ~= nil and survivor.record or nil
 end
 
 function KnoxPersistence.setTestRecord(encoded)
+    return KnoxPersistence.setRecord(TEST_SURVIVOR_ID, encoded)
+end
+
+function KnoxPersistence.setRecord(id, encoded)
+    if type(id) ~= "string" or id == "" then
+        return false
+    end
     if type(encoded) ~= "string" or encoded == "" then
         return false
     end
-    root().survivors[TEST_SURVIVOR_ID] = {
-        id = TEST_SURVIVOR_ID,
+    root().survivors[id] = {
+        id = id,
         record = encoded,
     }
     return true
 end
 
+function KnoxPersistence.getSurvivorIds()
+    local ids = {}
+    for id, survivor in pairs(root().survivors) do
+        if type(id) == "string" and survivor ~= nil and survivor.record ~= nil then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
 function KnoxPersistence.captureActiveTestSurvivor()
+    return KnoxPersistence.captureActiveSurvivor(TEST_SURVIVOR_ID)
+end
+
+function KnoxPersistence.captureActiveSurvivor(id)
     local bridge = rawget(_G, "KnoxJavaBridge")
     if bridge == nil then
         return false, "bridge_unavailable"
     end
     local success, encoded = pcall(function()
-        return bridge:captureTestNpcRecord()
+        return bridge:captureNpcRecord(id)
     end)
     if not success or type(encoded) ~= "string" or encoded == ""
         or string.find(encoded, "CAPTURE_FAILED", 1, true) == 1 then
         return false, encoded
     end
-    return KnoxPersistence.setTestRecord(encoded), encoded
+    return KnoxPersistence.setRecord(id, encoded), encoded
+end
+
+function KnoxPersistence.captureAllActiveSurvivors()
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil then
+        return false, "bridge_unavailable"
+    end
+    local activeIds = tostring(bridge:getActiveNpcIds())
+    if activeIds == "" then
+        return true, "none_active"
+    end
+    local captured = 0
+    for id in string.gmatch(activeIds, "[^,]+") do
+        local saved, evidence = KnoxPersistence.captureActiveSurvivor(id)
+        if not saved then
+            return false, "id=" .. tostring(id) .. " " .. tostring(evidence)
+        end
+        captured = captured + 1
+    end
+    return true, "captured=" .. tostring(captured)
 end
 
 function KnoxPersistence.isDevGateComplete(name)
@@ -63,7 +109,7 @@ function KnoxPersistence.markDevGateComplete(name)
 end
 
 local function onPostSave()
-    KnoxPersistence.captureActiveTestSurvivor()
+    KnoxPersistence.captureAllActiveSurvivors()
 end
 
 Events.OnPostSave.Add(onPostSave)
