@@ -35,7 +35,21 @@ if ($null -eq $gameProcess) {
 }
 else {
     Set-Content -LiteralPath $monitorStatusPath -Value "Monitoring Project Zomboid process $($gameProcess.Id)." -Encoding UTF8
-    Wait-Process -Id $gameProcess.Id -ErrorAction SilentlyContinue
+    $liveTestStatusPath = Join-Path ([string]$session.runDirectory) 'live-test-status.txt'
+    Set-Content -LiteralPath $liveTestStatusPath -Value 'Waiting for Knox Test Lab result.' -Encoding UTF8
+
+    while ($null -ne (Get-Process -Id $gameProcess.Id -ErrorAction SilentlyContinue)) {
+        $consolePath = [string]$session.consoleLogPath
+        if (Test-Path -LiteralPath $consolePath) {
+            $latestResult = Get-Content -LiteralPath $consolePath -Tail 500 -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match '(?i)\[KnoxSurvivors\]\[TestLab\].*RESULT scenario=' } |
+                Select-Object -Last 1
+            if (-not [string]::IsNullOrWhiteSpace($latestResult)) {
+                Set-Content -LiteralPath $liveTestStatusPath -Value $latestResult -Encoding UTF8
+            }
+        }
+        Start-Sleep -Seconds 2
+    }
 }
 
 $collectorPath = Join-Path $PSScriptRoot 'collect-dev-logs.ps1'

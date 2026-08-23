@@ -13,6 +13,7 @@ The Lua mod and Java agent load correctly in Build 42.20. We can spawn one visib
 Population is deliberately locked to one survivor while the basic character lifecycle is being worked out. Movement, saving, loading, cell changes, and clean removal all need to be reliable before combat or looting is added.
 
 The development checkpoints are kept in [docs/MILESTONES.md](docs/MILESTONES.md), and the main technical decisions are explained in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The automatically enabled local test harness is documented in [docs/DEVELOPMENT_TESTING.md](docs/DEVELOPMENT_TESTING.md).
 
 ## Project folders
 
