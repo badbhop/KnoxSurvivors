@@ -28,6 +28,20 @@ final class KnoxCombatController {
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
+        return begin(activeNpc, zombie, approachSquare, true);
+    }
+
+    String beginLive(KnoxNpc activeNpc, Object zombie, Object approachSquare)
+        throws ReflectiveOperationException {
+        return begin(activeNpc, zombie, approachSquare, false);
+    }
+
+    private String begin(
+        KnoxNpc activeNpc,
+        Object zombie,
+        Object approachSquare,
+        boolean controlledGate
+    ) throws ReflectiveOperationException {
         if (activeNpc == null) {
             return "COMBAT_FAILED NONE_ACTIVE";
         }
@@ -63,17 +77,25 @@ final class KnoxCombatController {
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
 
-        // This first gate isolates outgoing player combat. Incoming injury is tested later.
-        body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, true);
-        target.getClass().getMethod("setCanWalk", boolean.class).invoke(target, false);
-        target.getClass().getMethod("setUseless", boolean.class).invoke(target, true);
-        target.getClass().getMethod("setTarget", classFor(target, "zombie.iso.IsoMovingObject"))
-            .invoke(target, (Object) null);
+        if (controlledGate) {
+            // The development gate isolates outgoing combat. Live autonomy leaves both
+            // characters vulnerable and allows the zombie to keep moving and attacking.
+            body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, true);
+            target.getClass().getMethod("setCanWalk", boolean.class).invoke(target, false);
+            target.getClass().getMethod("setUseless", boolean.class).invoke(target, true);
+            target.getClass().getMethod("setTarget", classFor(target, "zombie.iso.IsoMovingObject"))
+                .invoke(target, (Object) null);
+        } else {
+            body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
+            target.getClass().getMethod("setCanWalk", boolean.class).invoke(target, true);
+            target.getClass().getMethod("setUseless", boolean.class).invoke(target, false);
+        }
 
         KnoxNpcFactory.moveToRangeFrom(npc, target, approachSquare, desiredAttackRange);
         npc.clearMovementRoute();
         phase = "APPROACHING";
-        String result = "COMBAT_STARTED targetHealth=" + initialTargetHealth
+        String result = "COMBAT_STARTED mode=" + (controlledGate ? "gate" : "live")
+            + " targetHealth=" + initialTargetHealth
             + " weaponCondition=" + initialWeaponCondition
             + " maxRange=" + weaponMaxRange
             + " desiredRange=" + desiredAttackRange;

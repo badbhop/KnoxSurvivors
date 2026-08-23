@@ -154,6 +154,18 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    public synchronized String beginLiveCombatOne(Object zombie, Object approachSquare) {
+        try {
+            return combatController.beginLive(activeNpc, zombie, approachSquare);
+        } catch (Throwable throwable) {
+            return failure("COMBAT_FAILED", throwable);
+        }
+    }
+
+    public synchronized void resetCombatOne() {
+        combatController.reset();
+    }
+
     public synchronized String tickCombatOne() {
         try {
             return combatController.tick();

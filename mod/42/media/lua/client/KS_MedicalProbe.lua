@@ -1,69 +1,13 @@
 require "TimedActions/ISApplyBandage"
 require "TimedActions/ISTimedActionQueue"
 require "KS_SurvivalMedical"
+require "KS_SurvivorMedicalActions"
 
 local TAG = "[KnoxSurvivors][TestLab]"
 local MAX_TEST_TICKS = 900
 local STATUS_INTERVAL_TICKS = 60
 local MEDICAL_GATE_KEY = "medical_self_bandage_v1"
 local MEDICAL_RELOAD_GATE_KEY = "medical_self_bandage_reload_v1"
-
-local KnoxNpcApplyBandage = ISApplyBandage:derive("KnoxNpcApplyBandage")
-
--- The stock action updates the selected local player's health panel. Knox NPCs
--- have no local-player UI slot, so retain its animation/sound while keeping the
--- action's progress entirely on the NPC body.
-function KnoxNpcApplyBandage:isValid()
-    return self.item ~= nil
-        and self.character:getInventory():contains(self.item)
-        and self.bodyPart:HasInjury()
-        and not self.bodyPart:bandaged()
-end
-
-function KnoxNpcApplyBandage:waitToStart()
-    return false
-end
-
-function KnoxNpcApplyBandage:update()
-    if self.item ~= nil then
-        self.item:setJobDelta(self:getJobDelta())
-    end
-    self.character:setMetabolicTarget(Metabolics.LightDomestic)
-end
-
-function KnoxNpcApplyBandage:start()
-    ISApplyBandage.start(self)
-    self.knoxBandageAnimationRequested = true
-end
-
-function KnoxNpcApplyBandage:stop()
-    self:stopSound()
-    if self.item ~= nil then
-        self.item:setJobDelta(0.0)
-    end
-    self.bodyPart:setManipulatingUsername(nil)
-    ISBaseTimedAction.stop(self)
-end
-
-function KnoxNpcApplyBandage:complete()
-    -- Completion has no local-player UI dependency. Keep the engine's complete
-    -- treatment rules so Doctor XP, traits, dirty/infected rags, bandage life,
-    -- item consumption, and body-part synchronization behave like a player.
-    return ISApplyBandage.complete(self)
-end
-
-function KnoxNpcApplyBandage:perform()
-    self:stopSound()
-    if self.item ~= nil then
-        self.item:setJobDelta(0.0)
-    end
-    self.bodyPart:setManipulatingUsername(nil)
-    ISBaseTimedAction.perform(self)
-end
-
-function KnoxNpcApplyBandage:new(character, item, bodyPart)
-    return ISApplyBandage.new(self, character, character, item, bodyPart, true)
-end
 
 local ticks = 0
 local phase = "IDLE"
@@ -122,18 +66,7 @@ local function restoreSurvivor(bridge)
 end
 
 local function mostUrgentInjury(character)
-    local parts = character:getBodyDamage():getBodyParts()
-    local fallback = nil
-    for index = 0, parts:size() - 1 do
-        local part = parts:get(index)
-        if part:HasInjury() then
-            fallback = fallback or part
-            if part:bleeding() and not part:bandaged() then
-                return part
-            end
-        end
-    end
-    return fallback
+    return KnoxMedicalActions.mostUrgentInjury(character)
 end
 
 local function fail(reason, evidence)
@@ -228,8 +161,7 @@ update = function()
             )
             return
         end
-        action = KnoxNpcApplyBandage:new(npc, bandage, bodyPart)
-        ISTimedActionQueue.add(action)
+        action = KnoxMedicalActions.queueBandage(npc, bandage, bodyPart)
         actionObserved = action.action ~= nil and npc:getCharacterActions():contains(action.action)
         print(
             TAG
