@@ -47,6 +47,17 @@ If you are testing, please report:
 Use a backed-up or disposable save. This is experimental engine work and may break a
 test save.
 
+## Player launcher
+
+The player launcher is a separate single-button Windows app. It finds Project Zomboid and
+Workshop item `3749727604` automatically, verifies the mod and Java runtime, and starts
+the normal game launcher without modifying the Project Zomboid installation. It stores no
+personal paths and makes no permanent environment changes.
+
+Players subscribe through Steam Workshop, download the launcher from the official GitHub
+release, and enable Knox Survivors on a save once. Steam then supplies both Lua and Java
+runtime updates through the same Workshop item. See [Launcher](docs/LAUNCHER.md).
+
 ## Running a development test
 
 1. Clone or download the repository after receiving testing permission.

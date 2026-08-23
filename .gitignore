@@ -7,3 +7,6 @@ local.properties
 *.iml
 .vscode/
 dev-runs/
+**/bin/
+**/obj/
+launcher/artifacts/

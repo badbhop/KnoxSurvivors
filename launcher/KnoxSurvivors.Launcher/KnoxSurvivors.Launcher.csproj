@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <AssemblyName>KnoxSurvivorsLauncher</AssemblyName>
+    <RootNamespace>KnoxSurvivors.Launcher</RootNamespace>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Product>Knox Survivors Launcher</Product>
+    <Authors>.exe</Authors>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+</Project>

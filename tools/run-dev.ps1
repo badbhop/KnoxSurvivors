@@ -52,12 +52,6 @@ if (-not (Test-Path -LiteralPath $gameLauncherPath)) {
     throw "Project Zomboid launcher was not found at '$gameLauncherPath'."
 }
 
-$expectedAgentArgument = '-javaagent:"' + $agentJarPath + '"'
-$launcherText = Get-Content -LiteralPath $gameLauncherPath -Raw
-if (-not $launcherText.Contains($expectedAgentArgument)) {
-    throw "ProjectZomboid64.bat is not configured to load '$agentJarPath'. Steam may have replaced the patched launcher."
-}
-
 Write-Host "[Knox Survivors] Build ready: $agentJarPath"
 Write-Host "[Knox Survivors] Local mod ready: $localModPath"
 
@@ -100,7 +94,21 @@ $session | ConvertTo-Json | Set-Content -LiteralPath $sessionPath -Encoding UTF8
 Set-Content -LiteralPath $latestSessionPath -Value $sessionPath -Encoding UTF8
 
 Write-Host '[Knox Survivors] Starting Project Zomboid with the Java agent...'
-Start-Process -FilePath $gameLauncherPath -WorkingDirectory $configuration.pzHome -WindowStyle Normal | Out-Null
+$agentOption = '-javaagent:"' + $agentJarPath + '"=pz-game'
+$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+$startInfo.FileName = $env:ComSpec
+$startInfo.Arguments = '/d /s /c ""' + $gameLauncherPath + '""'
+$startInfo.WorkingDirectory = $configuration.pzHome
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+$startInfo.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+$startInfo.RedirectStandardInput = $true
+$startInfo.EnvironmentVariables['JAVA_TOOL_OPTIONS'] = $agentOption
+$gameProcess = [System.Diagnostics.Process]::Start($startInfo)
+if ($null -eq $gameProcess) {
+    throw 'Windows did not start Project Zomboid.'
+}
+$gameProcess.StandardInput.Close()
 
 $monitorScriptPath = Join-Path $PSScriptRoot 'monitor-dev-run.ps1'
 $monitorArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$monitorScriptPath`" -SessionPath `"$sessionPath`""
