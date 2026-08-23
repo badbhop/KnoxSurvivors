@@ -5,19 +5,28 @@ import java.util.Base64;
 
 /** Versioned persistent identity and world state independent of an IsoPlayer body. */
 final class KnoxSurvivorRecord {
-    static final int SCHEMA_VERSION = 1;
+    static final int SCHEMA_VERSION = 2;
 
     final String id;
     final int x;
     final int y;
     final int z;
+    final KnoxAppearanceSnapshot appearance;
     final KnoxInventorySnapshot inventory;
 
-    KnoxSurvivorRecord(String id, int x, int y, int z, KnoxInventorySnapshot inventory) {
+    KnoxSurvivorRecord(
+        String id,
+        int x,
+        int y,
+        int z,
+        KnoxAppearanceSnapshot appearance,
+        KnoxInventorySnapshot inventory
+    ) {
         this.id = id;
         this.x = x;
         this.y = y;
         this.z = z;
+        this.appearance = appearance;
         this.inventory = inventory;
     }
 
@@ -27,12 +36,13 @@ final class KnoxSurvivorRecord {
             + "|" + x
             + "|" + y
             + "|" + z
+            + "|" + text(appearance.encode())
             + "|" + text(inventory.encode());
     }
 
     static KnoxSurvivorRecord decode(String encoded) {
         String[] fields = encoded.split("\\|", -1);
-        if (fields.length != 6 || Integer.parseInt(fields[0]) != SCHEMA_VERSION) {
+        if (fields.length != 7 || Integer.parseInt(fields[0]) != SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported survivor record schema");
         }
         return new KnoxSurvivorRecord(
@@ -40,7 +50,8 @@ final class KnoxSurvivorRecord {
             Integer.parseInt(fields[2]),
             Integer.parseInt(fields[3]),
             Integer.parseInt(fields[4]),
-            KnoxInventorySnapshot.decode(untext(fields[5]))
+            KnoxAppearanceSnapshot.decode(untext(fields[5])),
+            KnoxInventorySnapshot.decode(untext(fields[6]))
         );
     }
 

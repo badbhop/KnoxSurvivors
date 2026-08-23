@@ -6,10 +6,12 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
 
 /** Portable Knox-owned inventory state for rebuilding a temporary engine body. */
 final class KnoxInventorySnapshot {
-    static final int SCHEMA_VERSION = 1;
+    static final int SCHEMA_VERSION = 2;
+    private static final int VISUAL_BUFFER_BYTES = 64 * 1024;
 
     private final List<ItemState> items;
 
@@ -31,7 +33,8 @@ final class KnoxInventorySnapshot {
                 (Boolean) invoke(item, "isFavorite"),
                 (Boolean) invokeCompatible(wornItems, "contains", item),
                 item == primary,
-                item == secondary
+                item == secondary,
+                captureItemVisual(item)
             ));
         }
         return new KnoxInventorySnapshot(states);
@@ -54,6 +57,7 @@ final class KnoxInventorySnapshot {
             item.getClass().getMethod("setCondition", int.class).invoke(item, state.condition);
             item.getClass().getMethod("setUses", int.class).invoke(item, state.uses);
             item.getClass().getMethod("setFavorite", boolean.class).invoke(item, state.favorite);
+            restoreItemVisual(item, state.visual);
             Object bodyLocation = invoke(item, "getBodyLocation");
             if (state.worn && bodyLocation != null) {
                 invokeCompatible(body, "setWornItem", bodyLocation, item);
@@ -93,7 +97,8 @@ final class KnoxInventorySnapshot {
                 .append(item.favorite ? 1 : 0).append('|')
                 .append(item.worn ? 1 : 0).append('|')
                 .append(item.primary ? 1 : 0).append('|')
-                .append(item.secondary ? 1 : 0);
+                .append(item.secondary ? 1 : 0).append('|')
+                .append(item.visual);
         }
         return encoded.toString();
     }
@@ -106,7 +111,7 @@ final class KnoxInventorySnapshot {
         List<ItemState> states = new ArrayList<>();
         for (int index = 1; index < lines.length; index++) {
             String[] fields = lines[index].split("\\|", -1);
-            if (fields.length != 7) {
+            if (fields.length != 8) {
                 throw new IllegalArgumentException("Invalid inventory item record at " + index);
             }
             states.add(new ItemState(
@@ -116,7 +121,8 @@ final class KnoxInventorySnapshot {
                 "1".equals(fields[3]),
                 "1".equals(fields[4]),
                 "1".equals(fields[5]),
-                "1".equals(fields[6])
+                "1".equals(fields[6]),
+                fields[7]
             ));
         }
         return new KnoxInventorySnapshot(states);
@@ -156,6 +162,39 @@ final class KnoxInventorySnapshot {
         throw new NoSuchMethodException(target.getClass().getName() + "." + name);
     }
 
+    private static String captureItemVisual(Object item) throws ReflectiveOperationException {
+        Object visual = invoke(item, "getVisual");
+        if (visual == null) {
+            return "";
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(VISUAL_BUFFER_BYTES);
+        visual.getClass().getMethod("save", ByteBuffer.class).invoke(visual, buffer);
+        byte[] bytes = new byte[buffer.position()];
+        buffer.flip();
+        buffer.get(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static void restoreItemVisual(Object item, String encoded)
+        throws ReflectiveOperationException {
+        if (encoded.isEmpty()) {
+            return;
+        }
+        Object visual = invoke(item, "getVisual");
+        if (visual == null) {
+            throw new IllegalStateException("Saved item visual missing on " + invoke(item, "getFullType"));
+        }
+        Class<?> isoWorld = Class.forName(
+            "zombie.iso.IsoWorld",
+            false,
+            item.getClass().getClassLoader()
+        );
+        int worldVersion = isoWorld.getField("WorldVersion").getInt(null);
+        ByteBuffer buffer = ByteBuffer.wrap(Base64.getUrlDecoder().decode(encoded));
+        visual.getClass().getMethod("load", ByteBuffer.class, int.class)
+            .invoke(visual, buffer, worldVersion);
+    }
+
     private record ItemState(
         String fullType,
         int condition,
@@ -163,7 +202,8 @@ final class KnoxInventorySnapshot {
         boolean favorite,
         boolean worn,
         boolean primary,
-        boolean secondary
+        boolean secondary,
+        String visual
     ) {
     }
 }

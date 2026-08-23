@@ -3,15 +3,15 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 1
+local SCHEMA_VERSION = 2
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local function root()
     local data = ModData.getOrCreate(MOD_DATA_KEY)
-    if data.schemaVersion == nil then
+    if data.schemaVersion ~= SCHEMA_VERSION then
         data.schemaVersion = SCHEMA_VERSION
-    end
-    if data.survivors == nil then
+        data.survivors = {}
+    elseif data.survivors == nil then
         data.survivors = {}
     end
     return data

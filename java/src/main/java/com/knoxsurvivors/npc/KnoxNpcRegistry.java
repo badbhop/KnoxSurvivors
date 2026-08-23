@@ -163,6 +163,45 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    public synchronized boolean isOneFemale() {
+        if (activeNpc == null) {
+            throw new IllegalStateException("No active NPC");
+        }
+        try {
+            return (Boolean) activeNpc.getBody().getClass().getMethod("isFemale")
+                .invoke(activeNpc.getBody());
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException("Unable to read NPC gender", exception);
+        }
+    }
+
+    public synchronized String wearOneItem(String fullType) {
+        if (activeNpc == null) {
+            return "WEAR_FAILED NONE_ACTIVE";
+        }
+        try {
+            Object body = activeNpc.getBody();
+            Object inventory = body.getClass().getMethod("getInventory").invoke(body);
+            Object item = inventory.getClass().getMethod("AddItem", String.class)
+                .invoke(inventory, fullType);
+            if (item == null) {
+                return "WEAR_FAILED ITEM_NOT_CREATED " + fullType;
+            }
+            Object location = item.getClass().getMethod("getBodyLocation").invoke(item);
+            if (location == null) {
+                location = item.getClass().getMethod("canBeEquipped").invoke(item);
+            }
+            if (location == null) {
+                return "WEAR_FAILED NO_BODY_LOCATION " + fullType;
+            }
+            invokeCompatible(body, "setWornItem", location, item);
+            body.getClass().getMethod("resetModelNextFrame").invoke(body);
+            return "WORN " + fullType + " location=" + location;
+        } catch (Throwable throwable) {
+            return failure("WEAR_FAILED " + fullType, throwable);
+        }
+    }
+
     public synchronized String recreateOne() {
         if (activeNpc == null) {
             return "RECREATE_FAILED NONE_ACTIVE";
@@ -173,6 +212,7 @@ public final class KnoxNpcRegistry {
                 .invoke(activeNpc.getBody());
             KnoxNpcFactory.remove(activeNpc);
             activeNpc = KnoxNpcFactory.create(before.id, square);
+            before.appearance.restore(activeNpc.getBody());
             before.inventory.restore(activeNpc.getBody());
             KnoxSurvivorRecord after = captureRecord(activeNpc);
             boolean matches = before.encode().equals(after.encode());
@@ -214,12 +254,14 @@ public final class KnoxNpcRegistry {
                 return "RESTORE_FAILED LOCATION_MISMATCH";
             }
             activeNpc = KnoxNpcFactory.create(record.id, square);
+            record.appearance.restore(activeNpc.getBody());
             record.inventory.restore(activeNpc.getBody());
             lastRecord = captureRecord(activeNpc);
             String result = "RESTORED id=" + record.id
                 + " location=" + record.x + "," + record.y + "," + record.z
                 + " items=" + record.inventory.size()
-                + " primary=" + record.inventory.primaryType();
+                + " primary=" + record.inventory.primaryType()
+                + " appearance=" + record.appearance.summary();
             KnoxAgent.writeLog("NPC persistence " + result);
             return result;
         } catch (Throwable throwable) {
@@ -317,7 +359,32 @@ public final class KnoxNpcRegistry {
         int x = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
         int y = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
         int z = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
-        return new KnoxSurvivorRecord(npc.getId(), x, y, z, KnoxInventorySnapshot.capture(body));
+        return new KnoxSurvivorRecord(
+            npc.getId(),
+            x,
+            y,
+            z,
+            KnoxAppearanceSnapshot.capture(body),
+            KnoxInventorySnapshot.capture(body)
+        );
+    }
+
+    private static Object invokeCompatible(
+        Object target,
+        String name,
+        Object firstArgument,
+        Object secondArgument
+    ) throws ReflectiveOperationException {
+        for (java.lang.reflect.Method method : target.getClass().getMethods()) {
+            if (!method.getName().equals(name) || method.getParameterCount() != 2) {
+                continue;
+            }
+            Class<?>[] types = method.getParameterTypes();
+            if (types[0].isInstance(firstArgument) && types[1].isInstance(secondArgument)) {
+                return method.invoke(target, firstArgument, secondArgument);
+            }
+        }
+        throw new NoSuchMethodException(target.getClass().getName() + "." + name);
     }
 
     private static String failure(String prefix, Throwable throwable) {

@@ -32,11 +32,16 @@ equipment. When that survivor's cell is active again, Knox creates a new shell w
 same stable ID and restores the snapshot. To the player this is the same person
 continuing to exist; reconstruction is only an engine lifecycle detail.
 
-Persistence schema 1 currently records top-level item type, condition, uses, favorite
-state, worn state, and primary/secondary hand ownership. It deliberately does not yet
-claim nested-container contents, food age, drainable deltas, item blood/holes, color
-variants, weapon attachments, or health. Those fields must be added and migrated before
-M2 persistence is complete. The controlled equipment gate first proves same-process
+Persistence schema 2 records the survivor's engine human visual (gender, skin, hair,
+beard, colors, and body-visual details), name and voice, plus top-level item type,
+condition, uses, favorite state, worn state, primary/secondary hand ownership, and each
+item's visual data. New survivors receive real wearable inventory items selected with
+the same `ClothingSelectionDefinitions.default` tables and chance rules as Build 42's
+character creator; a separate restrained roll may add a schoolbag or duffel bag.
+
+The schema deliberately does not yet claim nested-container contents, food age,
+drainable deltas, weapon attachments, or health. Those fields must be added and migrated
+before M2 persistence is complete. The controlled equipment gate first proves same-process
 body reconstruction, then saves the same encoded record under the rebuild-specific
 `KnoxSurvivors_IsoPlayer` global ModData key so a second game load can prove disk
 continuity. This separate key prevents reused saves from confusing legacy IsoZombie-era

@@ -138,9 +138,26 @@ update = function()
             fail("spawn_failed", result)
             return
         end
-        phase = "SEED_EQUIPMENT"
+        phase = "GENERATE_APPEARANCE"
         phaseStartedAt = ticks
         print(TAG .. " spawn=" .. tostring(result))
+        return
+    end
+
+    if phase == "GENERATE_APPEARANCE" then
+        local appearance = rawget(_G, "KnoxCharacterAppearance")
+        if appearance == nil then
+            fail("appearance_generator_unavailable", "none")
+            return
+        end
+        local success, result = appearance.randomizeNewTestSurvivor(bridge)
+        if not success then
+            fail("appearance_generation_failed", result)
+            return
+        end
+        phase = "SEED_EQUIPMENT"
+        phaseStartedAt = ticks
+        print(TAG .. " appearance=" .. tostring(result))
         return
     end
 

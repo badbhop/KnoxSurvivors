@@ -62,7 +62,6 @@ final class KnoxNpcFactory {
         invoke(body, "setCurrent", square.getClass(), square);
         invoke(body, "setMovingSquareNow");
         invoke(body, "setZombiesDontAttack", boolean.class, true);
-        invoke(body, "dressInRandomNonSillyOutfit");
         invoke(body, "setAlphaAndTarget", float.class, 1.0f);
         invoke(cell, "addMovingObject", classFor(body, "zombie.iso.IsoMovingObject"), body);
         Object modelManager = modelManagerClass.getField("instance").get(null);

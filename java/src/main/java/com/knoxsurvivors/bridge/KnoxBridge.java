@@ -65,6 +65,14 @@ public final class KnoxBridge {
         return npcRegistry.seedAndEquipOne();
     }
 
+    public boolean isTestNpcFemale() {
+        return npcRegistry.isOneFemale();
+    }
+
+    public String wearTestNpcItem(String fullType) {
+        return npcRegistry.wearOneItem(fullType);
+    }
+
     public String recreateTestNpc() {
         return npcRegistry.recreateOne();
     }
