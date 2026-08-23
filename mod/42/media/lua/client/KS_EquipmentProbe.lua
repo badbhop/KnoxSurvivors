@@ -1,0 +1,210 @@
+local TAG = "[KnoxSurvivors][EquipmentTest]"
+local START_DELAY_TICKS = 120
+local STEP_DELAY_TICKS = 45
+local MAX_WAIT_TICKS = 900
+
+local ticks = 0
+local phase = "IDLE"
+local phaseStartedAt = 0
+local update
+
+local function report(status, reason, evidence)
+    print(
+        TAG
+            .. " RESULT scenario=equipment status="
+            .. tostring(status)
+            .. " reason="
+            .. tostring(reason)
+            .. " evidence="
+            .. tostring(evidence or "none")
+    )
+end
+
+local function stop()
+    if update ~= nil then
+        Events.OnTick.Remove(update)
+    end
+end
+
+local function fail(reason, evidence)
+    report("FAIL", reason, evidence)
+    phase = "FINISHED"
+    stop()
+end
+
+local function findNewSurvivorSquare()
+    local player = getSpecificPlayer(0)
+    local cell = getCell()
+    if player == nil or player:getCurrentSquare() == nil or cell == nil then
+        return nil
+    end
+    local origin = player:getCurrentSquare()
+    local offsets = {
+        { 4, 0 }, { 0, 4 }, { -4, 0 }, { 0, -4 },
+        { 5, 2 }, { 2, 5 }, { -5, -2 }, { -2, -5 },
+    }
+    for _, offset in ipairs(offsets) do
+        local square = cell:getGridSquare(
+            origin:getX() + offset[1],
+            origin:getY() + offset[2],
+            origin:getZ()
+        )
+        if square ~= nil and square:canStand() then
+            return square
+        end
+    end
+    return nil
+end
+
+local function squareForRecord(bridge, record)
+    local success, x, y, z = pcall(function()
+        return bridge:getTestNpcRecordX(record),
+            bridge:getTestNpcRecordY(record),
+            bridge:getTestNpcRecordZ(record)
+    end)
+    if not success then
+        return nil, x
+    end
+    return getCell():getGridSquare(x, y, z), tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
+end
+
+local function saveRecord()
+    local persistence = rawget(_G, "KnoxPersistence")
+    if persistence == nil then
+        return false, "persistence_module_unavailable"
+    end
+    return persistence.captureActiveTestSurvivor()
+end
+
+local function finishPass(reason, evidence)
+    local saved, record = saveRecord()
+    if not saved then
+        fail("record_capture_failed", record)
+        return
+    end
+    report("PASS", reason, evidence .. " recordBytes=" .. tostring(string.len(record)))
+    phase = "FINISHED"
+    stop()
+end
+
+update = function()
+    ticks = ticks + 1
+    if ticks > MAX_WAIT_TICKS then
+        fail("timeout", "phase=" .. phase)
+        return
+    end
+    if ticks - phaseStartedAt < (phase == "WAIT_START" and START_DELAY_TICKS or STEP_DELAY_TICKS) then
+        return
+    end
+
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil then
+        return
+    end
+
+    if phase == "WAIT_START" then
+        local persistence = rawget(_G, "KnoxPersistence")
+        local record = persistence ~= nil and persistence.getTestRecord() or nil
+        if record ~= nil then
+            local square, location = squareForRecord(bridge, record)
+            if square == nil then
+                report("BLOCKED", "saved_square_not_loaded", "location=" .. tostring(location))
+                phase = "FINISHED"
+                stop()
+                return
+            end
+            local success, result = pcall(function()
+                return bridge:restoreTestNpcRecord(record, square)
+            end)
+            if not success or string.find(tostring(result), "RESTORED", 1, true) ~= 1 then
+                fail("disk_restore_failed", result)
+                return
+            end
+            phase = "VERIFY_RESTORED"
+            phaseStartedAt = ticks
+            print(TAG .. " disk-restore=" .. tostring(result))
+            return
+        end
+
+        local square = findNewSurvivorSquare()
+        if square == nil then
+            fail("no_valid_spawn_square", "near_player=true")
+            return
+        end
+        local success, result = pcall(function()
+            return bridge:spawnTestNpc(square)
+        end)
+        if not success or string.find(tostring(result), "SPAWNED", 1, true) ~= 1 then
+            fail("spawn_failed", result)
+            return
+        end
+        phase = "SEED_EQUIPMENT"
+        phaseStartedAt = ticks
+        print(TAG .. " spawn=" .. tostring(result))
+        return
+    end
+
+    if phase == "SEED_EQUIPMENT" then
+        local success, result = pcall(function()
+            return bridge:seedAndEquipTestNpc()
+        end)
+        if not success or string.find(tostring(result), "EQUIPPED", 1, true) ~= 1 then
+            fail("auto_equip_failed", result)
+            return
+        end
+        phase = "RECREATE_BODY"
+        phaseStartedAt = ticks
+        print(TAG .. " equipment=" .. tostring(result))
+        return
+    end
+
+    if phase == "RECREATE_BODY" then
+        local success, result = pcall(function()
+            return bridge:recreateTestNpc()
+        end)
+        if not success
+            or string.find(tostring(result), "RECREATED", 1, true) ~= 1
+            or string.find(tostring(result), "matches=true", 1, true) == nil then
+            fail("body_recreation_failed", result)
+            return
+        end
+        finishPass("new_record_created", tostring(result))
+        return
+    end
+
+    if phase == "VERIFY_RESTORED" then
+        local success, result = pcall(function()
+            return bridge:getTestNpcEquipmentStatus()
+        end)
+        if not success
+            or string.find(tostring(result), "ACTIVE", 1, true) ~= 1
+            or string.find(tostring(result), "primary=Base.BaseballBat", 1, true) == nil then
+            fail("restored_state_mismatch", result)
+            return
+        end
+        finishPass("disk_record_restored", tostring(result))
+    end
+end
+
+local function onGameStart()
+    local config = rawget(_G, "KnoxDevTests")
+    if config == nil or config.enabled ~= true or config.activeScenario ~= "equipment" then
+        return
+    end
+    print(TAG .. " START auto=true scenario=equipment")
+    ticks = 0
+    phase = "WAIT_START"
+    phaseStartedAt = 0
+    stop()
+    Events.OnTick.Add(update)
+end
+
+local function onMainMenuEnter()
+    if phase ~= "IDLE" then
+        saveRecord()
+    end
+    stop()
+end
+
+Events.OnGameStart.Add(onGameStart)
+Events.OnMainMenuEnter.Add(onMainMenuEnter)

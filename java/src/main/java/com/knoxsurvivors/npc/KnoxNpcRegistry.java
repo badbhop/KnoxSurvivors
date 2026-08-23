@@ -14,6 +14,7 @@ public final class KnoxNpcRegistry {
     private float movementTargetY;
     private int movementTargetZ;
     private String movementControllerState = "NotStarted";
+    private KnoxSurvivorRecord lastRecord;
 
     public synchronized String spawnOne(Object square) {
         if (activeNpc != null) {
@@ -143,6 +144,116 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    public synchronized String seedAndEquipOne() {
+        if (activeNpc == null) {
+            return "EQUIP_FAILED NONE_ACTIVE";
+        }
+        try {
+            Object body = activeNpc.getBody();
+            Object inventory = body.getClass().getMethod("getInventory").invoke(body);
+            inventory.getClass().getMethod("AddItem", String.class).invoke(inventory, "Base.Hammer");
+            inventory.getClass().getMethod("AddItem", String.class).invoke(inventory, "Base.BaseballBat");
+            String equipped = KnoxEquipmentController.equipBestMelee(body);
+            lastRecord = captureRecord(activeNpc);
+            String result = equipped + " items=" + lastRecord.inventory.size();
+            KnoxAgent.writeLog("NPC equipment " + result);
+            return result;
+        } catch (Throwable throwable) {
+            return failure("EQUIP_FAILED", throwable);
+        }
+    }
+
+    public synchronized String recreateOne() {
+        if (activeNpc == null) {
+            return "RECREATE_FAILED NONE_ACTIVE";
+        }
+        try {
+            KnoxSurvivorRecord before = captureRecord(activeNpc);
+            Object square = activeNpc.getBody().getClass().getMethod("getCurrentSquare")
+                .invoke(activeNpc.getBody());
+            KnoxNpcFactory.remove(activeNpc);
+            activeNpc = KnoxNpcFactory.create(before.id, square);
+            before.inventory.restore(activeNpc.getBody());
+            KnoxSurvivorRecord after = captureRecord(activeNpc);
+            boolean matches = before.encode().equals(after.encode());
+            lastRecord = after;
+            String result = "RECREATED matches=" + matches
+                + " id=" + after.id
+                + " location=" + after.x + "," + after.y + "," + after.z
+                + " items=" + after.inventory.size()
+                + " primary=" + after.inventory.primaryType();
+            KnoxAgent.writeLog("NPC persistence " + result);
+            return result;
+        } catch (Throwable throwable) {
+            return failure("RECREATE_FAILED", throwable);
+        }
+    }
+
+    public synchronized String capturePersistentRecord() {
+        try {
+            if (activeNpc == null) {
+                return "";
+            }
+            lastRecord = captureRecord(activeNpc);
+            return lastRecord.encode();
+        } catch (Throwable throwable) {
+            return failure("CAPTURE_FAILED", throwable);
+        }
+    }
+
+    public synchronized String restorePersistentRecord(String encoded, Object square) {
+        if (activeNpc != null) {
+            return "RESTORE_FAILED ALREADY_ACTIVE";
+        }
+        try {
+            KnoxSurvivorRecord record = KnoxSurvivorRecord.decode(encoded);
+            int squareX = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
+            int squareY = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
+            int squareZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+            if (record.x != squareX || record.y != squareY || record.z != squareZ) {
+                return "RESTORE_FAILED LOCATION_MISMATCH";
+            }
+            activeNpc = KnoxNpcFactory.create(record.id, square);
+            record.inventory.restore(activeNpc.getBody());
+            lastRecord = captureRecord(activeNpc);
+            String result = "RESTORED id=" + record.id
+                + " location=" + record.x + "," + record.y + "," + record.z
+                + " items=" + record.inventory.size()
+                + " primary=" + record.inventory.primaryType();
+            KnoxAgent.writeLog("NPC persistence " + result);
+            return result;
+        } catch (Throwable throwable) {
+            return failure("RESTORE_FAILED", throwable);
+        }
+    }
+
+    public synchronized int persistentRecordX(String encoded) {
+        return KnoxSurvivorRecord.decode(encoded).x;
+    }
+
+    public synchronized int persistentRecordY(String encoded) {
+        return KnoxSurvivorRecord.decode(encoded).y;
+    }
+
+    public synchronized int persistentRecordZ(String encoded) {
+        return KnoxSurvivorRecord.decode(encoded).z;
+    }
+
+    public synchronized String equipmentStatus() {
+        if (activeNpc == null) {
+            return "NONE_ACTIVE";
+        }
+        try {
+            KnoxSurvivorRecord record = captureRecord(activeNpc);
+            return "ACTIVE id=" + record.id
+                + " location=" + record.x + "," + record.y + "," + record.z
+                + " items=" + record.inventory.size()
+                + " primary=" + record.inventory.primaryType();
+        } catch (Throwable throwable) {
+            return failure("STATUS_FAILED", throwable);
+        }
+    }
+
     public synchronized String status() {
         if (activeNpc == null) {
             return "NONE_ACTIVE";
@@ -187,6 +298,7 @@ public final class KnoxNpcRegistry {
 
         String description = activeNpc.describe();
         activeNpc = null;
+        lastRecord = null;
         movementRequested = false;
         movementControllerState = "NotStarted";
         KnoxAgent.writeLog(
@@ -194,6 +306,25 @@ public final class KnoxNpcRegistry {
                 + description
                 + " environmentChanged=true"
         );
+    }
+
+    private static KnoxSurvivorRecord captureRecord(KnoxNpc npc) throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        Object square = body.getClass().getMethod("getCurrentSquare").invoke(body);
+        if (square == null) {
+            throw new IllegalStateException("NPC has no current square to persist");
+        }
+        int x = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
+        int y = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
+        int z = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+        return new KnoxSurvivorRecord(npc.getId(), x, y, z, KnoxInventorySnapshot.capture(body));
+    }
+
+    private static String failure(String prefix, Throwable throwable) {
+        Throwable cause = rootCause(throwable);
+        String result = prefix + " " + cause.getClass().getName() + ": " + cause.getMessage();
+        KnoxAgent.writeLog("ERROR NPC probe " + result);
+        return result;
     }
 
     private String movementDescription() {

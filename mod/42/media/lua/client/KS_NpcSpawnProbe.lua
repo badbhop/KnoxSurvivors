@@ -521,7 +521,7 @@ local function onGameStart()
         return
     end
     if config.activeScenario ~= "obstacle_suite" then
-        reportResult(config.activeScenario, "BLOCKED", "not_implemented", "none")
+        print(TAG .. " INACTIVE activeScenario=" .. tostring(config.activeScenario))
         return
     end
 

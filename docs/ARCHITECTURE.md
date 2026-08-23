@@ -23,6 +23,40 @@ Project Zomboid owns the active `IsoPlayer` representation and normal world mech
 5. **Simulation** — advances survivors away from loaded cells without keeping full engine objects alive.
 6. **Persistence** — saves Knox-owned state and reconstructs world representations safely.
 
+## Persistent person, temporary body
+
+The Knox survivor record is the authoritative person. An off-slot `IsoPlayer` shell is
+not trusted as a save-game entity and is never the survivor's identity. Before a shell
+is removed, Knox snapshots its current world tile, inventory, worn slots, and hand
+equipment. When that survivor's cell is active again, Knox creates a new shell with the
+same stable ID and restores the snapshot. To the player this is the same person
+continuing to exist; reconstruction is only an engine lifecycle detail.
+
+Persistence schema 1 currently records top-level item type, condition, uses, favorite
+state, worn state, and primary/secondary hand ownership. It deliberately does not yet
+claim nested-container contents, food age, drainable deltas, item blood/holes, color
+variants, weapon attachments, or health. Those fields must be added and migrated before
+M2 persistence is complete. The controlled equipment gate first proves same-process
+body reconstruction, then saves the same encoded record under the rebuild-specific
+`KnoxSurvivors_IsoPlayer` global ModData key so a second game load can prove disk
+continuity. This separate key prevents reused saves from confusing legacy IsoZombie-era
+Knox data with the new schema.
+
+## Population and origin policy
+
+Survivors are durable world inhabitants, not a refill effect around the active player.
+New identities originate from the map's real spawn-region point tables. A candidate is
+rejected when its square is currently visible, occupied, unsafe, or too close to a
+player. A valid identity may originate in another town and remain virtually simulated
+until its cell loads; loading a cell activates the survivor at their recorded location
+instead of relocating them toward the player.
+
+Population generation will use a low world cap, long cooldowns, and distance bands.
+Death is durable and does not trigger an immediate nearby replacement. These constraints
+make an encounter uncommon and make an individual survivor valuable without preventing
+the world from containing people beyond the player's current area. The first lifecycle
+milestone remains capped at one until persistence and cell activation pass.
+
 ## Minimal active-survivor loop
 
 The first playable survivor is intentionally a small priority controller, not a complete
@@ -52,7 +86,7 @@ Inspection of the installed `projectzomboid.jar` confirms:
 - `IsoPlayer(IsoCell)` and `IsoPlayer(IsoCell, SurvivorDesc, int, int, int[, boolean])` constructors;
 - `IsoPlayer.setNpc(boolean)`;
 - local-player storage through `IsoPlayer.players[]` and `IsoPlayer.setLocalPlayer(...)`;
-- `SpawnRegionMgr.getSpawnRegions()` and region point tables in the shipped Lua layer.
+- the shipped Lua `SpawnRegionMgr.getSpawnRegions()` function and its loaded region point tables;
 - `isNpc()` players skip ordinary local-input movement, then consume
   `AIComponent.getHumanControlVars()` during `IsoPlayer.updateInternal2()`;
 - normal inventory and equipment live on `IsoGameCharacter` through `getInventory()`,

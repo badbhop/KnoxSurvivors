@@ -61,6 +61,38 @@ public final class KnoxBridge {
         return npcRegistry.hasTraversalEvidence(state);
     }
 
+    public String seedAndEquipTestNpc() {
+        return npcRegistry.seedAndEquipOne();
+    }
+
+    public String recreateTestNpc() {
+        return npcRegistry.recreateOne();
+    }
+
+    public String getTestNpcEquipmentStatus() {
+        return npcRegistry.equipmentStatus();
+    }
+
+    public String captureTestNpcRecord() {
+        return npcRegistry.capturePersistentRecord();
+    }
+
+    public String restoreTestNpcRecord(String encoded, Object square) {
+        return npcRegistry.restorePersistentRecord(encoded, square);
+    }
+
+    public int getTestNpcRecordX(String encoded) {
+        return npcRegistry.persistentRecordX(encoded);
+    }
+
+    public int getTestNpcRecordY(String encoded) {
+        return npcRegistry.persistentRecordY(encoded);
+    }
+
+    public int getTestNpcRecordZ(String encoded) {
+        return npcRegistry.persistentRecordZ(encoded);
+    }
+
     void abandonForEnvironmentChange() {
         npcRegistry.abandonForEnvironmentChange();
     }

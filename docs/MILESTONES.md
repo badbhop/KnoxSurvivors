@@ -31,7 +31,8 @@ Population remains capped at one until every condition passes.
 M2 is split into narrow gates so failures can be attributed to one engine subsystem:
 
 1. **Inventory/equipment** — give the survivor one real carried weapon, equip it through
-   the normal hand-item path, and preserve it across reload.
+   the normal hand-item path, automatically prefer the strongest suitable carried melee
+   weapon, retain the other carried tools/items, and preserve the result across reload.
 2. **Combat** — perceive, approach, attack, and kill one zombie with that weapon while
    normal attack timing, durability, noise, and animation run.
 3. **Looting** — select one useful item from one reachable container and move it through
