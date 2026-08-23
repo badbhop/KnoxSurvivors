@@ -110,16 +110,25 @@ local function restoreSurvivor(bridge)
     return success and string.find(tostring(result), "RESTORED", 1, true) == 1, result
 end
 
-local function startCombat(bridge, survivorSquare)
+local function startCombat(bridge, survivorSquare, playerSquare)
+    local removed = clearLoadedZombies(nil)
     local approachSquare, zombieSquare = findCombatSquares(survivorSquare)
+    local laneSource = "survivor"
+    if zombieSquare == nil and playerSquare ~= nil then
+        approachSquare, zombieSquare = findCombatSquares(playerSquare)
+        laneSource = "player"
+    end
     if zombieSquare == nil then
-        report("BLOCKED", "no_clear_combat_lane", "stand_in_an_open_area=true")
+        report(
+            "BLOCKED",
+            "no_clear_combat_lane",
+            "clearedLoadedZombies=" .. tostring(removed) .. " stand_in_an_open_area=true"
+        )
         phase = "FINISHED"
         stop()
         return
     end
 
-    local removed = clearLoadedZombies(nil)
     local zombies = addZombiesInOutfit(
         zombieSquare:getX(), zombieSquare:getY(), zombieSquare:getZ(), 1, nil, nil
     )
@@ -143,7 +152,15 @@ local function startCombat(bridge, survivorSquare)
         return
     end
 
-    print(TAG .. " combat-start=" .. tostring(result) .. " clearedLoadedZombies=" .. tostring(removed))
+    print(
+        TAG
+            .. " combat-start="
+            .. tostring(result)
+            .. " clearedLoadedZombies="
+            .. tostring(removed)
+            .. " laneSource="
+            .. laneSource
+    )
     phase = "COMBAT"
 end
 
@@ -185,7 +202,7 @@ update = function()
 
         local record = persistence.getTestRecord()
         local survivorSquare = squareForRecord(bridge, record)
-        startCombat(bridge, survivorSquare)
+        startCombat(bridge, survivorSquare, player:getCurrentSquare())
         return
     end
 
