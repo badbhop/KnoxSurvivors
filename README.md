@@ -1,49 +1,46 @@
 # Knox Survivors
 
-Knox Survivors is a ground-up Project Zomboid 42.20 mod that represents autonomous human survivors with `IsoPlayer` engine objects.
+Knox Survivors is an NPC mod for Project Zomboid Build 42.20. It is being rebuilt from scratch around actual `IsoPlayer` characters instead of disguising zombies as survivors.
 
-The long-term goal is for survivors to make decisions and use the same world-facing mechanics available to a player: movement, combat, inventory and equipment, looting, doors and windows, barricading, medical care, vehicles, camps, relationships, and persistent identity.
+The idea is to make survivors feel like other people trying to live in the same world as you. They should be able to move around, fight zombies, find and carry supplies, use doors and windows, barricade buildings, get hurt, recover, and remember who they are between sessions. Later on this will grow into recruitment, groups, camps, base jobs, relationships, and factions.
 
-This repository is at the first-human milestone. The current build proves the Lua/Java bridge and a visible, off-slot `IsoPlayer`-derived NPC shell; controlled engine-pathfinding movement is the active runtime gate.
+This is still very early development. It is not ready to play as a normal mod yet.
 
-## Development layout
+## Where it is now
 
-- `mod/` contains the Project Zomboid mod package.
-- `java/` contains the Java agent and engine integration code.
-- `docs/` contains architecture decisions and milestone acceptance criteria.
-- `local.properties` contains machine-specific game and Workshop paths and is not committed.
+The Lua mod and Java agent load correctly in Build 42.20. We can spawn one visible human NPC without taking over the real player's slot. The current test is getting that NPC to walk to a nearby location using the game's pathfinding.
 
-## Build and deploy
+Population is deliberately locked to one survivor while the basic character lifecycle is being worked out. Movement, saving, loading, cell changes, and clean removal all need to be reliable before combat or looting is added.
+
+The development checkpoints are kept in [docs/MILESTONES.md](docs/MILESTONES.md), and the main technical decisions are explained in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Project folders
+
+- `mod/` — Lua files and the Project Zomboid mod package
+- `java/` — Java agent and engine-side NPC code
+- `docs/` — milestones and architecture notes
+- `tools/` — local build, launch, and log collection scripts
+
+## Building locally
+
+Copy `gradle.properties.example` to `local.properties` and fill in the Project Zomboid and Workshop paths for your machine. `local.properties` stays local and is not committed.
+
+Build and deploy the development version with:
 
 ```powershell
 .\gradlew.bat clean build deployDev
 ```
 
-The development targets are configured in `local.properties`. `deployDev` copies the loadable mod to `C:/Users/Gary/Zomboid/mods/KnoxSurvivors` and stages the Workshop package under `C:/Users/Gary/Zomboid/Workshop/KnoxSurvivors/Contents/mods/KnoxSurvivors`.
+For the normal test loop, use `Run Knox Survivors Dev.bat`. It builds the latest code, deploys the mod, checks the Java-agent launcher setup, starts the game, and collects the new logs after the game closes.
 
-## Launching a development test
-
-Double-click `Run Knox Survivors Dev.bat` in the repository root. It performs the following sequence every time:
-
-1. builds the current Java agent;
-2. deploys the current mod files to the local test and Workshop staging folders;
-3. verifies that `ProjectZomboid64.bat` points at the newly built agent;
-4. records the current log positions;
-5. launches Project Zomboid through that patched batch file;
-6. monitors the game and collects only the new log output after it closes.
-
-Each run writes local diagnostics under `dev-runs/<timestamp>/`, including the new console output, the new Knox agent output, Knox-specific events, and a filtered possible-issues report. `dev-runs/` is ignored by Git and is never pushed to GitHub.
-
-Do not use Steam's normal Play button for Java-agent development tests. Steam updates may replace the patched launcher; the development launcher detects that condition and stops with an explanation instead of silently starting without the agent.
-
-To verify the complete build and deployment without opening the game, run:
+To build and check the deployment without launching Project Zomboid:
 
 ```powershell
 .\tools\run-dev.ps1 -BuildOnly
 ```
 
-The Project Zomboid launcher must load the generated agent jar with `-javaagent`. Launcher changes are managed separately because Steam updates can replace them.
+The Java side requires the development launcher because the agent has to be loaded when Project Zomboid starts. Steam's normal Play button does not do that.
 
-## Current acceptance gate
+## Current support
 
-See [docs/MILESTONES.md](docs/MILESTONES.md). The next runtime gate is one stable `IsoPlayer` NPC that spawns, renders, moves, unloads, reloads, saves, and is removed without occupying or corrupting a local player slot.
+Development is focused on single-player Build 42.20. Multiplayer NPC AI is not supported at this stage.
