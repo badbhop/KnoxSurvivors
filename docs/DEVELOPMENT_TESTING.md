@@ -11,7 +11,7 @@ Use a disposable or backed-up single-player Build 42.20 save.
 
 1. Start the game with `Run Knox Survivors Dev.bat`.
 2. Enable Knox Survivors on the save and load it.
-3. Wait about ten seconds without leaving the area.
+3. The survivor should appear as soon as the player and saved cell finish loading.
 4. A green-outlined test survivor should appear a few tiles away.
 5. Check their skin, hair, clothes, and bag. The current gate forces one starter bag so
    its back slot is tested on every run.
@@ -22,8 +22,8 @@ Use a disposable or backed-up single-player Build 42.20 save.
 ### Second load
 
 1. Launch the development shortcut again and load the same save.
-2. Wait about ten seconds.
-3. The same survivor should return on the same tile.
+2. The survivor should appear as soon as the player and saved cell finish loading.
+3. The same survivor should return at the same precise saved position.
 4. Check that their skin, hair, clothes, clothing colors, bag, inventory, and baseball bat
    match the first load.
 5. Quit normally when finished so the diagnostic collector can finish.

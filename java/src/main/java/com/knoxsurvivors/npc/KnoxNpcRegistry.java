@@ -212,6 +212,7 @@ public final class KnoxNpcRegistry {
                 .invoke(activeNpc.getBody());
             KnoxNpcFactory.remove(activeNpc);
             activeNpc = KnoxNpcFactory.create(before.id, square);
+            restoreExactPosition(activeNpc.getBody(), before);
             before.appearance.restore(activeNpc.getBody());
             before.inventory.restore(activeNpc.getBody());
             KnoxSurvivorRecord after = captureRecord(activeNpc);
@@ -254,6 +255,7 @@ public final class KnoxNpcRegistry {
                 return "RESTORE_FAILED LOCATION_MISMATCH";
             }
             activeNpc = KnoxNpcFactory.create(record.id, square);
+            restoreExactPosition(activeNpc.getBody(), record);
             record.appearance.restore(activeNpc.getBody());
             record.inventory.restore(activeNpc.getBody());
             lastRecord = captureRecord(activeNpc);
@@ -359,14 +361,25 @@ public final class KnoxNpcRegistry {
         int x = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
         int y = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
         int z = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+        float positionX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+        float positionY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
         return new KnoxSurvivorRecord(
             npc.getId(),
             x,
             y,
             z,
+            positionX,
+            positionY,
             KnoxAppearanceSnapshot.capture(body),
             KnoxInventorySnapshot.capture(body)
         );
+    }
+
+    private static void restoreExactPosition(Object body, KnoxSurvivorRecord record)
+        throws ReflectiveOperationException {
+        body.getClass().getMethod("setX", float.class).invoke(body, record.positionX);
+        body.getClass().getMethod("setY", float.class).invoke(body, record.positionY);
+        body.getClass().getMethod("setMovingSquareNow").invoke(body);
     }
 
     private static Object invokeCompatible(

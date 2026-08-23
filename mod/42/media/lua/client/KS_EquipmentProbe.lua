@@ -1,6 +1,7 @@
 local TAG = "[KnoxSurvivors][EquipmentTest]"
-local START_DELAY_TICKS = 120
-local STEP_DELAY_TICKS = 45
+-- Start on the first tick where the player, cell, and Java bridge are ready. The
+-- former fixed 120-tick pause made a restored survivor visibly pop in late.
+local STEP_DELAY_TICKS = 15
 local MAX_WAIT_TICKS = 900
 
 local ticks = 0
@@ -93,7 +94,7 @@ update = function()
         fail("timeout", "phase=" .. phase)
         return
     end
-    if ticks - phaseStartedAt < (phase == "WAIT_START" and START_DELAY_TICKS or STEP_DELAY_TICKS) then
+    if phase ~= "WAIT_START" and ticks - phaseStartedAt < STEP_DELAY_TICKS then
         return
     end
 
@@ -103,6 +104,10 @@ update = function()
     end
 
     if phase == "WAIT_START" then
+        local player = getSpecificPlayer(0)
+        if player == nil or player:getCurrentSquare() == nil or getCell() == nil then
+            return
+        end
         local persistence = rawget(_G, "KnoxPersistence")
         local record = persistence ~= nil and persistence.getTestRecord() or nil
         if record ~= nil then
