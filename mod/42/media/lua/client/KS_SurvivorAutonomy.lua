@@ -2,24 +2,53 @@ require "KS_SurvivorAutonomyController"
 require "KS_CharacterAppearance"
 require "KS_Persistence"
 require "KS_SurvivorRelationships"
+require "KS_SurvivorRuntime"
+require "KS_SurvivorCapabilities"
+require "KS_CompanionService"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
-local IDS = { "ks-test-1", "ks-test-2" }
+local IDS = { "ks-test-1", "ks-test-2", "ks-test-3" }
 local STATUS_INTERVAL_TICKS = 300
 local RELATIONSHIP_INTERVAL_TICKS = 60
 local DECISIONS_REQUIRED = 2
 local GATE_KEY = "multi_survival_autonomy_v1"
+local FACTION_BASE_GATE_KEY = "faction_base_scouting_v1"
 
 local controllers = {}
-local reservations = { threats = {}, items = {}, containers = {} }
+local reservations = { threats = {}, items = {}, containers = {}, restSpots = {} }
 local ticks = 0
 local populationReady = false
 local passReported = false
+local factionBasePassReported = false
 local update
 
 local function stop()
     if update ~= nil then
         Events.OnTick.Remove(update)
+    end
+end
+
+local function reportFactionBasePassIfReady()
+    if factionBasePassReported then
+        return
+    end
+    for _, id in ipairs(IDS) do
+        local faction = KnoxPersistence.getFactionForSurvivor(id)
+        if faction ~= nil and faction.homeBase ~= nil
+            and faction.engineSafehouseId ~= nil then
+            factionBasePassReported = true
+            KnoxPersistence.markDevGateComplete(FACTION_BASE_GATE_KEY)
+            print(
+                TAG .. " RESULT scenario=faction_base status=PASS"
+                    .. " faction=" .. tostring(faction.id)
+                    .. " leader=" .. tostring(faction.leaderId)
+                    .. " members=" .. table.concat(faction.memberIds or {}, ",")
+                    .. " building=" .. tostring(faction.homeBase.buildingId)
+                    .. " score=" .. tostring(faction.homeBase.score)
+                    .. " safehouse=" .. tostring(faction.engineSafehouseId)
+            )
+            return
+        end
     end
 end
 
@@ -96,7 +125,16 @@ local function createSurvivor(bridge, id, origin)
         bridge:removeNpc(id)
         return nil, "spawned_character_unavailable"
     end
-    local appearanceOk, appearance = KnoxCharacterAppearance.randomizeNewSurvivor(bridge, id)
+    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(id, character, true)
+    if capabilities == nil then
+        bridge:removeNpc(id)
+        return nil, "capabilities_failed=" .. tostring(capabilityResult)
+    end
+    local appearanceOk, appearance = KnoxCharacterAppearance.randomizeNewSurvivor(
+        bridge,
+        id,
+        capabilities
+    )
     if not appearanceOk then
         bridge:removeNpc(id)
         return nil, "appearance_failed=" .. tostring(appearance)
@@ -138,6 +176,14 @@ local function ensurePopulation(bridge, player)
             if character == nil then
                 return false, "id=" .. id .. " " .. tostring(result)
             end
+            local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(
+                id,
+                character
+            )
+            if capabilities == nil then
+                bridge:removeNpc(id)
+                return false, "id=" .. id .. " capabilities=" .. tostring(capabilityResult)
+            end
             controllers[id] = KnoxAutonomyController.new(
                 id,
                 character,
@@ -145,7 +191,14 @@ local function ensurePopulation(bridge, player)
                 reservations,
                 ticks
             )
+            KnoxSurvivorRuntime.register(id, controllers[id])
             print(TAG .. " id=" .. id .. " state=ACTIVE " .. tostring(result))
+            print(
+                TAG .. " id=" .. id
+                    .. " capabilities=" .. tostring(capabilities.professionId)
+                    .. " traits=" .. table.concat(capabilities.traitIds or {}, ",")
+                    .. " source=" .. tostring(capabilityResult)
+            )
         end
     end
     return bridge:getActiveNpcCount() == #IDS,
@@ -180,7 +233,7 @@ local function reportPassIfReady(bridge)
     print(
         TAG
             .. " RESULT scenario=survival status=PASS"
-            .. " reason=two_independent_autonomy_controllers"
+            .. " reason=three_independent_autonomy_controllers"
             .. " evidence=active=" .. tostring(bridge:getActiveNpcCount())
             .. " decisions=" .. tostring(completedDecisions(controllers[IDS[1]]))
             .. "," .. tostring(completedDecisions(controllers[IDS[2]]))
@@ -209,6 +262,7 @@ update = function()
     KnoxSurvivorRelationships.coordinate(controllers, IDS, ticks)
     for _, id in ipairs(IDS) do
         local controller = controllers[id]
+        KnoxCompanionService.syncController(id, controller)
         if controller.state ~= "STOPPED" then
             local success, failure = pcall(function()
                 controller:tick(ticks)
@@ -221,6 +275,7 @@ update = function()
         end
     end
     reportPassIfReady(bridge)
+    reportFactionBasePassIfReady()
     if ticks % RELATIONSHIP_INTERVAL_TICKS == 0 then
         KnoxSurvivorRelationships.observe(controllers, IDS, ticks)
     end
@@ -240,20 +295,24 @@ local function onGameStart()
     end
     ticks = 0
     controllers = {}
-    reservations = { threats = {}, items = {}, containers = {} }
+    KnoxSurvivorRuntime.clear()
+    reservations = { threats = {}, items = {}, containers = {}, restSpots = {} }
     KnoxSurvivorRelationships.resetRuntime()
     populationReady = false
     passReported = false
+    factionBasePassReported = false
     stop()
     Events.OnTick.Add(update)
-    print(TAG .. " START survivors=2 combat=true needs=true looting=true equipment=true")
+    print(TAG .. " START survivors=3 combat=true needs=true looting=true equipment=true factions=true baseScouting=true")
 end
 
 local function onMainMenuEnter()
-    for _, controller in pairs(controllers) do
+    for id, controller in pairs(controllers) do
         controller:shutdown()
+        KnoxSurvivorRuntime.unregister(id, controller)
     end
     KnoxPersistence.captureAllActiveSurvivors()
+    KnoxSurvivorRuntime.clear()
     stop()
 end
 

@@ -129,6 +129,10 @@ public final class KnoxBridge {
         return npcRegistry.wearItem(id, fullType);
     }
 
+    public String dressNpcItem(String id, String fullType) {
+        return npcRegistry.dressItem(id, fullType);
+    }
+
     public String recreateTestNpc() {
         return npcRegistry.recreateOne();
     }

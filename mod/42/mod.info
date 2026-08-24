@@ -1,7 +1,7 @@
 name=Knox Survivors
 id=KnoxSurvivors
 author=.exe
-description=Ground-up IsoPlayer NPC rebuild. Development foundation build.
+description=Development rebuild with persistent IsoPlayer survivors, survival AI, groups, companions, and early faction bases.
 versionMin=42.20
 versionMax=42.20
 incompatible=

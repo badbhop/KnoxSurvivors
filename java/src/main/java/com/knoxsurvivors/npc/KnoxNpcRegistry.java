@@ -333,6 +333,14 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String wearItem(String id, String fullType) {
+        return wearItem(id, fullType, false);
+    }
+
+    public synchronized String dressItem(String id, String fullType) {
+        return wearItem(id, fullType, true);
+    }
+
+    private String wearItem(String id, String fullType, boolean replaceExisting) {
         KnoxNpc npc = npc(id);
         if (npc == null) {
             return "WEAR_FAILED NONE_ACTIVE";
@@ -352,7 +360,13 @@ public final class KnoxNpcRegistry {
             if (location == null) {
                 return "WEAR_FAILED NO_BODY_LOCATION " + fullType;
             }
+            Object previous = replaceExisting
+                ? invokeCompatibleOne(body, "getWornItem", location)
+                : null;
             invokeCompatible(body, "setWornItem", location, item);
+            if (previous != null && previous != item) {
+                invokeCompatibleOne(inventory, "Remove", previous);
+            }
             body.getClass().getMethod("resetModelNextFrame").invoke(body);
             return "WORN " + fullType + " location=" + location;
         } catch (Throwable throwable) {
@@ -600,6 +614,20 @@ public final class KnoxNpcRegistry {
             Class<?>[] types = method.getParameterTypes();
             if (types[0].isInstance(firstArgument) && types[1].isInstance(secondArgument)) {
                 return method.invoke(target, firstArgument, secondArgument);
+            }
+        }
+        throw new NoSuchMethodException(target.getClass().getName() + "." + name);
+    }
+
+    private static Object invokeCompatibleOne(Object target, String name, Object argument)
+        throws ReflectiveOperationException {
+        for (java.lang.reflect.Method method : target.getClass().getMethods()) {
+            if (!method.getName().equals(name) || method.getParameterCount() != 1) {
+                continue;
+            }
+            Class<?> type = method.getParameterTypes()[0];
+            if (argument == null || type.isInstance(argument)) {
+                return method.invoke(target, argument);
             }
         }
         throw new NoSuchMethodException(target.getClass().getName() + "." + name);

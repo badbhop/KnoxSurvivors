@@ -35,6 +35,10 @@ local function removeZombie(zombie)
 end
 
 local function clearLoadedZombies(exceptZombie)
+    local config = rawget(_G, "KnoxDevTests")
+    if config == nil or config.allowZombieCleanup ~= true then
+        return 0
+    end
     local cell = getCell()
     if cell == nil then
         return 0
@@ -248,7 +252,7 @@ local function onGameStart()
     if config == nil or config.enabled ~= true or config.activeScenario ~= "combat" then
         return
     end
-    print(TAG .. " START auto=true scenario=combat clearsLoadedZombies=true sandboxOverrides=false")
+    print(TAG .. " START auto=true scenario=combat clearsLoadedZombies=false sandboxOverrides=false")
     ticks = 0
     phase = "WAIT_START"
     targetZombie = nil

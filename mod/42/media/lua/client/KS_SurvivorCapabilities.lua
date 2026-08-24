@@ -1,0 +1,379 @@
+require "KS_Persistence"
+
+local Capabilities = rawget(_G, "KnoxSurvivorCapabilities") or {}
+_G.KnoxSurvivorCapabilities = Capabilities
+
+local PROFILE_VERSION = 1
+local appliedCharacters = setmetatable({}, { __mode = "k" })
+
+local function hash(text)
+    local value = 216613
+    for index = 1, #text do
+        value = (value * 167 + string.byte(text, index)) % 2147483647
+    end
+    return value
+end
+
+local function orderedDefinitions(javaList, idOf)
+    local values = {}
+    if javaList == nil then
+        return values
+    end
+    for index = 0, javaList:size() - 1 do
+        local definition = javaList:get(index)
+        if definition ~= nil then
+            values[#values + 1] = definition
+        end
+    end
+    table.sort(values, function(first, second)
+        return idOf(first) < idOf(second)
+    end)
+    return values
+end
+
+local function professionId(definition)
+    return tostring(definition:getType())
+end
+
+local function traitId(definition)
+    return tostring(definition:getType())
+end
+
+local function ranked(values, survivorId, salt, idOf)
+    local copied = {}
+    for _, value in ipairs(values) do
+        copied[#copied + 1] = value
+    end
+    table.sort(copied, function(first, second)
+        local firstId = idOf(first)
+        local secondId = idOf(second)
+        local firstRank = hash(survivorId .. ":" .. salt .. ":" .. firstId)
+        local secondRank = hash(survivorId .. ":" .. salt .. ":" .. secondId)
+        if firstRank == secondRank then
+            return firstId < secondId
+        end
+        return firstRank < secondRank
+    end)
+    return copied
+end
+
+local function contains(ids, id)
+    for _, existing in ipairs(ids) do
+        if existing == id then
+            return true
+        end
+    end
+    return false
+end
+
+local function findProfession(id)
+    local definitions = CharacterProfessionDefinition.getProfessions()
+    for index = 0, definitions:size() - 1 do
+        local definition = definitions:get(index)
+        if definition ~= nil and professionId(definition) == id then
+            return definition
+        end
+    end
+    return nil
+end
+
+local function findTrait(id)
+    local definitions = CharacterTraitDefinition.getTraits()
+    for index = 0, definitions:size() - 1 do
+        local definition = definitions:get(index)
+        if definition ~= nil and traitId(definition) == id then
+            return definition
+        end
+    end
+    return nil
+end
+
+local function conflicts(definition, selectedDefinitions)
+    for _, selected in ipairs(selectedDefinitions) do
+        if definition:isMutuallyExclusive(selected) then
+            return true
+        end
+    end
+    return false
+end
+
+local function appendGrantedTraits(definition, ids, selectedDefinitions)
+    local granted = definition ~= nil and definition:getGrantedTraits() or nil
+    if granted == nil then
+        return
+    end
+    for index = 0, granted:size() - 1 do
+        local grantedDefinition = CharacterTraitDefinition.getCharacterTraitDefinition(
+            granted:get(index)
+        )
+        if grantedDefinition ~= nil then
+            local id = traitId(grantedDefinition)
+            if not contains(ids, id) then
+                ids[#ids + 1] = id
+                selectedDefinitions[#selectedDefinitions + 1] = grantedDefinition
+                appendGrantedTraits(grantedDefinition, ids, selectedDefinitions)
+            end
+        end
+    end
+end
+
+local function distanceFromValidPoints(points)
+    if points < 0 then
+        return -points
+    end
+    if points > 3 then
+        return points - 3
+    end
+    return 0
+end
+
+local function addTrait(definition, selectedIds, selectedDefinitions)
+    local id = traitId(definition)
+    if contains(selectedIds, id) or conflicts(definition, selectedDefinitions) then
+        return false
+    end
+    selectedIds[#selectedIds + 1] = id
+    selectedDefinitions[#selectedDefinitions + 1] = definition
+    appendGrantedTraits(definition, selectedIds, selectedDefinitions)
+    return true
+end
+
+local function profileForProfession(id, profession, allTraits)
+    local positive = {}
+    local negative = {}
+    for _, definition in ipairs(allTraits) do
+        if not definition:isFree()
+            and (not isMultiplayer() or not definition:isDisabledInMultiplayer()) then
+            if definition:getCost() > 0 then
+                positive[#positive + 1] = definition
+            elseif definition:getCost() < 0 then
+                negative[#negative + 1] = definition
+            end
+        end
+    end
+
+    local selectedIds = {}
+    local selectedDefinitions = {}
+    appendGrantedTraits(profession, selectedIds, selectedDefinitions)
+    local points = tonumber(profession:getCost()) or 0
+    local negativeTarget = hash(id .. ":negative-count") % 5
+    for _, definition in ipairs(ranked(negative, id, "negative", traitId)) do
+        if negativeTarget <= 0 and points >= 0 then
+            break
+        end
+        if addTrait(definition, selectedIds, selectedDefinitions) then
+            points = points - definition:getCost()
+            negativeTarget = negativeTarget - 1
+        end
+    end
+
+    local positiveTarget = hash(id .. ":positive-count") % 5
+    for _, definition in ipairs(ranked(positive, id, "positive", traitId)) do
+        if positiveTarget <= 0 and points <= 3 then
+            break
+        end
+        if definition:getCost() <= points
+            and addTrait(definition, selectedIds, selectedDefinitions) then
+            points = points - definition:getCost()
+            positiveTarget = positiveTarget - 1
+        end
+    end
+
+    -- Vanilla's creator has a rescue loop because an initial random set can
+    -- overspend or leave too many points. Do the same deterministically so a
+    -- survivor is never lost merely because its first trait mix did not balance.
+    local rescue = 100
+    while distanceFromValidPoints(points) > 0 and rescue > 0 do
+        rescue = rescue - 1
+        local candidates = points < 0 and negative or positive
+        local best = nil
+        local bestDistance = distanceFromValidPoints(points)
+        for _, definition in ipairs(ranked(candidates, id, "rescue-" .. rescue, traitId)) do
+            local cost = tonumber(definition:getCost()) or 0
+            local nextPoints = points - cost
+            local nextDistance = distanceFromValidPoints(nextPoints)
+            if not contains(selectedIds, traitId(definition))
+                and not conflicts(definition, selectedDefinitions)
+                and (best == nil or nextDistance < bestDistance) then
+                best = definition
+                bestDistance = nextDistance
+                if nextDistance == 0 then
+                    break
+                end
+            end
+        end
+        if best == nil or not addTrait(best, selectedIds, selectedDefinitions) then
+            break
+        end
+        points = points - best:getCost()
+    end
+    if points < 0 or points > 3 then
+        return nil, points
+    end
+    table.sort(selectedIds)
+    return {
+        version = PROFILE_VERSION,
+        professionId = professionId(profession),
+        traitIds = selectedIds,
+        skills = {},
+        generatedBy = "vanilla-definitions",
+        unspentPoints = points,
+    }
+end
+
+function Capabilities.generate(id)
+    if type(id) ~= "string" or id == "" then
+        return nil, "invalid_survivor_id"
+    end
+    local professions = orderedDefinitions(
+        CharacterProfessionDefinition.getProfessions(),
+        professionId
+    )
+    if #professions == 0 then
+        return nil, "profession_definitions_unavailable"
+    end
+    professions = ranked(professions, id, "profession", professionId)
+    local allTraits = orderedDefinitions(CharacterTraitDefinition.getTraits(), traitId)
+    local lastPoints = nil
+    for _, profession in ipairs(professions) do
+        local profile, remaining = profileForProfession(id, profession, allTraits)
+        if profile ~= nil then
+            return profile, "generated"
+        end
+        lastPoints = remaining
+    end
+    return nil, "unable_to_balance_vanilla_points=" .. tostring(lastPoints)
+end
+
+local function nutritionSnapshot(character)
+    local nutrition = character:getNutrition()
+    return {
+        carbohydrates = nutrition:getCarbohydrates(),
+        proteins = nutrition:getProteins(),
+        calories = nutrition:getCalories(),
+        lipids = nutrition:getLipids(),
+        weight = nutrition:getWeight(),
+    }
+end
+
+local function restoreNutrition(character, snapshot)
+    if snapshot == nil then
+        return
+    end
+    local nutrition = character:getNutrition()
+    nutrition:setCarbohydrates(snapshot.carbohydrates)
+    nutrition:setProteins(snapshot.proteins)
+    nutrition:setCalories(snapshot.calories)
+    nutrition:setLipids(snapshot.lipids)
+    nutrition:setWeight(snapshot.weight)
+end
+
+local function applyIdentity(character, profile, preservePhysiology)
+    local profession = findProfession(profile.professionId)
+    if profession == nil then
+        return false, "profession_missing=" .. tostring(profile.professionId)
+    end
+    local descriptor = character:getDescriptor()
+    descriptor:setCharacterProfession(profession:getType())
+    descriptor:setProfessionSkills(profession)
+
+    local knownTraits = character:getCharacterTraits():getKnownTraits()
+    knownTraits:clear()
+    for _, id in ipairs(profile.traitIds or {}) do
+        local definition = findTrait(id)
+        if definition ~= nil then
+            knownTraits:add(definition:getType())
+        end
+    end
+    local nutrition = preservePhysiology and nutritionSnapshot(character) or nil
+    character:applyTraits(knownTraits)
+    restoreNutrition(character, nutrition)
+    character:applyProfessionRecipes()
+    character:applyCharacterTraitsRecipes()
+    return true, profession
+end
+
+local function restoreSkills(character, skills)
+    if type(skills) ~= "table" then
+        return
+    end
+    for perkId, saved in pairs(skills) do
+        local perk = Perks.FromString(perkId)
+        if perk ~= nil and type(saved) == "table" then
+            local level = math.max(0, math.min(10, tonumber(saved.level) or 0))
+            character:setPerkLevelDebug(perk, level)
+            character:getXp():setXPToLevel(perk, level)
+            local current = character:getXp():getXP(perk)
+            local desired = math.max(current, tonumber(saved.xp) or current)
+            if desired > current then
+                character:getXp():AddXPNoMultiplier(perk, desired - current)
+            end
+        end
+    end
+end
+
+function Capabilities.ensure(id, character, initializeNew)
+    local profile = KnoxPersistence.getSurvivorCapabilities(id)
+    local result = "existing"
+    if profile == nil then
+        profile, result = Capabilities.generate(id)
+        if profile == nil or not KnoxPersistence.setSurvivorCapabilities(id, profile) then
+            return nil, result
+        end
+    end
+    if character ~= nil and not appliedCharacters[character] then
+        local applied, evidence = applyIdentity(
+            character,
+            profile,
+            initializeNew ~= true
+        )
+        if not applied then
+            return nil, evidence
+        end
+        restoreSkills(character, profile.skills)
+        appliedCharacters[character] = true
+    end
+    return profile, result
+end
+
+function Capabilities.capture(id, character)
+    local profile = KnoxPersistence.getSurvivorCapabilities(id)
+    if profile == nil or character == nil then
+        return false
+    end
+    local skills = {}
+    for index = 1, Perks.getMaxIndex() do
+        local perk = PerkFactory.getPerk(Perks.fromIndex(index - 1))
+        if perk ~= nil and perk:getParent() ~= Perks.None then
+            local level = character:getPerkLevel(perk)
+            local xp = character:getXp():getXP(perk)
+            if level > 0 or xp > 0 then
+                skills[tostring(perk:getId())] = {
+                    level = level,
+                    xp = xp,
+                }
+            end
+        end
+    end
+    profile.skills = skills
+    profile.capturedAtHours = getGameTime() ~= nil
+        and getGameTime():getWorldAgeHours()
+        or 0
+    return KnoxPersistence.setSurvivorCapabilities(id, profile)
+end
+
+function Capabilities.professionLabel(profile)
+    local definition = profile ~= nil and findProfession(profile.professionId) or nil
+    return definition ~= nil and tostring(definition:getUIName()) or "Survivor"
+end
+
+function Capabilities.hasTrait(profile, id)
+    return profile ~= nil and contains(profile.traitIds or {}, id)
+end
+
+function Capabilities.skillLevel(profile, perkId)
+    local saved = profile ~= nil and profile.skills ~= nil and profile.skills[perkId] or nil
+    return saved ~= nil and tonumber(saved.level) or 0
+end
+
+return Capabilities

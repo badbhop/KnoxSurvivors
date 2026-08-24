@@ -51,9 +51,9 @@ M2 is complete when the survivor can independently:
 - path to, open, and loot a reachable container;
 - preserve resulting health, equipment, and inventory state across reload.
 
-The current integration gate runs this planner for two persistent identities at once.
+The current integration gate runs this planner for three persistent identities at once.
 Each owns its own action state, movement request, combat target, timers, and counters;
-world-item and zombie reservations prevent both controllers claiming one target.
+world-item and zombie reservations prevent multiple controllers claiming one target.
 
 ## M3 — World interaction
 
@@ -64,15 +64,45 @@ container goal, try a usable perimeter window through normal open/smash/climb be
 then attack the door with the equipped weapon only when no window route succeeds. State
 deadlines cancel stalled movement and timed actions and release their reservations.
 
+## M4 — Companions and settlement foundation
+
+The code foundation is present; live verification is still required. Success means:
+
+- occupation, traits, perk levels, and XP remain stable through body reconstruction;
+- a nearby independent survivor can build trust, be recruited once, and leave NPC social AI;
+- Follow and Hold persist, yield to threats and critical needs, then resume;
+- Dismiss removes player ownership without losing the survivor's person record;
+- the right-side HUD shows only that local player's companions and releases unloaded bodies;
+- split-screen players receive separate HUDs and cannot command one another's survivors;
+- a player home and categorized vanilla containers persist through save/reload;
+- Return to Base reaches a loaded home before resident work becomes eligible;
+- NPC faction safehouses produce stable base records and keep residents near home;
+- interrupted task claims are recovered without duplicating or losing work.
+
+M4 does not claim the registered job types are implemented. It establishes one owner for
+affiliation, duty, base records, storage, work requirements, and task claims so each job can
+be added as a small normal-world-action executor.
+
 ## Later milestones
 
-Recruitment, orders, base work, camps, factions, raids, away teams, vehicles, interfaces, and multiplayer authority are rebuilt incrementally after the core human lifecycle is stable.
+The next vertical slices are storage hauling, one-window barricading as a base job, guard
+and patrol zones, farming, woodcutting and plank production, corpse hauling, animal care,
+and repair. Each slice must consume real tools and materials, use normal timed actions,
+respect survivor skills, and survive reload before the next one is added.
+
+After those jobs: the full Survivors Notebook, companion/base roster management, contextual
+conversations and favors, firearms, vehicles, camps, raids, away teams, and unloaded-world
+simulation. Multiplayer remains compatibility-only until authority and replication are
+designed and tested.
 
 Stable survivor IDs accumulate first/last meeting, nearby time, repeat meetings, and
 shared survival activity. Two survivors can explicitly agree to form a travelling group.
 An established group may invite a lone survivor through a separate consent dialogue.
-Three members are necessary but not sufficient for faction formation: the newest member
-must survive at least one day with the group and relationship history must show nearby
-time or shared survival activity. Faction base
-areas are a later integration and should reuse Build 42 safehouse boundaries if engine
-inspection confirms they can safely represent NPC ownership.
+Three members are necessary but not sufficient for faction formation: relationship
+history must show nearby time or shared survival activity, but there is no arbitrary
+minimum number of days together. A new faction's leader now scores loaded buildings,
+persists the best candidate, leads the group to its perimeter, and records its stable
+building ID and bounds after arrival. Existing vanilla safehouse overlap is rejected.
+A namespaced vanilla safehouse boundary now protects the selected home from overlapping
+player claims and is reconciled on load. Early shared base/storage/task records now exist;
+world job executors and trespass behavior remain later integration boundaries.

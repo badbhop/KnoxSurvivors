@@ -9,6 +9,7 @@ final class KnoxCombatController {
     private static final int ATTACK_RETRY_TICKS = 30;
     private static final int AIM_SETTLE_TICKS = 18;
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
+    private static final float REAPPROACH_BUFFER = 0.45f;
 
     private KnoxNpc npc;
     private Object target;
@@ -204,6 +205,33 @@ final class KnoxCombatController {
         Object body = npc.getBody();
         float targetX = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue();
         float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
+        float bodyX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+        float bodyY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+        float dx = targetX - bodyX;
+        float dy = targetY - bodyY;
+        float targetDistance = (float) Math.sqrt(dx * dx + dy * dy);
+        if (!obstacleTarget && targetDistance > desiredAttackRange + REAPPROACH_BUFFER) {
+            boolean attackInProgress = (Boolean) body.getClass().getMethod("isAttacking").invoke(body)
+                || (Boolean) body.getClass().getMethod("isPerformingAttackAnimation").invoke(body);
+            if (!attackInProgress) {
+                clearAttackIntent();
+                Object bodySquare = body.getClass().getMethod("getCurrentSquare").invoke(body);
+                if (bodySquare == null) {
+                    phase = "FAILED";
+                    return "COMBAT_FAILED REAPPROACH_NO_CURRENT_SQUARE";
+                }
+                KnoxNpcFactory.moveToRangeFrom(npc, target, bodySquare, desiredAttackRange);
+                npc.clearMovementRoute();
+                phase = "APPROACHING";
+                aimTicks = 0;
+                KnoxAgent.writeLog(
+                    "NPC combat REAPPROACH distance=" + targetDistance
+                        + " desiredRange=" + desiredAttackRange
+                );
+                return "COMBAT_REAPPROACHING distance=" + targetDistance
+                    + " targetHealth=" + currentHealth;
+            }
+        }
         faceTarget(body, targetX, targetY);
         applyCombatStance(body, false);
         Object targetSquare = obstacleTarget

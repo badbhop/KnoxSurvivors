@@ -32,18 +32,30 @@ equipment. When that survivor's cell is active again, Knox creates a new shell w
 same stable ID and restores the snapshot. To the player this is the same person
 continuing to exist; reconstruction is only an engine lifecycle detail.
 
-Survivor record schema 5 stores the engine human visual, name and voice, inventory and
+Java survivor record schema 5 stores the engine human visual, name and voice, inventory and
 equipment snapshot, native `BodyDamage`, and native physiology/nutrition state. Older
 record schemas migrate forward by supplying engine defaults for fields they did not
 contain. New survivors receive real wearable inventory items selected with Build 42's
-`ClothingSelectionDefinitions.default` tables and chance rules; a restrained separate
-roll may add a schoolbag or duffel bag.
+default, profession, and trait clothing definitions; a restrained separate roll may add
+a schoolbag or duffel bag.
 
 Records are saved by stable ID under the rebuild-specific `KnoxSurvivors_IsoPlayer`
 global ModData key. Every loaded survivor has a separate runtime containing its temporary
 body, movement request, traversal route, combat controller, and latest record. Saving
 captures all active runtimes rather than whichever NPC happened to act last. This key
 remains separate from legacy IsoZombie-era Knox data.
+
+The Lua domain has its own schema number. Schema 7 adds canonical profession and trait
+IDs, perk levels and XP, player relationships, affiliation and duty, player factions,
+stable bases, work zones, storage policies, and task records. Java record versions and
+Lua domain versions are never advanced together by assumption. Migrations normalize
+partial development saves in place and never erase an encoded person record.
+
+Profession and trait generation uses Build 42's live definitions, costs, granted traits,
+and exclusions. It is deterministic per stable survivor ID and is saved before the body
+can be reconstructed. Existing bodies restore saved physiology after the engine applies
+their identity rules, then restore saved perk progress. The active body is captured back
+into the capability profile; translated labels are never used as save keys.
 
 ## Population and origin policy
 
@@ -57,9 +69,10 @@ instead of relocating them toward the player.
 Population generation will use a low world cap, long cooldowns, and distance bands.
 Death is durable and does not trigger an immediate nearby replacement. These constraints
 make an encounter uncommon and make an individual survivor valuable without preventing
-the world from containing people beyond the player's current area. The current population
-gate is deliberately capped at two loaded survivors until independent runtime ownership,
-save/reload, and teardown pass in game.
+the world from containing people beyond the player's current area. The current development
+gate uses three nearby persistent survivors so autonomy, meetings, factions, and base
+selection can be observed. It remains a bounded test harness rather than the production
+population policy.
 
 ## Minimal active-survivor loop
 
@@ -123,6 +136,16 @@ enough margin for the movement executor's arrival tolerance. A generic adjacent-
 center is not a valid melee stopping distance: it can report arrival while the weapon's
 collision volume still cannot reach the target.
 
+Live zombie targets are not treated as stationary after the first approach. If a target
+moves beyond the equipped weapon's effective attack margin, the combat executor clears
+the stale swing request, paths back into range, and then settles its aim again. Locked-door
+combat remains fixed in place and does not use this re-approach rule.
+
+Threat awareness distinguishes immediate proximity, visible zombies, and zombies already
+targeting the survivor or a travelling companion. Active threats receive priority over an
+idle visible zombie, and at most two survivors reserve the same zombie. This avoids both
+single-file indifference and the whole faction chasing one distant target.
+
 ## Hard constraints
 
 - Do not place NPCs into `IsoPlayer.players[]` unless a narrowly scoped experiment requires it.
@@ -182,16 +205,81 @@ creates a persistent travelling group. The lowest stable ID is the initial route
 other members satisfy urgent personal needs but otherwise wait for or follow that leader.
 The leader waits when followers fall outside the soft travel leash. An established group
 can separately invite a lone survivor. Three consenting members unlock faction readiness,
-but promotion waits until the newest member has survived at least one day with the group
-and relationship history shows nearby time or shared survival activity. Proximity alone
+and relationship history must show nearby time or shared survival activity. There is no
+arbitrary minimum number of days together. Proximity alone
 is not enough: greeting and agreement must complete without combat interruption.
 
-Purposeful exploration runs before undirected roaming. A survivor searches reachable,
-previously uninspected containers for stronger melee weapons, better protective clothing,
+Dialogue still calls the engine's normal `Say` method for world speech bubbles. The same
+line and major encounter outcomes also pass through a client-side activity feed built from
+vanilla `ISCollapsableWindow` and `ISRichTextPanel` components. This is separate from the
+base game's chat window because Build 42 creates that window only for multiplayer clients.
+
+Ungrouped survivors notice one another within 24 tiles, but social work never interrupts
+combat or an unsafe action. One approaches while the other waits, avoiding artificial
+teleporting or constant magnetic movement. Stable identity traits supply sociability and
+aggression; pair history then resolves the encounter as joining, declining, or hostility.
+Declines cool down for six in-game hours. The first hostile executor is robbery through
+normal timed inventory transfers, limited to two unequipped items. Hostility persists;
+lethal survivor-versus-survivor combat remains behind a separate native PvP verification
+gate because the current combat executor is proven only against zombies.
+
+Purposeful exploration considers useful nearby supplies before undirected roaming. A
+survivor searches reachable containers for stronger melee weapons, better protective clothing,
 a wearable bag, limited food/water/medical stock, and missing essential tools. They play
-the search animation even when a container has no useful upgrade. A visit may take up to
-three ranked items, prioritizing urgent shortages and major upgrades, instead of either
-grabbing one arbitrary object or emptying the entire container.
+the search animation when an uninspected container is already convenient. A visit may take
+up to two ranked items. Survivors then travel before considering another optional stop;
+blocked rooms are cooled down instead of repeatedly forcing entry.
+
+## Player companions and presentation
+
+Recruitment is a persistent affiliation transition, not a UI flag. A namespaced player ID
+owns one player faction; a survivor may belong to only one authority and cannot remain in
+an NPC travel group after recruitment. Talk history and trust are saved per player. Follow,
+Hold, Return to Base, and Dismiss update duty first, then the active controller reconciles
+that durable order on its next update. Threats and critical needs remain above ordinary
+orders, so survival can interrupt a command without deleting it.
+
+The runtime registry is deliberately narrow. Gameplay and interface code may resolve a
+temporary character or request a fresh semantic snapshot, but cannot take ownership of a
+controller. The companion view model returns copied values for name, duty, activity,
+health, needs, weapon, and distance. The right-side HUD only queries player-owned
+companions, pools at most six live 3D portraits per local player, and releases every body
+reference on unload or teardown. World and HUD context menus call the same companion
+service.
+
+## Base and work boundary
+
+Player and NPC settlements share stable base records. A base owns its home bounds, work
+zones, storage policies, residents, and queued tasks; it never stores a live square,
+container, character, or controller reference. Storage markers use namespaced world-object
+ModData plus coordinates, object index, and container index so multi-container furniture
+does not collapse into one destination.
+
+Duty, physical presence, capability requirements, and claim ownership are checked before
+a resident can take work. Claims are released when a survivor leaves the base and are
+recovered after an interrupted load. Task types for hauling, farming, barricading,
+woodcutting, patrols, corpse handling, animals, and repair are registered as a planning
+boundary; their world-action executors remain separate live-test milestones. Vanilla crop
+ownership is not treated as a Knox survivor ID because single-player off-slot bodies do
+not provide a stable unique crop owner.
+
+## Faction base scouting
+
+A faction home begins as persistent planning data before becoming a claimed engine object.
+The leader periodically examines loaded buildings within 30 tiles. Candidates need at
+least two rooms and 30 tiles; residential status, water, room count, and area improve the
+score. Buildings overlapping an existing vanilla safehouse are excluded. The chosen
+building ID, bounds, score, and an exterior approach square are stored before travel.
+
+The group follows its normal leader while the leader travels to that approach square.
+Arrival promotes the candidate to `homeBase`; a failed route rejects it for 24 in-game
+hours so another building can be considered. A selected home receives a vanilla safehouse
+boundary with a namespaced synthetic Knox faction owner. This makes vanilla overlap checks
+reject player claims in that building. The boundary is reconciled on load and periodically
+while the faction is active. A stable base record is then created and faction members become
+residents. They return toward a loaded home and alternate between short local patrols and
+idle periods while the first real job executors are built. Trespass hostility remains a
+separate gameplay layer.
 
 Captured route waypoints are not assumed to be unobstructed floor. Before crossing into
 an adjacent square, the traversal layer asks the engine whether that edge contains a
@@ -209,8 +297,8 @@ traversal executor. The intended preference is:
 2. If there is no usable window, try the door normally.
 3. If a selected door is locked, search the destination room for a usable window and
    route to that window instead.
-4. Only when the room has no usable window may the survivor force the door using a real
-   equipped tool or weapon and the normal destruction action.
+4. Optional loot abandons and cools down a room when alternate entry fails. Only urgent
+   food, water, or medical needs may force the door with sufficient endurance.
 
 Build 42 completes the world-state portion of `OpenWindowState` only for a local player.
 The off-slot NPC traversal adapter therefore waits for the engine animation variable

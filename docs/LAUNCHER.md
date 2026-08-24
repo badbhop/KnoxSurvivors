@@ -1,5 +1,9 @@
 # Launcher
 
+> The public Workshop item still contains the older IsoZombie release. Do not publish the
+> rebuild launcher package until the Workshop runtime has been replaced with a tested
+> IsoPlayer build and matching Java checksum.
+
 The player launcher is deliberately limited to one job: verify the subscribed Knox
 Survivors files and start Project Zomboid with the required Java runtime enabled for that
 one game process.

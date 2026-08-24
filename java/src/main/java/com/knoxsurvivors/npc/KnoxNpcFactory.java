@@ -54,7 +54,7 @@ final class KnoxNpcFactory {
 
         isoPlayerClass.getMethod("setNpc", boolean.class).invoke(body, true);
         isoPlayerClass.getField("remote").setBoolean(body, false);
-        isoPlayerClass.getField("playerIndex").setInt(body, 0);
+        isoPlayerClass.getField("playerIndex").setInt(body, allocateOffSlotPlayerIndex(isoPlayerClass));
         isoPlayerClass.getField("serverPlayerIndex").setInt(body, -1);
         isoPlayerClass.getMethod("setOnlineID", short.class).invoke(body, (short) -1);
         isoPlayerClass.getMethod("setUsername", String.class).invoke(body, "Knox Survivor");
@@ -802,6 +802,24 @@ final class KnoxNpcFactory {
             }
         }
         return false;
+    }
+
+    private static int allocateOffSlotPlayerIndex(Class<?> isoPlayerClass)
+        throws ReflectiveOperationException {
+        // Vanilla IsoPlayer.updateCursorVisibility() hides the system cursor whenever
+        // playerIndex==0 && isAiming. An off-slot NPC with index 0 therefore hides
+        // the real player's cursor while it is in AIMING/ATTACKING. Use the first
+        // free local-player slot above 0 so only the real player (slot 0) controls
+        // the cursor. If every slot is occupied (split-screen) fall back to 1 - it
+        // will still collide less than 0 and the cursor guard below keeps it safe.
+        Object players = isoPlayerClass.getField("players").get(null);
+        int length = Array.getLength(players);
+        for (int index = 1; index < length; index++) {
+            if (Array.get(players, index) == null) {
+                return index;
+            }
+        }
+        return length > 1 ? 1 : 0;
     }
 
     private static void requireClass(Object value, String expectedName, String label) {
