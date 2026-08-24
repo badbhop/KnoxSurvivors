@@ -61,7 +61,9 @@ final class KnoxNpcFactory {
 
         invoke(body, "setCurrent", square.getClass(), square);
         invoke(body, "setMovingSquareNow");
-        invoke(body, "setZombiesDontAttack", boolean.class, true);
+        // This shell is a survivor, not a protected probe. Build 42 also capability-gates
+        // this flag, which made its result differ between normal and debug launches.
+        invoke(body, "setZombiesDontAttack", boolean.class, false);
         invoke(body, "setAlphaAndTarget", float.class, 1.0f);
         invoke(cell, "addMovingObject", classFor(body, "zombie.iso.IsoMovingObject"), body);
         Object modelManager = modelManagerClass.getField("instance").get(null);
@@ -475,6 +477,9 @@ final class KnoxNpcFactory {
 
         Object window = invoke(currentSquare, "getWindowTo", currentSquare.getClass(), nextSquare);
         if (window != null) {
+            if (!npc.isClimbingAllowed()) {
+                return "FAILED_CLIMBING_DISABLED";
+            }
             npc.useTraversalInteractionTarget(window);
             if ((Boolean) invoke(window, "isBarricaded")) {
                 return "FAILED_BARRICADED_WINDOW";
@@ -534,6 +539,9 @@ final class KnoxNpcFactory {
                     return "STARTED_WINDOW_OPEN";
                 }
                 if ("OPEN_ATTEMPTED".equals(stage)) {
+                    if (npc.isProtectedStructureEdge(currentX, currentY, nextX, nextY)) {
+                        return "FAILED_PROTECTED_STRUCTURE";
+                    }
                     invoke(
                         body,
                         "smashWindow",
@@ -565,6 +573,9 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (windowThumpable != null) {
+            if (!npc.isClimbingAllowed()) {
+                return "FAILED_CLIMBING_DISABLED";
+            }
             if ((Boolean) invoke(windowThumpable, "isBarricaded")) {
                 return "FAILED_BARRICADED_WINDOW";
             }
@@ -588,6 +599,9 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (windowFrame != null) {
+            if (!npc.isClimbingAllowed()) {
+                return "FAILED_CLIMBING_DISABLED";
+            }
             invoke(
                 body,
                 "climbThroughWindowFrame",
@@ -605,6 +619,9 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (hoppable) {
+            if (!npc.isClimbingAllowed()) {
+                return "FAILED_CLIMBING_DISABLED";
+            }
             invoke(
                 body,
                 "faceDirection",
@@ -630,6 +647,9 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (wallHoppable != null) {
+            if (!npc.isClimbingAllowed()) {
+                return "FAILED_CLIMBING_DISABLED";
+            }
             boolean canClimb = (Boolean) invoke(
                 body,
                 "canClimbOverWall",
@@ -704,6 +724,105 @@ final class KnoxNpcFactory {
             (float) Math.toDegrees(Math.atan2(directionY, directionX))
         );
 
+        // Vanilla-feel locomotion: walk default, run to close moderate gaps, sprint rarely for long reposition. Respects endurance/fatigue.
+        float endurance = 1.0f;
+        float fatigue = 0.0f;
+        try {
+            Object stats = invoke(body, "getStats");
+            Class<?> statClass = Class.forName("zombie.characters.CharacterStat", false, body.getClass().getClassLoader());
+            Object endKey = statClass.getField("ENDURANCE").get(null);
+            endurance = ((Number) stats.getClass().getMethod("get", statClass).invoke(stats, endKey)).floatValue();
+            Object fatigueKey = statClass.getField("FATIGUE").get(null);
+            fatigue = ((Number) stats.getClass().getMethod("get", statClass).invoke(stats, fatigueKey)).floatValue();
+        } catch (ReflectiveOperationException ignored) {
+        }
+        float health = 100.0f;
+        try {
+            health = ((Number) invoke(body, "getHealth")).floatValue();
+        } catch (ReflectiveOperationException ignored) {
+        }
+        boolean shouldRun = length > 7.0f && endurance > 0.35f && fatigue < 0.75f && health > 30.0f;
+        boolean shouldSprint = length > 14.0f && endurance > 0.65f && fatigue < 0.50f && health > 70.0f;
+        boolean shouldSneak = false;
+        try {
+            // If player is sneaking and survivor is near player, mirror sneak for stealth.
+            Class<?> isoPlayerClass2 = Class.forName("zombie.characters.IsoPlayer", false, body.getClass().getClassLoader());
+            Object players = isoPlayerClass2.getField("players").get(null);
+            Object localPlayer = java.lang.reflect.Array.get(players, 0);
+            if (localPlayer != null && (Boolean) localPlayer.getClass().getMethod("isSneaking").invoke(localPlayer)) {
+                float px = ((Number) localPlayer.getClass().getMethod("getX").invoke(localPlayer)).floatValue();
+                float py = ((Number) localPlayer.getClass().getMethod("getY").invoke(localPlayer)).floatValue();
+                float pdx = x - px;
+                float pdy = y - py;
+                float pdist = (float) Math.sqrt(pdx * pdx + pdy * pdy);
+                if (pdist < 20.0f && length < 10.0f) {
+                    shouldSneak = true;
+                    shouldRun = false;
+                    shouldSprint = false;
+                }
+            }
+            // Also sneak if very close to zombie and not in combat (cautious approach) - only when undetected.
+            if (!shouldSneak) {
+                // Don't sneak while aiming/fighting
+                boolean isAiming = false;
+                try {
+                    isAiming = (Boolean) body.getClass().getMethod("isAiming").invoke(body);
+                } catch (ReflectiveOperationException ignored2) {
+                }
+                if (!isAiming) {
+                    Object cell = invoke(body, "getCell");
+                    if (cell != null) {
+                        Object zombies = cell.getClass().getMethod("getZombieList").invoke(cell);
+                        int zsize = (Integer) zombies.getClass().getMethod("size").invoke(zombies);
+                        boolean isTargeted = false;
+                        for (int i = 0; i < zsize; i++) {
+                            Object z = zombies.getClass().getMethod("get", int.class).invoke(zombies, i);
+                            if (z != null) {
+                                Object zt = z.getClass().getMethod("getTarget").invoke(z);
+                                if (zt == body) {
+                                    isTargeted = true;
+                                    break;
+                                }
+                            }
+                        }
+                        // Only sneak when undetected and in a populated area, not when already spotted
+                        if (!isTargeted) {
+                            for (int i = 0; i < zsize; i++) {
+                                Object z = zombies.getClass().getMethod("get", int.class).invoke(zombies, i);
+                                if (z != null && !(Boolean) z.getClass().getMethod("isDead").invoke(z)) {
+                                    float zx = ((Number) z.getClass().getMethod("getX").invoke(z)).floatValue();
+                                    float zy = ((Number) z.getClass().getMethod("getY").invoke(z)).floatValue();
+                                    float zdx = x - zx;
+                                    float zdy = y - zy;
+                                    float zdist = (float) Math.sqrt(zdx * zdx + zdy * zdy);
+                                    if (zdist < 10.0f && length < 6.0f && endurance > 0.5f) {
+                                        shouldSneak = true;
+                                        shouldRun = false;
+                                        shouldSprint = false;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Don't sneak while aiming
+            if ((Boolean) body.getClass().getMethod("isAiming").invoke(body)) {
+                shouldSneak = false;
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        if (shouldSprint) {
+            shouldRun = true;
+        }
+        try {
+            invoke(body, "setRunning", boolean.class, shouldRun);
+            invoke(body, "setSprinting", boolean.class, shouldSprint);
+            invoke(body, "setSneaking", boolean.class, shouldSneak);
+        } catch (ReflectiveOperationException ignored) {
+        }
+
         Object aiComponent = getAiComponent(body);
         if (aiComponent != null) {
             Object controlVars = invoke(aiComponent, "getHumanControlVars");
@@ -720,7 +839,7 @@ final class KnoxNpcFactory {
                 float strafeX = controlX * cosine - controlY * sine;
                 float strafeY = controlX * sine + controlY * cosine;
                 controlVars.getClass().getField("justMoved").setBoolean(controlVars, true);
-                controlVars.getClass().getField("running").setBoolean(controlVars, false);
+                controlVars.getClass().getField("running").setBoolean(controlVars, shouldRun || shouldSprint);
                 controlVars.getClass().getField("strafeX").setFloat(controlVars, strafeX);
                 controlVars.getClass().getField("strafeY").setFloat(controlVars, strafeY);
             }
@@ -733,6 +852,12 @@ final class KnoxNpcFactory {
         moveDirection.getClass().getField("x").setFloat(moveDirection, 0.0f);
         moveDirection.getClass().getField("y").setFloat(moveDirection, 0.0f);
         invoke(body, "setJustMoved", boolean.class, false);
+        try {
+            invoke(body, "setRunning", boolean.class, false);
+            invoke(body, "setSprinting", boolean.class, false);
+            invoke(body, "setSneaking", boolean.class, false);
+        } catch (ReflectiveOperationException ignored) {
+        }
 
         Object aiComponent = getAiComponent(body);
         if (aiComponent != null) {

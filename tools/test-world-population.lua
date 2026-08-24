@@ -1,0 +1,260 @@
+local projectRoot = arg[1] or "."
+package.path = projectRoot .. "/mod/42/media/lua/client/?.lua;" .. package.path
+
+local modData = {}
+ModData = {
+    getOrCreate = function(key)
+        modData[key] = modData[key] or {}
+        return modData[key]
+    end,
+}
+Events = {
+    OnSave = { Add = function() end },
+    OnGameStart = { Add = function() end },
+}
+getGameTime = function()
+    return { getWorldAgeHours = function() return 10 end }
+end
+
+local function point(x, y, z)
+    return { posX = x, posY = y, posZ = z or 0 }
+end
+
+local spawnRegionCalls = 0
+SpawnRegionMgr = {
+    getSpawnRegions = function()
+        spawnRegionCalls = spawnRegionCalls + 1
+        return {
+            {
+                name = "Alpha",
+                points = {
+                    unemployed = {
+                        point(100, 100), point(101, 100), point(102, 100),
+                        point(103, 100), point(104, 100), point(105, 100),
+                    },
+                    carpenter = { point(100, 100), point(101, 100) },
+                },
+            },
+            {
+                name = "Bravo",
+                points = {
+                    unemployed = {
+                        point(200, 200), point(201, 200), point(202, 200),
+                        point(203, 200), point(204, 200), point(205, 200),
+                    },
+                },
+            },
+            {
+                name = "Charlie",
+                points = {
+                    unemployed = {
+                        point(300, 300), point(301, 300), point(302, 300),
+                        point(303, 300), point(304, 300), point(305, 300),
+                    },
+                },
+            },
+        }
+    end,
+}
+package.preload.SpawnRegions = function()
+    return true
+end
+
+getWorld = function()
+    return { getMap = function() return "Test Map" end }
+end
+
+local squareState = {}
+local function squareKey(x, y, z)
+    return tostring(x) .. "," .. tostring(y) .. "," .. tostring(z or 0)
+end
+
+local function makeSquare(x, y, z)
+    local state = { standable = true, visible = false, fire = false, occupied = false }
+    local square = {
+        getX = function() return x end,
+        getY = function() return y end,
+        getZ = function() return z end,
+        canStand = function() return state.standable end,
+        isCanSee = function() return state.visible end,
+        isCouldSee = function() return state.visible end,
+        haveFire = function() return state.fire end,
+        getMovingObjects = function()
+            return { size = function() return state.occupied and 1 or 0 end }
+        end,
+    }
+    squareState[squareKey(x, y, z)] = { square = square, state = state }
+    return square, state
+end
+
+local cell = {
+    getGridSquare = function(_, x, y, z)
+        local entry = squareState[squareKey(x, y, z)]
+        return entry ~= nil and entry.square or nil
+    end,
+}
+getCell = function()
+    return cell
+end
+
+local playerSquare = makeSquare(0, 0, 0)
+local player = {
+    getCurrentSquare = function() return playerSquare end,
+    getPlayerNum = function() return 0 end,
+}
+getNumActivePlayers = function() return 1 end
+getSpecificPlayer = function() return player end
+
+SandboxVars = nil
+require "KS_Settings"
+assert(KnoxSettings.worldPopulation() == 16, "world population default")
+assert(KnoxSettings.maxActiveSurvivors() == 8, "active population default")
+assert(KnoxSettings.populationRefillDays() == 3, "refill default")
+assert(KnoxSettings.minimumSpawnDistance() == 60, "minimum distance default")
+
+SandboxVars = { KnoxSurvivors = {
+    WorldPopulation = 6,
+    MaxActiveSurvivors = 99,
+    PopulationRefillDays = 3,
+    MinimumSpawnDistance = 2,
+} }
+assert(KnoxSettings.maxActiveSurvivors() == 16, "active population clamp")
+assert(KnoxSettings.minimumSpawnDistance() == 25, "minimum distance clamp")
+
+require "KS_Persistence"
+require "KS_WorldPopulation"
+
+local appliedAge = nil
+KnoxPersistence.ensureSurvivorIdentity("identity-age-test", "", "", 0)
+local identity = KnoxPersistence.ensureSurvivorIdentityFromCharacter(
+    "identity-age-test",
+    {
+        getDescriptor = function()
+            return {
+                getForename = function() return "Morgan" end,
+                getSurname = function() return "Reed" end,
+            }
+        end,
+        getHoursSurvived = function() return 0 end,
+        setAge = function(_, age) appliedAge = age end,
+    },
+    10
+)
+assert(identity.forename == "Morgan" and identity.surname == "Reed",
+    "empty legacy names filled from live descriptor")
+assert(identity.ageYears == 18 and appliedAge == 18,
+    "stable randomized age replaces the engine default and is applied")
+KnoxPersistence.ensureSurvivorIdentity("saved-age-test", "Avery", "Cole", 0, 42)
+KnoxPersistence.ensureSurvivorIdentityFromCharacter(
+    "saved-age-test",
+    {
+        getDescriptor = function()
+            return {
+                getForename = function() return "Changed" end,
+                getSurname = function() return "Name" end,
+            }
+        end,
+        getHoursSurvived = function() return 0 end,
+        setAge = function(_, age) appliedAge = age end,
+    },
+    10
+)
+assert(appliedAge == 42, "saved identity age wins during reconstruction")
+
+local catalog = assert(KnoxWorldPopulation.spawnCatalog())
+assert(#catalog.regions == 3, "all spawn regions loaded")
+assert(#catalog.origins == 18, "profession duplicates removed")
+
+local initialized = KnoxWorldPopulation.maintain(10)
+assert(initialized.status == "initialized", "initial allocation status")
+assert(#initialized.addedIds == 6 and initialized.living == 6,
+    "initial population reaches target")
+
+local regionCounts = {}
+local used = {}
+for _, id in ipairs(KnoxPersistence.getAllWorldSurvivorIds()) do
+    local origin = assert(KnoxPersistence.getSurvivorOrigin(id))
+    regionCounts[origin.region] = (regionCounts[origin.region] or 0) + 1
+    assert(not used[origin.key], "origin reused during initial allocation")
+    used[origin.key] = true
+end
+assert(regionCounts.Alpha == 2 and regionCounts.Bravo == 2 and regionCounts.Charlie == 2,
+    "initial allocation is region balanced")
+
+local deadId = initialized.addedIds[1]
+local deadOrigin = KnoxPersistence.getSurvivorOrigin(deadId)
+assert(KnoxPersistence.markSurvivorDead(deadId, 20, "test"), "death persisted")
+local deficitStarted = KnoxWorldPopulation.maintain(20)
+assert(deficitStarted.status == "waiting", "population deficit starts refill clock")
+local waiting = KnoxWorldPopulation.maintain(91)
+assert(waiting.status == "waiting" and #waiting.addedIds == 0,
+    "replacement waits for refill interval")
+local refilled = KnoxWorldPopulation.maintain(92)
+assert(refilled.status == "refilled" and #refilled.addedIds == 1,
+    "one replacement allocated when due")
+assert(KnoxPersistence.getSurvivorOrigin(refilled.addedIds[1]).key ~= deadOrigin.key,
+    "dead survivor origin is never reused")
+assert(spawnRegionCalls == 1, "spawn definitions cached between maintenance passes")
+
+local spawnId = initialized.addedIds[2]
+local spawnOrigin = assert(KnoxPersistence.getSurvivorOrigin(spawnId))
+for x = spawnOrigin.x - 4, spawnOrigin.x + 4 do
+    for y = spawnOrigin.y - 4, spawnOrigin.y + 4 do
+        makeSquare(x, y, spawnOrigin.z)
+    end
+end
+squareState[spawnOrigin.key].state.standable = false
+playerSquare = makeSquare(spawnOrigin.x + 100, spawnOrigin.y, spawnOrigin.z)
+local spawnCandidate = assert(KnoxWorldPopulation.activationCandidate(
+    spawnId,
+    {},
+    { players = { player }, minimumDistance = 25, maximumDistance = 150 }
+))
+assert(spawnCandidate.mode == "spawn" and spawnCandidate.firstMaterialization,
+    "new survivor gets first-materialization candidate")
+assert(spawnCandidate.square ~= squareState[spawnOrigin.key].square,
+    "unsafe origin uses nearby standable square")
+
+for x = spawnOrigin.x - 4, spawnOrigin.x + 4 do
+    for y = spawnOrigin.y - 4, spawnOrigin.y + 4 do
+        squareState[squareKey(x, y, spawnOrigin.z)].state.visible = true
+    end
+end
+local hiddenCandidate, hiddenReason = KnoxWorldPopulation.activationCandidate(
+    spawnId,
+    {},
+    { players = { player }, minimumDistance = 25, maximumDistance = 150 }
+)
+assert(hiddenCandidate == nil and hiddenReason == "no_safe_hidden_loaded_square",
+    "first materialization never occurs in player sight")
+
+local restoreId = initialized.addedIds[3]
+assert(KnoxPersistence.setRecord(restoreId, "saved-record"), "record stored")
+local exactSquare, exactState = makeSquare(400, 500, 0)
+exactState.visible = true
+playerSquare = exactSquare
+local bridge = {
+    getTestNpcRecordX = function() return 400 end,
+    getTestNpcRecordY = function() return 500 end,
+    getTestNpcRecordZ = function() return 0 end,
+}
+local restoreCandidate = assert(KnoxWorldPopulation.activationCandidate(
+    restoreId,
+    bridge,
+    { players = { player }, minimumDistance = 150, maximumDistance = 150 }
+))
+assert(restoreCandidate.mode == "restore" and restoreCandidate.exact,
+    "saved survivor uses restore mode")
+assert(restoreCandidate.square == exactSquare,
+    "restoration preserves exact saved square despite visibility and minimum distance")
+
+squareState[squareKey(400, 500, 0)] = nil
+local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(
+    restoreId,
+    bridge,
+    { players = { player }, maximumDistance = 150 }
+)
+assert(unloaded == nil and unloadedReason == "saved_square_not_loaded",
+    "saved survivor waits instead of falling back to origin")
+
+print("World population PASS balanced=true refill=one exact_restore=true hidden_spawn=true")

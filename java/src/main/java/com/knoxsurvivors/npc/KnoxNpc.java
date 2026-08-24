@@ -18,6 +18,12 @@ public final class KnoxNpc {
     private final Set<String> movementTraversalEvidence = new LinkedHashSet<>();
     private Object traversalInteractionTarget;
     private String traversalInteractionStage = "NONE";
+    private boolean climbingAllowed = true;
+    private boolean hasProtectedArea;
+    private int protectedMinX;
+    private int protectedMinY;
+    private int protectedMaxX;
+    private int protectedMaxY;
 
     KnoxNpc(String id, Object body, int spawnX, int spawnY, int spawnZ) {
         this.id = id;
@@ -76,6 +82,38 @@ public final class KnoxNpc {
 
     Object getTraversalInteractionTarget() {
         return traversalInteractionTarget;
+    }
+
+    boolean isClimbingAllowed() {
+        return climbingAllowed;
+    }
+
+    void setClimbingAllowed(boolean allowed) {
+        climbingAllowed = allowed;
+    }
+
+    void setProtectedArea(int minX, int minY, int maxX, int maxY) {
+        protectedMinX = Math.min(minX, maxX);
+        protectedMinY = Math.min(minY, maxY);
+        protectedMaxX = Math.max(minX, maxX);
+        protectedMaxY = Math.max(minY, maxY);
+        hasProtectedArea = true;
+    }
+
+    void clearProtectedArea() {
+        hasProtectedArea = false;
+    }
+
+    boolean isProtectedStructureEdge(int currentX, int currentY, int nextX, int nextY) {
+        if (!hasProtectedArea) {
+            return false;
+        }
+        return insideProtectedArea(currentX, currentY) || insideProtectedArea(nextX, nextY);
+    }
+
+    private boolean insideProtectedArea(int x, int y) {
+        return x >= protectedMinX && x <= protectedMaxX
+            && y >= protectedMinY && y <= protectedMaxY;
     }
 
     String getTraversalInteractionStage() {

@@ -1,9 +1,44 @@
 # Development testing
 
-Knox Survivors runs one bounded automatic gate at a time. These tests do not rewrite
-Project Zomboid sandbox settings and are not release gameplay.
+Knox Survivors now exposes its test harness through real Build 42 sandbox settings.
+Developer tools are off by default. Enable them on a test save, then select one automatic
+scenario or use the in-world right-click menu described in
+[Sandbox Settings](SANDBOX_SETTINGS.md). The tools never rewrite vanilla sandbox values.
 
-## New companion/base gate — first live pass pending
+## Production world population and hibernation — live retest required
+
+The production population core now allocates survivors from the map's real Build 42 player
+spawn definitions and materializes only nearby loaded identities. A first live run confirmed
+that a 64-survivor test population initialized and that `ks-world-50` materialized when the
+player entered its area. That run also exposed a streamed-out lifecycle bug: the shell lost
+`getCurrentSquare()`, was labelled `STORED`, and repeatedly failed persistence capture.
+
+The lifecycle fix changes that path in three ways: hibernation is checked every 30 ticks
+instead of only during the slower population reconciliation pass; behavior controllers call
+a missing-square body `DETACHED` rather than claiming it is already stored; and Java record
+capture can fall back to the shell's last finite XYZ position when the engine has already
+streamed its square out. Removal still happens only after capture succeeds.
+
+For the next live pass:
+
+1. Use a fresh or disposable save with a noticeable world population and developer diagnostics
+   enabled. Travel through normal player-spawn neighborhoods until a survivor activates.
+2. Confirm `population-activated id=... mode=... square=... playerDistance=...` appears and the
+   survivor stays physically valid while you remain in the area.
+3. Move away from the survivor. A normal distance hibernation should log
+   `hibernate-attempt reason=distance` followed by `state=HIBERNATED` without any repeating
+   `CAPTURE_FAILED` lines.
+4. If the engine streams the square first, the Java log may report
+   `NPC persistence capture fallback ... reason=no_current_square`; Lua should still complete
+   one `state=HIBERNATED reason=detached` transition and remove the runtime cleanly.
+5. Return to the saved area and confirm the same identity restores at the recorded square.
+6. During the same run, watch for `MOVE_ALREADY_REQUESTED`, verify zombies actually complete
+   attack animations against survivors, and confirm survivor health can fall below 100.
+
+Do not call this gate complete until activation, hibernation, restoration, and one real zombie
+attack have all been observed in game.
+
+## Party commands, zombie parity, and base territory — live pass pending
 
 The latest build adds occupation/trait persistence, recruitment, companion orders, the
 right-side HUD, and the shared base domain. Compilation and standalone save tests pass;
@@ -26,6 +61,18 @@ the following behavior is not yet called live-verified:
    for future jobs until physically inside the saved base bounds.
 8. If possible, repeat recruitment/HUD ownership with a second split-screen player. Each
    viewport must show and command only its own companions.
+9. Right-click the `SQUAD` header. Test whole-party Follow, Hold, and traversal policy.
+   Right-click the world and issue Loot Nearby Area, Loot This Building, and Loot Dead
+   Bodies. Critical needs and combat may interrupt, but survivors must resume and then
+   return to their primary order when the directive finishes.
+10. Close the activity feed with X, then reopen it through the `SQUAD` header menu. Speech
+    must show the speaker name plus a stable party/group/faction label and color.
+11. Use `Set Home Base Boundary`, choose two opposite corners around the house and yard,
+    and confirm the territory persists. Residents must navigate every floor normally.
+    Friendly survivors may open ordinary entries but must not smash player-base windows
+    or attack its locked doors.
+12. Open the Survivor Notebook from the party header and verify Party, Home Base,
+    Survivors, and Factions show distinct, readable data.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -68,6 +115,11 @@ decisions and world interactions are otherwise live.
     within eight tiles, walk to it, and sit while recovering. If no usable seat is reachable,
     the survivor sits on the ground. Look for `recovery-posture` and increasing
     `recovery-progress endurance=` values before the survivor stands and resumes autonomy.
+12. After a group forms, followers should settle into separate staggered positions behind
+    the leader rather than sharing one destination. Walk far enough to stretch the group.
+    The leader should wait around ten tiles of separation and move back toward a member who
+    falls roughly fourteen tiles behind. After any zombie dies, every controller must leave
+    combat and keep travelling; `releaseThreat` errors or `state=STOPPED` fail this gate.
 
 Useful `console.txt` lines begin with:
 
@@ -132,6 +184,11 @@ sixteen tiles, and prioritize zombies targeting a group member within twenty til
 start lines record `awareness=immediate`, `visible`, `active_target`, or `group_target` so a
 missed threat can be diagnosed without guessing from the screen.
 
+Zombies should now discover a nearby survivor without first being attacked or led into the
+survivor's swing range. Compare a survivor and the player standing at similar distance and
+visibility. The result need not alternate perfectly, but survivors must be valid vanilla
+targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this gate.
+
 ## Already verified and hibernating
 
 - one-survivor spawn, appearance, equipment, reconstruction, and save/reload;
@@ -147,8 +204,9 @@ missed threat can be diagnosed without guessing from the screen.
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, job execution, arbitrary zone drawing,
-  and the full base/notebook interface remain later gates.
+- Firearms/ammunition, cooking, lethal survivor PvP, job execution, work-zone drawing,
+  and interactive Notebook management remain later gates. The current Notebook is the
+  readable domain shell, not the finished base administration interface.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.
 - Room-wide alternate-entry planning, sleep furniture selection, death, and

@@ -1,17 +1,18 @@
+require "KS_Settings"
+
 local KnoxDevTests = rawget(_G, "KnoxDevTests") or {}
 _G.KnoxDevTests = KnoxDevTests
 
--- Development builds run one narrow automated gate at a time.
--- This file never reads or writes Project Zomboid sandbox options.
-KnoxDevTests.enabled = true
-KnoxDevTests.activeScenario = "survival"
+-- Developer behavior is opt-in per save through the real sandbox options.
+KnoxDevTests.enabled = KnoxSettings.developerToolsEnabled()
+KnoxDevTests.activeScenario = KnoxSettings.developerScenario()
 KnoxDevTests.sandboxOverrides = false
 KnoxDevTests.allowZombieCleanup = false
 KnoxDevTests.normalZombiePopulation = true
 KnoxDevTests.testPopulation = 3
 KnoxDevTests.obstacleScanRadius = 12
 -- A locked-window test permanently smashes one nearby window in the loaded save.
-KnoxDevTests.allowDestructiveWindowTest = false
+KnoxDevTests.allowDestructiveWindowTest = KnoxSettings.allowDestructiveDeveloperTests()
 -- The current persistence gate always includes a bag so the back slot is regression-tested.
 KnoxDevTests.forceStarterBag = false
 

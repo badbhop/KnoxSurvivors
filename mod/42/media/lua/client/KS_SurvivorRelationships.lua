@@ -2,6 +2,7 @@ require "KS_Persistence"
 require "KS_FactionBaseScouting"
 require "KS_FactionSafehouse"
 require "KS_ActivityFeed"
+require "KS_Settings"
 
 local Relationships = rawget(_G, "KnoxSurvivorRelationships") or {}
 _G.KnoxSurvivorRelationships = Relationships
@@ -17,7 +18,9 @@ local lastBaseScoutingTick = -600
 
 local function availableForNpcSocial(id)
     local affiliation = KnoxPersistence.getSurvivorAffiliation(id)
-    return affiliation == nil or affiliation.kind ~= "player"
+    local duty = KnoxPersistence.getSurvivorDuty(id)
+    return (affiliation == nil or affiliation.kind ~= "player")
+        and (duty == nil or (duty.mode ~= "companion" and duty.mode ~= "base"))
 end
 
 local function pairKey(firstId, secondId)
@@ -65,7 +68,8 @@ local function pairRoll(firstId, secondId, meetingNumber)
 end
 
 local function decideEncounterOutcome(firstId, secondId, record)
-    if record ~= nil and record.disposition == "hostile" then
+    if KnoxSettings.allowHostileEncounters()
+        and record ~= nil and record.disposition == "hostile" then
         return "hostile"
     end
     local firstIdentity = KnoxPersistence.getSurvivorIdentity(firstId) or {}
@@ -77,10 +81,10 @@ local function decideEncounterOutcome(firstId, secondId, record)
     local hostileChance = clamp(7 + (aggression - 45) * 0.35, 4, 22)
     local joinChance = clamp(48 + (sociability - 50) * 0.45, 35, 68)
     local roll = pairRoll(firstId, secondId, record ~= nil and record.meetings or 0)
-    if roll < hostileChance then
+    if KnoxSettings.allowHostileEncounters() and roll < hostileChance then
         return "hostile"
     end
-    if roll < hostileChance + joinChance then
+    if roll < (KnoxSettings.allowHostileEncounters() and hostileChance or 0) + joinChance then
         return "join"
     end
     return "decline"
@@ -92,6 +96,9 @@ local function aggressionFor(id)
 end
 
 local function coordinateFactionBaseScouting(controllers, orderedIds, ticks)
+    if not KnoxSettings.allowNPCFactions() then
+        return
+    end
     if ticks - lastBaseScoutingTick < 600 or getGameTime() == nil then
         return
     end
@@ -322,9 +329,22 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
             local group = KnoxPersistence.getTravelGroupFor(id)
             if group ~= nil and group.leaderId ~= id then
                 local leader = controllers[group.leaderId]
+                local formationSlot = 1
+                local nextSlot = 0
+                for _, memberId in ipairs(group.memberIds or {}) do
+                    if memberId ~= group.leaderId then
+                        nextSlot = nextSlot + 1
+                        if memberId == id then
+                            formationSlot = nextSlot
+                            break
+                        end
+                    end
+                end
                 controller:setGroupLeader(
                     group.leaderId,
-                    leader ~= nil and leader.character or nil
+                    leader ~= nil and leader.character or nil,
+                    formationSlot,
+                    #(group.memberIds or {})
                 )
                 controller:setGroupMembers({})
             elseif group ~= nil then
@@ -348,7 +368,8 @@ end
 
 function Relationships.coordinate(controllers, orderedIds, ticks)
     assignGroupLeaders(controllers, orderedIds, ticks)
-    if ticks - lastFactionEvaluationTick >= 600 and getGameTime() ~= nil then
+    if KnoxSettings.allowNPCFactions()
+        and ticks - lastFactionEvaluationTick >= 600 and getGameTime() ~= nil then
         lastFactionEvaluationTick = ticks
         local evaluated = {}
         for _, id in ipairs(orderedIds) do

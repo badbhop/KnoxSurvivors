@@ -6,6 +6,8 @@ require "KS_BaseManager"
 require "KS_Persistence"
 require "KS_SurvivorRuntime"
 require "KS_SurvivorViewModel"
+require "KS_SurvivorCard"
+require "KS_Settings"
 
 local SurvivorContextMenu = rawget(_G, "KnoxSurvivorContextMenu") or {}
 _G.KnoxSurvivorContextMenu = SurvivorContextMenu
@@ -62,6 +64,10 @@ end
 
 local function onTalk(_, playerNum, survivorId)
     runService(playerNum, KnoxCompanionService.talk, survivorId)
+end
+
+local function onViewSurvivor(_, playerNum, survivorId)
+    KnoxSurvivorCard.show(playerNum, survivorId)
 end
 
 local function onRecruit(_, playerNum, survivorId)
@@ -158,6 +164,20 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         return false
     end
 
+    local playerId = KnoxCompanionService.getPlayerId(player)
+    local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
+    local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+    local owned = affiliation.kind == "player" and affiliation.ownerId == playerId
+    if owned and duty.mode == "companion" then
+        menu:addOption(
+            "View Survivor",
+            SurvivorContextMenu,
+            onViewSurvivor,
+            playerNum,
+            survivorId
+        )
+    end
+
     local distance = distanceToPlayer(player, survivorId)
     local closeEnough = distance ~= nil and distance <= CONVERSATION_DISTANCE
     local talkLabel = closeEnough and "Talk" or "Talk (too far away)"
@@ -165,11 +185,6 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
     if not closeEnough then
         unavailable(talk)
     end
-
-    local playerId = KnoxCompanionService.getPlayerId(player)
-    local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
-    local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
-    local owned = affiliation.kind == "player" and affiliation.ownerId == playerId
 
     if not owned then
         addRecruitOption(menu, player, survivorId, closeEnough)
@@ -221,6 +236,9 @@ local function nearestSurvivor(worldObjects)
 end
 
 local function onFillWorldObjectContextMenu(playerNum, context, worldObjects, test)
+    if not KnoxSettings.enabled() then
+        return
+    end
     if test and ISWorldObjectContextMenu.Test then
         return true
     end

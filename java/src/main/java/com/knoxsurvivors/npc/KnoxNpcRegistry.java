@@ -80,6 +80,39 @@ public final class KnoxNpcRegistry {
         return runtime == null ? "MOVE_CANCEL_FAILED NONE_ACTIVE" : runtime.cancelMovement();
     }
 
+    public synchronized boolean setClimbingAllowed(String id, boolean allowed) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
+            return false;
+        }
+        npc.setClimbingAllowed(allowed);
+        return true;
+    }
+
+    public synchronized boolean setProtectedArea(
+        String id,
+        int minX,
+        int minY,
+        int maxX,
+        int maxY
+    ) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
+            return false;
+        }
+        npc.setProtectedArea(minX, minY, maxX, maxY);
+        return true;
+    }
+
+    public synchronized boolean clearProtectedArea(String id) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
+            return false;
+        }
+        npc.clearProtectedArea();
+        return true;
+    }
+
     public synchronized String removeOne() {
         return remove(TEST_SURVIVOR_ID);
     }
@@ -143,6 +176,14 @@ public final class KnoxNpcRegistry {
             return "COMBAT_FAILED NONE_ACTIVE";
         }
         try {
+            // Combat takes exclusive ownership of pathfinding. A threat can interrupt
+            // an ordinary Lua movement decision before tickMovement() observes its
+            // terminal state; clear that request here so it cannot survive the fight
+            // and reject the next decision as MOVE_ALREADY_REQUESTED.
+            String cancelled = runtime.cancelMovement();
+            if (cancelled.startsWith("MOVE_CANCEL_FAILED")) {
+                return "COMBAT_FAILED " + cancelled;
+            }
             return live
                 ? runtime.combat().beginLive(runtime.npc(), zombie, approachSquare)
                 : runtime.combat().begin(runtime.npc(), zombie, approachSquare);
@@ -260,7 +301,11 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String directZombieAtOne(Object zombie) {
-        KnoxNpc npc = npc(TEST_SURVIVOR_ID);
+        return directZombieAt(TEST_SURVIVOR_ID, zombie);
+    }
+
+    public synchronized String directZombieAt(String id, Object zombie) {
+        KnoxNpc npc = npc(id);
         if (npc == null) {
             return "ZOMBIE_DIRECT_FAILED NONE_ACTIVE";
         }
@@ -572,14 +617,34 @@ public final class KnoxNpcRegistry {
     private static KnoxSurvivorRecord captureRecord(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
         Object square = body.getClass().getMethod("getCurrentSquare").invoke(body);
-        if (square == null) {
-            throw new IllegalStateException("NPC has no current square to persist");
-        }
-        int x = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
-        int y = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
-        int z = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
         float positionX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
         float positionY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+        float positionZ = ((Number) body.getClass().getMethod("getZ").invoke(body)).floatValue();
+        if (!Float.isFinite(positionX) || !Float.isFinite(positionY) || !Float.isFinite(positionZ)) {
+            throw new IllegalStateException("NPC has no finite position to persist");
+        }
+
+        int x;
+        int y;
+        int z;
+        if (square != null) {
+            x = ((Number) square.getClass().getMethod("getX").invoke(square)).intValue();
+            y = ((Number) square.getClass().getMethod("getY").invoke(square)).intValue();
+            z = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+        } else {
+            // A streamed-out IsoPlayer can lose getCurrentSquare() before Lua's next
+            // population pass. Its body still retains the last world position, so use
+            // that position as a transactional persistence fallback instead of losing
+            // the survivor or looping CAPTURE_FAILED forever.
+            x = (int) Math.floor(positionX);
+            y = (int) Math.floor(positionY);
+            z = (int) Math.floor(positionZ);
+            KnoxAgent.writeLog(
+                "NPC persistence capture fallback id=" + npc.getId()
+                    + " reason=no_current_square position="
+                    + positionX + "," + positionY + "," + positionZ
+            );
+        }
         return new KnoxSurvivorRecord(
             npc.getId(),
             x,

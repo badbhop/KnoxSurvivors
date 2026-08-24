@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 7
+local SCHEMA_VERSION = 8
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local function root()
@@ -27,6 +27,21 @@ local function root()
         data.players = {}
     end
     data.nextPlayerId = data.nextPlayerId or 1
+    data.nextDeveloperSurvivorId = data.nextDeveloperSurvivorId or 1
+    data.nextWorldSurvivorId = data.nextWorldSurvivorId or 1
+    if type(data.population) ~= "table" then
+        data.population = {}
+    end
+    data.population.initialized = data.population.initialized == true
+    data.population.nextRefillHours = tonumber(data.population.nextRefillHours) or 0
+    data.population.lastTarget = tonumber(data.population.lastTarget) or 0
+    data.population.belowTargetSinceHours = tonumber(
+        data.population.belowTargetSinceHours
+    )
+    data.population.allocationCursor = math.max(
+        0,
+        math.floor(tonumber(data.population.allocationCursor) or 0)
+    )
     if type(data.bases) ~= "table" then
         data.bases = {}
     end
@@ -165,6 +180,12 @@ local function ensureSurvivorState(id)
         revision = 0,
     }
     survivor.playerRelationships = survivor.playerRelationships or {}
+    survivor.policies = survivor.policies or {
+        allowClimbing = true,
+    }
+    if survivor.alive == nil then
+        survivor.alive = true
+    end
     data.survivors[id] = survivor
     return survivor
 end
@@ -223,6 +244,153 @@ function KnoxPersistence.getRecord(id)
     return survivor ~= nil and survivor.record or nil
 end
 
+function KnoxPersistence.allocateDeveloperSurvivorId()
+    local data = root()
+    local value = math.max(1, tonumber(data.nextDeveloperSurvivorId) or 1)
+    local id = "ks-dev-" .. tostring(value)
+    while data.survivors[id] ~= nil do
+        value = value + 1
+        id = "ks-dev-" .. tostring(value)
+    end
+    data.nextDeveloperSurvivorId = value + 1
+    return id
+end
+
+function KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
+    if type(origin) ~= "table" or tonumber(origin.x) == nil or tonumber(origin.y) == nil then
+        return nil, "invalid_origin"
+    end
+    local data = root()
+    local x = math.floor(tonumber(origin.x))
+    local y = math.floor(tonumber(origin.y))
+    local z = math.floor(tonumber(origin.z) or 0)
+    local originKey = tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
+    for _, existing in pairs(data.survivors) do
+        local existingOrigin = type(existing) == "table" and existing.origin or nil
+        if existing ~= nil and existing.populationManaged == true
+            and type(existingOrigin) == "table" then
+            local existingKey = existingOrigin.key
+                or (tostring(math.floor(tonumber(existingOrigin.x) or 0))
+                    .. "," .. tostring(math.floor(tonumber(existingOrigin.y) or 0))
+                    .. "," .. tostring(math.floor(tonumber(existingOrigin.z) or 0)))
+            existingOrigin.key = existingKey
+            if existingKey == originKey then
+                return nil, "origin_already_used"
+            end
+        end
+    end
+    local value = math.max(1, tonumber(data.nextWorldSurvivorId) or 1)
+    local id = "ks-world-" .. tostring(value)
+    while data.survivors[id] ~= nil do
+        value = value + 1
+        id = "ks-world-" .. tostring(value)
+    end
+    data.nextWorldSurvivorId = value + 1
+    local survivor = ensureSurvivorState(id)
+    survivor.populationManaged = true
+    survivor.alive = true
+    survivor.origin = {
+        x = x,
+        y = y,
+        z = z,
+        key = originKey,
+        region = tostring(origin.region or "Unknown"),
+        regionKey = tostring(origin.regionKey or origin.region or "Unknown"),
+        source = tostring(origin.source or "player_spawn"),
+    }
+    survivor.createdAtHours = tonumber(worldAgeHours) or 0
+    return id, copyFlat(survivor.origin)
+end
+
+function KnoxPersistence.getPopulationState()
+    return root().population
+end
+
+function KnoxPersistence.getSurvivorOrigin(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and type(survivor.origin) == "table"
+        and copyFlat(survivor.origin)
+        or nil
+end
+
+function KnoxPersistence.getActivatableSurvivorIds()
+    local ids = {}
+    for id, survivor in pairs(root().survivors) do
+        if type(id) == "string" and type(survivor) == "table"
+            and survivor.alive ~= false
+            and (survivor.record ~= nil or type(survivor.origin) == "table") then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+function KnoxPersistence.getLivingWorldSurvivorIds()
+    local ids = {}
+    for id, survivor in pairs(root().survivors) do
+        if type(id) == "string" and type(survivor) == "table"
+            and survivor.populationManaged == true and survivor.alive ~= false then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+function KnoxPersistence.getAllWorldSurvivorIds()
+    local ids = {}
+    for id, survivor in pairs(root().survivors) do
+        if type(id) == "string" and type(survivor) == "table"
+            and survivor.populationManaged == true then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+function KnoxPersistence.getUsedWorldOriginKeys()
+    local used = {}
+    for _, survivor in pairs(root().survivors) do
+        local origin = type(survivor) == "table" and survivor.origin or nil
+        if survivor ~= nil and survivor.populationManaged == true
+            and type(origin) == "table"
+            and tonumber(origin.x) ~= nil and tonumber(origin.y) ~= nil then
+            local key = origin.key
+                or (tostring(math.floor(tonumber(origin.x)))
+                    .. "," .. tostring(math.floor(tonumber(origin.y)))
+                    .. "," .. tostring(math.floor(tonumber(origin.z) or 0)))
+            origin.key = key
+            used[key] = true
+        end
+    end
+    return used
+end
+
+function KnoxPersistence.markSurvivorDead(id, worldAgeHours, reason)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil then
+        return false
+    end
+    survivor.alive = false
+    survivor.diedAtHours = tonumber(worldAgeHours) or 0
+    survivor.deathReason = tostring(reason or "died")
+    return true
+end
+
+function KnoxPersistence.isSurvivorAlive(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and survivor.alive ~= false
+end
+
+function KnoxPersistence.getLastKnownNeeds(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and type(survivor.lastKnownNeeds) == "table"
+        and copyFlat(survivor.lastKnownNeeds)
+        or nil
+end
+
 function KnoxPersistence.setTestRecord(encoded)
     return KnoxPersistence.setRecord(TEST_SURVIVOR_ID, encoded)
 end
@@ -240,18 +408,28 @@ function KnoxPersistence.setRecord(id, encoded)
     return true
 end
 
-function KnoxPersistence.ensureSurvivorIdentity(id, forename, surname, worldAgeHours)
+function KnoxPersistence.ensureSurvivorIdentity(id, forename, surname, worldAgeHours, ageYears)
     if type(id) ~= "string" or id == "" then
         return nil
     end
     local data = root()
     local survivor = data.survivors[id] or { id = id }
     survivor.identity = survivor.identity or {}
-    survivor.identity.forename = survivor.identity.forename or tostring(forename or "")
-    survivor.identity.surname = survivor.identity.surname or tostring(surname or "")
+    -- Lua treats an empty string as truthy, so `saved or live` would preserve
+    -- nameless identities forever. Fill missing/empty legacy fields from the
+    -- live randomized SurvivorFactory descriptor when it becomes available.
+    if survivor.identity.forename == nil or survivor.identity.forename == "" then
+        survivor.identity.forename = tostring(forename or "")
+    end
+    if survivor.identity.surname == nil or survivor.identity.surname == "" then
+        survivor.identity.surname = tostring(surname or "")
+    end
     survivor.identity.createdAtHours = survivor.identity.createdAtHours
         or tonumber(worldAgeHours)
         or 0
+    survivor.identity.ageYears = survivor.identity.ageYears
+        or tonumber(ageYears)
+        or (18 + stableTrait(id, 3) % 53)
     survivor.identity.sociability = survivor.identity.sociability
         or stableTrait(id, 1)
     survivor.identity.aggression = survivor.identity.aggression
@@ -260,9 +438,46 @@ function KnoxPersistence.ensureSurvivorIdentity(id, forename, surname, worldAgeH
     return survivor.identity
 end
 
+function KnoxPersistence.ensureSurvivorIdentityFromCharacter(id, character, worldAgeHours)
+    if character == nil then
+        return nil
+    end
+    local success, forename, surname, hoursSurvived = pcall(function()
+        local descriptor = character:getDescriptor()
+        return descriptor ~= nil and descriptor:getForename() or "",
+            descriptor ~= nil and descriptor:getSurname() or "",
+            character:getHoursSurvived()
+    end)
+    if not success then
+        return nil
+    end
+    local now = tonumber(worldAgeHours) or 0
+    local identity = KnoxPersistence.ensureSurvivorIdentity(
+        id,
+        forename,
+        surname,
+        math.max(0, now - math.max(0, tonumber(hoursSurvived) or 0)),
+        nil
+    )
+    if identity ~= nil and tonumber(identity.ageYears) ~= nil then
+        pcall(function()
+            character:setAge(math.floor(tonumber(identity.ageYears)))
+        end)
+    end
+    return identity
+end
+
 function KnoxPersistence.getSurvivorIdentity(id)
     local survivor = type(id) == "string" and root().survivors[id] or nil
     return survivor ~= nil and survivor.identity or nil
+end
+
+function KnoxPersistence.getPlayerRelationshipSnapshot(playerId, survivorId)
+    local survivor = type(survivorId) == "string" and root().survivors[survivorId] or nil
+    local relation = survivor ~= nil and type(survivor.playerRelationships) == "table"
+        and survivor.playerRelationships[playerId]
+        or nil
+    return relation ~= nil and copyFlat(relation) or nil
 end
 
 function KnoxPersistence.getSurvivorCapabilities(id)
@@ -356,12 +571,33 @@ function KnoxPersistence.setPlayerCompanion(id, playerId, order, worldAgeHours)
             and survivor.affiliation.ownerId == playerId) then
         return false, "already_affiliated"
     end
-    if KnoxPersistence.getTravelGroupFor ~= nil
-        and KnoxPersistence.getTravelGroupFor(id) ~= nil then
-        return false, "already_with_group"
+    local existingGroup = KnoxPersistence.getTravelGroupFor ~= nil
+        and KnoxPersistence.getTravelGroupFor(id) or nil
+    if existingGroup ~= nil then
+        if survivor.affiliation.kind == "player"
+            and survivor.affiliation.ownerId == playerId then
+            KnoxPersistence.removeTravelGroupMember(id)
+        else
+            return false, "already_with_group"
+        end
     end
     if survivor.duty.mode == "base" then
         requeueClaimsForSurvivor(id, survivor.duty.baseId, "recalled_as_companion")
+    end
+    -- Player ownership is authoritative. Remove stale copies left in NPC rosters
+    -- before assigning the player faction so later faction maintenance cannot
+    -- absorb a companion back into an autonomous group.
+    if KnoxPersistence.removeTravelGroupMember ~= nil then
+        KnoxPersistence.removeTravelGroupMember(id)
+    end
+    for factionId, candidate in pairs(root().factions) do
+        local listed = false
+        for _, memberId in ipairs(candidate ~= nil and candidate.memberIds or {}) do
+            listed = listed or memberId == id
+        end
+        if candidate ~= nil and candidate.kind ~= "player" and listed then
+            KnoxPersistence.removeFactionMember(factionId, id, true)
+        end
     end
     local faction = KnoxPersistence.ensurePlayerFaction(playerId, worldAgeHours)
     if faction == nil then
@@ -460,6 +696,60 @@ function KnoxPersistence.updateCompanionOrder(id, playerId, order, worldAgeHours
     end
     survivor.duty.order = order
     survivor.duty.ownerId = playerId
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+function KnoxPersistence.getSurvivorPolicies(id)
+    local survivor = ensureSurvivorState(id)
+    return survivor ~= nil and copyFlat(survivor.policies) or nil
+end
+
+function KnoxPersistence.setCompanionClimbing(id, playerId, allowed, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.mode ~= "companion" then
+        return false
+    end
+    survivor.policies.allowClimbing = allowed == true
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+function KnoxPersistence.setCompanionDirective(id, playerId, directive, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or type(directive) ~= "table"
+        or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.mode ~= "companion" then
+        return false
+    end
+    survivor.duty.directive = {
+        kind = tostring(directive.kind or ""),
+        minX = tonumber(directive.minX),
+        minY = tonumber(directive.minY),
+        maxX = tonumber(directive.maxX),
+        maxY = tonumber(directive.maxY),
+        z = tonumber(directive.z) or 0,
+        buildingId = directive.buildingId ~= nil and tostring(directive.buildingId) or nil,
+        issuedAtHours = tonumber(worldAgeHours) or 0,
+    }
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+function KnoxPersistence.clearCompanionDirective(id, playerId, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.mode ~= "companion" then
+        return false
+    end
+    survivor.duty.directive = nil
     survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
     survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
     return true
@@ -674,6 +964,11 @@ function KnoxPersistence.addFactionMember(factionId, survivorId, worldAgeHours)
     if faction == nil or survivor == nil then
         return false
     end
+    if faction.kind ~= "player" and (survivor.affiliation.kind == "player"
+        or survivor.duty.mode == "companion"
+        or survivor.duty.mode == "base" and survivor.affiliation.kind == "player") then
+        return false
+    end
     local group = KnoxPersistence.getTravelGroupFor ~= nil
         and KnoxPersistence.getTravelGroupFor(survivorId)
         or nil
@@ -801,7 +1096,7 @@ function KnoxPersistence.createTravelGroup(memberIds, worldAgeHours)
         return nil
     end
     for _, id in ipairs(memberIds) do
-        local survivor = type(id) == "string" and root().survivors[id] or nil
+        local survivor = type(id) == "string" and ensureSurvivorState(id) or nil
         if survivor == nil or survivor.record == nil then
             return nil
         end
@@ -809,7 +1104,9 @@ function KnoxPersistence.createTravelGroup(memberIds, worldAgeHours)
         if existing ~= nil then
             return existing
         end
-        if not KnoxPersistence.isIndependentSurvivor(id) then
+        if survivor.affiliation == nil or survivor.affiliation.kind ~= "independent"
+            or survivor.duty == nil or survivor.duty.mode ~= "autonomous"
+            or not KnoxPersistence.isIndependentSurvivor(id) then
             return nil
         end
     end
@@ -852,7 +1149,9 @@ function KnoxPersistence.addTravelGroupMember(groupId, survivorId)
         return nil
     end
     local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId)
-    if affiliation == nil or (affiliation.kind ~= "independent"
+    local duty = KnoxPersistence.getSurvivorDuty(survivorId)
+    if duty == nil or duty.mode ~= "autonomous"
+        or affiliation == nil or (affiliation.kind ~= "independent"
         and affiliation.factionId ~= group.factionId) then
         return nil
     end
@@ -913,6 +1212,15 @@ function KnoxPersistence.promoteTravelGroupToFaction(groupId, worldAgeHours)
     local group = type(groupId) == "string" and data.travelGroups[groupId] or nil
     if group == nil or #group.memberIds < 3 then
         return nil, "requires_three_members"
+    end
+    for _, memberId in ipairs(group.memberIds) do
+        local survivor = ensureSurvivorState(memberId)
+        if survivor.affiliation.kind == "player"
+            or survivor.duty.mode == "companion"
+            or survivor.duty.mode == "base" and survivor.affiliation.kind == "player" then
+            KnoxPersistence.removeTravelGroupMember(memberId)
+            return nil, "contains_player_survivor"
+        end
     end
     if group.factionId ~= nil then
         return data.factions[group.factionId], "already_faction"
@@ -1066,6 +1374,13 @@ function KnoxPersistence.createBase(ownerKind, ownerId, home, worldAgeHours)
         name = ownerKind == "player" and "Home Base" or "Survivor Camp",
         createdAtHours = tonumber(worldAgeHours) or 0,
         home = area,
+        territory = {
+            minX = area.minX,
+            minY = area.minY,
+            maxX = area.minX + area.width - 1,
+            maxY = area.minY + area.height - 1,
+            allFloors = true,
+        },
         zones = {},
         nextZoneId = 1,
         storage = {},
@@ -1078,6 +1393,41 @@ function KnoxPersistence.createBase(ownerKind, ownerId, home, worldAgeHours)
     }
     data.bases[id] = base
     return base, "created"
+end
+
+function KnoxPersistence.updateBaseTerritory(baseId, bounds, worldAgeHours)
+    local base = KnoxPersistence.getBase(baseId)
+    if base == nil or type(bounds) ~= "table" then
+        return nil, "invalid_base"
+    end
+    local minX = math.min(tonumber(bounds.minX) or 0, tonumber(bounds.maxX) or 0)
+    local minY = math.min(tonumber(bounds.minY) or 0, tonumber(bounds.maxY) or 0)
+    local maxX = math.max(tonumber(bounds.minX) or 0, tonumber(bounds.maxX) or 0)
+    local maxY = math.max(tonumber(bounds.minY) or 0, tonumber(bounds.maxY) or 0)
+    if maxX - minX < 2 or maxY - minY < 2 then
+        return nil, "area_too_small"
+    end
+    for otherId, other in pairs(root().bases) do
+        local territory = other ~= nil and (other.territory or other.home) or nil
+        local otherMaxX = territory ~= nil and (territory.maxX
+            or (territory.minX + territory.width - 1)) or nil
+        local otherMaxY = territory ~= nil and (territory.maxY
+            or (territory.minY + territory.height - 1)) or nil
+        if otherId ~= baseId and territory ~= nil
+            and maxX >= territory.minX and minX <= otherMaxX
+            and maxY >= territory.minY and minY <= otherMaxY then
+            return nil, "overlaps_existing_base"
+        end
+    end
+    base.territory = {
+        minX = minX,
+        minY = minY,
+        maxX = maxX,
+        maxY = maxY,
+        allFloors = true,
+        changedAtHours = tonumber(worldAgeHours) or 0,
+    }
+    return base.territory, "updated"
 end
 
 function KnoxPersistence.addBaseZone(baseId, zoneType, bounds, label)
@@ -1293,6 +1643,20 @@ function KnoxPersistence.captureActiveSurvivor(id)
         local character = bridge:getNpcCharacter(id)
         if character ~= nil then
             capabilities.capture(id, character)
+        end
+    end
+    if saved then
+        local character = bridge:getNpcCharacter(id)
+        local needs = rawget(_G, "KnoxSurvivorNeeds")
+        if character ~= nil and needs ~= nil and needs.snapshot ~= nil then
+            local snapshotOk, snapshot = pcall(needs.snapshot, character)
+            if snapshotOk and type(snapshot) == "table" then
+                local survivor = ensureSurvivorState(id)
+                survivor.lastKnownNeeds = copyFlat(snapshot)
+                survivor.lastKnownNeedsAtHours = getGameTime() ~= nil
+                    and getGameTime():getWorldAgeHours()
+                    or 0
+            end
         end
     end
     return saved, encoded

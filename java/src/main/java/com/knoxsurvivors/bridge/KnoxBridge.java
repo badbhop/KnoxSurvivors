@@ -77,6 +77,18 @@ public final class KnoxBridge {
         return npcRegistry.cancelMove(id);
     }
 
+    public boolean setNpcClimbingAllowed(String id, boolean allowed) {
+        return npcRegistry.setClimbingAllowed(id, allowed);
+    }
+
+    public boolean setNpcProtectedArea(String id, int minX, int minY, int maxX, int maxY) {
+        return npcRegistry.setProtectedArea(id, minX, minY, maxX, maxY);
+    }
+
+    public boolean clearNpcProtectedArea(String id) {
+        return npcRegistry.clearProtectedArea(id);
+    }
+
     public String getTestNpcStatus() {
         return npcRegistry.status();
     }
@@ -191,6 +203,10 @@ public final class KnoxBridge {
 
     public String directTestZombieAtNpc(Object zombie) {
         return npcRegistry.directZombieAtOne(zombie);
+    }
+
+    public String directZombieAtNpc(String id, Object zombie) {
+        return npcRegistry.directZombieAt(id, zombie);
     }
 
     public String captureTestNpcRecord() {

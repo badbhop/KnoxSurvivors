@@ -1,0 +1,61 @@
+VERSION = 1,
+
+option KnoxSurvivors.Enabled = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_Enabled,
+}
+
+option KnoxSurvivors.WorldPopulation = {
+    type = integer, min = 0, max = 64, default = 16, page = KnoxSurvivors_Main, translation = KnoxSurvivors_WorldPopulation,
+}
+
+option KnoxSurvivors.MaxActiveSurvivors = {
+    type = integer, min = 1, max = 16, default = 8, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MaxActiveSurvivors,
+}
+
+option KnoxSurvivors.PopulationRefillDays = {
+    type = integer, min = 1, max = 30, default = 3, page = KnoxSurvivors_Main, translation = KnoxSurvivors_PopulationRefillDays,
+}
+
+option KnoxSurvivors.MinimumSpawnDistance = {
+    type = integer, min = 25, max = 150, default = 60, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MinimumSpawnDistance,
+}
+
+option KnoxSurvivors.CompanionLimit = {
+    type = integer, min = 1, max = 12, default = 4, page = KnoxSurvivors_Main, translation = KnoxSurvivors_CompanionLimit,
+}
+
+option KnoxSurvivors.AllowNPCFactions = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowNPCFactions,
+}
+
+option KnoxSurvivors.AllowHostileEncounters = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowHostileEncounters,
+}
+
+option KnoxSurvivors.ShowCompanionHUD = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ShowCompanionHUD,
+}
+
+option KnoxSurvivors.ShowActivityFeed = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ShowActivityFeed,
+}
+
+option KnoxSurvivors.EnableDeveloperTools = {
+    type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_EnableDeveloperTools,
+}
+
+option KnoxSurvivors.DeveloperScenario = {
+    type = enum, numValues = 6, default = 1, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_DeveloperScenario, valueTranslation = KnoxSurvivors_DeveloperScenario,
+}
+
+option KnoxSurvivors.DeveloperSpawnDistance = {
+    type = integer, min = 6, max = 30, default = 10, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_DeveloperSpawnDistance,
+}
+
+option KnoxSurvivors.AllowDestructiveDeveloperTests = {
+    type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_AllowDestructiveDeveloperTests,
+}
+
+option KnoxSurvivors.ShowDeveloperDiagnostics = {
+    type = boolean, default = true, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_ShowDeveloperDiagnostics,
+}

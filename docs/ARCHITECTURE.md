@@ -66,13 +66,14 @@ player. A valid identity may originate in another town and remain virtually simu
 until its cell loads; loading a cell activates the survivor at their recorded location
 instead of relocating them toward the player.
 
-Population generation will use a low world cap, long cooldowns, and distance bands.
-Death is durable and does not trigger an immediate nearby replacement. These constraints
-make an encounter uncommon and make an individual survivor valuable without preventing
-the world from containing people beyond the player's current area. The current development
-gate uses three nearby persistent survivors so autonomy, meetings, factions, and base
-selection can be observed. It remains a bounded test harness rather than the production
-population policy.
+The production population core now maintains a configurable persistent target, defaults
+to 16 living identities, and limits physical materialization separately from world count.
+Initial allocation is region-balanced across real player-spawn definitions. Death is durable
+and does not trigger an immediate nearby replacement; after the configured refill interval,
+one new identity is allocated at a still-unused origin. Active world survivors hibernate
+when they leave the player band and restore at their saved square when that area becomes
+relevant again. Developer scenarios remain available as a separate bounded test harness for
+social, faction, base, and companion behavior.
 
 ## Minimal active-survivor loop
 
@@ -146,6 +147,12 @@ targeting the survivor or a travelling companion. Active threats receive priorit
 idle visible zombie, and at most two survivors reserve the same zombie. This avoids both
 single-file indifference and the whole faction chasing one distant target.
 
+The shell's LOS override must remain disabled because off-slot `IsoPlayer.updateLOS()`
+writes into a real local player's render channel. A scheduled Lua awareness adapter restores
+only the omitted vanilla discovery edge by calling `TestZombieSpotPlayer` for nearby zombies.
+Vanilla still evaluates sight and owns zombie target selection; Knox does not assign targets
+or make survivors immune. The adapter runs every 30 ticks rather than once per frame.
+
 ## Hard constraints
 
 - Do not place NPCs into `IsoPlayer.players[]` unless a narrowly scoped experiment requires it.
@@ -203,7 +210,11 @@ An ungrouped pair that enters awareness range now interrupts only safe, non-comb
 approaches, faces one another, and holds a short visible conversation. Mutual agreement
 creates a persistent travelling group. The lowest stable ID is the initial route leader;
 other members satisfy urgent personal needs but otherwise wait for or follow that leader.
-The leader waits when followers fall outside the soft travel leash. An established group
+Followers receive stable staggered slots behind the leader and refresh their destination as
+the leader moves instead of all chasing one occupied square. The leader waits when a member
+falls outside the soft travel leash and walks back toward a severely separated member.
+This is the movement foundation for later selectable tactical formations; it does not yet
+change combat roles or weapon positioning. An established group
 can separately invite a lone survivor. Three consenting members unlock faction readiness,
 and relationship history must show nearby time or shared survival activity. There is no
 arbitrary minimum number of days together. Proximity alone
@@ -239,6 +250,13 @@ Hold, Return to Base, and Dismiss update duty first, then the active controller 
 that durable order on its next update. Threats and critical needs remain above ordinary
 orders, so survival can interrupt a command without deleting it.
 
+Companion commands are split into three durable concepts. The primary order is Follow or
+Hold. Vaulting/climbing is a standing traversal policy. Loot-area, loot-building, and
+loot-corpses are temporary directives; after the target has been searched, the survivor
+returns to the primary order. Header commands use the same service as individual and world
+context menus. NPC travel groups and factions reject any survivor whose affiliation or duty
+is player-owned, including stale pending meetings.
+
 The runtime registry is deliberately narrow. Gameplay and interface code may resolve a
 temporary character or request a fresh semantic snapshot, but cannot take ownership of a
 controller. The companion view model returns copied values for name, duty, activity,
@@ -249,8 +267,11 @@ service.
 
 ## Base and work boundary
 
-Player and NPC settlements share stable base records. A base owns its home bounds, work
-zones, storage policies, residents, and queued tasks; it never stores a live square,
+Player and NPC settlements share stable base records. A base keeps its original home
+building separate from an editable territory boundary. Territory applies to its X/Y area
+on every building floor and classifies ownership only; it never blocks navigation into,
+out of, or through the building. A base owns its territory, work zones, storage policies,
+residents, and queued tasks; it never stores a live square,
 container, character, or controller reference. Storage markers use namespaced world-object
 ModData plus coordinates, object index, and container index so multi-container furniture
 does not collapse into one destination.
@@ -262,6 +283,11 @@ woodcutting, patrols, corpse handling, animals, and repair are registered as a p
 boundary; their world-action executors remain separate live-test milestones. Vanilla crop
 ownership is not treated as a Knox survivor ID because single-player off-slot bodies do
 not provide a stable unique crop owner.
+
+Player territory is also sent to the Java traversal runtime as a protected structure area.
+Friendly and neutral survivors may still use doors and try an unlocked window, but they
+cannot escalate to smashing a window or breaking a locked door inside that territory.
+Explicitly hostile survivors are exempt so later raids can use the same policy boundary.
 
 ## Faction base scouting
 

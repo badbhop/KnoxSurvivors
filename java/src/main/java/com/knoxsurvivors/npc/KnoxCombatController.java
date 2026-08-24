@@ -9,13 +9,15 @@ final class KnoxCombatController {
     private static final int ATTACK_RETRY_TICKS = 30;
     private static final int AIM_SETTLE_TICKS = 18;
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
-    private static final float REAPPROACH_BUFFER = 0.45f;
+    private static final float REAPPROACH_BUFFER = 0.20f;
+    private static final int REAPPROACH_COOLDOWN_TICKS = 30;
 
     private KnoxNpc npc;
     private Object target;
     private String phase = "IDLE";
     private int ticks;
     private int lastAttackTick = -ATTACK_RETRY_TICKS;
+    private int lastReapproachTick = -REAPPROACH_COOLDOWN_TICKS;
     private int attackRequests;
     private float initialTargetHealth;
     private float lastTargetHealth;
@@ -27,6 +29,7 @@ final class KnoxCombatController {
     private int aimTicks;
     private boolean directStateFallbackUsed;
     private boolean obstacleTarget;
+    private boolean attackCycleActive;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -118,7 +121,8 @@ final class KnoxCombatController {
             .invoke(weapon)).intValue();
         weaponMaxRange = ((Number) weapon.getClass().getMethod("getMaxRange").invoke(weapon))
             .floatValue();
-        desiredAttackRange = Math.max(0.55f, weaponMaxRange - 0.55f);
+        // For moving zombies, get much closer to ensure hits land even when target is chasing player.
+        desiredAttackRange = Math.max(0.50f, weaponMaxRange - 0.40f);
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
 
@@ -210,7 +214,9 @@ final class KnoxCombatController {
         float dx = targetX - bodyX;
         float dy = targetY - bodyY;
         float targetDistance = (float) Math.sqrt(dx * dx + dy * dy);
-        if (!obstacleTarget && targetDistance > desiredAttackRange + REAPPROACH_BUFFER) {
+        // Get closer for moving zombies: use desired+small buffer, not maxRange, to ensure hits land when target is chasing player.
+        float reapproachThreshold = desiredAttackRange + 0.30f;
+        if (!obstacleTarget && targetDistance > reapproachThreshold && ticks - lastReapproachTick >= REAPPROACH_COOLDOWN_TICKS) {
             boolean attackInProgress = (Boolean) body.getClass().getMethod("isAttacking").invoke(body)
                 || (Boolean) body.getClass().getMethod("isPerformingAttackAnimation").invoke(body);
             if (!attackInProgress) {
@@ -220,10 +226,22 @@ final class KnoxCombatController {
                     phase = "FAILED";
                     return "COMBAT_FAILED REAPPROACH_NO_CURRENT_SQUARE";
                 }
-                KnoxNpcFactory.moveToRangeFrom(npc, target, bodySquare, desiredAttackRange);
+                // For live moving zombies, follow the character directly so the path updates as they chase the player.
+                if (!obstacleTarget) {
+                    try {
+                        Class<?> gameCharClass = Class.forName("zombie.characters.IsoGameCharacter", false, body.getClass().getClassLoader());
+                        body.getClass().getMethod("pathToCharacter", gameCharClass).invoke(body, target);
+                        body.getClass().getMethod("setRunning", boolean.class).invoke(body, true);
+                    } catch (ReflectiveOperationException e) {
+                        KnoxNpcFactory.moveToRangeFrom(npc, target, bodySquare, desiredAttackRange);
+                    }
+                } else {
+                    KnoxNpcFactory.moveToRangeFrom(npc, target, bodySquare, desiredAttackRange);
+                }
                 npc.clearMovementRoute();
                 phase = "APPROACHING";
                 aimTicks = 0;
+                lastReapproachTick = ticks;
                 KnoxAgent.writeLog(
                     "NPC combat REAPPROACH distance=" + targetDistance
                         + " desiredRange=" + desiredAttackRange
@@ -257,6 +275,14 @@ final class KnoxCombatController {
         boolean initiateAttack = (Boolean) body.getClass().getMethod("isInitiateAttack").invoke(body);
         boolean attackAnimation = (Boolean) body.getClass()
             .getMethod("isPerformingAttackAnimation").invoke(body);
+        boolean attackActive = attackStarted || attacking || attackAnimation;
+        if (attackCycleActive && !attackActive) {
+            // The vanilla swipe-state exit has just cleared AttackType. Start the
+            // retry clock here, not at the beginning of the previous swing, so a
+            // nearby zombie gets a real collision window between NPC attacks.
+            lastAttackTick = ticks;
+        }
+        attackCycleActive = attackActive;
         attackAnimationObserved = attackAnimationObserved || attackAnimation;
         if (attackAnimation) {
             body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
@@ -293,7 +319,12 @@ final class KnoxCombatController {
                 + " attackType="
                 + body.getClass().getMethod("getAttackType").invoke(body);
         }
-        if (!attackStarted && !attacking && weaponReady && ticks - lastAttackTick >= ATTACK_RETRY_TICKS) {
+        String attackType = String.valueOf(
+            body.getClass().getMethod("getAttackType").invoke(body)
+        );
+        boolean attackTypeClear = attackType.isEmpty() || "NONE".equalsIgnoreCase(attackType);
+        if (!attackStarted && !attacking && weaponReady && attackTypeClear
+            && ticks - lastAttackTick >= ATTACK_RETRY_TICKS) {
             requestAttack(body);
             attackRequests++;
             lastAttackTick = ticks;
@@ -316,7 +347,7 @@ final class KnoxCombatController {
             + " targetHealth=" + currentHealth
             + " state=" + body.getClass().getMethod("getCurrentStateName").invoke(body)
             + " action=" + body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
-            + " attackType=" + body.getClass().getMethod("getAttackType").invoke(body);
+            + " attackType=" + attackType;
     }
 
     void reset() {
@@ -332,6 +363,7 @@ final class KnoxCombatController {
         phase = "IDLE";
         ticks = 0;
         lastAttackTick = -ATTACK_RETRY_TICKS;
+        lastReapproachTick = -REAPPROACH_COOLDOWN_TICKS;
         attackRequests = 0;
         initialTargetHealth = 0.0f;
         lastTargetHealth = 0.0f;
@@ -343,6 +375,7 @@ final class KnoxCombatController {
         aimTicks = 0;
         directStateFallbackUsed = false;
         obstacleTarget = false;
+        attackCycleActive = false;
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {

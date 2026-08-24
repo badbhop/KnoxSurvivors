@@ -1,5 +1,6 @@
 require "KS_CompanionService"
 require "KS_Persistence"
+require "KS_SurvivorCapabilities"
 require "KS_SurvivorNeeds"
 require "KS_SurvivorRuntime"
 
@@ -23,6 +24,19 @@ local ACTIVITY_LABELS = {
     scouting_base = "Looking for a base",
     meeting = "Talking",
     stopped = "Stopped",
+}
+
+local ROLE_LABELS = {
+    companion = "Companion",
+    resident = "Base resident",
+    faction = "Faction survivor",
+    independent = "Independent",
+}
+
+local DIRECTIVE_LABELS = {
+    loot_area = "Looting marked area",
+    loot_building = "Looting marked building",
+    loot_corpses = "Searching nearby bodies",
 }
 
 local function clamp01(value)
@@ -82,12 +96,15 @@ local function physicalState(character)
         health = 100,
     }
     if character == nil then
-        return fallback
+        return fallback, false
     end
     local success, state = pcall(function()
         return KnoxSurvivorNeeds.snapshot(character)
     end)
-    return success and type(state) == "table" and state or fallback
+    if success and type(state) == "table" then
+        return state, true
+    end
+    return fallback, false
 end
 
 local function weaponName(character)
@@ -114,6 +131,84 @@ local function roleFor(affiliation, duty)
         return "faction"
     end
     return "independent"
+end
+
+local function worldAgeHours()
+    local gameTime = getGameTime ~= nil and getGameTime() or nil
+    return gameTime ~= nil and tonumber(gameTime:getWorldAgeHours()) or 0
+end
+
+local function wholeDaysSince(startedAtHours, nowHours)
+    local started = tonumber(startedAtHours)
+    if started == nil then
+        return nil
+    end
+    return math.floor(math.max(0, (tonumber(nowHours) or 0) - started) / 24)
+end
+
+local function liveNumber(character, getterName)
+    if character == nil or character[getterName] == nil then
+        return nil
+    end
+    local success, value = pcall(function()
+        return character[getterName](character)
+    end)
+    return success and tonumber(value) or nil
+end
+
+local function existingPlayerId(player)
+    if player == nil or player.getModData == nil then
+        return nil
+    end
+    local success, modData = pcall(function()
+        return player:getModData()
+    end)
+    local knox = success and type(modData) == "table" and modData.KnoxSurvivors or nil
+    local playerId = type(knox) == "table" and knox.playerId or nil
+    return type(playerId) == "string" and playerId ~= "" and playerId or nil
+end
+
+local function professionLabelFor(id)
+    local success, label = pcall(function()
+        local profile = KnoxPersistence.getSurvivorCapabilities(id)
+        return KnoxSurvivorCapabilities.professionLabel(profile)
+    end)
+    return success and cleanNamePart(label) ~= "" and tostring(label) or "Survivor"
+end
+
+local function orderLabelFor(duty)
+    local directive = type(duty.directive) == "table" and duty.directive or nil
+    local directiveLabel = directive ~= nil and DIRECTIVE_LABELS[tostring(directive.kind or "")] or nil
+    if directiveLabel ~= nil then
+        return directiveLabel
+    end
+    if duty.mode == "base" then
+        return "Available at base"
+    end
+    if duty.mode == "companion" then
+        return duty.order == "hold" and "Holding here" or "Following"
+    end
+    if duty.order == "return" or duty.order == "return_to_base" then
+        return "Returning to base"
+    end
+    return ACTIVITY_LABELS[tostring(duty.order or "")] or "Surviving"
+end
+
+local function locationLabelFor(duty, character, distance, sameLevel)
+    if duty.mode == "base" and type(duty.baseId) == "string" then
+        local base = KnoxPersistence.getBase(duty.baseId)
+        return "At " .. tostring(base ~= nil and base.name or "Home Base")
+    end
+    if character == nil then
+        return "Away"
+    end
+    if distance == nil then
+        return "Nearby"
+    end
+    if not sameLevel then
+        return "Nearby, another floor"
+    end
+    return "With you - " .. tostring(math.floor(distance + 0.5)) .. " tiles"
 end
 
 local function runtimeActivity(id)
@@ -193,10 +288,25 @@ function ViewModel.getSurvivor(id, playerNum)
         mode = "autonomous",
         order = "survive",
     }
-    local state = physicalState(character)
+    local state, vitalsAvailable = physicalState(character)
     local forename, surname, displayName = identityFor(id, character)
     local distance, sameLevel = playerDistance(player, character)
     local currentActivity = runtimeActivity(id)
+    local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
+    local nowHours = worldAgeHours()
+    local ageYears = tonumber(identity.ageYears) or liveNumber(character, "getAge")
+    local daysSurvived = wholeDaysSince(identity.createdAtHours, nowHours)
+    if daysSurvived == nil then
+        local survivedHours = liveNumber(character, "getHoursSurvived")
+        daysSurvived = survivedHours ~= nil and math.floor(math.max(0, survivedHours) / 24) or nil
+    end
+    local playerId = existingPlayerId(player)
+    local relationship = playerId ~= nil
+        and KnoxPersistence.getPlayerRelationshipSnapshot(playerId, id)
+        or nil
+    local knownSince = relationship ~= nil and relationship.firstMetHours
+        or affiliation.joinedAtHours
+    local role = roleFor(affiliation, duty)
     local alive = true
     if character ~= nil then
         local success, dead = pcall(function()
@@ -206,12 +316,19 @@ function ViewModel.getSurvivor(id, playerNum)
     end
 
     return {
-        version = 1,
+        version = 2,
         id = id,
         forename = forename,
         surname = surname,
         displayName = displayName,
-        role = roleFor(affiliation, duty),
+        role = role,
+        roleLabel = ROLE_LABELS[role] or "Survivor",
+        professionLabel = professionLabelFor(id),
+        ageYears = ageYears ~= nil and math.floor(ageYears) or nil,
+        daysSurvived = daysSurvived,
+        daysKnown = wholeDaysSince(knownSince, nowHours),
+        locationLabel = locationLabelFor(duty, character, distance, sameLevel),
+        orderLabel = orderLabelFor(duty),
         order = tostring(duty.order or "survive"),
         activity = activityFor(duty, state, character ~= nil, alive, currentActivity),
         loaded = character ~= nil,
@@ -224,6 +341,13 @@ function ViewModel.getSurvivor(id, playerNum)
             rest = 1 - clamp01(state.fatigue),
             endurance = clamp01(state.endurance),
         },
+        vitals = {
+            available = vitalsAvailable == true,
+            health = vitalsAvailable and clamp01((tonumber(state.health) or 100) / 100) or nil,
+            hunger = vitalsAvailable and clamp01(state.hunger) or nil,
+            thirst = vitalsAvailable and clamp01(state.thirst) or nil,
+            fatigue = vitalsAvailable and clamp01(state.fatigue) or nil,
+        },
         weaponName = weaponName(character),
         distanceTiles = distance,
         sameLevel = sameLevel,
@@ -231,12 +355,16 @@ function ViewModel.getSurvivor(id, playerNum)
             kind = tostring(affiliation.kind or "independent"),
             ownerId = affiliation.ownerId,
             factionId = affiliation.factionId,
+            joinedAtHours = tonumber(affiliation.joinedAtHours),
         },
         duty = {
             mode = tostring(duty.mode or "autonomous"),
             order = tostring(duty.order or "survive"),
             ownerId = duty.ownerId,
             baseId = duty.baseId,
+            directiveKind = type(duty.directive) == "table"
+                and tostring(duty.directive.kind or "")
+                or nil,
         },
         portraitKey = character ~= nil and tostring(character) or "unloaded",
     }

@@ -89,6 +89,30 @@ final class KnoxHealthController {
             false,
             body.getClass().getClassLoader()
         );
+        // Rate-limited diagnostic for zombie->NPC eligibility (Task1)
+        try {
+            Object zombieTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
+            String zombieState = String.valueOf(zombie.getClass().getMethod("getCurrentStateName").invoke(zombie));
+            float zx = ((Number) zombie.getClass().getMethod("getX").invoke(zombie)).floatValue();
+            float zy = ((Number) zombie.getClass().getMethod("getY").invoke(zombie)).floatValue();
+            float bx = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+            float by = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+            float dz = (float) Math.sqrt((zx - bx) * (zx - bx) + (zy - by) * (zy - by));
+            boolean isLocal = (Boolean) body.getClass().getMethod("isLocalPlayer").invoke(body);
+            boolean zdont = (Boolean) body.getClass().getMethod("isZombiesDontAttack").invoke(body);
+            boolean invisible = (Boolean) body.getClass().getMethod("isInvisible").invoke(body);
+            float alpha = ((Number) body.getClass().getMethod("getAlpha").invoke(body)).floatValue();
+            Object square = body.getClass().getMethod("getCurrentSquare").invoke(body);
+            Object damage = body.getClass().getMethod("getBodyDamage").invoke(body);
+            boolean bdPresent = damage != null;
+            int npcIndex = body.getClass().getField("playerIndex").getInt(body);
+            com.knoxsurvivors.agent.KnoxAgent.writeLog(
+                "zombie-target-debug npcId=unknown zombieTarget=" + (zombieTarget != null ? zombieTarget.getClass().getSimpleName() : "null")
+                    + " npcIndex=" + npcIndex + " npcIsLocalPlayer=" + isLocal + " zombiesDontAttack=" + zdont
+                    + " invisible=" + invisible + " alpha=" + alpha + " currentSquare=" + (square != null ? "present" : "null")
+                    + " zombieState=" + zombieState + " zombieDistance=" + dz + " bodyDamagePresent=" + bdPresent);
+        } catch (ReflectiveOperationException ignored) {
+        }
         body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
         zombie.getClass().getMethod("setUseless", boolean.class).invoke(zombie, false);
         zombie.getClass().getMethod("setCanWalk", boolean.class).invoke(zombie, true);

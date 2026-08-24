@@ -25,6 +25,8 @@ The active three-survivor test currently covers:
 
 The latest development pass adds the next layer:
 
+- persistent production world population allocated from real Build 42 spawn regions, with
+  separate active limits, distance-based materialization, hibernation, and gradual refill;
 - stable occupations, traits, perk levels, and XP tied to each survivor identity;
 - persistent player relationships, recruitment, Follow, Hold, Return to Base, and Dismiss;
 - a compact right-side companion HUD with live portraits, health, needs, equipment, and
@@ -75,7 +77,8 @@ The one-button player launcher is being kept for the eventual rebuild release; i
 not be distributed against the old Workshop package.
 
 More detail is in [Architecture](docs/ARCHITECTURE.md),
-[Milestones](docs/MILESTONES.md), and [Launcher](docs/LAUNCHER.md).
+[Milestones](docs/MILESTONES.md), [Sandbox Settings](docs/SANDBOX_SETTINGS.md),
+and [Launcher](docs/LAUNCHER.md).
 
 Discord: https://discord.gg/cTfd2WWD4s
 

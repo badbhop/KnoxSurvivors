@@ -93,6 +93,7 @@ function BaseManager.establishPlayerBase(player, square)
     if base ~= nil then
         local faction = KnoxPersistence.ensurePlayerFaction(playerId, worldAge())
         faction.homeBaseId = base.id
+        BaseManager.syncStructureProtection()
     end
     return base, result
 end
@@ -136,14 +137,85 @@ function BaseManager.ensureFactionBases()
 end
 
 function BaseManager.containsSquare(base, square)
-    local home = base ~= nil and base.home or nil
-    if home == nil or square == nil or square:getZ() ~= (home.z or 0) then
+    local home = base ~= nil and (base.territory or base.home) or nil
+    if home == nil or square == nil then
         return false
     end
     local x = square:getX()
     local y = square:getY()
-    return x >= home.minX and x < home.minX + home.width
-        and y >= home.minY and y < home.minY + home.height
+    local maxX = home.maxX or (home.minX + home.width - 1)
+    local maxY = home.maxY or (home.minY + home.height - 1)
+    local floorMatches = home.allFloors == true or square:getZ() == (home.z or 0)
+    return floorMatches and x >= home.minX and x <= maxX
+        and y >= home.minY and y <= maxY
+end
+
+function BaseManager.setTerritory(player, baseId, firstSquare, secondSquare)
+    local base = BaseManager.get(baseId)
+    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
+    if base == nil or base.ownerKind ~= "player" or base.ownerId ~= playerId
+        or firstSquare == nil or secondSquare == nil then
+        return nil, "not_your_base"
+    end
+    local territory, result = KnoxPersistence.updateBaseTerritory(baseId, {
+        minX = firstSquare:getX(),
+        minY = firstSquare:getY(),
+        maxX = secondSquare:getX(),
+        maxY = secondSquare:getY(),
+    }, worldAge())
+    if territory ~= nil then
+        BaseManager.syncStructureProtection()
+    end
+    return territory, result
+end
+
+function BaseManager.playerBaseAtSquare(square)
+    for _, base in pairs(KnoxPersistence.getBases()) do
+        if base ~= nil and base.ownerKind == "player"
+            and BaseManager.containsSquare(base, square) then
+            return base
+        end
+    end
+    return nil
+end
+
+function BaseManager.canDamageStructure(survivorId, square)
+    local base = BaseManager.playerBaseAtSquare(square)
+    if base == nil then
+        return true
+    end
+    local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
+    -- Explicit hostile/raid diplomacy will opt in later. Until then, player-owned,
+    -- independent, and ordinary NPC-faction survivors are non-hostile to this base.
+    return affiliation.hostileToPlayer == true
+end
+
+function BaseManager.syncStructureProtection()
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil or bridge.setNpcProtectedArea == nil then
+        return
+    end
+    local protected = nil
+    for _, base in pairs(KnoxPersistence.getBases()) do
+        if base ~= nil and base.ownerKind == "player" then
+            protected = base.territory or base.home
+            break
+        end
+    end
+    for _, survivorId in ipairs(KnoxSurvivorRuntime.activeIds()) do
+        local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
+        if protected == nil or affiliation.hostileToPlayer == true then
+            bridge:clearNpcProtectedArea(survivorId)
+        else
+            bridge:setNpcProtectedArea(
+                survivorId,
+                protected.minX,
+                protected.minY,
+                protected.maxX or (protected.minX + protected.width - 1),
+                protected.maxY or (protected.minY + protected.height - 1)
+            )
+        end
+    end
 end
 
 function BaseManager.addZone(baseId, zoneType, bounds, label)
@@ -273,6 +345,7 @@ end
 
 local function onGameStart()
     BaseManager.ensureFactionBases()
+    BaseManager.syncStructureProtection()
 end
 
 Events.OnGameStart.Add(onGameStart)

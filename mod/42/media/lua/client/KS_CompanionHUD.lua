@@ -2,6 +2,8 @@ require "ISUI/ISPanel"
 require "ISUI/ISUI3DModel"
 require "KS_SurvivorContextMenu"
 require "KS_SurvivorViewModel"
+require "KS_Settings"
+require "KS_PartyCommands"
 
 local CompanionHUD = rawget(_G, "KnoxCompanionHUD") or {}
 _G.KnoxCompanionHUD = CompanionHUD
@@ -96,13 +98,13 @@ end
 function Panel:calculateMetrics()
     local small = getTextManager():getFontHeight(UIFont.Small)
     local medium = getTextManager():getFontHeight(UIFont.Medium)
-    local portrait = clamp(sidebarPixels(), 46, 64)
+    local portrait = clamp(sidebarPixels(), 46, 50)
     self.smallFontHeight = small
     self.mediumFontHeight = medium
     self.portraitSize = portrait
     self.headerHeight = medium + 12
-    self.rowHeight = math.max(portrait + 8, small * 4 + 15)
-    self.panelWidth = math.max(224, portrait + 172)
+    self.rowHeight = math.max(72, small * 4 + 12)
+    self.panelWidth = 188
     self.sidebarOption = getCore():getOptionSidebarSize()
 end
 
@@ -329,7 +331,7 @@ function Panel:prerender()
     ISPanel.prerender(self)
     self:drawRect(0, 0, self.width, self.headerHeight, 0.72, 0.08, 0.08, 0.07)
     self:drawText(
-        "COMPANIONS  " .. tostring(#self.snapshots),
+        "SQUAD  " .. tostring(#self.snapshots),
         OUTER_PADDING,
         math.floor((self.headerHeight - self.mediumFontHeight) / 2),
         0.84, 0.82, 0.75, 1,
@@ -472,6 +474,16 @@ function Panel:onMouseUpOutside(x, y)
 end
 
 function Panel:onRightMouseUp(x, y)
+    if y <= self.headerHeight then
+        KnoxPartyCommands.openMenu(
+            self.playerNum,
+            self:getAbsoluteX() + x,
+            self:getAbsoluteY() + y,
+            getSpecificPlayer(self.playerNum) ~= nil
+                and getSpecificPlayer(self.playerNum):getCurrentSquare() or nil
+        )
+        return true
+    end
     local _, snapshot = self:rowAt(y)
     if snapshot == nil then
         return false
@@ -510,8 +522,8 @@ function Panel:new(playerNum)
     panel.hoverSlot = nil
     panel.draggingHeader = false
     panel.dragMoved = false
-    panel.backgroundColor = { r = 0.035, g = 0.035, b = 0.03, a = 0.78 }
-    panel.borderColor = { r = 0.36, g = 0.35, b = 0.31, a = 0.95 }
+    panel.backgroundColor = { r = 0.045, g = 0.05, b = 0.035, a = 0.82 }
+    panel.borderColor = { r = 0.38, g = 0.43, b = 0.25, a = 0.95 }
     panel:calculateMetrics()
     panel.manualPosition = type(playerPreferences(playerNum)) == "table"
     return panel
@@ -529,6 +541,10 @@ local function destroyPanel(playerNum)
 end
 
 local function ensurePanel(playerNum)
+    if not KnoxSettings.showCompanionHUD() then
+        destroyPanel(playerNum)
+        return nil
+    end
     local player = activePlayer(playerNum)
     if player == nil then
         destroyPanel(playerNum)
@@ -577,6 +593,10 @@ local function onTick()
         return
     end
     nextRefreshAt = now + REFRESH_MS
+    if not KnoxSettings.showCompanionHUD() then
+        CompanionHUD.destroyAll()
+        return
+    end
     CompanionHUD.refresh()
 end
 

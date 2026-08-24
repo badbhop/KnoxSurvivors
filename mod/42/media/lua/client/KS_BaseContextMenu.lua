@@ -1,6 +1,8 @@
 require "ISUI/ISContextMenu"
 require "KS_BaseManager"
 require "KS_ActivityFeed"
+require "KS_Settings"
+require "KS_BaseTerritorySelector"
 
 local BaseContextMenu = rawget(_G, "KnoxBaseContextMenu") or {}
 _G.KnoxBaseContextMenu = BaseContextMenu
@@ -66,6 +68,10 @@ function BaseContextMenu.setStorage(baseId, object, containerIndex, category)
     end
 end
 
+function BaseContextMenu.selectTerritory(player, baseId)
+    KnoxBaseTerritorySelector.start(player, baseId)
+end
+
 local function addStorageMenu(parent, base, object)
     local count = object:getContainerCount()
     local objectOption = parent:addOption(
@@ -104,6 +110,9 @@ local function addStorageMenu(parent, base, object)
 end
 
 function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
+    if not KnoxSettings.enabled() then
+        return
+    end
     local player = getSpecificPlayer(playerNum)
     local square = firstSquare(worldobjects)
     if player == nil or square == nil then
@@ -127,6 +136,14 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     context:addSubMenu(rootOption, menu)
     if canEstablish then
         menu:addOption("Establish Home Base", player, BaseContextMenu.establish, square)
+    end
+    if base ~= nil then
+        menu:addOption(
+            "Set Home Base Boundary",
+            player,
+            BaseContextMenu.selectTerritory,
+            base.id
+        )
     end
     for _, object in ipairs(containers) do
         addStorageMenu(menu, base, object)

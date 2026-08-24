@@ -90,6 +90,22 @@ local recruited, recruitResult = KnoxPersistence.setPlayerCompanion(
 assert(recruited and recruitResult == "companion", tostring(recruitResult))
 assert(KnoxPersistence.getSurvivorDuty("independent").mode == "companion")
 assert(#KnoxPersistence.getCompanionIds(playerId) == 1)
+modData[key].travelGroups.stalePlayerGroup = {
+    id = "stalePlayerGroup",
+    leaderId = "independent",
+    memberIds = { "independent", "ghost-member" },
+}
+assert(KnoxPersistence.setPlayerCompanion("independent", playerId, "follow", 24),
+    "reapplying player ownership repairs stale NPC-group membership")
+assert(KnoxPersistence.getTravelGroupFor("independent") == nil)
+assert(KnoxPersistence.setCompanionClimbing("independent", playerId, false, 24))
+assert(KnoxPersistence.getSurvivorPolicies("independent").allowClimbing == false)
+assert(KnoxPersistence.setCompanionDirective("independent", playerId, {
+    kind = "loot_area", minX = 1, minY = 2, maxX = 8, maxY = 9, z = 0,
+}, 24))
+assert(KnoxPersistence.getSurvivorDuty("independent").directive.kind == "loot_area")
+assert(KnoxPersistence.clearCompanionDirective("independent", playerId, 24))
+assert(KnoxPersistence.getSurvivorDuty("independent").directive == nil)
 
 local base, baseResult = KnoxPersistence.createBase("player", playerId, {
     buildingId = "player-home",
@@ -102,6 +118,11 @@ local base, baseResult = KnoxPersistence.createBase("player", playerId, {
     height = 9,
 }, 24)
 assert(base ~= nil and baseResult == "created", tostring(baseResult))
+local territory, territoryResult = KnoxPersistence.updateBaseTerritory(base.id, {
+    minX = 4, minY = 14, maxX = 20, maxY = 30,
+}, 24)
+assert(territory ~= nil and territoryResult == "updated")
+assert(territory.allFloors and territory.minX == 4 and territory.maxY == 30)
 local resident, residentResult = KnoxPersistence.setPlayerBaseResident(
     "independent",
     playerId,
@@ -192,14 +213,15 @@ local transferredTask = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
     x = 14, y = 20, z = 0,
 }, {}, 50))
 assert(KnoxPersistence.claimBaseTask(base.id, transferredTask.id, "resident-two", 25))
-assert(KnoxPersistence.addFactionMember(npcFaction.id, "resident-two", 25))
+assert(not KnoxPersistence.addFactionMember(npcFaction.id, "resident-two", 25))
 local transferredDuty = KnoxPersistence.getSurvivorDuty("resident-two")
 local transferredAffiliation = KnoxPersistence.getSurvivorAffiliation("resident-two")
-assert(transferredAffiliation.factionId == npcFaction.id
-    and transferredAffiliation.kind == "faction")
-assert(transferredDuty.mode == "autonomous" and transferredDuty.baseId == nil,
-    "cross-faction transfer must clear old base duty")
-assert(transferredTask.state == "queued" and transferredTask.claimedBy == nil,
-    "cross-faction transfer must release old base work")
+assert(transferredAffiliation.kind == "player"
+    and transferredAffiliation.ownerId == playerId)
+assert(transferredDuty.mode == "base" and transferredDuty.baseId == base.id,
+    "NPC factions must not absorb player-owned base residents")
+assert(transferredTask.state == "claimed"
+    and transferredTask.claimedBy == "resident-two",
+    "rejected faction transfer must preserve player-base work")
 
 print("Companion/base domain PASS migration=true recruitment=true base=true tasks=true")

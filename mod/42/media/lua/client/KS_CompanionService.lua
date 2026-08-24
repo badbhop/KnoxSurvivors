@@ -1,6 +1,7 @@
 require "KS_Persistence"
 require "KS_SurvivorRuntime"
 require "KS_ActivityFeed"
+require "KS_Settings"
 
 local CompanionService = rawget(_G, "KnoxCompanionService") or {}
 _G.KnoxCompanionService = CompanionService
@@ -109,6 +110,9 @@ function CompanionService.talk(player, survivorId)
 end
 
 function CompanionService.canRecruit(player, survivorId)
+    if not KnoxSettings.enabled() then
+        return false, "mod_disabled"
+    end
     local playerId = CompanionService.getPlayerId(player)
     local character, availability = validateInteraction(player, survivorId)
     if playerId == nil then
@@ -123,6 +127,9 @@ function CompanionService.canRecruit(player, survivorId)
     if KnoxPersistence.getTravelGroupFor(survivorId) ~= nil
         or KnoxPersistence.getFactionForSurvivor(survivorId) ~= nil then
         return false, "already_with_group"
+    end
+    if #KnoxPersistence.getCompanionIds(playerId) >= KnoxSettings.companionLimit() then
+        return false, "companion_limit"
     end
     local relation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
     if relation == nil or (tonumber(relation.trust) or 0) < RECRUIT_TRUST then
@@ -187,6 +194,80 @@ function CompanionService.command(player, survivorId, order)
         )
     end
     return true, order
+end
+
+function CompanionService.commandAll(player, order)
+    local ids = CompanionService.getCompanionIds(player)
+    local changed = 0
+    for _, survivorId in ipairs(ids) do
+        local success = CompanionService.command(player, survivorId, order)
+        changed = changed + (success and 1 or 0)
+    end
+    if changed > 0 then
+        KnoxActivityFeed.event(order == "follow"
+            and "Party order: regroup and follow."
+            or "Party order: hold position.")
+    end
+    return changed > 0, changed
+end
+
+function CompanionService.setClimbing(player, survivorId, allowed)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionClimbing(
+        survivorId,
+        playerId,
+        allowed,
+        worldAge()
+    ) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, allowed == true and "climbing_allowed" or "climbing_disabled"
+end
+
+function CompanionService.setClimbingAll(player, allowed)
+    local changed = 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.setClimbing(player, survivorId, allowed)
+        changed = changed + (success and 1 or 0)
+    end
+    if changed > 0 then
+        KnoxActivityFeed.event(allowed
+            and "Party traversal: vaulting and climbing allowed."
+            or "Party traversal: vaulting and climbing disabled.")
+    end
+    return changed > 0, changed
+end
+
+function CompanionService.issueDirective(player, survivorId, directive)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionDirective(
+        survivorId,
+        playerId,
+        directive,
+        worldAge()
+    ) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, tostring(directive.kind)
+end
+
+function CompanionService.issueDirectiveAll(player, directive)
+    local changed = 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.issueDirective(player, survivorId, directive)
+        changed = changed + (success and 1 or 0)
+    end
+    if changed > 0 then
+        local labels = {
+            loot_area = "Loot the marked area.",
+            loot_building = "Search and loot this building.",
+            loot_corpses = "Search the bodies nearby.",
+        }
+        KnoxActivityFeed.event("Party order: " .. (labels[directive.kind] or "new task."))
+    end
+    return changed > 0, changed
 end
 
 function CompanionService.sendToBase(player, survivorId)
@@ -264,11 +345,26 @@ function CompanionService.syncController(survivorId, controller)
         if controller.clearBaseAssignment ~= nil then
             controller:clearBaseAssignment()
         end
+        local formationSlot = 1
+        for index, companionId in ipairs(KnoxPersistence.getCompanionIds(duty.ownerId)) do
+            if companionId == survivorId then
+                formationSlot = index
+                break
+            end
+        end
         controller:setCompanionOrder(
             duty.ownerId,
             CompanionService.resolvePlayer(duty.ownerId),
-            duty.order
+            duty.order,
+            formationSlot
         )
+        local policies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
+        if controller.setCompanionPolicy ~= nil then
+            controller:setCompanionPolicy(policies.allowClimbing ~= false)
+        end
+        if controller.setCompanionDirective ~= nil then
+            controller:setCompanionDirective(duty.directive)
+        end
     elseif duty ~= nil and duty.mode == "base" then
         if controller.clearCompanionOrder ~= nil then
             controller:clearCompanionOrder()
@@ -286,6 +382,9 @@ function CompanionService.syncController(survivorId, controller)
         end
         if controller.clearBaseAssignment ~= nil then
             controller:clearBaseAssignment()
+        end
+        if controller.setCompanionDirective ~= nil then
+            controller:setCompanionDirective(nil)
         end
     end
 end

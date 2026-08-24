@@ -15,6 +15,7 @@ local ACTIVITY_BY_STATE = {
     TIMED_ACTION = "busy",
     GROUP_FOLLOW = "travelling",
     GROUP_WAIT = "travelling",
+    GROUP_REGROUP = "travelling",
     COMPANION_FOLLOW = "following",
     COMPANION_WAIT = "following",
     COMPANION_HOLD = "holding",

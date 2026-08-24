@@ -1,5 +1,8 @@
 require "ISUI/ISCollapsableWindow"
 require "ISUI/ISRichTextPanel"
+require "KS_Settings"
+require "KS_Persistence"
+require "KS_SurvivorRuntime"
 
 local ActivityFeed = rawget(_G, "KnoxActivityFeed") or {}
 _G.KnoxActivityFeed = ActivityFeed
@@ -7,11 +10,34 @@ _G.KnoxActivityFeed = ActivityFeed
 local MAX_LINES = 7
 local WINDOW_WIDTH = 500
 local WINDOW_HEIGHT = 172
+local GROUP_COLOURS = {
+    "<RGB:0.65,0.82,0.42>",
+    "<RGB:0.45,0.72,0.90>",
+    "<RGB:0.88,0.62,0.34>",
+    "<RGB:0.78,0.52,0.86>",
+    "<RGB:0.88,0.48,0.48>",
+}
 
 local FeedWindow = ISCollapsableWindow:derive("KnoxActivityFeedWindow")
 
+function FeedWindow:new(x, y)
+    local window = ISCollapsableWindow:new(x, y, WINDOW_WIDTH, WINDOW_HEIGHT)
+    setmetatable(window, self)
+    self.__index = self
+    window:setTitle("Knox Survivors")
+    window:setResizable(true)
+    window.backgroundColor = { r = 0, g = 0, b = 0, a = 0.72 }
+    window.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
+    return window
+end
+
 function FeedWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
+    -- Remove the X (close) button - feed stays open, vanilla resizable frame remains.
+    if self.closeButton ~= nil then
+        self.closeButton:setVisible(false)
+        self.closeButton:setEnable(false)
+    end
     local titleHeight = self:titleBarHeight()
     self.messagePanel = ISRichTextPanel:new(
         6,
@@ -29,17 +55,6 @@ function FeedWindow:createChildren()
     self.messagePanel:setAnchorTop(true)
     self.messagePanel:setAnchorBottom(true)
     self:addChild(self.messagePanel)
-end
-
-function FeedWindow:new(x, y)
-    local window = ISCollapsableWindow:new(x, y, WINDOW_WIDTH, WINDOW_HEIGHT)
-    setmetatable(window, self)
-    self.__index = self
-    window:setTitle("Knox Survivors")
-    window:setResizable(false)
-    window.backgroundColor = { r = 0, g = 0, b = 0, a = 0.72 }
-    window.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
-    return window
 end
 
 ActivityFeed.lines = ActivityFeed.lines or {}
@@ -76,6 +91,9 @@ local function refreshWindow()
 end
 
 local function addLine(text, colour)
+    if not KnoxSettings.showActivityFeed() then
+        return
+    end
     ActivityFeed.lines[#ActivityFeed.lines + 1] = {
         text = tostring(text),
         colour = colour,
@@ -84,6 +102,32 @@ local function addLine(text, colour)
         table.remove(ActivityFeed.lines, 1)
     end
     refreshWindow()
+end
+
+local function stableColour(key)
+    local hash = 0
+    for index = 1, #tostring(key or "independent") do
+        hash = (hash * 31 + string.byte(tostring(key), index)) % 2147483647
+    end
+    return GROUP_COLOURS[(hash % #GROUP_COLOURS) + 1]
+end
+
+local function speakerContext(character)
+    local id = KnoxSurvivorRuntime.idForCharacter(character)
+    local affiliation = id ~= nil and KnoxPersistence.getSurvivorAffiliation(id) or nil
+    if affiliation ~= nil and affiliation.kind == "player" then
+        return "YOUR PARTY", "<RGB:0.68,0.84,0.43>"
+    end
+    if affiliation ~= nil and affiliation.factionId ~= nil then
+        local label = string.upper(tostring(affiliation.factionId):gsub("%-", " "))
+        return label, stableColour(affiliation.factionId)
+    end
+    local group = id ~= nil and KnoxPersistence.getTravelGroupFor(id) or nil
+    if group ~= nil then
+        local label = string.upper(tostring(group.id):gsub("travel%-group%-", "GROUP "))
+        return label, stableColour(group.id)
+    end
+    return "SURVIVOR", "<RGB:0.82,0.82,0.76>"
 end
 
 local function characterName(character)
@@ -103,11 +147,33 @@ function ActivityFeed.speak(character, text)
             character:Say(text)
         end)
     end
-    addLine(characterName(character) .. ": " .. tostring(text), "<RGB:0.93,0.93,0.93>")
+    local groupLabel, colour = speakerContext(character)
+    addLine("[" .. groupLabel .. "] " .. characterName(character)
+        .. ": " .. tostring(text), colour)
 end
 
 function ActivityFeed.event(text)
     addLine(tostring(text), "<RGB:0.68,0.82,0.52>")
+end
+
+function ActivityFeed.show()
+    local window = ensureWindow()
+    refreshWindow()
+    window:setVisible(true)
+    window:bringToTop()
+    return window
+end
+
+function ActivityFeed.hide()
+    -- Feed stays open and resizable; X removed, so hide is a no-op that keeps it visible.
+    if ActivityFeed.window ~= nil then
+        ActivityFeed.window:setVisible(true)
+        ActivityFeed.window:bringToTop()
+    end
+end
+
+function ActivityFeed.toggle()
+    ActivityFeed.show()
 end
 
 local function reset()
@@ -115,6 +181,12 @@ local function reset()
     if ActivityFeed.window ~= nil then
         ActivityFeed.window:removeFromUIManager()
         ActivityFeed.window = nil
+    end
+end
+
+function ActivityFeed.applySettings()
+    if not KnoxSettings.showActivityFeed() and ActivityFeed.window ~= nil then
+        ActivityFeed.window:setVisible(false)
     end
 end
 

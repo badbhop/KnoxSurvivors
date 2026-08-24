@@ -47,7 +47,7 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(61);
 
-            output.writeShort(33);
+            output.writeShort(42);
             writeUtf8(output, INTERNAL_NAME);                 // 1
             writeClass(output, 1);                            // 2
             writeUtf8(output, SUPER_INTERNAL_NAME);           // 3
@@ -86,13 +86,22 @@ public final class KnoxIsoPlayerShellDefinition {
             writeMethodRef(output, 4, 29);                      // 30
             writeUtf8(output, "()Lzombie/characters/IsoPlayer;"); // 31
             writeUtf8(output, "updateLOS");                    // 32
+            writeUtf8(output, "isInvisible");                  // 33
+            writeUtf8(output, "isSpriteInvisible");            // 34
+            writeUtf8(output, "getAlpha");                     // 35
+            writeUtf8(output, "(I)F");                         // 36
+            writeUtf8(output, "()F");                          // 37
+            writeUtf8(output, "isGhostMode");                  // 38
+            writeUtf8(output, "isGodMod");                     // 39
+            writeUtf8(output, "isInvulnerable");               // 40
+            writeUtf8(output, "isZombiesDontAttack");          // 41
 
             output.writeShort(0x0021);
             output.writeShort(2);
             output.writeShort(4);
             output.writeShort(0);
             output.writeShort(0);
-            output.writeShort(7);
+            output.writeShort(15);
 
             output.writeShort(0x0001);
             output.writeShort(5);
@@ -130,6 +139,11 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(0);
 
+            // Zombie target/attack checks gate on isLocalPlayer(). Returning true for the
+            // shell lets vanilla zombie-vs-player bite/animation run via the normal
+            // IsoZombie path without a separate zombie transformer. Cursor visibility
+            // is already isolated via off-slot playerIndex (1), so this does not hide
+            // the system cursor.
             output.writeShort(0x0001);
             output.writeShort(12);
             output.writeShort(13);
@@ -139,7 +153,7 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(1);
             output.writeShort(1);
             output.writeInt(2);
-            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.write(new byte[] { 0x04, (byte) 0xAC });
             output.writeShort(0);
             output.writeShort(0);
 
@@ -217,6 +231,111 @@ public final class KnoxIsoPlayerShellDefinition {
                 (byte) 0xB8, 0x00, 0x1E,
                 (byte) 0xB1,
             });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            // Ensure zombie visibility: shell is never invisible and always fully opaque.
+            output.writeShort(0x0001);
+            output.writeShort(33);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(34);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(35);
+            output.writeShort(36);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(2);
+            output.writeInt(2);
+            output.write(new byte[] { 0x0C, (byte) 0xAE });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(35);
+            output.writeShort(37);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x0C, (byte) 0xAE });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(38);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(39);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(40);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
+            output.writeShort(0);
+            output.writeShort(0);
+
+            output.writeShort(0x0001);
+            output.writeShort(41);
+            output.writeShort(13);
+            output.writeShort(1);
+            output.writeShort(9);
+            output.writeInt(14);
+            output.writeShort(1);
+            output.writeShort(1);
+            output.writeInt(2);
+            output.write(new byte[] { 0x03, (byte) 0xAC });
             output.writeShort(0);
             output.writeShort(0);
 
