@@ -3,6 +3,16 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 
 package.loaded["KS_Persistence"] = true
 package.loaded["KS_BaseTaskBoard"] = true
+package.loaded["KS_BaseStorage"] = true
+local depotTransfer = nil
+KnoxBaseStorage = {
+    findTransfer = function()
+        return depotTransfer, depotTransfer ~= nil and "found" or "no_matching_depot_item"
+    end,
+    transferTarget = function(value)
+        return value ~= nil and value.target or nil
+    end,
+}
 
 local now = 10
 getGameTime = function()
@@ -102,4 +112,19 @@ local target = jobs.resolveTaskSquare(task, {
 assert(target ~= nil and target:getZ() == 0, "work zone should resolve to a loaded square")
 assert(jobs.workDuration({ type = "guard" }) > jobs.workDuration({ type = "patrol" }))
 
-print("Base jobs PASS automatic_guard=true recurring=true target_resolution=true")
+depotTransfer = {
+    target = {
+        id = "sort-depot:depot:food",
+        zoneType = "sort_depot",
+        sourceKey = "depot",
+        destinationKey = "food",
+        itemType = "Base.TinnedSoup",
+        category = "food",
+        x = 10, y = 20, z = 0,
+    },
+}
+local depotTask, depotResult = jobs.ensureAutomaticTask(base)
+assert(depotTask ~= nil and depotTask.type == "sort_depot"
+    and depotResult == "queued", "available depot transfer should be scheduled")
+
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true target_resolution=true")

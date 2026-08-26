@@ -133,6 +133,11 @@ the following behavior is not yet called live-verified:
 14. Marking Farming, Woodcutting, or another unimplemented work area should persist the zone
     but must not claim it or pretend the world action completed. This is intentional until
     that job has a real timed action and inventory/resource verification.
+15. To test depot sorting, mark one container `Depot` and another `Food`, `Building Materials`,
+    or another supported category. Put one matching item in the depot, send a base resident
+    home, and watch for one transfer with the normal rummage animation. The task should finish
+    only after the item leaves the depot; an empty depot or unloaded destination must leave the
+    task waiting/retryable rather than deleting the item or claiming success.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -267,9 +272,9 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, farming/woodcutting/hauling job
-  executors, and interactive Notebook management remain later gates. Guard/patrol work-zone
-  drawing and execution are now the first live base-job slice. The current Notebook is the
+- Firearms/ammunition, cooking, lethal survivor PvP, farming/woodcutting, corpse/animal/repair
+  job executors, and interactive Notebook management remain later gates. Guard/patrol work-zone
+  drawing, execution, and one-item depot sorting are now the first live base-job slices. The current Notebook is the
   readable domain shell, not the finished base administration interface.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.

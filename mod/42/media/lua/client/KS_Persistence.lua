@@ -1590,8 +1590,11 @@ function KnoxPersistence.finishBaseTask(
     task.state = succeeded and "complete" or "blocked"
     task.completedAtHours = tonumber(worldAgeHours) or 0
     task.result = tostring(reason or (succeeded and "complete" or "blocked"))
-    task.retryAtHours = task.completedAtHours
-        + (succeeded and 0 or 0.10)
+    local repeatDelay = 0.10
+    if succeeded and task.type ~= "sort_depot" then
+        repeatDelay = 0
+    end
+    task.retryAtHours = task.completedAtHours + repeatDelay
     return task, "finished"
 end
 

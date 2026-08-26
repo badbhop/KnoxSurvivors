@@ -12,6 +12,7 @@ require "KS_FactionSafehouse"
 require "KS_BaseManager"
 require "KS_BaseTaskBoard"
 require "KS_BaseJobs"
+require "KS_BaseStorage"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -830,6 +831,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.base = nil
     self.baseTask = nil
     self.baseTaskStartedAt = nil
+    self.baseTaskTransfer = nil
+    self.baseTaskActionQueued = false
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -896,6 +899,7 @@ function Controller:interruptForDirective()
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_IDLE"
         or self.state == "BASE_TASK_MOVE" or self.state == "BASE_TASK_WORK"
+        or self.state == "BASE_TASK_ACTION"
         or self.state == "WAITING_TO_RECOVER"
     if not safe then
         return false
@@ -1395,6 +1399,8 @@ function Controller:finishBaseTask(succeeded, reason)
     end
     self.baseTask = nil
     self.baseTaskStartedAt = nil
+    self.baseTaskTransfer = nil
+    self.baseTaskActionQueued = false
     return finished ~= nil
 end
 
@@ -1403,6 +1409,9 @@ function Controller:abandonBaseTask(reason)
         return false
     end
     self.bridge:cancelNpcMove(self.id)
+    if self.character ~= nil and not self.character:getCharacterActions():isEmpty() then
+        ISTimedActionQueue.clear(self.character)
+    end
     local abandoned = self:finishBaseTask(false, reason or "interrupted")
     self.activeDecision = nil
     return abandoned
@@ -2063,6 +2072,7 @@ function Controller:tick(ticks)
         or self.state == "TIMED_ACTION"
         or self.state == "ROBBING"
         or self.state == "BASE_TASK_WORK"
+        or self.state == "BASE_TASK_ACTION"
     if (movementState and stateAge > MOVEMENT_TIMEOUT_TICKS)
         or (actionState and stateAge > ACTION_TIMEOUT_TICKS)
         or (self.state == "BREAKING_LOCKED_DOOR"
@@ -2138,6 +2148,58 @@ function Controller:tick(ticks)
             )
             self:finishDecision(ticks)
         end
+        return
+    end
+
+    if self.state == "BASE_TASK_ACTION" then
+        if self.baseTask == nil or self.baseTask.type ~= "sort_depot" then
+            self:finishBaseTask(false, "missing_storage_task")
+            self:finishDecision(ticks)
+            return
+        end
+        if not self.baseTaskActionQueued then
+            local transfer = self.baseTaskTransfer
+            if transfer == nil then
+                transfer = KnoxBaseStorage.resolveTransfer(
+                    self.base,
+                    self.baseTask.target
+                )
+                self.baseTaskTransfer = transfer
+            end
+            if transfer == nil then
+                self:finishBaseTask(false, "item_no_longer_available")
+                self:finishDecision(ticks)
+                return
+            end
+            local action, actionResult = KnoxBaseStorage.queueTransfer(
+                self.character,
+                transfer
+            )
+            if action == nil then
+                if actionResult == "turning_to_storage" then
+                    return
+                end
+                self:finishBaseTask(false, "storage_transfer_queue:" .. tostring(actionResult))
+                self:finishDecision(ticks)
+                return
+            end
+            self.baseTaskActionQueued = true
+            self.baseTaskStartedAt = ticks
+            return
+        end
+        if not self.character:getCharacterActions():isEmpty() then
+            return
+        end
+        local transfer = self.baseTaskTransfer
+        local source = transfer ~= nil and transfer.source ~= nil
+            and transfer.source.container or nil
+        local item = transfer ~= nil and transfer.item or nil
+        local moved = source ~= nil and item ~= nil and not source:contains(item)
+        self:finishBaseTask(moved, moved and "sorted_depot" or "transfer_not_completed")
+        if moved then
+            KnoxActivityFeed.speak(self.character, "That belongs in storage.")
+        end
+        self:finishDecision(ticks)
         return
     end
 
@@ -2333,6 +2395,22 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "BASE_TASK_MOVE" then
+                if self.baseTask ~= nil and self.baseTask.type == "sort_depot" then
+                    self.baseTaskTransfer = KnoxBaseStorage.resolveTransfer(
+                        self.base,
+                        self.baseTask.target
+                    )
+                    if self.baseTaskTransfer == nil then
+                        self:finishBaseTask(false, "item_no_longer_available")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_sort_depot"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
                 self.baseTaskStartedAt = ticks
                 self.activeDecision = "base_task_work"
                 self.state = "BASE_TASK_WORK"

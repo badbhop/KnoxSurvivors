@@ -1,5 +1,6 @@
 require "KS_Persistence"
 require "KS_BaseTaskBoard"
+require "KS_BaseStorage"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -10,6 +11,7 @@ _G.KnoxBaseJobs = BaseJobs
 BaseJobs.AUTOMATIC_TYPES = {
     guard = true,
     patrol = true,
+    sort_depot = true,
 }
 
 local function worldAge()
@@ -50,6 +52,16 @@ local function taskForZone(base, zone)
     return nil
 end
 
+local function taskForTargetId(base, targetId)
+    for _, task in pairs(base ~= nil and base.tasks or {}) do
+        if task ~= nil and task.target ~= nil
+            and tostring(task.target.id or "") == tostring(targetId) then
+            return task
+        end
+    end
+    return nil
+end
+
 local function reopenWhenReady(task, now)
     if task == nil or (task.state ~= "complete" and task.state ~= "blocked") then
         return task
@@ -84,11 +96,55 @@ local function taskTarget(zone)
     }
 end
 
+local function ensureDepotTask(base, now)
+    local transfer = KnoxBaseStorage.findTransfer(base)
+    if transfer == nil then
+        return nil, "no_matching_depot_item"
+    end
+    local target = KnoxBaseStorage.transferTarget(transfer)
+    if target == nil then
+        return nil, "invalid_depot_target"
+    end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then
+            return existing, "existing"
+        end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            -- The item type is deliberately refreshed only between runs. A
+            -- claimed task keeps its original target until it completes.
+            reopened.target = target
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(
+        base.id,
+        "sort_depot",
+        target,
+        {},
+        90
+    )
+    if task ~= nil then
+        task.baseId = base.id
+        task.auto = true
+        task.retryAtHours = now
+        return task, result
+    end
+    return nil, result
+end
+
 function BaseJobs.ensureAutomaticTask(base)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
     end
     local now = worldAge()
+    local depotTask, depotResult = ensureDepotTask(base, now)
+    if depotTask ~= nil then
+        return depotTask, depotResult
+    end
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)
         if existing ~= nil then
