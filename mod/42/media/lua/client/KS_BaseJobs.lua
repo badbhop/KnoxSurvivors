@@ -408,7 +408,27 @@ local function ensureConstructionTask(base, now, character)
     return task, result
 end
 
-function BaseJobs.ensureAutomaticTask(base, character, survivorId)
+local function matchesPreference(task, preference)
+    if preference == nil or preference == "auto" then return true end
+    local taskType = task ~= nil and tostring(task.type or "") or ""
+    if preference == "guard" or preference == "patrol" or preference == "repair" then
+        return taskType == preference
+    end
+    if preference == "farming" then return string.find(taskType, "farm_", 1, true) == 1 end
+    if preference == "woodwork" then
+        return taskType == "chop_tree" or taskType == "saw_logs"
+            or taskType == "barricade" or taskType == "construct_defense"
+    end
+    if preference == "hauling" then
+        return taskType == "sort_depot" or taskType == "haul_corpse"
+    end
+    if preference == "animal_care" then
+        return taskType == "animal_water" or taskType == "animal_feed"
+    end
+    return false
+end
+
+function BaseJobs.ensureAutomaticTask(base, character, survivorId, preference)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
     end
@@ -452,18 +472,27 @@ function BaseJobs.ensureAutomaticTask(base, character, survivorId)
         end
     end
     local queued = KnoxBaseTaskBoard.queued(base.id)
-    for _, task in ipairs(queued) do
-        if survivorId == nil then
-            return task, "ready"
+    -- A player preference is a strong first choice, not a hard lock. A resident
+    -- still falls back to other eligible work if their preferred role has nothing
+    -- useful to do, which prevents a healthy settlement from idling by accident.
+    for pass = 1, 2 do
+        for _, task in ipairs(queued) do
+            local preferred = matchesPreference(task, preference)
+            if (pass == 1 and preferred) or (pass == 2 and not preferred) then
+                if survivorId == nil then
+                    return task, pass == 1 and "ready" or "fallback_ready"
+                end
+                local eligible = KnoxBaseManager.canPerformTask(
+                    survivorId,
+                    base.id,
+                    task
+                )
+                if eligible then
+                    return task, pass == 1 and "preferred_ready" or "fallback_ready"
+                end
+            end
         end
-        local eligible = KnoxBaseManager.canPerformTask(
-            survivorId,
-            base.id,
-            task
-        )
-        if eligible then
-            return task, "ready"
-        end
+        if preference == nil or preference == "auto" then break end
     end
     return nil, #queued > 0 and "no_eligible_task" or "no_ready_work_zone"
 end

@@ -1491,7 +1491,8 @@ function Controller:beginBaseTask(ticks)
     local task, result = KnoxBaseJobs.ensureAutomaticTask(
         self.base,
         self.character,
-        self.id
+        self.id,
+        (KnoxPersistence.getSurvivorDuty(self.id) or {}).jobPreference
     )
     if task == nil then
         return false

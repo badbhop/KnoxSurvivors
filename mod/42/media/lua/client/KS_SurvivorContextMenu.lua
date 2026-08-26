@@ -124,6 +124,12 @@ local function onReturnToBase(_, playerNum, survivorId)
     runService(playerNum, KnoxCompanionService.sendToBase, survivorId)
 end
 
+local function onBaseJobPreference(_, playerNum, survivorId, preference)
+    runService(playerNum, function(player, id)
+        return KnoxCompanionService.setBaseJobPreference(player, id, preference)
+    end, survivorId)
+end
+
 local function onDismissConfirmed(_, button, playerNum, survivorId)
     if button == nil or button.internal ~= "YES" then
         return
@@ -223,6 +229,21 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
 
     if duty.mode == "base" then
         menu:addOption("Follow", SurvivorContextMenu, onFollow, playerNum, survivorId)
+        local jobs = menu:addOption("Base Job Preference", nil, nil)
+        local jobsMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(jobs, jobsMenu)
+        local choices = {
+            { "Automatic", "auto" }, { "Guard", "guard" }, { "Patrol", "patrol" },
+            { "Farming", "farming" }, { "Woodwork & Defense", "woodwork" },
+            { "Hauling & Sorting", "hauling" }, { "Animal Care", "animal_care" },
+            { "Repair", "repair" },
+        }
+        for _, choice in ipairs(choices) do
+            local option = jobsMenu:addOption(choice[1], SurvivorContextMenu,
+                onBaseJobPreference, playerNum, survivorId, choice[2])
+            jobsMenu:setOptionChecked(option, duty.jobPreference == choice[2]
+                or (duty.jobPreference == nil and choice[2] == "auto"))
+        end
     elseif duty.mode == "companion" then
         local follow = menu:addOption("Follow", SurvivorContextMenu, onFollow, playerNum, survivorId)
         local hold = menu:addOption("Hold here", SurvivorContextMenu, onHold, playerNum, survivorId)

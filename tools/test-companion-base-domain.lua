@@ -146,6 +146,13 @@ local resident, residentResult = KnoxPersistence.setPlayerBaseResident(
 assert(resident and residentResult == "base_resident", tostring(residentResult))
 assert(#KnoxPersistence.getCompanionIds(playerId) == 0)
 assert(#KnoxPersistence.getBaseResidentIds(base.id) == 1)
+assert(KnoxPersistence.setBaseJobPreference(
+    "independent", playerId, base.id, "farming", 24
+), "base resident preference persists")
+assert(KnoxPersistence.getSurvivorDuty("independent").jobPreference == "farming")
+assert(not KnoxPersistence.setBaseJobPreference(
+    "independent", playerId, base.id, "not-a-job", 24
+), "unknown preference rejected")
 
 local zone = assert(KnoxPersistence.addBaseZone(base.id, "guard", {
     x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,

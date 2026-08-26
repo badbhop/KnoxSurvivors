@@ -90,7 +90,8 @@ function Window:residentText(base)
         local duty = KnoxPersistence.getSurvivorDuty(id) or {}
         local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
         text = text .. line("<RGB:0.78,0.84,0.62>" .. name
-            .. "<RGB:0.85,0.85,0.82>  -  " .. tostring(duty.order or "available"))
+            .. "<RGB:0.85,0.85,0.82>  -  " .. tostring(duty.order or "available")
+            .. "  -  preference: " .. tostring(duty.jobPreference or "auto"))
     end
     return text .. line("Residents choose eligible queued work and return to safe idle when none is available.")
 end

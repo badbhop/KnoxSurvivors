@@ -168,6 +168,33 @@ local target = jobs.resolveTaskSquare(task, {
 assert(target ~= nil and target:getZ() == 0, "work zone should resolve to a loaded square")
 assert(jobs.workDuration({ type = "guard" }) > jobs.workDuration({ type = "patrol" }))
 
+-- A resident's chosen role should be a first choice without becoming a hard
+-- lock that leaves useful work untouched when that role is unavailable.
+base.zones = {}
+base.tasks = {
+    guard = { id = "guard", type = "guard", state = "queued", priority = 80 },
+    farm = { id = "farm", type = "farm_water", state = "queued", priority = 40 },
+}
+local preferredTask, preferredResult = jobs.ensureAutomaticTask(base, nil, nil, "farming")
+assert(preferredTask ~= nil and preferredTask.id == "farm"
+    and preferredResult == "ready", "farming preference should choose farming first")
+base.tasks.farm.state = "claimed"
+local fallbackTask, fallbackResult = jobs.ensureAutomaticTask(base, nil, nil, "farming")
+assert(fallbackTask ~= nil and fallbackTask.id == "guard"
+    and fallbackResult == "fallback_ready", "preference should fall back to needed work")
+base.zones = {
+    guard = {
+        id = "base-1-zone-guard", type = "guard", label = "Front gate",
+        x1 = 10, y1 = 20, x2 = 14, y2 = 24, z = 0, priority = 80, enabled = true,
+    },
+    farming = {
+        id = "base-1-zone-farm", type = "farming", label = "Garden",
+        x1 = 30, y1 = 40, x2 = 34, y2 = 44, z = 0, priority = 100, enabled = true,
+    },
+}
+base.tasks = {}
+base.nextTaskId = 1
+
 depotTransfer = {
     target = {
         id = "sort-depot:depot:food",

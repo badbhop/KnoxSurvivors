@@ -639,6 +639,7 @@ function KnoxPersistence.setPlayerBaseResident(id, playerId, baseId, worldAgeHou
     survivor.duty = {
         mode = "base",
         order = "available",
+        jobPreference = survivor.duty ~= nil and survivor.duty.jobPreference or "auto",
         ownerId = playerId,
         baseId = baseId,
         changedAtHours = tonumber(worldAgeHours) or 0,
@@ -665,6 +666,7 @@ function KnoxPersistence.setFactionBaseResident(id, factionId, baseId, worldAgeH
     survivor.duty = {
         mode = "base",
         order = "available",
+        jobPreference = survivor.duty ~= nil and survivor.duty.jobPreference or "auto",
         ownerId = factionId,
         baseId = baseId,
         changedAtHours = tonumber(worldAgeHours) or 0,
@@ -683,6 +685,23 @@ function KnoxPersistence.getBaseResidentIds(baseId)
     end
     table.sort(ids)
     return ids
+end
+
+function KnoxPersistence.setBaseJobPreference(id, playerId, baseId, preference, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    local allowed = preference == "auto" or preference == "guard" or preference == "patrol"
+        or preference == "farming" or preference == "woodwork" or preference == "hauling"
+        or preference == "animal_care" or preference == "repair"
+    if survivor == nil or not allowed
+        or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.mode ~= "base" or survivor.duty.baseId ~= baseId then
+        return false
+    end
+    survivor.duty.jobPreference = preference
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
 end
 
 function KnoxPersistence.updateCompanionOrder(id, playerId, order, worldAgeHours)

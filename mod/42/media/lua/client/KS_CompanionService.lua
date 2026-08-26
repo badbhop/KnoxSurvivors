@@ -297,6 +297,20 @@ function CompanionService.sendToBase(player, survivorId)
     return saved, result
 end
 
+function CompanionService.setBaseJobPreference(player, survivorId, preference)
+    local playerId = CompanionService.getPlayerId(player)
+    local manager = rawget(_G, "KnoxBaseManager")
+    local base = manager ~= nil and manager.getForOwner ~= nil
+        and manager.getForOwner("player", playerId) or nil
+    if base == nil or not KnoxPersistence.setBaseJobPreference(
+        survivorId, playerId, base.id, preference, worldAge()
+    ) then
+        return false, "not_your_base_resident"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, preference
+end
+
 function CompanionService.activateFromBase(player, survivorId)
     local playerId = CompanionService.getPlayerId(player)
     local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId)
