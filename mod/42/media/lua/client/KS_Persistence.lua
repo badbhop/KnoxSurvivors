@@ -727,12 +727,25 @@ function KnoxPersistence.setCompanionDirective(id, playerId, directive, worldAge
         or survivor.duty.mode ~= "companion" then
         return false
     end
+    local kind = tostring(directive.kind or "")
+    local allowed = kind == "loot_area" or kind == "loot_building"
+        or kind == "loot_corpses" or kind == "go_to" or kind == "guard"
+    if not allowed then
+        return false
+    end
+    local minX = tonumber(directive.minX)
+    local minY = tonumber(directive.minY)
+    local maxX = tonumber(directive.maxX)
+    local maxY = tonumber(directive.maxY)
+    if minX == nil or minY == nil then
+        return false
+    end
     survivor.duty.directive = {
-        kind = tostring(directive.kind or ""),
-        minX = tonumber(directive.minX),
-        minY = tonumber(directive.minY),
-        maxX = tonumber(directive.maxX),
-        maxY = tonumber(directive.maxY),
+        kind = kind,
+        minX = minX,
+        minY = minY,
+        maxX = maxX or minX,
+        maxY = maxY or minY,
         z = tonumber(directive.z) or 0,
         buildingId = directive.buildingId ~= nil and tostring(directive.buildingId) or nil,
         issuedAtHours = tonumber(worldAgeHours) or 0,

@@ -106,6 +106,20 @@ assert(KnoxPersistence.setCompanionDirective("independent", playerId, {
 assert(KnoxPersistence.getSurvivorDuty("independent").directive.kind == "loot_area")
 assert(KnoxPersistence.clearCompanionDirective("independent", playerId, 24))
 assert(KnoxPersistence.getSurvivorDuty("independent").directive == nil)
+assert(KnoxPersistence.setCompanionDirective("independent", playerId, {
+    kind = "go_to", minX = 12, minY = 34, z = 0,
+}, 24), "go-to directive persists")
+local goTo = KnoxPersistence.getSurvivorDuty("independent").directive
+assert(goTo.kind == "go_to" and goTo.minX == 12 and goTo.maxX == 12
+    and goTo.minY == 34 and goTo.maxY == 34, "go-to target is normalized")
+assert(KnoxPersistence.setCompanionDirective("independent", playerId, {
+    kind = "guard", minX = 18, minY = 27, maxX = 18, maxY = 27, z = 0,
+}, 24), "guard directive persists")
+assert(KnoxPersistence.getSurvivorDuty("independent").directive.kind == "guard")
+assert(not KnoxPersistence.setCompanionDirective("independent", playerId, {
+    kind = "unsupported", minX = 1, minY = 1, z = 0,
+}, 24), "unknown directives are rejected")
+assert(KnoxPersistence.clearCompanionDirective("independent", playerId, 24))
 
 local base, baseResult = KnoxPersistence.createBase("player", playerId, {
     buildingId = "player-home",

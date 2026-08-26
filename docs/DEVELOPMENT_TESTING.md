@@ -132,6 +132,11 @@ the following behavior is not yet called live-verified:
    Right-click the world and issue Loot Nearby Area, Loot This Building, and Loot Dead
    Bodies. Critical needs and combat may interrupt, but survivors must resume and then
    return to their primary order when the directive finishes.
+10. From a world-square Party Orders menu, issue `Move Party Here`. Survivors should
+    travel to the selected square, report arrival once, then return to their underlying
+    Follow or Hold order. Issue `Guard This Location` and confirm they stay near the
+    selected square, still defend themselves, and return there after a short fight.
+    Save/load once while a guard order is active; its location and order must survive.
 10. Close the activity feed with X, then reopen it through the `SQUAD` header menu. Speech
     must show the speaker name plus a stable party/group/faction label and color.
 11. Use `Set Home Base Boundary`, choose two opposite corners around the house and yard,

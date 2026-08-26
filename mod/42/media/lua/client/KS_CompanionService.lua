@@ -264,6 +264,8 @@ function CompanionService.issueDirectiveAll(player, directive)
             loot_area = "Loot the marked area.",
             loot_building = "Search and loot this building.",
             loot_corpses = "Search the bodies nearby.",
+            go_to = "Move to the marked location.",
+            guard = "Hold and guard this location.",
         }
         KnoxActivityFeed.event("Party order: " .. (labels[directive.kind] or "new task."))
     end

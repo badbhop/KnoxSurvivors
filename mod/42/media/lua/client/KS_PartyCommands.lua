@@ -29,6 +29,17 @@ local function areaDirective(kind, square, radius)
     }
 end
 
+local function pointDirective(kind, square)
+    return {
+        kind = kind,
+        minX = square:getX(),
+        minY = square:getY(),
+        maxX = square:getX(),
+        maxY = square:getY(),
+        z = square:getZ(),
+    }
+end
+
 local function buildingDirective(square)
     local building = square ~= nil and square:getBuilding() or nil
     local definition = building ~= nil and building:getDef() or nil
@@ -98,6 +109,10 @@ local function populate(menu, playerNum, square)
     traversalMenu:addOption("Allow", PartyCommands, PartyCommands.climbingAll, playerNum, true)
     traversalMenu:addOption("Disallow", PartyCommands, PartyCommands.climbingAll, playerNum, false)
     if square ~= nil then
+        menu:addOption("Move Party Here", PartyCommands, PartyCommands.directiveAll,
+            playerNum, pointDirective("go_to", square))
+        menu:addOption("Guard This Location", PartyCommands, PartyCommands.directiveAll,
+            playerNum, pointDirective("guard", square))
         local loot = menu:addOption("Loot Orders", nil, nil)
         local lootMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(loot, lootMenu)

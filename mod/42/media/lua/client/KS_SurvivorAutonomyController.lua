@@ -938,6 +938,8 @@ function Controller:interruptForDirective()
         or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
         or self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD"
+        or self.state == "COMPANION_GUARD"
+        or self.state == "MOVING_TO_COMPANION_POINT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_IDLE"
         or self.state == "BASE_TASK_MOVE" or self.state == "BASE_TASK_WORK"
@@ -983,7 +985,12 @@ function Controller:setCompanionDirective(directive)
     local changed = (current == nil) ~= (directive == nil)
         or (current ~= nil and directive ~= nil
             and (current.kind ~= directive.kind
-                or current.issuedAtHours ~= directive.issuedAtHours))
+                or current.issuedAtHours ~= directive.issuedAtHours
+                or current.minX ~= directive.minX
+                or current.minY ~= directive.minY
+                or current.maxX ~= directive.maxX
+                or current.maxY ~= directive.maxY
+                or current.z ~= directive.z))
     self.companionDirective = directive
     if changed then
         self.directiveMisses = 0
@@ -1734,6 +1741,44 @@ function Controller:beginExploration(ticks, directive)
     return true
 end
 
+function Controller:beginCompanionPointDirective(ticks, directive)
+    local cell = getCell()
+    local x = tonumber(directive ~= nil and directive.minX)
+    local y = tonumber(directive ~= nil and directive.minY)
+    local z = tonumber(directive ~= nil and directive.z) or 0
+    if cell == nil or x == nil or y == nil then
+        return false
+    end
+    local target = cell:getGridSquare(x, y, z)
+    if target == nil then
+        self:recordFailure("companion_point_unloaded", ticks, EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    local current = self.character:getCurrentSquare()
+    if current ~= nil and distanceSquared(current, target) <= 2.25 then
+        self.activeDecision = directive.kind == "guard" and "guard_location" or "go_to_location"
+        self.state = directive.kind == "guard" and "COMPANION_GUARD" or "COMPANION_WAIT"
+        self.nextThink = ticks + 90
+        if directive.kind == "go_to" then
+            KnoxPersistence.clearCompanionDirective(
+                self.id, self.companionOwnerId,
+                getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+            )
+            self.companionDirective = nil
+            KnoxActivityFeed.speak(self.character, "I'm here.")
+        end
+        return true
+    end
+    local result = tostring(self.bridge:moveNpc(self.id, target))
+    if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
+        self:recordFailure("companion_point_move:" .. result, ticks, EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    self.activeDecision = directive.kind == "guard" and "guard_location" or "go_to_location"
+    self.state = "MOVING_TO_COMPANION_POINT"
+    return true
+end
+
 function Controller:releaseCombat()
     releaseThreat(self.reservations, self.combatTarget, self.id)
     self.combatTarget = nil
@@ -2000,6 +2045,14 @@ function Controller:think(ticks)
     end
     if self.companionOrder ~= nil then
         if self.companionDirective ~= nil then
+            local kind = self.companionDirective.kind
+            if kind == "go_to" or kind == "guard" then
+                if self:beginCompanionPointDirective(ticks, self.companionDirective) then
+                    return
+                end
+                self.nextThink = math.max(self.nextThink or 0, ticks + EXPLORATION_RETRY_TICKS)
+                return
+            end
             if self:beginExploration(ticks, self.companionDirective) then
                 return
             end
@@ -2124,6 +2177,7 @@ function Controller:tick(ticks)
         or self.state == "ROAMING"
         or self.state == "GROUP_FOLLOW" or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
+        or self.state == "MOVING_TO_COMPANION_POINT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_TASK_MOVE"
         or self.state == "MEETING_APPROACH"
@@ -2181,7 +2235,8 @@ function Controller:tick(ticks)
         return
     end
 
-    if self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD" then
+    if self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD"
+        or self.state == "COMPANION_GUARD" then
         if ticks >= self.nextThink then
             self.state = "IDLE"
         end
@@ -2767,6 +2822,7 @@ function Controller:tick(ticks)
         or self.state == "ROAMING" or self.state == "GROUP_FOLLOW"
         or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
+        or self.state == "MOVING_TO_COMPANION_POINT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_TASK_MOVE"
         or self.state == "MEETING_APPROACH"
@@ -2859,6 +2915,27 @@ function Controller:tick(ticks)
                 self.activeDecision = "follow_player"
                 self.state = "COMPANION_WAIT"
                 self.nextThink = ticks + FORMATION_REFRESH_TICKS
+                return
+            end
+            if self.state == "MOVING_TO_COMPANION_POINT" then
+                local directive = self.companionDirective
+                if directive == nil then
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.state = directive.kind == "guard" and "COMPANION_GUARD"
+                    or "COMPANION_WAIT"
+                self.nextThink = ticks + 90
+                if directive.kind == "go_to" then
+                    KnoxPersistence.clearCompanionDirective(
+                        self.id, self.companionOwnerId,
+                        getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+                    )
+                    self.companionDirective = nil
+                    KnoxActivityFeed.speak(self.character, "I'm here.")
+                else
+                    KnoxActivityFeed.speak(self.character, "I'll keep watch.")
+                end
                 return
             end
             if self.state == "BASE_RETURN" or self.state == "BASE_PATROL" then
@@ -3095,6 +3172,21 @@ function Controller:tick(ticks)
                 or self.state == "GROUP_REGROUP"
                 or self.state == "COMPANION_FOLLOW" then
                 self:handleFormationMovementFailure(movement, ticks)
+                return
+            end
+            if self.state == "MOVING_TO_COMPANION_POINT" then
+                self.directiveMisses = self.directiveMisses + 1
+                self:recordFailure("companion_point:" .. movement, ticks, EXPLORATION_RETRY_TICKS)
+                if self.directiveMisses >= 3 then
+                    KnoxPersistence.clearCompanionDirective(
+                        self.id, self.companionOwnerId,
+                        getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+                    )
+                    self.companionDirective = nil
+                    self.directiveMisses = 0
+                    KnoxActivityFeed.speak(self.character, "I can't get there from here.")
+                end
+                self:finishDecision(ticks)
                 return
             end
             if self.state == "MOVING_TO_REST" then
