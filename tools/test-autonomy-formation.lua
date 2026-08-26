@@ -21,6 +21,9 @@ local cell = {
 getCell = function()
     return cell
 end
+ZombRand = function()
+    return 0
+end
 
 AdjacentFreeTileFinder = {
     Find = function(target)
@@ -29,6 +32,9 @@ AdjacentFreeTileFinder = {
 }
 KnoxActivityFeed = {
     speak = function() end,
+}
+KnoxPersistence = {
+    captureActiveSurvivor = function() end,
 }
 
 local controllerPath = projectRoot
@@ -85,7 +91,12 @@ local function followerController(id, slot)
         bridge = bridge,
         groupLeader = leader,
         groupFormationSlot = slot,
+        groupMembers = {},
         nextFormationRefresh = 0,
+        nextThink = 0,
+        formationFailureCount = 0,
+        failureReasons = {},
+        counts = { failures = 0 },
     }, Controller)
 end
 
@@ -104,6 +115,30 @@ leaderSquare = square(12, 10, 0)
 assert(left:refreshFormationFollow(60), "moving leader refreshes formation path")
 assert(captured.left:getX() == 11 and captured.left:getY() == 9,
     "formation destination follows moving leader")
+
+local originalMoveWithPace = bridge.moveNpcWithPace
+local cancelCount = 0
+bridge.cancelNpcMove = function()
+    cancelCount = cancelCount + 1
+    return true
+end
+bridge.moveNpcWithPace = function()
+    return "MOVE_ALREADY_REQUESTED"
+end
+leaderSquare = square(14, 10, 0)
+assert(left:refreshFormationFollow(120),
+    "failed formation refresh is consumed")
+assert(left.state == "GROUP_WAIT", "failed formation enters bounded wait")
+assert(left.nextThink >= 300,
+    "failed formation keeps full route cooldown")
+assert(left.formationFailureCount == 1 and cancelCount > 0,
+    "failed formation cancels stale owner and records retry")
+
+left:finishDecision(120)
+assert(left.nextThink >= 300,
+    "group fast refresh cannot overwrite a recorded failure cooldown")
+
+bridge.moveNpcWithPace = originalMoveWithPace
 
 local droppedCorpse = false
 local clearedActions = false

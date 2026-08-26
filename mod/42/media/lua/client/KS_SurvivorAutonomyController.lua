@@ -55,6 +55,8 @@ local GROUP_SOFT_LEASH_SQUARED = 100
 local GROUP_RETRIEVE_LEASH_SQUARED = 196
 local FORMATION_TOLERANCE_SQUARED = 2
 local FORMATION_REFRESH_TICKS = 30
+local FORMATION_FAILURE_COOLDOWN_TICKS = 180
+local FORMATION_FAILURE_MAX_COOLDOWN_TICKS = 720
 local ENTRY_SCAN_RADIUS = 16
 
 local function distanceSquared(first, second)
@@ -831,6 +833,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.formationTargetY = nil
     self.formationTargetZ = nil
     self.nextFormationRefresh = 0
+    self.formationFailureCount = 0
     self.regroupMember = nil
     self.nextRegroupCallout = 0
     self.baseId = nil
@@ -885,6 +888,25 @@ function Controller:recordFailure(reason, ticks, cooldown)
             .. " action-failed=" .. key .. " count=" .. tostring(count)
             .. " retryAt=" .. tostring(self.nextThink))
     end
+end
+
+function Controller:handleFormationMovementFailure(movement, ticks, companionFollow)
+    self.bridge:cancelNpcMove(self.id)
+    self.formationFailureCount = (self.formationFailureCount or 0) + 1
+    local cooldown = math.min(
+        FORMATION_FAILURE_COOLDOWN_TICKS * self.formationFailureCount,
+        FORMATION_FAILURE_MAX_COOLDOWN_TICKS
+    )
+    self:recordFailure("formation_movement:" .. tostring(movement), ticks, cooldown)
+    if companionFollow == nil then
+        companionFollow = self.state == "COMPANION_FOLLOW"
+    end
+    self.regroupMember = nil
+    self.activeDecision = companionFollow and "follow_player" or "follow_group"
+    self.state = companionFollow and "COMPANION_WAIT" or "GROUP_WAIT"
+    -- recordFailure owns the retry time. Do not let the ordinary grouped
+    -- finishDecision fast path replace this with its five-tick refresh.
+    self.nextFormationRefresh = self.nextThink
 end
 
 
@@ -1184,7 +1206,7 @@ function Controller:beginGroupFollow(ticks)
         self.groupFormationSlot
     )
     if approach == nil then
-        self.nextThink = ticks + THINK_MIN_TICKS
+        self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
         return false
     end
     local result = tostring(moveWithFormationPace(
@@ -1195,7 +1217,7 @@ function Controller:beginGroupFollow(ticks)
         self.character
     ))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
-        self.nextThink = ticks + THINK_MIN_TICKS
+        self:handleFormationMovementFailure(result, ticks, false)
         return false
     end
     self.activeDecision = "follow_group"
@@ -1225,6 +1247,7 @@ function Controller:beginGroupRegroup(member, ticks)
         self.character
     ))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
+        self:handleFormationMovementFailure(result, ticks, false)
         return false
     end
     self.regroupMember = member
@@ -1256,7 +1279,7 @@ function Controller:beginCompanionFollow(ticks)
     )
     if approach == nil then
         self.state = "COMPANION_WAIT"
-        self.nextThink = ticks + THINK_MIN_TICKS
+        self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
         return false
     end
     local result = tostring(moveWithFormationPace(
@@ -1267,8 +1290,7 @@ function Controller:beginCompanionFollow(ticks)
         self.character
     ))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
-        self.state = "COMPANION_WAIT"
-        self.nextThink = ticks + THINK_MIN_TICKS
+        self:handleFormationMovementFailure(result, ticks, true)
         return false
     end
     self.activeDecision = "follow_player"
@@ -1317,7 +1339,7 @@ function Controller:refreshFormationFollow(ticks)
     end
     if not restarted then
         self.state = groupFollow and "GROUP_WAIT" or "COMPANION_WAIT"
-        self.nextThink = ticks + THINK_MIN_TICKS
+        self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
     end
     return true
 end
@@ -1798,12 +1820,12 @@ function Controller:finishDecision(ticks)
     local stayingWithGroup = self.companionOrder == "follow"
         or self.groupLeader ~= nil
         or #(self.groupMembers or {}) > 1
-    self.nextThink = stayingWithGroup
+    local proposedThink = stayingWithGroup
         and (ticks + 5)
-        or math.max(
-            self.nextThink or 0,
-            ticks + THINK_MIN_TICKS + ZombRand(THINK_JITTER_TICKS)
-        )
+        or (ticks + THINK_MIN_TICKS + ZombRand(THINK_JITTER_TICKS))
+    -- A failure handler may already have installed a longer retry delay. Keep
+    -- that delay so a group route cannot hammer the same cooled-down edge.
+    self.nextThink = math.max(self.nextThink or 0, proposedThink)
 end
 
 function Controller:beginCombat(target)
@@ -2008,6 +2030,7 @@ function Controller:think(ticks)
         if distance > FORMATION_TOLERANCE_SQUARED then
             self:beginCompanionFollow(ticks)
         else
+            self.formationFailureCount = 0
             self.activeDecision = "follow_player"
             self.state = "COMPANION_WAIT"
             self.nextThink = ticks + 45
@@ -2045,6 +2068,7 @@ function Controller:think(ticks)
         if distance > FORMATION_TOLERANCE_SQUARED then
             self:beginGroupFollow(ticks)
         else
+            self.formationFailureCount = 0
             self.state = "GROUP_WAIT"
             self.nextThink = ticks + 60
         end
@@ -2057,7 +2081,7 @@ function Controller:think(ticks)
             return
         end
         self.state = "GROUP_WAIT"
-        self.nextThink = ticks + 90
+        self.nextThink = math.max(self.nextThink or 0, ticks + 90)
         return
     end
     if self.factionBaseCandidate ~= nil then
@@ -2780,6 +2804,7 @@ function Controller:tick(ticks)
             end
             if self.state == "GROUP_FOLLOW" then
                 self.counts.groupTravel = self.counts.groupTravel + 1
+                self.formationFailureCount = 0
                 self.activeDecision = "follow_group"
                 self.state = "GROUP_WAIT"
                 self.nextThink = ticks + FORMATION_REFRESH_TICKS
@@ -2787,10 +2812,12 @@ function Controller:tick(ticks)
             end
             if self.state == "GROUP_REGROUP" then
                 self.counts.groupTravel = self.counts.groupTravel + 1
+                self.formationFailureCount = 0
                 self:finishDecision(ticks)
                 return
             end
             if self.state == "COMPANION_FOLLOW" then
+                self.formationFailureCount = 0
                 self.activeDecision = "follow_player"
                 self.state = "COMPANION_WAIT"
                 self.nextThink = ticks + FORMATION_REFRESH_TICKS
@@ -3011,6 +3038,12 @@ function Controller:tick(ticks)
             end
         elseif string.find(movement, "Failed", 1, true) == 1
             or string.find(movement, "TICK_FAILED", 1, true) == 1 then
+            if self.state == "GROUP_FOLLOW"
+                or self.state == "GROUP_REGROUP"
+                or self.state == "COMPANION_FOLLOW" then
+                self:handleFormationMovementFailure(movement, ticks)
+                return
+            end
             if self.state == "MOVING_TO_REST" then
                 self:startRecoveryPosture(ticks, false)
                 return
@@ -3165,6 +3198,8 @@ function Controller:status()
             and self.baseTask.type or "none")
         .. " groupLeader=" .. tostring(self.groupLeaderId)
         .. " formationSlot=" .. tostring(self.groupFormationSlot)
+        .. " formationFailures=" .. tostring(self.formationFailureCount or 0)
+        .. " retryAt=" .. tostring(self.nextThink or 0)
         .. " " .. KnoxSurvivorNeeds.describe(KnoxSurvivorNeeds.snapshot(self.character))
 end
 

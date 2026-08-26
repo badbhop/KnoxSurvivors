@@ -93,9 +93,17 @@ For the next live pass:
 5. Return to the saved area and confirm the same identity restores at the recorded square.
 6. During the same run, watch for `MOVE_ALREADY_REQUESTED`, verify zombies actually complete
    attack animations against survivors, and confirm survivor health can fall below 100.
+7. Recruit a companion or let a travelling group form, then lead it through a building exit,
+   around a fence, and far enough to require running catch-up. A blocked formation route may
+   log one `formation_movement:...` failure, but it must enter `GROUP_WAIT` or
+   `COMPANION_WAIT` until the reported `retryAt` tick instead of issuing failures every frame.
+8. Change direction while a follower is catching up. The status line should show a bounded
+   `formationFailures` streak; a successful catch-up must reset it to zero.
+9. Separate one travelling-group member by more than the retrieve leash. The leader should
+   wait or move back toward that member rather than continuing to widen the separation.
 
 Do not call this gate complete until activation, hibernation, restoration, and one real zombie
-attack have all been observed in game.
+attack have all been observed in game, and the collected log contains no formation retry storm.
 
 ## Party commands, zombie parity, and base territory — live pass pending
 

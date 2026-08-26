@@ -13,8 +13,8 @@ Status meanings:
 
 ## Verification baseline
 
-Audited on 2026-08-26 at commit `3944c70` plus the uncommitted foundation fixes
-described below.
+Audited on 2026-08-26 at commit `83f51d2` plus the uncommitted formation-recovery
+fix described below.
 
 - all 20 standalone Lua tests pass;
 - all 53 mod Lua files parse with Lua 5.1;
@@ -23,12 +23,14 @@ described below.
 - that run contains no render-corruption line, but it does contain two Survivor Card
   exceptions, persistent `DETACHED` controllers, 640 movement/combat failure lines,
   and three horde/duel combat scenarios that only reached `PARTIAL`;
-- the same run reports `instanceIsLocal0=false` after NPC creation. The current
-  uncommitted fix restores `IsoPlayer.instance` immediately after the shell constructor;
-- the current uncommitted Survivor Card fix attaches the `ISUI3DModel` before calling
-  Java-backed methods, matching Build 42.20's vanilla UI lifecycle;
-- detached-shell cleanup now applies to every active survivor identity rather than only
-  production-population IDs, while ordinary distance hibernation remains production-only.
+- commit `a00c8e2` restores `IsoPlayer.instance` immediately after the shell constructor,
+  fixes the Survivor Card model-child order, and bounds detached-shell cleanup for every
+  active survivor identity;
+- commit `83f51d2` restores the native zombie attack lifecycle while keeping NPC shells
+  out of local-player ownership branches;
+- the current formation-recovery fix consumes movement failures into a bounded wait,
+  preserves route cooldowns that were previously overwritten by the five-tick group
+  refresh, cancels stale movement ownership, and records consecutive recovery attempts.
 
 Neither uncommitted fix is considered working until a new live run confirms it.
 
@@ -38,13 +40,13 @@ Neither uncommitted fix is considered working until a new live run confirms it.
 | --- | --- | --- |
 | 1. IsoPlayer foundation | **Partial / conflicting live behavior** | Stable Java records, contained shell, slot checks, reconstruction, health/inventory/appearance capture, teardown, durable death hooks, and multi-NPC registries exist. The latest live run contradicts completion: global instance ownership is wrong and several controllers remain `DETACHED`. Constructor ownership and universal detached cleanup are patched but not live-tested. Extended multi-survivor save/unload/death testing is still required. |
 | 2. Survivor autonomy | **Partial** | Roaming, supply-aware exploration, container searching, ranked looting, equipment, needs, melee, rest, medicine, and traversal states exist in `KS_SurvivorAutonomyController.lua`. Firearms are absent; purposeful long-range goals and several failure paths remain incomplete. Live logs show frozen/detached actors and high failure counts. |
-| 3. Priority/action ownership | **Partial** | One Lua controller owns high-level state and Java owns movement/combat requests. Reservations, cancellation, deadlines, and task claims exist. The live failure volume and permanent-looking states show that interruption and recovery are not yet reliable. |
-| 4. Navigation/human movement | **Partial** | Walking, running pace, formation catch-up, doors, windows, smashing, climbing, fences, alternate entry, cooldowns, and route abandonment exist. Multi-floor and repeated blocked-route behavior are not proven, and current live failure counts contradict a polished result. |
+| 3. Priority/action ownership | **Partial, retry defect patched** | One Lua controller owns high-level state and Java owns movement/combat requests. Reservations, cancellation, deadlines, and task claims exist. Formation start/tick failures now cancel stale movement ownership and enter a bounded wait instead of immediately requesting another route; live verification is pending. |
+| 4. Navigation/human movement | **Partial, retry defect patched** | Walking, running pace, formation catch-up, doors, windows, smashing, climbing, fences, alternate entry, cooldowns, and route abandonment exist. Consecutive formation failures now retain an escalating bounded cooldown. Multi-floor and alternate-route behavior remain unproven in live play. |
 | 5. Full combat | **Partial** | Native melee attack integration, moving-target refresh, target reservations, zombie awareness, endurance, condition, injury capture, and group threat selection exist. Latest duel/horde tests are partial and zombie damage is inconsistent. Firearms, reloads, ammo policy, and survivor PvP are missing. |
 | 6. Needs, health, medical, inventory | **Partial** | Real hunger, thirst, fatigue, endurance, food/water consumption, BodyDamage, self-bandaging, improvised bandage sourcing, inventory ranking, and equipment exist. The player lacks a finished inventory/equipment/medical management interface for survivors. Normal player-on-NPC treatment is not sufficiently live-verified. |
 | 7. Skills, traits, occupations | **Implemented, unverified** | Deterministic Build 42 profession/trait generation, perk levels, XP capture/restore, and job requirement checks exist and pass standalone persistence checks. Long save/unload/reconstruction progression still needs a live pass. |
 | 8. Social system | **Partial** | First/last meetings, nearby time, encounter counts, shared activity, trust, greetings, joining, declining, persistent hostility, robbery, player conversations, and recruitment exist. Dialogue is still small and repetitive; survivor PvP and deeper faction diplomacy/favors are absent. |
-| 9. Natural groups | **Partial** | Consent-based two-person groups, lone invitations, three-person faction eligibility, persistent membership, formation slots, waiting, and retrieval exist. Latest live logs show severe repeated failures for at least one follower, so reliable group travel/combat is not proven. |
+| 9. Natural groups | **Partial, recovery patched** | Consent-based two-person groups, lone invitations, three-person faction eligibility, persistent membership, formation slots, waiting, and leader retrieval exist. A focused regression now proves a moving-leader `MOVE_ALREADY_REQUESTED` failure enters bounded `GROUP_WAIT` without losing its cooldown; reliable live group travel/combat is still unproven. |
 | 10. Factions | **Partial** | Persistent faction IDs, leaders, members, traits, relationships, home candidate/base IDs, safehouse ownership, and resident conversion exist. Broader faction goals, diplomacy, resource pressure, recruitment growth, and lifecycle simulation are missing. |
 | 11. Base scouting/settlement | **Partial** | Loaded buildings are scored, safehouse conflicts are rejected, candidates persist, leaders travel to candidates, and faction bases/residents are created. Candidate breadth, repeated unloaded search, resource/water evaluation, and failure recovery need completion and live verification. |
 | 12. Base domain | **Partial** | Player and faction base records, home/territory separation, residents, zones, storage policies, tasks, ownership protection, and save migration exist. Resource summaries, full management, NPC planning, and end-to-end settlement life are incomplete. |
@@ -62,10 +64,10 @@ Neither uncommitted fix is considered working until a new live run confirms it.
 | 24. Raids/faction conflict | **Missing** | Hostility fields and base protection boundaries exist, but no causes, planning, travel, combat objective, retreat, resource transfer, or raid persistence exists. |
 | 25. World population | **Implemented, unverified** | Region-balanced identities, persistent target, active-body limit, distant/hidden materialization, refill delay, origin reuse protection, hibernation candidates, and durable death records exist and pass standalone tests. Production-scale live streaming/refill is not proven. |
 | 26. Lifecycle/hibernation | **Partial / live defect patched** | Capture, removal, stored records, activation candidates, reconstruction, grace checks, and death removal exist. Latest live logs show several long-lived `DETACHED` developer bodies; cleanup is now identity-agnostic and unit-tested, but the deterministic transition still needs a live pass. |
-| 27. Failure recovery | **Partial** | Cooldowns, reservations, task requeue, target re-resolution, movement deadlines, and alternate-entry abandonment exist. The latest live run's 640 failures and one controller at 549 failures prove retry suppression and state recovery still need work. |
+| 27. Failure recovery | **Partial, primary formation loop patched** | Cooldowns, reservations, task requeue, target re-resolution, movement deadlines, and alternate-entry abandonment exist. The 549-failure formation loop was traced to `finishDecision()` replacing a 180-tick route cooldown with a five-tick group refresh; the retry time is now preserved and consecutive failures back off to 720 ticks. A new live run must prove the failure storm is gone. |
 | 28. Player-facing feedback | **Partial** | Speech bubbles, activity feed, HUD activity, need callouts, order messages, and Notebook summaries exist. Missing-tool/material/job failure feedback and richer status presentation are incomplete; repetition/spam needs a live pass. |
 | 29. Save/load coverage | **Partial** | Core person, appearance, inventory, equipment, health, physiology, capabilities, social/group/faction, companion duty, base, zones, storage, and tasks are persisted. Missing systems cannot persist, and full multi-point acceptance reload/unload evidence does not exist. |
-| 30. Debugging/testability | **Partial, strong foundation** | Java diagnostics, transition logs, scenario tools, log collection, 20 standalone tests, probes, and combat scenarios exist. The collector currently counts too many repeated movement/combat failures and UI/lifecycle diagnostics need explicit regression gates. |
+| 30. Debugging/testability | **Partial, strong foundation** | Java diagnostics, transition logs, scenario tools, log collection, 20 standalone tests, probes, and combat scenarios exist. Controller status now reports formation failure streak and retry tick; UI/lifecycle diagnostics and live movement/combat regression gates still need completion. |
 | 31. Clean architecture | **Partial** | The repository contains only the IsoPlayer rebuild and keeps records separate from bodies. No active IsoZombie runtime was found. The autonomy controller is large but still the single owner; probes are gated. Missing systems should extend current boundaries instead of adding competing managers. |
 | 32. Efficient implementation loop | **In use** | Focused executors and standalone tests are present, but many slices moved ahead without live verification. Future work must close current core/live defects before stacking additional gameplay systems. |
 
