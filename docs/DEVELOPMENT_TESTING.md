@@ -138,6 +138,11 @@ the following behavior is not yet called live-verified:
     home, and watch for one transfer with the normal rummage animation. The task should finish
     only after the item leaves the depot; an empty depot or unloaded destination must leave the
     task waiting/retryable rather than deleting the item or claiming success.
+16. Give a base resident a hammer, a plank, and at least two nails, then leave an unbarricaded
+    closed window inside the base boundary. The resident should walk to it, play the vanilla
+    Build action, consume one plank and two nails, and complete only when the real barricade
+    reports one additional plank. Fully barricaded windows should be skipped; missing tools or
+    materials should leave no claimed task behind.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -274,7 +279,8 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
   claim every action will naturally occur during one short run.
 - Firearms/ammunition, cooking, lethal survivor PvP, farming/woodcutting, corpse/animal/repair
   job executors, and interactive Notebook management remain later gates. Guard/patrol work-zone
-  drawing, execution, and one-item depot sorting are now the first live base-job slices. The current Notebook is the
+  drawing, execution, one-item depot sorting, and one-plank barricading are now the first live
+  base-job slices. The current Notebook is the
   readable domain shell, not the finished base administration interface.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.

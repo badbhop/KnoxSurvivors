@@ -13,6 +13,7 @@ require "KS_BaseManager"
 require "KS_BaseTaskBoard"
 require "KS_BaseJobs"
 require "KS_BaseStorage"
+require "KS_BaseBarricades"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -833,6 +834,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskStartedAt = nil
     self.baseTaskTransfer = nil
     self.baseTaskActionQueued = false
+    self.baseTaskBarricadeTarget = nil
+    self.baseTaskBarricadeBefore = 0
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1401,6 +1404,8 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskStartedAt = nil
     self.baseTaskTransfer = nil
     self.baseTaskActionQueued = false
+    self.baseTaskBarricadeTarget = nil
+    self.baseTaskBarricadeBefore = 0
     return finished ~= nil
 end
 
@@ -1423,7 +1428,7 @@ function Controller:beginBaseTask(ticks)
         or self.baseTask ~= nil then
         return false
     end
-    local task, result = KnoxBaseJobs.ensureAutomaticTask(self.base)
+    local task, result = KnoxBaseJobs.ensureAutomaticTask(self.base, self.character)
     if task == nil then
         return false
     end
@@ -2152,8 +2157,58 @@ function Controller:tick(ticks)
     end
 
     if self.state == "BASE_TASK_ACTION" then
-        if self.baseTask == nil or self.baseTask.type ~= "sort_depot" then
-            self:finishBaseTask(false, "missing_storage_task")
+        if self.baseTask == nil
+            or (self.baseTask.type ~= "sort_depot"
+                and self.baseTask.type ~= "barricade") then
+            self:finishBaseTask(false, "unsupported_base_action")
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "barricade" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskBarricadeTarget
+                if target == nil then
+                    target = KnoxBaseBarricades.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    self.baseTaskBarricadeTarget = target
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "barricade_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult = KnoxBaseBarricades.queueAction(
+                    self.character,
+                    target
+                )
+                if action == nil then
+                    self:finishBaseTask(false, "barricade_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then
+                return
+            end
+            local target = self.baseTaskBarricadeTarget
+            local complete = KnoxBaseBarricades.isComplete(
+                target,
+                self.character,
+                self.baseTaskBarricadeBefore
+            )
+            self:finishBaseTask(
+                complete,
+                complete and "barricade_plank_added" or "barricade_not_completed"
+            )
+            if complete then
+                KnoxActivityFeed.speak(self.character, "One more layer on the windows.")
+            end
             self:finishDecision(ticks)
             return
         end
@@ -2408,6 +2463,27 @@ function Controller:tick(ticks)
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_sort_depot"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil and self.baseTask.type == "barricade" then
+                    self.baseTaskBarricadeTarget = KnoxBaseBarricades.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    if self.baseTaskBarricadeTarget == nil then
+                        self:finishBaseTask(false, "barricade_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskBarricadeBefore = KnoxBaseBarricades.plankCount(
+                        self.baseTaskBarricadeTarget,
+                        self.character
+                    )
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_barricade"
                     self.state = "BASE_TASK_ACTION"
                     return
                 end

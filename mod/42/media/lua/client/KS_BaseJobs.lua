@@ -1,6 +1,7 @@
 require "KS_Persistence"
 require "KS_BaseTaskBoard"
 require "KS_BaseStorage"
+require "KS_BaseBarricades"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -12,6 +13,7 @@ BaseJobs.AUTOMATIC_TYPES = {
     guard = true,
     patrol = true,
     sort_depot = true,
+    barricade = true,
 }
 
 local function worldAge()
@@ -136,7 +138,44 @@ local function ensureDepotTask(base, now)
     return nil, result
 end
 
-function BaseJobs.ensureAutomaticTask(base)
+local function ensureBarricadeTask(base, now, character)
+    if character == nil or not KnoxBaseBarricades.canPrepare(character) then
+        return nil, "missing_barricade_materials"
+    end
+    local target = KnoxBaseBarricades.findTarget(base, character)
+    if target == nil then
+        return nil, "no_unbarricaded_window"
+    end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then
+            return existing, "existing"
+        end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            reopened.target = target
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(
+        base.id,
+        "barricade",
+        target,
+        {},
+        95
+    )
+    if task ~= nil then
+        task.baseId = base.id
+        task.auto = true
+        task.retryAtHours = now
+        return task, result
+    end
+    return nil, result
+end
+
+function BaseJobs.ensureAutomaticTask(base, character)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
     end
@@ -144,6 +183,10 @@ function BaseJobs.ensureAutomaticTask(base)
     local depotTask, depotResult = ensureDepotTask(base, now)
     if depotTask ~= nil then
         return depotTask, depotResult
+    end
+    local barricadeTask, barricadeResult = ensureBarricadeTask(base, now, character)
+    if barricadeTask ~= nil then
+        return barricadeTask, barricadeResult
     end
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)

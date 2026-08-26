@@ -82,13 +82,15 @@ The code foundation is present; live verification is still required. Success mea
 M4 does not claim every registered job type is implemented. It establishes one owner for
 affiliation, duty, base records, storage, work requirements, and task claims so each job can
 be added as a small normal-world-action executor. Guard/patrol posts and one-item depot
-sorting now have initial executable slices; both still require live in-game confirmation.
+sorting now have initial executable slices. A resident with real materials can also schedule
+one plank barricade at a time through the vanilla barricade action. These slices still require
+live in-game confirmation.
 
 ## Later milestones
 
-The next vertical slices are one-window barricading as a base job, farming, woodcutting and
-plank production, corpse hauling, animal care, and repair. Storage hauling, guard, and patrol
-now have initial executors. Each slice must consume real tools and materials, use normal timed actions,
+The next vertical slices are farming, woodcutting and plank production, corpse hauling, animal
+care, and repair. Storage hauling, guard, patrol, and one-plank barricading now have initial
+executors. Each slice must consume real tools and materials, use normal timed actions,
 respect survivor skills, and survive reload before the next one is added.
 
 After those jobs: the full Survivors Notebook, companion/base roster management, contextual

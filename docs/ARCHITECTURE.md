@@ -285,10 +285,13 @@ cycle. A depot policy can also pair with a categorized destination policy: the r
 finds one matching item in the loaded depot, walks to it, and moves it through the normal
 off-slot inventory-transfer action. The persistent task stores stable policy keys and an
 item full type rather than an engine object, so a save/reload can safely retry if the item
-was taken. The remaining task types for farming, barricading, woodcutting, corpse handling,
-animals, and repair are still registered as planning boundaries until their engine actions
-are ready. Vanilla crop ownership is not treated as a Knox survivor ID because single-player
-off-slot bodies do not provide a stable unique crop owner.
+was taken. The remaining task types for farming, woodcutting, corpse handling, animals, and
+repair are still registered as planning boundaries until their engine actions are ready.
+Barricade work is the exception: when a resident carries a hammer, plank, and
+nails, the controller discovers an unbarricaded loaded window inside the base and queues the
+vanilla `ISBarricadeAction`; completion is accepted only after a real plank count increase.
+Vanilla crop ownership is not treated as a Knox survivor ID because single-player off-slot
+bodies do not provide a stable unique crop owner.
 
 Player territory is also sent to the Java traversal runtime as a protected structure area.
 Friendly and neutral survivors may still use doors and try an unlocked window, but they

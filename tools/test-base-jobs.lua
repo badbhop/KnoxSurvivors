@@ -4,6 +4,7 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 package.loaded["KS_Persistence"] = true
 package.loaded["KS_BaseTaskBoard"] = true
 package.loaded["KS_BaseStorage"] = true
+package.loaded["KS_BaseBarricades"] = true
 local depotTransfer = nil
 KnoxBaseStorage = {
     findTransfer = function()
@@ -12,6 +13,9 @@ KnoxBaseStorage = {
     transferTarget = function(value)
         return value ~= nil and value.target or nil
     end,
+}
+KnoxBaseBarricades = {
+    canPrepare = function() return false end,
 }
 
 local now = 10
