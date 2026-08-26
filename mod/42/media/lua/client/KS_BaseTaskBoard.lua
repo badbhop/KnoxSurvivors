@@ -11,6 +11,7 @@ TaskBoard.TASK_TYPES = {
     farm_seed = true,
     farm_water = true,
     farm_harvest = true,
+    farm_plow = true,
     chop_tree = true,
     saw_logs = true,
     guard = true,

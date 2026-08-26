@@ -1,5 +1,7 @@
 require "Farming/TimedActions/ISWaterPlantAction"
 require "Farming/TimedActions/ISHarvestPlantAction"
+require "Farming/TimedActions/ISPlowAction"
+require "Farming/TimedActions/ISSeedActionNew"
 require "TimedActions/ISTimedActionQueue"
 
 local Farming = rawget(_G, "KnoxBaseFarming") or {}
@@ -47,6 +49,94 @@ local function walkItems(container, visitor)
             walkItems(item:getInventory(), visitor)
         end
     end
+end
+
+local function itemHasTag(item, tag)
+    if item == nil or tag == nil or item.hasTag == nil then
+        return false
+    end
+    local success, result = pcall(item.hasTag, item, tag)
+    return success and result == true
+end
+
+local function itemUsable(item)
+    if item == nil then
+        return false
+    end
+    if item.isBroken ~= nil then
+        local success, broken = pcall(item.isBroken, item)
+        if success and broken == true then
+            return false
+        end
+    end
+    return true
+end
+
+local function findInventoryItem(character, predicate)
+    if character == nil or character.getInventory == nil then
+        return nil
+    end
+    local found = nil
+    walkItems(character:getInventory(), function(item)
+        if found == nil and itemUsable(item) and predicate(item) then
+            found = item
+        end
+    end)
+    return found
+end
+
+local function plowItem(character)
+    return findInventoryItem(character, function(item)
+        return ItemTag ~= nil and itemHasTag(item, ItemTag.DIG_PLOW)
+    end)
+end
+
+local function seedTypeForItem(item)
+    if item == nil or item.getFullType == nil
+        or farming_vegetableconf == nil
+        or farming_vegetableconf.props == nil then
+        return nil
+    end
+    local fullType = item:getFullType()
+    for typeOfSeed, props in pairs(farming_vegetableconf.props) do
+        local seedTypes = props.seedTypes or { props.seedName }
+        for _, seedType in ipairs(seedTypes) do
+            if seedType ~= nil and seedType == fullType then
+                return typeOfSeed
+            end
+        end
+    end
+    return nil
+end
+
+local function seedItem(character)
+    if ItemTag == nil or ItemTag.IS_SEED == nil then
+        return nil, nil
+    end
+    local found, foundType = nil, nil
+    if character == nil or character.getInventory == nil then
+        return nil, nil
+    end
+    walkItems(character:getInventory(), function(item)
+        if found ~= nil or not itemHasTag(item, ItemTag.IS_SEED) then
+            return
+        end
+        local typeOfSeed = seedTypeForItem(item)
+        if typeOfSeed ~= nil then
+            found = item
+            foundType = typeOfSeed
+        end
+    end)
+    return found, foundType
+end
+
+local function canDig(square)
+    if square == nil or ISFarmingMenu == nil
+        or ISFarmingMenu.canDigHereSquare == nil then
+        return false
+    end
+    local success, result = pcall(ISFarmingMenu.canDigHereSquare, square)
+    return success and result == true
 end
 
 local function wateringItem(character)
@@ -111,7 +201,8 @@ local function isSeeded(plant)
     return plant ~= nil and tostring(plant.state or "") == "seeded" and isAlive(plant)
 end
 
-local function descriptor(base, zone, square, plant, action, waterItem, waterUses)
+local function descriptor(base, zone, square, plant, action, waterItem, waterUses,
+    plowTool, seed, seedType)
     return {
         id = "farm:" .. tostring(base.id) .. ":" .. tostring(action) .. ":"
             .. tostring(square:getX()) .. ":" .. tostring(square:getY()) .. ":"
@@ -125,7 +216,10 @@ local function descriptor(base, zone, square, plant, action, waterItem, waterUse
         z = square:getZ(),
         waterUses = tonumber(waterUses) or 0,
         waterItemType = waterItem ~= nil and waterItem:getFullType() or nil,
-        plantType = tostring(plant.typeOfSeed or "unknown"),
+        plantType = tostring(plant ~= nil and plant.typeOfSeed or "unknown"),
+        plowToolType = plowTool ~= nil and plowTool:getFullType() or nil,
+        seedItemType = seed ~= nil and seed:getFullType() or nil,
+        seedType = seedType,
     }
 end
 
@@ -157,6 +251,8 @@ function Farming.findTask(base, character)
         return nil, "base_or_cell_unavailable"
     end
     local water, waterUses = wateringItem(character)
+    local seed, seedType = seedItem(character)
+    local plowTool = plowItem(character)
     for _, zone in ipairs(orderedZones(base)) do
         local minX, minY, maxX, maxY, z = zoneBounds(zone)
         for x = minX, maxX do
@@ -194,11 +290,52 @@ function Farming.findTask(base, character)
                 end
             end
         end
+        if seed ~= nil and seedType ~= nil then
+            for x = minX, maxX do
+                for y = minY, maxY do
+                    local square = cell:getGridSquare(x, y, z)
+                    local plant = square ~= nil and plantAt(square) or nil
+                    if plant ~= nil and tostring(plant.state or "") == "plow" then
+                        return descriptor(
+                            base,
+                            zone,
+                            square,
+                            plant,
+                            "farm_seed",
+                            nil,
+                            0,
+                            nil,
+                            seed,
+                            seedType
+                        ), "seed"
+                    end
+                end
+            end
+        end
+        if plowTool ~= nil and seed ~= nil and seedType ~= nil then
+            for x = minX, maxX do
+                for y = minY, maxY do
+                    local square = cell:getGridSquare(x, y, z)
+                    if square ~= nil and plantAt(square) == nil and canDig(square) then
+                        return descriptor(
+                            base,
+                            zone,
+                            square,
+                            nil,
+                            "farm_plow",
+                            nil,
+                            0,
+                            plowTool
+                        ), "plow"
+                    end
+                end
+            end
+        end
     end
     return nil, "no_farming_action_ready"
 end
 
-function Farming.resolveTarget(base, target)
+function Farming.resolveTarget(base, target, character)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or target == nil or cell == nil then
         return nil, "missing_farming_target"
@@ -209,6 +346,23 @@ function Farming.resolveTarget(base, target)
         tonumber(target.z) or 0
     )
     local plant = square ~= nil and plantAt(square) or nil
+    if target.action == "farm_plow" then
+        if square == nil or plant ~= nil or not canDig(square) then
+            return nil, "square_not_diggable"
+        end
+        local tool = findInventoryItem(character, function(item)
+            return ItemTag ~= nil and itemHasTag(item, ItemTag.DIG_PLOW)
+        end)
+        if tool == nil then
+            return nil, "plow_tool_unavailable"
+        end
+        return {
+            action = target.action,
+            square = square,
+            plant = nil,
+            plowItem = tool,
+        }, "resolved"
+    end
     if plant == nil then
         return nil, "plant_unloaded"
     end
@@ -219,10 +373,20 @@ function Farming.resolveTarget(base, target)
         and (not isSeeded(plant) or (tonumber(plant.waterLvl) or 100) >= 100) then
         return nil, "plant_does_not_need_water"
     end
+    if target.action == "farm_seed"
+        and tostring(plant.state or "") ~= "plow" then
+        return nil, "plant_not_plowed"
+    end
+    local seed, typeOfSeed = seedItem(character)
+    if target.action == "farm_seed" and (seed == nil or typeOfSeed == nil) then
+        return nil, "seed_item_unavailable"
+    end
     return {
         action = target.action,
         square = square,
         plant = plant,
+        seedItem = seed,
+        seedType = typeOfSeed or target.seedType,
     }, "resolved"
 end
 
@@ -251,25 +415,72 @@ function Farming.queueAction(character, target, water)
         ISTimedActionQueue.add(action)
         return action, "queued"
     end
+    if target.action == "farm_plow" then
+        if target.plowItem == nil then
+            return nil, "plow_tool_unavailable"
+        end
+        local action = ISPlowAction:new(
+            character,
+            target.square,
+            target.plowItem
+        )
+        ISTimedActionQueue.add(action)
+        return action, "queued"
+    end
+    if target.action == "farm_seed" then
+        if target.seedItem == nil or target.seedType == nil then
+            return nil, "seed_item_unavailable"
+        end
+        local action = ISSeedActionNew:new(
+            character,
+            target.seedItem,
+            target.seedType,
+            target.plant
+        )
+        ISTimedActionQueue.add(action)
+        return action, "queued"
+    end
     return nil, "unsupported_farming_action"
 end
 
 function Farming.snapshot(target)
-    if target == nil or target.plant == nil then
-        return { water = 0, harvestable = false }
+    if target == nil then
+        return { water = 0, harvestable = false, state = nil }
+    end
+    if target.action == "farm_plow" then
+        local plant = plantAt(target.square)
+        return {
+            water = 0,
+            harvestable = false,
+            state = plant ~= nil and plant.state or nil,
+        }
+    end
+    if target.plant == nil then
+        return { water = 0, harvestable = false, state = nil }
     end
     return {
         water = tonumber(target.plant.waterLvl) or 0,
         harvestable = canHarvest(target.plant),
+        state = target.plant.state,
     }
 end
 
 function Farming.isComplete(target, before)
-    if target == nil or target.plant == nil then
+    if target == nil then
+        return false
+    end
+    if target.action == "farm_plow" then
+        local plant = plantAt(target.square)
+        return plant ~= nil and tostring(plant.state or "") == "plow"
+    end
+    if target.plant == nil then
         return false
     end
     if target.action == "farm_harvest" then
         return not canHarvest(target.plant)
+    end
+    if target.action == "farm_seed" then
+        return tostring(target.plant.state or "") ~= "plow"
     end
     local after = tonumber(target.plant.waterLvl) or 0
     return after > (tonumber(before ~= nil and before.water or 0) or 0)

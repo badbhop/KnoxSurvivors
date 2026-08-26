@@ -17,6 +17,8 @@ BaseJobs.AUTOMATIC_TYPES = {
     barricade = true,
     farm_water = true,
     farm_harvest = true,
+    farm_plow = true,
+    farm_seed = true,
 }
 
 local function worldAge()
@@ -201,7 +203,10 @@ local function ensureFarmingTask(base, now, character)
         target.action,
         target,
         {},
-        target.action == "farm_harvest" and 100 or 85
+        target.action == "farm_harvest" and 100
+            or target.action == "farm_seed" and 95
+            or target.action == "farm_water" and 85
+            or 80
     )
     if task ~= nil then
         task.baseId = base.id

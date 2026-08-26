@@ -3,6 +3,8 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 
 package.loaded["Farming/TimedActions/ISWaterPlantAction"] = true
 package.loaded["Farming/TimedActions/ISHarvestPlantAction"] = true
+package.loaded["Farming/TimedActions/ISPlowAction"] = true
+package.loaded["Farming/TimedActions/ISSeedActionNew"] = true
 package.loaded["TimedActions/ISTimedActionQueue"] = true
 
 ISWaterPlantAction = {
@@ -17,6 +19,17 @@ ISHarvestPlantAction = {
             maxTime = maxTime }
     end,
 }
+ISPlowAction = {
+    new = function(_, character, square, item)
+        return { kind = "plow", character = character, square = square, item = item }
+    end,
+}
+ISSeedActionNew = {
+    new = function(_, character, seed, typeOfSeed, plant)
+        return { kind = "seed", character = character, seed = seed,
+            typeOfSeed = typeOfSeed, plant = plant }
+    end,
+}
 ISTimedActionQueue = {
     add = function(action) _G.queuedAction = action end,
 }
@@ -25,6 +38,15 @@ ISFarmingMenu = {
     getWaterUsesInteger = function(item)
         return item.uses or 0
     end,
+    canDigHereSquare = function(square)
+        return square.diggable == true
+    end,
+}
+ItemTag = { DIG_PLOW = "DIG_PLOW", IS_SEED = "IS_SEED" }
+farming_vegetableconf = {
+    props = {
+        Tomato = { seedTypes = { "Base.TomatoSeed" } },
+    },
 }
 
 local function list(values)
@@ -34,10 +56,11 @@ local function list(values)
     }
 end
 
-local function item(full, uses)
-    local result = { full = full, uses = uses or 0 }
+local function item(full, uses, tags)
+    local result = { full = full, uses = uses or 0, tags = tags or {} }
     function result:getFullType() return self.full end
     function result:IsInventoryContainer() return false end
+    function result:hasTag(tag) return self.tags[tag] == true end
     return result
 end
 
@@ -56,8 +79,8 @@ end
 local ripe = plant("Base.Tomato", true, 100)
 local dry = plant("Base.Cabbage", false, 40)
 local squares = {}
-local function square(x, y, z, value)
-    local result = { x = x, y = y, z = z, plant = value }
+local function square(x, y, z, value, diggable)
+    local result = { x = x, y = y, z = z, plant = value, diggable = diggable }
     function result:getX() return self.x end
     function result:getY() return self.y end
     function result:getZ() return self.z end
@@ -65,6 +88,7 @@ local function square(x, y, z, value)
 end
 squares["10:20:0"] = square(10, 20, 0, ripe)
 squares["11:20:0"] = square(11, 20, 0, dry)
+squares["12:20:0"] = square(12, 20, 0, nil, true)
 
 CFarmingSystem = {
     instance = {
@@ -80,8 +104,9 @@ getCell = function()
 end
 
 local waterBottle = item("Base.WaterBottleFull", 8)
+local inventoryItems = { waterBottle }
 local inventory = {}
-function inventory:getItems() return list({ waterBottle }) end
+function inventory:getItems() return list(inventoryItems) end
 local character = {}
 function character:getInventory() return inventory end
 
@@ -91,7 +116,7 @@ local base = {
         garden = {
             id = "garden",
             type = "farming",
-            x1 = 10, y1 = 20, x2 = 11, y2 = 20, z = 0,
+            x1 = 10, y1 = 20, x2 = 12, y2 = 20, z = 0,
             enabled = true,
         },
     },
@@ -122,4 +147,26 @@ local waterBefore = farming.snapshot(waterResolved)
 dry.waterLvl = 100
 assert(farming.isComplete(waterResolved, waterBefore))
 
-print("Base farming PASS harvest_discovery=true watering_discovery=true vanilla_actions=true completion=true")
+local shovel = item("Base.GardenShovel", 0, { [ItemTag.DIG_PLOW] = true })
+local seed = item("Base.TomatoSeed", 0, { [ItemTag.IS_SEED] = true })
+table.insert(inventoryItems, shovel)
+table.insert(inventoryItems, seed)
+local plowTarget, plowResult = farming.findTask(base, character)
+assert(plowTarget ~= nil and plowResult == "plow")
+local plowResolved = assert(farming.resolveTarget(base, plowTarget, character))
+local plowAction = assert(farming.queueAction(character, plowResolved))
+assert(plowAction.kind == "plow" and queuedAction == plowAction)
+squares["12:20:0"].plant = plant("none", false, 0)
+squares["12:20:0"].plant.state = "plow"
+plowResolved.plant = squares["12:20:0"].plant
+assert(farming.isComplete(plowResolved, farming.snapshot(plowResolved)))
+
+local seedTarget, seedResult = farming.findTask(base, character)
+assert(seedTarget ~= nil and seedResult == "seed")
+local seedResolved = assert(farming.resolveTarget(base, seedTarget, character))
+local seedAction = assert(farming.queueAction(character, seedResolved))
+assert(seedAction.kind == "seed" and queuedAction == seedAction)
+seedResolved.plant.state = "seeded"
+assert(farming.isComplete(seedResolved, farming.snapshot(seedResolved)))
+
+print("Base farming PASS harvest_discovery=true watering_discovery=true plow_seed=true vanilla_actions=true completion=true")

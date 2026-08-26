@@ -2166,7 +2166,9 @@ function Controller:tick(ticks)
             or (self.baseTask.type ~= "sort_depot"
                 and self.baseTask.type ~= "barricade"
                 and self.baseTask.type ~= "farm_water"
-                and self.baseTask.type ~= "farm_harvest") then
+                and self.baseTask.type ~= "farm_harvest"
+                and self.baseTask.type ~= "farm_plow"
+                and self.baseTask.type ~= "farm_seed") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2220,13 +2222,16 @@ function Controller:tick(ticks)
             return
         end
         if self.baseTask.type == "farm_water"
-            or self.baseTask.type == "farm_harvest" then
+            or self.baseTask.type == "farm_harvest"
+            or self.baseTask.type == "farm_plow"
+            or self.baseTask.type == "farm_seed" then
             if not self.baseTaskActionQueued then
                 local target = self.baseTaskFarmingTarget
                 if target == nil then
                     target = KnoxBaseFarming.resolveTarget(
                         self.base,
-                        self.baseTask.target
+                        self.baseTask.target,
+                        self.character
                     )
                     self.baseTaskFarmingTarget = target
                 end
@@ -2277,11 +2282,13 @@ function Controller:tick(ticks)
                 complete,
                 complete and "farming_action_complete" or "farming_action_not_completed"
             )
-            if complete then
-                KnoxActivityFeed.speak(self.character,
-                    taskType == "farm_harvest"
-                        and "Harvest is in." or "Crops are watered."
-                )
+                if complete then
+                    KnoxActivityFeed.speak(self.character,
+                        taskType == "farm_harvest" and "Harvest is in."
+                        or taskType == "farm_water" and "Crops are watered."
+                        or taskType == "farm_seed" and "Seeds are in."
+                        or "The furrow is ready."
+                    )
             end
             self:finishDecision(ticks)
             return
@@ -2563,10 +2570,13 @@ function Controller:tick(ticks)
                 end
                 if self.baseTask ~= nil
                     and (self.baseTask.type == "farm_water"
-                        or self.baseTask.type == "farm_harvest") then
+                        or self.baseTask.type == "farm_harvest"
+                        or self.baseTask.type == "farm_plow"
+                        or self.baseTask.type == "farm_seed") then
                     self.baseTaskFarmingTarget = KnoxBaseFarming.resolveTarget(
                         self.base,
-                        self.baseTask.target
+                        self.baseTask.target,
+                        self.character
                     )
                     if self.baseTaskFarmingTarget == nil then
                         self:finishBaseTask(false, "farming_target_invalid")
