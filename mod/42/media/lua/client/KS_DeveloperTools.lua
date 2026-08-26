@@ -3,6 +3,7 @@ require "ISUI/ISWorldObjectContextMenu"
 require "KS_Settings"
 require "KS_SurvivorAutonomy"
 require "KS_ActivityFeed"
+require "KS_CombatTestScenarios"
 
 local DeveloperTools = rawget(_G, "KnoxDeveloperTools") or {}
 _G.KnoxDeveloperTools = DeveloperTools
@@ -13,6 +14,14 @@ local SCENARIOS = {
     { "Spawn Test Travel Group", "group" },
     { "Spawn Test Faction", "faction" },
     { "Spawn Test Faction Seeking a Base", "faction_base" },
+}
+
+local COMBAT_SCENARIOS = {
+    { "Survivor vs Zombie", "duel" },
+    { "Survivor vs Zombie Group", "survivor_horde" },
+    { "Travel Group vs Zombies", "group_horde" },
+    { "Faction vs Zombies", "faction_horde" },
+    { "Faction Combat Stress Test", "stress" },
 }
 
 function DeveloperTools.spawn(playerNum, scenario)
@@ -54,10 +63,23 @@ local function onFill(playerNum, context, worldObjects, test)
     local rootOption = context:addOption("Knox Survivors - Developer Tools", nil, nil)
     local menu = ISContextMenu:getNew(context)
     context:addSubMenu(rootOption, menu)
+    local populationOption = menu:addOption("Spawn Survivor Scenarios", nil, nil)
+    local populationMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(populationOption, populationMenu)
     for _, definition in ipairs(SCENARIOS) do
-        menu:addOption(definition[1], playerNum, DeveloperTools.spawn, definition[2])
+        populationMenu:addOption(definition[1], playerNum, DeveloperTools.spawn, definition[2])
     end
+
+    local combatOption = menu:addOption("Run Combat Scenario", nil, nil)
+    local combatMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(combatOption, combatMenu)
+    for _, definition in ipairs(COMBAT_SCENARIOS) do
+        combatMenu:addOption(definition[1], playerNum, KnoxCombatTestScenarios.start, definition[2])
+    end
+
     menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)
+    menu:addOption("Write Combat Snapshot to Log", nil, KnoxCombatTestScenarios.writeSnapshot)
+    menu:addOption("Cleanup Combat Test", nil, KnoxCombatTestScenarios.cleanup)
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFill)

@@ -1,10 +1,16 @@
 package com.knoxsurvivors.npc;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Collection;
 
 /** Reads and prepares the engine-owned health state used by Knox survivor bodies. */
 final class KnoxHealthController {
     private static final float FULL_PART_HEALTH = 99.999f;
+    private static final float VANILLA_BITE_COLLISION_RANGE = 1.0f;
+    private static final float STANDING_ATTACK_VECTOR_RANGE = 0.70f;
+    private static final float MINIMUM_ATTACK_SEEN_TIME = 0.55f;
+    private static final float ATTACK_VISIBILITY_ENVELOPE = 1.25f;
 
     private KnoxHealthController() {
     }
@@ -89,37 +95,281 @@ final class KnoxHealthController {
             false,
             body.getClass().getClassLoader()
         );
-        // Rate-limited diagnostic for zombie->NPC eligibility (Task1)
-        try {
-            Object zombieTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
-            String zombieState = String.valueOf(zombie.getClass().getMethod("getCurrentStateName").invoke(zombie));
-            float zx = ((Number) zombie.getClass().getMethod("getX").invoke(zombie)).floatValue();
-            float zy = ((Number) zombie.getClass().getMethod("getY").invoke(zombie)).floatValue();
-            float bx = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
-            float by = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
-            float dz = (float) Math.sqrt((zx - bx) * (zx - bx) + (zy - by) * (zy - by));
-            boolean isLocal = (Boolean) body.getClass().getMethod("isLocalPlayer").invoke(body);
-            boolean zdont = (Boolean) body.getClass().getMethod("isZombiesDontAttack").invoke(body);
-            boolean invisible = (Boolean) body.getClass().getMethod("isInvisible").invoke(body);
-            float alpha = ((Number) body.getClass().getMethod("getAlpha").invoke(body)).floatValue();
-            Object square = body.getClass().getMethod("getCurrentSquare").invoke(body);
-            Object damage = body.getClass().getMethod("getBodyDamage").invoke(body);
-            boolean bdPresent = damage != null;
-            int npcIndex = body.getClass().getField("playerIndex").getInt(body);
-            com.knoxsurvivors.agent.KnoxAgent.writeLog(
-                "zombie-target-debug npcId=unknown zombieTarget=" + (zombieTarget != null ? zombieTarget.getClass().getSimpleName() : "null")
-                    + " npcIndex=" + npcIndex + " npcIsLocalPlayer=" + isLocal + " zombiesDontAttack=" + zdont
-                    + " invisible=" + invisible + " alpha=" + alpha + " currentSquare=" + (square != null ? "present" : "null")
-                    + " zombieState=" + zombieState + " zombieDistance=" + dz + " bodyDamagePresent=" + bdPresent);
-        } catch (ReflectiveOperationException ignored) {
+        Object currentTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
+        if (currentTarget == body) {
+            float targetDistance = refreshZombieTargetVector(zombie, body);
+            zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
+            if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
+                supplyOffSlotAttackVisibility(zombie);
+            }
+            String currentAction = String.valueOf(
+                zombie.getClass().getMethod("getCurrentActionContextStateName").invoke(zombie)
+            );
+            boolean attacking = (Boolean) zombie.getClass()
+                .getMethod("isZombieAttacking", movingObjectClass)
+                .invoke(zombie, body);
+            if (attacking || "attack".equalsIgnoreCase(currentAction)) {
+                return "ZOMBIE_DIRECTED status=attacking distance=" + targetDistance
+                    + " " + zombieAttackDiagnostics(zombie, body);
+            }
+            if (!canEnterAttackFrom(currentAction)) {
+                // Do not replace hit reactions, falls, climbs, or get-up actions. The
+                // previous bridge could force the action graph from hitreaction straight
+                // into attack, leaving the zombie in an invalid half-recovered loop.
+                return "ZOMBIE_DIRECTED status=attack-deferred distance=" + targetDistance
+                    + " action=" + currentAction
+                    + " " + zombieAttackDiagnostics(zombie, body);
+            }
+            if (targetDistance <= VANILLA_BITE_COLLISION_RANGE) {
+                // The off-slot IsoPlayer shell and its opponent can stop slightly farther
+                // apart than the 0.72 perception-vector threshold used by bAttack. The
+                // vanilla AttackState collision event accepts a real DistTo() of 1.0.
+                // Clamp only the perception vector inside that same collision envelope;
+                // every other getShouldAttack() guard remains authoritative.
+                clampZombieAttackVector(zombie, STANDING_ATTACK_VECTOR_RANGE);
+            }
+            if (vanillaShouldAttack(zombie)) {
+                float targetSeenTime = ((Number) zombie.getClass()
+                    .getMethod("getTargetSeenTime").invoke(zombie)).floatValue();
+                // Zombie_Bite_Start is gated by targetSeenTime > 0.5. Resetting this
+                // value on every perception refresh made the action state valid in
+                // Java while leaving the animator with no eligible start node.
+                if (targetSeenTime < MINIMUM_ATTACK_SEEN_TIME) {
+                    return "ZOMBIE_DIRECTED status=attack-windup distance=" + targetDistance
+                        + " " + zombieAttackDiagnostics(zombie, body);
+                }
+                // ActionContext applies the requested state later in the update. Clear
+                // the terminal flags now so an old ZombieBiteDone=true cannot satisfy
+                // attack/to_idle before AttackState.enter gets its callback.
+                zombie.getClass().getMethod("clearVariable", String.class)
+                    .invoke(zombie, "AttackDidDamage");
+                zombie.getClass().getMethod("clearVariable", String.class)
+                    .invoke(zombie, "ZombieBiteDone");
+                zombie.getClass().getMethod("setAttackOutcome", String.class)
+                    .invoke(zombie, "start");
+                enterVanillaZombieAttack(zombie);
+                return "ZOMBIE_DIRECTED status=attack-transition distance=" + targetDistance
+                    + " previousAction=" + currentAction
+                    + " " + zombieAttackDiagnostics(zombie, body);
+            }
+            // updateLOS is intentionally disabled on off-slot shells because it writes
+            // into local-player lighting. Keep pursuing until vanilla getShouldAttack()
+            // passes; its standing-zombie distance limit is 0.72 tiles.
+            zombie.getClass().getMethod("spotted", movingObjectClass, boolean.class)
+                .invoke(zombie, body, true);
+            zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
+            zombie.getClass().getMethod("pathToCharacter", gameCharacterClass)
+                .invoke(zombie, body);
+            if (targetDistance <= VANILLA_BITE_COLLISION_RANGE) {
+                return "ZOMBIE_DIRECTED status=blocked-close distance=" + targetDistance
+                    + " targetOnFloor="
+                    + body.getClass().getMethod("isOnFloor").invoke(body)
+                    + " targetGhost="
+                    + body.getClass().getMethod("isGhostMode").invoke(body)
+                    + " targetProtected="
+                    + body.getClass().getMethod("isZombiesDontAttack").invoke(body)
+                    + " zombieState="
+                    + zombie.getClass().getMethod("getCurrentStateName").invoke(zombie)
+                    + " zombieAction="
+                    + zombie.getClass().getMethod("getCurrentActionContextStateName").invoke(zombie)
+                    + " targetHealth=" + health(body);
+            }
+            return "ZOMBIE_DIRECTED status=pursuing distance=" + targetDistance
+                + " targetHealth=" + health(body);
         }
+
+        // This is only an acquisition bridge for off-slot NPCs. It deliberately does not
+        // touch already-targeted zombies; their current target and subsequent combat stay vanilla.
         body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
         zombie.getClass().getMethod("setUseless", boolean.class).invoke(zombie, false);
         zombie.getClass().getMethod("setCanWalk", boolean.class).invoke(zombie, true);
-        zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
         zombie.getClass().getMethod("spotted", movingObjectClass, boolean.class)
             .invoke(zombie, body, true);
+        zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
+        refreshZombieTargetVector(zombie, body);
         zombie.getClass().getMethod("pathToCharacter", gameCharacterClass).invoke(zombie, body);
-        return "ZOMBIE_DIRECTED targetHealth=" + health(body);
+        Object acquiredTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
+        String status = acquiredTarget == body ? "acquired" : "rejected";
+        return "ZOMBIE_DIRECTED status=" + status + " targetHealth=" + health(body);
+    }
+
+    static String zombieAttackDiagnostics(Object zombie, Object body)
+        throws ReflectiveOperationException {
+        Object target = zombie.getClass().getMethod("getTarget").invoke(zombie);
+        float dx = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue()
+            - ((Number) zombie.getClass().getMethod("getX").invoke(zombie)).floatValue();
+        float dy = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue()
+            - ((Number) zombie.getClass().getMethod("getY").invoke(zombie)).floatValue();
+        float distance = (float) Math.sqrt(dx * dx + dy * dy);
+        return "ZOMBIE_ATTACK_DIAGNOSTICS"
+            + " targetMatches=" + (target == body)
+            + " distance=" + distance
+            + " targetSeenTime="
+            + zombie.getClass().getMethod("getTargetSeenTime").invoke(zombie)
+            + " shouldAttack=" + vanillaShouldAttack(zombie)
+            + " engineTargetVisible="
+            + zombie.getClass().getMethod("isTargetVisible").invoke(zombie)
+            + " bCanSeeTarget="
+            + zombie.getClass().getMethod("getVariableBoolean", String.class)
+                .invoke(zombie, "bCanSeeTarget")
+            + " bAttack="
+            + zombie.getClass().getMethod("getVariableBoolean", String.class)
+                .invoke(zombie, "bAttack")
+            + " attackDidDamage="
+            + zombie.getClass().getMethod("getVariableBoolean", String.class)
+                .invoke(zombie, "AttackDidDamage")
+            + " biteDone="
+            + zombie.getClass().getMethod("getVariableBoolean", String.class)
+                .invoke(zombie, "ZombieBiteDone")
+            + " outcome=" + zombie.getClass().getMethod("getAttackOutcome").invoke(zombie)
+            + " state=" + zombie.getClass().getMethod("getCurrentStateName").invoke(zombie)
+            + " action="
+            + zombie.getClass().getMethod("getCurrentActionContextStateName").invoke(zombie)
+            + " targetAction="
+            + body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
+            + " targetAttackType="
+            + body.getClass().getMethod("getVariableString", String.class)
+                .invoke(body, "AttackType")
+            + " targetHitReaction="
+            + body.getClass().getMethod("getHitReaction").invoke(body)
+            + " targetAttacking="
+            + body.getClass().getMethod("isAttacking").invoke(body)
+            + " targetAttackAnimation="
+            + body.getClass().getMethod("isPerformingAttackAnimation").invoke(body)
+            + " targetAimFloor="
+            + body.getClass().getMethod("isAimAtFloor").invoke(body)
+            + " attackedByMatches="
+            + (body.getClass().getMethod("getAttackedBy").invoke(body) == zombie)
+            + " targetHealth=" + health(body)
+            + " injuredParts=" + injuredParts(body)
+            + " bleedingParts=" + bleedingParts(body);
+    }
+
+    private static void supplyOffSlotAttackVisibility(Object zombie)
+        throws ReflectiveOperationException {
+        // IsoZombie.isTargetVisible() reads IsoGridSquare.isCouldSee(target.getIndex()).
+        // A Knox shell deliberately uses an off-slot index and does not run updateLOS,
+        // otherwise it corrupts the real player's visibility and cursor channels. Keep
+        // only the close-range attack variables alive while the perception bridge owns
+        // this exact target. The normal getShouldAttack() and collision line checks still
+        // reject walls, floors, vehicles, protected targets, and invalid height.
+        Field canSeeTarget = findField(zombie.getClass(), "canSeeTarget");
+        if (!canSeeTarget.canAccess(zombie)) {
+            canSeeTarget.setAccessible(true);
+        }
+        canSeeTarget.setBoolean(zombie, true);
+        float targetSeenTime = ((Number) zombie.getClass()
+            .getMethod("getTargetSeenTime").invoke(zombie)).floatValue();
+        if (targetSeenTime < MINIMUM_ATTACK_SEEN_TIME) {
+            zombie.getClass().getMethod("setTargetSeenTime", float.class)
+                .invoke(zombie, MINIMUM_ATTACK_SEEN_TIME);
+        }
+    }
+
+    private static Field findField(Class<?> type, String name) throws NoSuchFieldException {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(type.getName() + "." + name);
+    }
+
+    private static boolean vanillaShouldAttack(Object zombie)
+        throws ReflectiveOperationException {
+        Method method = zombie.getClass().getDeclaredMethod("getShouldAttack");
+        if (!method.canAccess(zombie)) {
+            method.setAccessible(true);
+        }
+        return (Boolean) method.invoke(zombie);
+    }
+
+    private static boolean canEnterAttackFrom(String action) {
+        if (action == null) {
+            return false;
+        }
+        String normalized = action.toLowerCase(java.util.Locale.ROOT);
+        return "idle".equals(normalized)
+            || "lunge".equals(normalized)
+            || "walktoward".equals(normalized)
+            || "pathfind".equals(normalized)
+            || "turnalerted".equals(normalized);
+    }
+
+    private static void enterVanillaZombieAttack(Object zombie)
+        throws ReflectiveOperationException {
+        // Build 42 carries zombie combat in two synchronized layers.  The action
+        // context drives the animation graph, while the legacy state machine owns
+        // AttackState's collision callback.  Setting only the action context can
+        // leave diagnostics at ZombieIdleState/action=attack and never reach the
+        // vanilla bite event, which is exactly the failure mode this bridge is
+        // intended to avoid.
+        Class<?> legacyStateClass = Class.forName(
+            "zombie.ai.State",
+            false,
+            zombie.getClass().getClassLoader()
+        );
+        Class<?> attackStateClass = Class.forName(
+            "zombie.ai.states.AttackState",
+            true,
+            zombie.getClass().getClassLoader()
+        );
+        Object legacyAttackState = attackStateClass.getMethod("instance").invoke(null);
+        zombie.getClass().getMethod("changeState", legacyStateClass)
+            .invoke(zombie, legacyAttackState);
+
+        Object actionContext = zombie.getClass().getMethod("getActionContext").invoke(zombie);
+        Object actionGroup = actionContext.getClass().getMethod("getGroup").invoke(actionContext);
+        Object attackState = actionGroup.getClass().getMethod("findState", String.class)
+            .invoke(actionGroup, "attack");
+        if (attackState == null) {
+            throw new IllegalStateException("Zombie action group has no attack state");
+        }
+        Class<?> actionStateClass = Class.forName(
+            "zombie.characters.action.ActionState",
+            false,
+            zombie.getClass().getClassLoader()
+        );
+        actionContext.getClass().getMethod("setCurrentState", actionStateClass)
+            .invoke(actionContext, attackState);
+    }
+
+    private static float refreshZombieTargetVector(Object zombie, Object body)
+        throws ReflectiveOperationException {
+        float zombieX = ((Number) zombie.getClass().getMethod("getX").invoke(zombie)).floatValue();
+        float zombieY = ((Number) zombie.getClass().getMethod("getY").invoke(zombie)).floatValue();
+        float bodyX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+        float bodyY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+
+        // Vanilla's attack eligibility reads this live vector, while pathing also uses
+        // lastTargetSeen*. Off-slot NPCs do not run local-player LOS updates, so mirror
+        // only those perception values rather than forcing AttackState ourselves.
+        Object vector = zombie.getClass().getField("vectorToTarget").get(zombie);
+        vector.getClass().getField("x").setFloat(vector, bodyX - zombieX);
+        vector.getClass().getField("y").setFloat(vector, bodyY - zombieY);
+        zombie.getClass().getField("lastTargetSeenX").setInt(zombie, (int) Math.floor(bodyX));
+        zombie.getClass().getField("lastTargetSeenY").setInt(zombie, (int) Math.floor(bodyY));
+        float bodyZ = ((Number) body.getClass().getMethod("getZ").invoke(body)).floatValue();
+        zombie.getClass().getField("lastTargetSeenZ").setInt(zombie, (int) Math.floor(bodyZ));
+        float dx = bodyX - zombieX;
+        float dy = bodyY - zombieY;
+        return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private static void clampZombieAttackVector(Object zombie, float maximumLength)
+        throws ReflectiveOperationException {
+        Object vector = zombie.getClass().getField("vectorToTarget").get(zombie);
+        float x = vector.getClass().getField("x").getFloat(vector);
+        float y = vector.getClass().getField("y").getFloat(vector);
+        float length = (float) Math.sqrt(x * x + y * y);
+        if (length <= maximumLength || length <= 0.001f) {
+            return;
+        }
+        float scale = maximumLength / length;
+        vector.getClass().getField("x").setFloat(vector, x * scale);
+        vector.getClass().getField("y").setFloat(vector, y * scale);
     }
 }

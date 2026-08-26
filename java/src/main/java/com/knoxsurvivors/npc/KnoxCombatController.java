@@ -9,15 +9,16 @@ final class KnoxCombatController {
     private static final int ATTACK_RETRY_TICKS = 30;
     private static final int AIM_SETTLE_TICKS = 18;
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
+    private static final int ATTACK_RECOVERY_TICKS = 24;
     private static final float REAPPROACH_BUFFER = 0.20f;
-    private static final int REAPPROACH_COOLDOWN_TICKS = 30;
+    private static final int LIVE_PURSUIT_REFRESH_TICKS = 6;
 
     private KnoxNpc npc;
     private Object target;
     private String phase = "IDLE";
     private int ticks;
     private int lastAttackTick = -ATTACK_RETRY_TICKS;
-    private int lastReapproachTick = -REAPPROACH_COOLDOWN_TICKS;
+    private int lastReapproachTick = -LIVE_PURSUIT_REFRESH_TICKS;
     private int attackRequests;
     private float initialTargetHealth;
     private float lastTargetHealth;
@@ -30,6 +31,8 @@ final class KnoxCombatController {
     private boolean directStateFallbackUsed;
     private boolean obstacleTarget;
     private boolean attackCycleActive;
+    private boolean liveCombat;
+    private int defenseWindowUntil;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -54,6 +57,7 @@ final class KnoxCombatController {
         npc = activeNpc;
         target = door;
         obstacleTarget = true;
+        liveCombat = false;
         Object body = npc.getBody();
         Class.forName(
             "zombie.ai.states.SwipeStatePlayer",
@@ -100,6 +104,7 @@ final class KnoxCombatController {
         reset();
         npc = activeNpc;
         target = zombie;
+        liveCombat = !controlledGate;
         Object body = npc.getBody();
         Class.forName(
             "zombie.ai.states.SwipeStatePlayer",
@@ -119,6 +124,14 @@ final class KnoxCombatController {
 
         initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
             .invoke(weapon)).intValue();
+        // Combat always interrupts rest. Clear posture flags that can remain set for a
+        // frame after a timed sit/rest action and make both zombie eligibility and melee
+        // movement treat the visibly standing shell as prone.
+        body.getClass().getMethod("setSitOnGround", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setSittingOnFurniture", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setOnFloor", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setVariable", String.class, boolean.class)
+            .invoke(body, "forceGetUp", true);
         weaponMaxRange = ((Number) weapon.getClass().getMethod("getMaxRange").invoke(weapon))
             .floatValue();
         // For moving zombies, get much closer to ensure hits land even when target is chasing player.
@@ -140,8 +153,7 @@ final class KnoxCombatController {
             target.getClass().getMethod("setUseless", boolean.class).invoke(target, false);
         }
 
-        KnoxNpcFactory.moveToRangeFrom(npc, target, approachSquare, desiredAttackRange);
-        npc.clearMovementRoute();
+        KnoxNpcFactory.followCharacter(npc, target);
         phase = "APPROACHING";
         String result = "COMBAT_STARTED mode=" + (controlledGate ? "gate" : "live")
             + " targetHealth=" + initialTargetHealth
@@ -188,7 +200,51 @@ final class KnoxCombatController {
                 + " weaponCondition=" + initialWeaponCondition + "->" + condition;
         }
 
-        if ("APPROACHING".equals(phase)) {
+        Object body = npc.getBody();
+        float targetX = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue();
+        float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
+        float bodyX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+        float bodyY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+        float dx = targetX - bodyX;
+        float dy = targetY - bodyY;
+        float targetDistance = (float) Math.sqrt(dx * dx + dy * dy);
+        float reapproachThreshold = desiredAttackRange + REAPPROACH_BUFFER;
+
+        String bodyAction = String.valueOf(
+            body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
+        );
+        if (liveCombat && isHitReactionAction(bodyAction)) {
+            // A vanilla zombie hit reaction owns the shell until its action graph exits.
+            // Reapplying aim/attack input here suppresses the visible reaction and can
+            // leave AttackType set, which also makes a frontal zombie collision return
+            // before AddRandomDamageFromZombie is called.
+            clearAttackIntent();
+            body.getClass().getMethod("clearVariable", String.class)
+                .invoke(body, "AttackType");
+            attackCycleActive = false;
+            lastAttackTick = ticks;
+            defenseWindowUntil = Math.max(
+                defenseWindowUntil,
+                ticks + ATTACK_RECOVERY_TICKS
+            );
+            return "COMBAT_REACTING action=" + bodyAction
+                + " targetHealth=" + currentHealth;
+        }
+
+        if ("APPROACHING".equals(phase) && !obstacleTarget) {
+            if (targetDistance > reapproachThreshold) {
+                if (ticks - lastReapproachTick >= LIVE_PURSUIT_REFRESH_TICKS) {
+                    KnoxNpcFactory.followCharacter(npc, target);
+                    lastReapproachTick = ticks;
+                }
+                return "COMBAT_APPROACHING liveDistance=" + targetDistance
+                    + " desiredRange=" + desiredAttackRange
+                    + " targetHealth=" + currentHealth;
+            }
+            phase = "AIMING";
+            aimTicks = 0;
+            clearMovementIntent();
+        } else if ("APPROACHING".equals(phase)) {
             String movement = KnoxNpcFactory.tickMovement(npc);
             if (movement.startsWith("Failed")) {
                 phase = "FAILED";
@@ -206,39 +262,12 @@ final class KnoxCombatController {
             return "COMBAT_" + phase;
         }
 
-        Object body = npc.getBody();
-        float targetX = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue();
-        float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
-        float bodyX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
-        float bodyY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
-        float dx = targetX - bodyX;
-        float dy = targetY - bodyY;
-        float targetDistance = (float) Math.sqrt(dx * dx + dy * dy);
-        // Get closer for moving zombies: use desired+small buffer, not maxRange, to ensure hits land when target is chasing player.
-        float reapproachThreshold = desiredAttackRange + 0.30f;
-        if (!obstacleTarget && targetDistance > reapproachThreshold && ticks - lastReapproachTick >= REAPPROACH_COOLDOWN_TICKS) {
+        if (!obstacleTarget && targetDistance > reapproachThreshold) {
             boolean attackInProgress = (Boolean) body.getClass().getMethod("isAttacking").invoke(body)
                 || (Boolean) body.getClass().getMethod("isPerformingAttackAnimation").invoke(body);
             if (!attackInProgress) {
                 clearAttackIntent();
-                Object bodySquare = body.getClass().getMethod("getCurrentSquare").invoke(body);
-                if (bodySquare == null) {
-                    phase = "FAILED";
-                    return "COMBAT_FAILED REAPPROACH_NO_CURRENT_SQUARE";
-                }
-                // For live moving zombies, follow the character directly so the path updates as they chase the player.
-                if (!obstacleTarget) {
-                    try {
-                        Class<?> gameCharClass = Class.forName("zombie.characters.IsoGameCharacter", false, body.getClass().getClassLoader());
-                        body.getClass().getMethod("pathToCharacter", gameCharClass).invoke(body, target);
-                        body.getClass().getMethod("setRunning", boolean.class).invoke(body, true);
-                    } catch (ReflectiveOperationException e) {
-                        KnoxNpcFactory.moveToRangeFrom(npc, target, bodySquare, desiredAttackRange);
-                    }
-                } else {
-                    KnoxNpcFactory.moveToRangeFrom(npc, target, bodySquare, desiredAttackRange);
-                }
-                npc.clearMovementRoute();
+                KnoxNpcFactory.followCharacter(npc, target);
                 phase = "APPROACHING";
                 aimTicks = 0;
                 lastReapproachTick = ticks;
@@ -250,8 +279,6 @@ final class KnoxCombatController {
                     + " targetHealth=" + currentHealth;
             }
         }
-        faceTarget(body, targetX, targetY);
-        applyCombatStance(body, false);
         Object targetSquare = obstacleTarget
             ? target.getClass().getMethod("getSquare").invoke(target)
             : target.getClass().getMethod("getCurrentSquare").invoke(target);
@@ -259,6 +286,39 @@ final class KnoxCombatController {
             "setAttackTargetSquare",
             classFor(body, "zombie.iso.IsoGridSquare")
         ).invoke(body, targetSquare);
+
+        boolean attackStarted = (Boolean) body.getClass().getMethod("isAttackStarted").invoke(body);
+        boolean attacking = (Boolean) body.getClass().getMethod("isAttacking").invoke(body);
+        boolean attackAnimation = (Boolean) body.getClass()
+            .getMethod("isPerformingAttackAnimation").invoke(body);
+        boolean attackActive = attackStarted || attacking || attackAnimation;
+        if (attackCycleActive && !attackActive) {
+            // Yield the complete interval between swings to vanilla defense/hit
+            // reactions. AttackState rejects a frontal collision while the target's
+            // AttackType is non-empty, so clear the completed swing explicitly.
+            lastAttackTick = ticks;
+            attackCycleActive = false;
+            if (liveCombat) {
+                clearAttackIntent();
+                body.getClass().getMethod("clearVariable", String.class)
+                    .invoke(body, "AttackType");
+                defenseWindowUntil = ticks + ATTACK_RECOVERY_TICKS;
+                return "COMBAT_RECOVERING ticks=" + ATTACK_RECOVERY_TICKS
+                    + " targetHealth=" + currentHealth;
+            }
+        } else {
+            attackCycleActive = attackActive;
+        }
+
+        if (liveCombat && ticks < defenseWindowUntil) {
+            return "COMBAT_RECOVERING ticks=" + (defenseWindowUntil - ticks)
+                + " targetHealth=" + currentHealth;
+        }
+
+        boolean targetOnFloor = !obstacleTarget
+            && (Boolean) target.getClass().getMethod("isOnFloor").invoke(target);
+        faceTarget(body, targetX, targetY);
+        applyCombatStance(body, false, targetOnFloor);
 
         if ("AIMING".equals(phase)) {
             aimTicks++;
@@ -269,20 +329,8 @@ final class KnoxCombatController {
             phase = "ATTACKING";
         }
 
-        boolean attackStarted = (Boolean) body.getClass().getMethod("isAttackStarted").invoke(body);
-        boolean attacking = (Boolean) body.getClass().getMethod("isAttacking").invoke(body);
         boolean weaponReady = (Boolean) body.getClass().getMethod("isWeaponReady").invoke(body);
         boolean initiateAttack = (Boolean) body.getClass().getMethod("isInitiateAttack").invoke(body);
-        boolean attackAnimation = (Boolean) body.getClass()
-            .getMethod("isPerformingAttackAnimation").invoke(body);
-        boolean attackActive = attackStarted || attacking || attackAnimation;
-        if (attackCycleActive && !attackActive) {
-            // The vanilla swipe-state exit has just cleared AttackType. Start the
-            // retry clock here, not at the beginning of the previous swing, so a
-            // nearby zombie gets a real collision window between NPC attacks.
-            lastAttackTick = ticks;
-        }
-        attackCycleActive = attackActive;
         attackAnimationObserved = attackAnimationObserved || attackAnimation;
         if (attackAnimation) {
             body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
@@ -325,7 +373,7 @@ final class KnoxCombatController {
         boolean attackTypeClear = attackType.isEmpty() || "NONE".equalsIgnoreCase(attackType);
         if (!attackStarted && !attacking && weaponReady && attackTypeClear
             && ticks - lastAttackTick >= ATTACK_RETRY_TICKS) {
-            requestAttack(body);
+            requestAttack(body, targetOnFloor);
             attackRequests++;
             lastAttackTick = ticks;
             attackAnimationObserved = false;
@@ -350,6 +398,33 @@ final class KnoxCombatController {
             + " attackType=" + attackType;
     }
 
+    String diagnostics() {
+        if (npc == null || target == null) {
+            return "COMBAT_DIAGNOSTICS phase=" + phase + " active=false";
+        }
+        try {
+            Object body = npc.getBody();
+            float dx = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue()
+                - ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+            float dy = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue()
+                - ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+            return "COMBAT_DIAGNOSTICS phase=" + phase
+                + " active=true ticks=" + ticks
+                + " distance=" + (float) Math.sqrt(dx * dx + dy * dy)
+                + " attacks=" + attackRequests
+                + " damageObserved=" + damageObserved
+                + " targetHealth=" + health(target)
+                + " bodyHealth=" + KnoxHealthController.health(body)
+                + " bodyState=" + body.getClass().getMethod("getCurrentStateName").invoke(body)
+                + " bodyAction="
+                + body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
+                + " attackType=" + body.getClass().getMethod("getAttackType").invoke(body);
+        } catch (ReflectiveOperationException exception) {
+            return "COMBAT_DIAGNOSTICS_FAILED " + exception.getClass().getSimpleName()
+                + ": " + exception.getMessage();
+        }
+    }
+
     void reset() {
         if (npc != null) {
             try {
@@ -363,7 +438,7 @@ final class KnoxCombatController {
         phase = "IDLE";
         ticks = 0;
         lastAttackTick = -ATTACK_RETRY_TICKS;
-        lastReapproachTick = -REAPPROACH_COOLDOWN_TICKS;
+        lastReapproachTick = -LIVE_PURSUIT_REFRESH_TICKS;
         attackRequests = 0;
         initialTargetHealth = 0.0f;
         lastTargetHealth = 0.0f;
@@ -376,6 +451,8 @@ final class KnoxCombatController {
         directStateFallbackUsed = false;
         obstacleTarget = false;
         attackCycleActive = false;
+        liveCombat = false;
+        defenseWindowUntil = 0;
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {
@@ -392,6 +469,7 @@ final class KnoxCombatController {
         body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class).invoke(body, false);
         body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, false);
         body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
         body.getClass().getField("isCharging").setBoolean(body, false);
         body.getClass().getField("useChargeDelta").setFloat(body, 0.0f);
@@ -399,25 +477,33 @@ final class KnoxCombatController {
         setAiAttackIntent(body, false, false);
     }
 
-    private static void applyCombatStance(Object body, boolean initiate)
+    private static void applyCombatStance(Object body, boolean initiate, boolean aimAtFloor)
         throws ReflectiveOperationException {
         body.getClass().getMethod("setBannedAttacking", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
-        body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class)
+            .invoke(body, aimAtFloor);
+        body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
         body.getClass().getField("isCharging").setBoolean(body, true);
         setAiAttackIntent(body, true, initiate);
     }
 
-    private static void requestAttack(Object body) throws ReflectiveOperationException {
+    private static void requestAttack(Object body, boolean aimAtFloor)
+        throws ReflectiveOperationException {
         body.getClass().getMethod("clearHandToHandAttack").invoke(body);
-        body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getField("useChargeDelta").setFloat(body, 36.0f);
-        applyCombatStance(body, false);
+        applyCombatStance(body, false, aimAtFloor);
         body.getClass().getMethod("pressedAttack").invoke(body);
         body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, true);
         body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
         setAiAttackIntent(body, true, true);
+    }
+
+    private static boolean isHitReactionAction(String action) {
+        return action != null
+            && action.toLowerCase(java.util.Locale.ROOT).contains("hitreaction");
     }
 
     private static void enterSwipeState(Object body) throws ReflectiveOperationException {

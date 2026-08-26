@@ -47,7 +47,7 @@ else {
                 ForEach-Object { $_ -replace "`0", '' } |
                 Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
             $latestResult = $recentLines |
-                Where-Object { $_ -match '(?i)\[KnoxSurvivors\]\[(TestLab|Autonomy)\].*RESULT scenario=' } |
+                Where-Object { $_ -match '(?i)\[KnoxSurvivors\]\[(TestLab|Autonomy|CombatTest)\].*RESULT scenario=' } |
                 Select-Object -Last 1
             if (-not [string]::IsNullOrWhiteSpace($latestResult)) {
                 Set-Content -LiteralPath $liveTestStatusPath -Value $latestResult -Encoding UTF8

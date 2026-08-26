@@ -57,6 +57,10 @@ public final class KnoxBridge {
         return npcRegistry.move(id, square);
     }
 
+    public String moveNpcWithPace(String id, Object square, String pace) {
+        return npcRegistry.moveWithPace(id, square, pace);
+    }
+
     public String crossTestNpc(Object square) {
         return npcRegistry.crossOneAdjacentEdge(square);
     }
@@ -207,6 +211,14 @@ public final class KnoxBridge {
 
     public String directZombieAtNpc(String id, Object zombie) {
         return npcRegistry.directZombieAt(id, zombie);
+    }
+
+    public String getZombieAttackDiagnostics(String id, Object zombie) {
+        return npcRegistry.zombieAttackDiagnostics(id, zombie);
+    }
+
+    public String getNpcCombatDiagnostics(String id) {
+        return npcRegistry.combatDiagnostics(id);
     }
 
     public String captureTestNpcRecord() {

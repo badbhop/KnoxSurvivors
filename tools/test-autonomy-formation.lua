@@ -53,17 +53,26 @@ assert(combatController.reservations.threats[threat] == nil,
 
 local leaderSquare = square(10, 10, 0)
 local leader = {
+    getX = function() return 10.5 end,
+    getY = function() return 10.5 end,
     getCurrentSquare = function() return leaderSquare end,
     getForwardDirectionX = function() return 1 end,
     getForwardDirectionY = function() return 0 end,
 }
 local follower = {
+    getX = function() return 0.5 end,
+    getY = function() return 0.5 end,
     getCurrentSquare = function() return square(0, 0, 0) end,
 }
 local captured = {}
 local bridge = {
     moveNpc = function(_, id, target)
         captured[id] = target
+        return "MOVE_STARTED"
+    end,
+    moveNpcWithPace = function(_, id, target, pace)
+        captured[id] = target
+        captured[id .. ":pace"] = pace
         return "MOVE_STARTED"
     end,
     cancelNpcMove = function() return true end,
@@ -88,6 +97,8 @@ assert(captured.left:getX() == 9 and captured.left:getY() == 9,
     "left follower receives back-left slot")
 assert(captured.right:getX() == 9 and captured.right:getY() == 11,
     "right follower receives back-right slot")
+assert(captured["left:pace"] == "sprint",
+    "distant follower requests sprint catch-up")
 
 leaderSquare = square(12, 10, 0)
 assert(left:refreshFormationFollow(60), "moving leader refreshes formation path")

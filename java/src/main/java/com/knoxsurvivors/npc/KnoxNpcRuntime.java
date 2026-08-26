@@ -5,6 +5,8 @@ import com.knoxsurvivors.agent.KnoxAgent;
 /** Mutable engine state owned by one persistent Knox survivor identity. */
 final class KnoxNpcRuntime {
     private static final float ARRIVAL_DISTANCE = 0.65f;
+    private static final int STUCK_WINDOW_TICKS = 45;
+    private static final float STUCK_MIN_DISPLACEMENT = 0.12f;
 
     private KnoxNpc npc;
     private boolean movementRequested;
@@ -14,6 +16,9 @@ final class KnoxNpcRuntime {
     private float movementTargetY;
     private int movementTargetZ;
     private String movementControllerState = "NotStarted";
+    private float lastProgressX;
+    private float lastProgressY;
+    private int noProgressTicks;
     private KnoxSurvivorRecord lastRecord;
     private final KnoxCombatController combatController = new KnoxCombatController();
 
@@ -46,6 +51,10 @@ final class KnoxNpcRuntime {
     }
 
     String beginMove(Object square, boolean exactAdjacentCrossing) {
+        return beginMove(square, exactAdjacentCrossing, "normal");
+    }
+
+    String beginMove(Object square, boolean exactAdjacentCrossing, String pace) {
         if (movementRequested) {
             return "MOVE_ALREADY_REQUESTED " + movementDescription();
         }
@@ -58,6 +67,10 @@ final class KnoxNpcRuntime {
             movementTargetY = ((Number) square.getClass().getMethod("getY").invoke(square)).floatValue()
                 + 0.5f;
             movementTargetZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+            lastProgressX = movementStartX;
+            lastProgressY = movementStartY;
+            noProgressTicks = 0;
+            npc.setMovementPace(pace);
             if (exactAdjacentCrossing) {
                 KnoxNpcFactory.moveAcrossAdjacentEdge(npc, square);
             } else {
@@ -84,7 +97,42 @@ final class KnoxNpcRuntime {
         }
         try {
             String previousState = movementControllerState;
-            movementControllerState = KnoxNpcFactory.tickMovement(npc);
+            float currentX = ((Number) npc.getBody().getClass().getMethod("getX")
+                .invoke(npc.getBody())).floatValue();
+            float currentY = ((Number) npc.getBody().getClass().getMethod("getY")
+                .invoke(npc.getBody())).floatValue();
+            float remainingDistance = distance(currentX, currentY, movementTargetX, movementTargetY);
+            movementControllerState = KnoxNpcFactory.tickMovement(
+                npc,
+                remainingDistance,
+                npc.getMovementPace()
+            );
+            if (isStuckState(movementControllerState) && remainingDistance > ARRIVAL_DISTANCE) {
+                float progress = distance(currentX, currentY, lastProgressX, lastProgressY);
+                if (progress >= STUCK_MIN_DISPLACEMENT) {
+                    lastProgressX = currentX;
+                    lastProgressY = currentY;
+                    noProgressTicks = 0;
+                } else {
+                    noProgressTicks++;
+                }
+                if (noProgressTicks >= STUCK_WINDOW_TICKS) {
+                    KnoxNpcFactory.cancelMovement(npc);
+                    String result = "FailedStuck displacement="
+                        + distance(currentX, currentY, movementStartX, movementStartY)
+                        + " targetDistance=" + remainingDistance
+                        + " state=" + movementControllerState;
+                    KnoxAgent.writeLog("NPC probe movement " + npc.describe() + " " + result);
+                    return finishMovementRequest(result);
+                }
+            } else if (!isStuckState(movementControllerState)) {
+                // Turning, climbing, and door/window actions legitimately hold the
+                // survivor in place. They are governed by their action timeout rather
+                // than being mistaken for a blocked locomotion route.
+                noProgressTicks = 0;
+                lastProgressX = currentX;
+                lastProgressY = currentY;
+            }
             if (!movementControllerState.equals(previousState)) {
                 KnoxAgent.writeLog(
                     "NPC probe movement controller="
@@ -156,11 +204,24 @@ final class KnoxNpcRuntime {
     private void resetMovement() {
         movementRequested = false;
         movementControllerState = "NotStarted";
+        lastProgressX = 0.0f;
+        lastProgressY = 0.0f;
+        noProgressTicks = 0;
+        npc.setMovementPace("normal");
     }
 
     private String finishMovementRequest(String terminalState) {
         movementRequested = false;
+        noProgressTicks = 0;
+        npc.setMovementPace("normal");
         return terminalState;
+    }
+
+    private static boolean isStuckState(String state) {
+        return "Working".equals(state)
+            || "ManualRoute".equals(state)
+            || "Pathfinding".equalsIgnoreCase(state)
+            || "PathFind".equalsIgnoreCase(state);
     }
 
     private String movementDescription() {

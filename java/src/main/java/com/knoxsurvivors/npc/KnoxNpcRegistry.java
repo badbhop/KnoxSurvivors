@@ -46,19 +46,23 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized String move(String id, Object square) {
-        return beginMove(id, square, false);
+        return beginMove(id, square, false, "normal");
+    }
+
+    public synchronized String moveWithPace(String id, Object square, String pace) {
+        return beginMove(id, square, false, pace);
     }
 
     public synchronized String cross(String id, Object square) {
-        return beginMove(id, square, true);
+        return beginMove(id, square, true, "walk");
     }
 
-    private String beginMove(String id, Object square, boolean exactAdjacentCrossing) {
+    private String beginMove(String id, Object square, boolean exactAdjacentCrossing, String pace) {
         KnoxNpcRuntime runtime = activeNpcs.get(id);
         if (runtime == null) {
             return "MOVE_FAILED NONE_ACTIVE";
         }
-        return runtime.beginMove(square, exactAdjacentCrossing);
+        return runtime.beginMove(square, exactAdjacentCrossing, pace);
     }
 
     public synchronized boolean hasTraversalEvidence(String state) {
@@ -314,6 +318,25 @@ public final class KnoxNpcRegistry {
         } catch (Throwable throwable) {
             return failure("ZOMBIE_DIRECT_FAILED", throwable);
         }
+    }
+
+    public synchronized String zombieAttackDiagnostics(String id, Object zombie) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
+            return "ZOMBIE_ATTACK_DIAGNOSTICS_FAILED NONE_ACTIVE";
+        }
+        try {
+            return KnoxHealthController.zombieAttackDiagnostics(zombie, npc.getBody());
+        } catch (Throwable throwable) {
+            return failure("ZOMBIE_ATTACK_DIAGNOSTICS_FAILED", throwable);
+        }
+    }
+
+    public synchronized String combatDiagnostics(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime == null
+            ? "COMBAT_DIAGNOSTICS_FAILED NONE_ACTIVE"
+            : runtime.combat().diagnostics();
     }
 
     public synchronized String seedAndEquipOne() {

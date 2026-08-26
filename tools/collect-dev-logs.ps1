@@ -62,10 +62,10 @@ Set-Content -LiteralPath $knoxOutputPath -Value $knoxText -Encoding UTF8
 $combinedLines = @($consoleText -split "`r?`n") + @($knoxText -split "`r?`n")
 $knoxEvents = @($combinedLines | Where-Object { $_ -match '(?i)\[(KnoxSurvivors|KnoxIsoPlayer)\]' })
 $possibleIssues = @($combinedLines | Where-Object {
-    $_ -match '(?i)(error|exception|object tried to call nil|reflection init failed|stack traceback|stack trace|java\.lang\.|\[(TestLab|Autonomy)\].*status=FAIL|controller_tick=)'
+    $_ -match '(?i)(error|exception|object tried to call nil|reflection init failed|stack traceback|stack trace|java\.lang\.|\[(TestLab|Autonomy|CombatTest)\].*status=(FAIL|PARTIAL|BLOCKED)|controller_tick=)'
 })
 $testResults = @($combinedLines | Where-Object {
-    $_ -match '(?i)\[KnoxSurvivors\]\[(TestLab|Autonomy)\].*RESULT scenario='
+    $_ -match '(?i)\[KnoxSurvivors\]\[(TestLab|Autonomy|CombatTest)\].*RESULT scenario='
 })
 $renderCorruption = @($combinedLines | Where-Object {
     $_ -match '(?i)RENDER_DIAGNOSTICS.*local0=[^}]*alpha=0(?:\.0+)?,targetAlpha=0(?:\.0+)?'
@@ -79,6 +79,7 @@ $movementFailures = @($combinedLines | Where-Object {
 $testPassCount = @($testResults | Where-Object { $_ -match '(?i)status=PASS' }).Count
 $testFailCount = @($testResults | Where-Object { $_ -match '(?i)status=FAIL' }).Count
 $testBlockedCount = @($testResults | Where-Object { $_ -match '(?i)status=BLOCKED' }).Count
+$testPartialCount = @($testResults | Where-Object { $_ -match '(?i)status=PARTIAL' }).Count
 $testSkipCount = @($testResults | Where-Object { $_ -match '(?i)status=SKIP' }).Count
 
 Set-Content -LiteralPath $eventsOutputPath -Value $knoxEvents -Encoding UTF8
@@ -97,6 +98,7 @@ $summary = @(
     "Test passes: $testPassCount"
     "Test failures: $testFailCount"
     "Test blocked: $testBlockedCount"
+    "Test partial: $testPartialCount"
     "Test skipped: $testSkipCount"
     "Render corruption lines: $($renderCorruption.Count)"
     "Alternate-entry events: $($alternateEntryEvents.Count)"

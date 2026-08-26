@@ -5,6 +5,57 @@ Developer tools are off by default. Enable them on a test save, then select one 
 scenario or use the in-world right-click menu described in
 [Sandbox Settings](SANDBOX_SETTINGS.md). The tools never rewrite vanilla sandbox values.
 
+## One-click combat tests
+
+With developer tools enabled, right-click the ground and open
+**Knox Survivors - Developer Tools > Run Combat Scenario**. The menu provides a one-on-one
+fight, one survivor against a zombie group, a travel group fight, a faction fight, and a
+larger stress test. Each preset creates its survivor population, spawns only its own tagged
+zombies nearby, and watches for both survivor damage to zombies and native zombie damage to
+survivors. It does not remove ordinary world zombies or alter sandbox population values.
+
+The activity feed reports PASS, PARTIAL, FAIL, or BLOCKED. A PASS requires evidence of
+two-way combat. **Write Combat Snapshot to Log** records every test survivor's controller and
+Java combat state plus each test zombie's target, distance, target-seen timer, attack action,
+attack outcome, collision-damage flag, and survivor health. **Cleanup Combat Test** removes
+only zombies created by the selected preset; the deliberately spawned development survivors
+remain persistent so save/reload can still be tested.
+
+For the current native-bite gate, run **Survivor vs Zombie Group** first. Keep the player far
+enough away that the test remains uncontaminated, and wait for the automatic result. If it is
+not PASS, write one combat snapshot before cleanup, close the game normally, and use the
+collected run folder. That single run should distinguish failure to acquire, approach,
+transition into the bite animation, fire its collision event, or apply BodyDamage.
+
+The 2026-08-25 duel and survivor-group runs reported PARTIAL: survivor approach, melee
+animation, damage, kills, and moving-target re-approach worked, but zombie collision damage was
+not consistently visible. Engine inspection isolated two lifecycle hazards: an off-slot zombie
+could be re-entered from `hitreaction`, and a completed bite could be re-entered with stale
+`ZombieBiteDone=true`. The current patch defers those transitions, clears the native terminal
+flags before each new bite, and records the survivor's `AttackType`, hit-reaction action,
+floor-aim state, and `attackedBy` result in the snapshot. It also gives the survivor a short
+native-defense interval between swings, including stomp targeting for downed zombies. This is
+ready for a fresh live confirmation; it is not marked verified until the run records a real
+survivor reaction and health/injury change.
+
+The zombie handoff now enters both Build 42 combat layers: the action-context attack state for
+animation and the legacy `AttackState` for the native collision callback. This avoids a
+diagnostic state of `ZombieIdleState/action=attack`, where a bite could look armed but never
+reach the engine damage event. NPC creation also refuses an engine layout with no off-slot
+player index instead of risking the primary player's cursor/render channel.
+
+The awareness handoff now keeps a short native-target memory instead of reissuing the same
+target every frame. Close-range perception refreshes are paced, and a zombie keeps its current
+survivor target unless that target is lost or a clearly more urgent target appears. This is
+intended to prevent attack-state churn while preserving normal zombie target selection and
+collision rules. Movement also reports `FailedStuck` after a real no-displacement window, and
+failed traversal edges receive a brief cooldown so a survivor can choose another route instead
+of repeating the same locked door, fence, or window attempt.
+
+Save capture attempts every active survivor independently. If one shell is unloading or
+otherwise cannot be captured, successful records are still written and the save log reports
+the failed IDs instead of aborting the entire capture pass.
+
 ## Production world population and hibernation — live retest required
 
 The production population core now allocates survivors from the map's real Build 42 player
@@ -116,7 +167,10 @@ decisions and world interactions are otherwise live.
     the survivor sits on the ground. Look for `recovery-posture` and increasing
     `recovery-progress endurance=` values before the survivor stands and resumes autonomy.
 12. After a group forms, followers should settle into separate staggered positions behind
-    the leader rather than sharing one destination. Walk far enough to stretch the group.
+    the leader rather than sharing one destination. Walk far enough to stretch the group. A gap
+    of roughly five tiles should request running; a gap of twelve or more should request sprint
+    catch-up when endurance and fatigue allow it. The live status line should expose
+    `running=true`/`sprinting=true` and the route pace while the gap closes.
     The leader should wait around ten tiles of separation and move back toward a member who
     falls roughly fourteen tiles behind. After any zombie dies, every controller must leave
     combat and keep travelling; `releaseThreat` errors or `state=STOPPED` fail this gate.

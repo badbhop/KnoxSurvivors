@@ -1672,12 +1672,21 @@ function KnoxPersistence.captureAllActiveSurvivors()
         return true, "none_active"
     end
     local captured = 0
+    local failures = {}
     for id in string.gmatch(activeIds, "[^,]+") do
         local saved, evidence = KnoxPersistence.captureActiveSurvivor(id)
         if not saved then
-            return false, "id=" .. tostring(id) .. " " .. tostring(evidence)
+            -- Do not let one malformed or unloading shell prevent the remaining
+            -- survivors from being written.  Save captures are independent; keep
+            -- the successful records and report all failures to the caller.
+            failures[#failures + 1] = "id=" .. tostring(id) .. " " .. tostring(evidence)
+        else
+            captured = captured + 1
         end
-        captured = captured + 1
+    end
+    if #failures > 0 then
+        return false, "captured=" .. tostring(captured)
+            .. " failed=" .. table.concat(failures, " | ")
     end
     return true, "captured=" .. tostring(captured)
 end
@@ -1697,7 +1706,10 @@ function KnoxPersistence.markDevGateComplete(name)
 end
 
 local function onSave()
-    KnoxPersistence.captureAllActiveSurvivors()
+    local saved, evidence = KnoxPersistence.captureAllActiveSurvivors()
+    if not saved then
+        print("[KnoxSurvivors][Persistence] save-capture-failed=" .. tostring(evidence))
+    end
 end
 
 local function onGameStart()

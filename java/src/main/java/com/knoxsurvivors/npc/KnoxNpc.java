@@ -1,8 +1,10 @@
 package com.knoxsurvivors.npc;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Knox-owned identity paired with a temporary Project Zomboid IsoPlayer body. */
@@ -14,8 +16,10 @@ public final class KnoxNpc {
     private final int spawnZ;
     private final List<float[]> movementRoute = new ArrayList<>();
     private int movementRouteIndex;
+    private String movementPace = "normal";
     private String movementTraversalState = "NONE";
     private final Set<String> movementTraversalEvidence = new LinkedHashSet<>();
+    private final Map<String, Long> traversalCooldowns = new LinkedHashMap<>();
     private Object traversalInteractionTarget;
     private String traversalInteractionStage = "NONE";
     private boolean climbingAllowed = true;
@@ -50,12 +54,84 @@ public final class KnoxNpc {
         clearTraversalInteraction();
     }
 
+    boolean isTraversalCoolingDown(
+        int currentX,
+        int currentY,
+        int currentZ,
+        int nextX,
+        int nextY,
+        int nextZ
+    ) {
+        String key = traversalEdgeKey(currentX, currentY, currentZ, nextX, nextY, nextZ);
+        Long until = traversalCooldowns.get(key);
+        if (until == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() >= until) {
+            traversalCooldowns.remove(key);
+            return false;
+        }
+        return true;
+    }
+
+    void rememberTraversalFailure(
+        int currentX,
+        int currentY,
+        int currentZ,
+        int nextX,
+        int nextY,
+        int nextZ,
+        String state
+    ) {
+        if (state == null || state.isEmpty()) {
+            return;
+        }
+        long duration = state.contains("LOCKED") || state.contains("BARRICADED")
+            ? 5000L
+            : 1800L;
+        traversalCooldowns.put(
+            traversalEdgeKey(currentX, currentY, currentZ, nextX, nextY, nextZ),
+            System.currentTimeMillis() + duration
+        );
+    }
+
     void clearMovementRoute() {
         movementRoute.clear();
         movementRouteIndex = 0;
         movementTraversalState = "NONE";
         movementTraversalEvidence.clear();
         clearTraversalInteraction();
+    }
+
+    void setMovementPace(String pace) {
+        if (pace == null) {
+            movementPace = "normal";
+            return;
+        }
+        String normalized = pace.toLowerCase(java.util.Locale.ROOT);
+        movementPace = "walk".equals(normalized)
+            || "run".equals(normalized)
+            || "sprint".equals(normalized)
+            || "catchup".equals(normalized)
+            ? normalized
+            : "normal";
+    }
+
+    String getMovementPace() {
+        return movementPace;
+    }
+
+    float remainingMovementDistance(float currentX, float currentY) {
+        float distance = 0.0f;
+        float previousX = currentX;
+        float previousY = currentY;
+        for (int index = movementRouteIndex; index < movementRoute.size(); index++) {
+            float[] node = movementRoute.get(index);
+            distance += distance(previousX, previousY, node[0], node[1]);
+            previousX = node[0];
+            previousY = node[1];
+        }
+        return distance;
     }
 
     boolean hasMovementRoute() {
@@ -129,6 +205,24 @@ public final class KnoxNpc {
         traversalInteractionStage = "NONE";
     }
 
+    private static float distance(float firstX, float firstY, float secondX, float secondY) {
+        float dx = firstX - secondX;
+        float dy = firstY - secondY;
+        return (float) Math.sqrt(dx * dx + dy * dy);
+    }
+
+    private static String traversalEdgeKey(
+        int currentX,
+        int currentY,
+        int currentZ,
+        int nextX,
+        int nextY,
+        int nextZ
+    ) {
+        return currentX + "," + currentY + "," + currentZ
+            + "->" + nextX + "," + nextY + "," + nextZ;
+    }
+
     void setMovementTraversalState(String state) {
         movementTraversalState = state;
         if (!"CLEAR".equals(state) && !"ROUTE_READY".equals(state)) {
@@ -148,6 +242,8 @@ public final class KnoxNpc {
             + movementRoute.size()
             + " next="
             + next
+            + " pace="
+            + movementPace
             + " traversal="
             + movementTraversalState
             + " evidence="

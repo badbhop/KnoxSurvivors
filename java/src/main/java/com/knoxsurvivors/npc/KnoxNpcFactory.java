@@ -58,6 +58,7 @@ final class KnoxNpcFactory {
         isoPlayerClass.getField("serverPlayerIndex").setInt(body, -1);
         isoPlayerClass.getMethod("setOnlineID", short.class).invoke(body, (short) -1);
         isoPlayerClass.getMethod("setUsername", String.class).invoke(body, "Knox Survivor");
+        isoPlayerClass.getMethod("setGhostMode", boolean.class).invoke(body, false);
 
         invoke(body, "setCurrent", square.getClass(), square);
         invoke(body, "setMovingSquareNow");
@@ -145,6 +146,26 @@ final class KnoxNpcFactory {
         );
     }
 
+    static void followCharacter(KnoxNpc npc, Object target)
+        throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        Class<?> gameCharacterClass = Class.forName(
+            "zombie.characters.IsoGameCharacter",
+            false,
+            body.getClass().getClassLoader()
+        );
+        if (!gameCharacterClass.isInstance(target)) {
+            throw new IllegalArgumentException("Live pursuit target is not an IsoGameCharacter");
+        }
+
+        // Combat pursuit belongs entirely to PathFindBehavior2. Do not leave a Knox
+        // waypoint route active beside it or the two movement owners will continually
+        // replace one another with snapshots of the target's old position.
+        npc.clearMovementRoute();
+        body.getClass().getMethod("pathToCharacter", gameCharacterClass).invoke(body, target);
+        body.getClass().getMethod("setRunning", boolean.class).invoke(body, true);
+    }
+
     static void moveAcrossAdjacentEdge(KnoxNpc npc, Object square)
         throws ReflectiveOperationException {
         requireClass(square, GRID_SQUARE_CLASS, "adjacent crossing target square");
@@ -177,18 +198,23 @@ final class KnoxNpcFactory {
     }
 
     static String tickMovement(KnoxNpc npc) throws ReflectiveOperationException {
+        return tickMovement(npc, 0.0f, "normal");
+    }
+
+    static String tickMovement(KnoxNpc npc, float remainingDistance, String pace)
+        throws ReflectiveOperationException {
         Object body = npc.getBody();
         Object pathfinder = invoke(body, "getPathFindBehavior2");
 
         if (npc.hasMovementRoute()) {
-            return driveCapturedRoute(npc);
+            return driveCapturedRoute(npc, remainingDistance, pace);
         }
 
         Object result = invoke(pathfinder, "update");
         String state = result instanceof Enum<?> ? ((Enum<?>) result).name() : String.valueOf(result);
         if ("Working".equals(state)) {
             if (captureEngineRoute(npc, body, pathfinder)) {
-                return driveCapturedRoute(npc);
+                return driveCapturedRoute(npc, remainingDistance, pace);
             }
             clearHumanMovementIntent(body);
         } else {
@@ -216,6 +242,8 @@ final class KnoxNpcFactory {
         boolean pathAttached = invoke(body, "getPath2") != null;
         boolean localSlotsSafe = !isInLocalPlayerSlots(body);
         boolean localPlayer = (Boolean) invoke(body, "isLocalPlayer");
+        boolean running = (Boolean) invoke(body, "isRunning");
+        boolean sprinting = (Boolean) invoke(body, "isSprinting");
         boolean deferredMovement = (Boolean) invoke(body, "isDeferredMovementEnabled");
         boolean animationUpdating = (Boolean) invoke(body, "isAnimationUpdatingThisFrame");
         Class<?> gameClientClass = classFor(body, "zombie.network.GameClient");
@@ -268,6 +296,10 @@ final class KnoxNpcFactory {
             + localSlotsSafe
             + " localPlayer="
             + localPlayer
+            + " running="
+            + running
+            + " sprinting="
+            + sprinting
             + " remote="
             + remote
             + " playerIndex="
@@ -364,7 +396,8 @@ final class KnoxNpcFactory {
         return true;
     }
 
-    private static String driveCapturedRoute(KnoxNpc npc) throws ReflectiveOperationException {
+    private static String driveCapturedRoute(KnoxNpc npc, float remainingDistance, String pace)
+        throws ReflectiveOperationException {
         Object body = npc.getBody();
         float x = ((Number) invoke(body, "getX")).floatValue();
         float y = ((Number) invoke(body, "getY")).floatValue();
@@ -384,6 +417,20 @@ final class KnoxNpcFactory {
         String traversal = handleRouteTransition(npc, body, node);
         npc.setMovementTraversalState(traversal);
         if (traversal.startsWith("FAILED_")) {
+            int currentX = (int) Math.floor(x);
+            int currentY = (int) Math.floor(y);
+            int currentZ = (int) Math.floor(
+                ((Number) invoke(body, "getZ")).floatValue()
+            );
+            npc.rememberTraversalFailure(
+                currentX,
+                currentY,
+                currentZ,
+                (int) Math.floor(node[0]),
+                (int) Math.floor(node[1]),
+                (int) Math.floor(node[2]),
+                traversal
+            );
             clearHumanMovementIntent(body);
             return "FailedObstacle:" + traversal;
         }
@@ -392,7 +439,11 @@ final class KnoxNpcFactory {
             return "Transition:" + traversal;
         }
 
-        applyHumanMovementIntent(body, node[0], node[1]);
+        float routeDistance = Math.max(
+            remainingDistance,
+            npc.remainingMovementDistance(x, y)
+        );
+        applyHumanMovementIntent(body, node[0], node[1], routeDistance, pace);
         return "ManualRoute";
     }
 
@@ -449,6 +500,17 @@ final class KnoxNpcFactory {
                 nextSquare
             );
             return blocked ? "FAILED_BLOCKED_DIAGONAL" : "CLEAR";
+        }
+
+        if (npc.isTraversalCoolingDown(
+            currentX,
+            currentY,
+            currentZ,
+            nextX,
+            nextY,
+            nextZ
+        )) {
+            return "FAILED_EDGE_COOLDOWN";
         }
 
         Object door = invoke(currentSquare, "getDoorTo", currentSquare.getClass(), nextSquare);
@@ -698,7 +760,13 @@ final class KnoxNpcFactory {
         return directionsClass.getField(name).get(null);
     }
 
-    private static void applyHumanMovementIntent(Object body, float nextX, float nextY)
+    private static void applyHumanMovementIntent(
+        Object body,
+        float nextX,
+        float nextY,
+        float routeDistance,
+        String pace
+    )
         throws ReflectiveOperationException {
         float x = ((Number) invoke(body, "getX")).floatValue();
         float y = ((Number) invoke(body, "getY")).floatValue();
@@ -741,8 +809,15 @@ final class KnoxNpcFactory {
             health = ((Number) invoke(body, "getHealth")).floatValue();
         } catch (ReflectiveOperationException ignored) {
         }
-        boolean shouldRun = length > 7.0f && endurance > 0.35f && fatigue < 0.75f && health > 30.0f;
-        boolean shouldSprint = length > 14.0f && endurance > 0.65f && fatigue < 0.50f && health > 70.0f;
+        String movementPace = pace == null ? "normal" : pace.toLowerCase(java.util.Locale.ROOT);
+        boolean catchUp = "catchup".equals(movementPace);
+        boolean shouldRun = ("run".equals(movementPace)
+                || "sprint".equals(movementPace)
+                || (catchUp ? routeDistance > 3.0f : routeDistance > 7.0f))
+            && endurance > 0.35f && fatigue < 0.75f && health > 30.0f;
+        boolean shouldSprint = ("sprint".equals(movementPace)
+                || (catchUp && routeDistance > 10.0f))
+            && endurance > 0.65f && fatigue < 0.50f && health > 70.0f;
         boolean shouldSneak = false;
         try {
             // If player is sneaking and survivor is near player, mirror sneak for stealth.
@@ -944,7 +1019,15 @@ final class KnoxNpcFactory {
                 return index;
             }
         }
-        return length > 1 ? 1 : 0;
+        if (length <= 1) {
+            throw new IllegalStateException(
+                "No off-slot IsoPlayer index is available for a Knox NPC"
+            );
+        }
+        // Split-screen can occupy every slot. Reusing slot 1 still keeps the
+        // shell out of the primary cursor channel; the local-player array itself
+        // is verified unchanged immediately after construction.
+        return 1;
     }
 
     private static void requireClass(Object value, String expectedName, String label) {

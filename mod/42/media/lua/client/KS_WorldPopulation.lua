@@ -590,14 +590,14 @@ local function activeLookup(activeIds)
     return lookup
 end
 
--- Returns only production-managed survivors. The caller can merge these with
--- companions or developer scenario IDs before enforcing its final active cap.
+-- Restore every durable survivor record, including companions and manually-created
+-- development survivors. New first-materializations remain production-managed only.
 function WorldPopulation.activationCandidates(bridge, activeIds, limit, options)
     local candidates = {}
     local rejected = {}
     local active = activeLookup(activeIds)
     local maximum = math.max(0, math.floor(tonumber(limit) or KnoxSettings.maxActiveSurvivors()))
-    for _, id in ipairs(KnoxPersistence.getLivingWorldSurvivorIds()) do
+    for _, id in ipairs(KnoxPersistence.getActivatableSurvivorIds()) do
         if not active[id] then
             local candidate, result = WorldPopulation.activationCandidate(id, bridge, options)
             if candidate ~= nil then

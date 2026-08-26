@@ -23,6 +23,6 @@ Developer tools are disabled by default. Enable **Knox Survivors - Developer Too
 
 The automatic scenario can load one survivor, one companion, a two-person travel group, a three-person faction, or a faction that immediately starts using the normal base-scouting behavior. Leave it on **None** to spawn scenarios manually.
 
-With developer tools enabled, right-click the world and open **Knox Survivors - Developer Tools**. The menu can spawn each test scenario or write current survivor/controller state to `console.txt`.
+With developer tools enabled, right-click the world and open **Knox Survivors - Developer Tools**. The menu separates persistent survivor-population presets from one-click combat presets. Combat presets cover survivor, travel-group, faction, and stress-test fights; they report results automatically and can write a detailed combat snapshot to `console.txt`. Cleanup removes only zombies created by the active combat preset.
 
 Every test survivor receives an isolated, save-persistent `ks-dev-*` identity. Each automatic scenario keeps its own identities, so changing scenarios cannot accidentally recruit or regroup somebody left over from a different test. Spawning a scenario is therefore a real persistence test, not a disposable visual prop. Destructive tests remain behind their own off-by-default option.

@@ -248,6 +248,22 @@ assert(restoreCandidate.mode == "restore" and restoreCandidate.exact,
 assert(restoreCandidate.square == exactSquare,
     "restoration preserves exact saved square despite visibility and minimum distance")
 
+assert(KnoxPersistence.setRecord("ks-dev-1", "developer-record"),
+    "developer survivor record stored")
+local durableCandidates = KnoxWorldPopulation.activationCandidates(
+    bridge,
+    {},
+    100,
+    { players = { player }, maximumDistance = 150 }
+)
+local developerRestored = false
+for _, candidate in ipairs(durableCandidates) do
+    if candidate.id == "ks-dev-1" and candidate.mode == "restore" then
+        developerRestored = true
+    end
+end
+assert(developerRestored, "saved non-population survivor is eligible after reload")
+
 squareState[squareKey(400, 500, 0)] = nil
 local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(
     restoreId,
@@ -257,4 +273,4 @@ local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(
 assert(unloaded == nil and unloadedReason == "saved_square_not_loaded",
     "saved survivor waits instead of falling back to origin")
 
-print("World population PASS balanced=true refill=one exact_restore=true hidden_spawn=true")
+print("World population PASS balanced=true refill=one exact_restore=true durable_restore=true hidden_spawn=true")

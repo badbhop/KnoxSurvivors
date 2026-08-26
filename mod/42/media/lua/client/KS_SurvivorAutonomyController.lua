@@ -18,6 +18,7 @@ Controller.__index = Controller
 local THINK_MIN_TICKS = 30
 local THINK_JITTER_TICKS = 45
 local THREAT_SCAN_TICKS = 15
+local COMBAT_RETARGET_COOLDOWN_TICKS = 90
 local THREAT_IMMEDIATE_RADIUS = 7
 local THREAT_VISIBLE_RADIUS = 16
 local THREAT_SELF_TARGET_RADIUS = 20
@@ -44,7 +45,7 @@ local ACTION_TIMEOUT_TICKS = 1200
 local GROUP_SOFT_LEASH_SQUARED = 100
 local GROUP_RETRIEVE_LEASH_SQUARED = 196
 local FORMATION_TOLERANCE_SQUARED = 2
-local FORMATION_REFRESH_TICKS = 45
+local FORMATION_REFRESH_TICKS = 30
 local ENTRY_SCAN_RADIUS = 16
 
 local function distanceSquared(first, second)
@@ -90,6 +91,31 @@ local function findFormationTarget(anchor, follower, slotIndex)
         return target
     end
     return AdjacentFreeTileFinder.Find(anchorSquare, follower)
+end
+
+local function formationPace(anchor, follower)
+    if anchor == nil or follower == nil
+        or anchor:getCurrentSquare() == nil or follower:getCurrentSquare() == nil then
+        return "normal"
+    end
+    local distance = distanceSquared(anchor, follower)
+    -- Keep ordinary formation walking calm, but let a follower close a real gap
+    -- instead of asking the engine to walk one tile at a time behind a running anchor.
+    if distance >= 144 then
+        return "sprint"
+    end
+    if distance >= 25 then
+        return "run"
+    end
+    return "normal"
+end
+
+local function moveWithFormationPace(bridge, id, target, anchor, follower)
+    return bridge:moveNpcWithPace(
+        id,
+        target,
+        formationPace(anchor, follower)
+    )
 end
 
 local function reservedByOther(reservations, kind, value, id)
@@ -217,8 +243,12 @@ local function nearestThreat(self, ticks)
         for index = 0, zombies:size() - 1 do
             local zombie = zombies:get(index)
             local zombieSquare = zombie:getCurrentSquare()
+            local scenarioOwner = rawget(_G, "KnoxCombatTestScenarios") ~= nil
+                and KnoxCombatTestScenarios.preferredNpcId ~= nil
+                and KnoxCombatTestScenarios.preferredNpcId(zombie) or nil
             if not zombie:isDead() and zombieSquare ~= nil and zombieSquare:getZ() == square:getZ()
-                and not threatUnavailable(self, zombie, ticks) then
+                and not threatUnavailable(self, zombie, ticks)
+                and (scenarioOwner == nil or scenarioOwner == self.id) then
                 local distance = distanceSquared(square, zombieSquare)
                 local target = zombie:getTarget()
                 local targetingSelf = target == self.character
@@ -245,15 +275,26 @@ local function nearestThreat(self, ticks)
                     reservationOk = reservationCount < MAX_ATTACKERS_PER_THREAT
                 end
                 if (immediate or visible or targetingSelf or targetingGroup or targetingPlayer) and reservationOk then
-                    local bonus = targetingPlayer and 1200 or (targetingSelf and 1000 or (targetingGroup and 250 or 0))
+                    -- Survival relevance outranks simple visibility. A zombie already
+                    -- attacking this survivor must beat one chasing the player or a
+                    -- distant reserved target, even when the old target was selected first.
+                    local urgentSelfTarget = targetingSelf and immediate
+                    local bonus = scenarioOwner == self.id and 10000
+                        or (urgentSelfTarget and 5000
+                        or (immediate and 3500
+                            or (targetingGroup and 2500
+                                or (targetingSelf and 2000
+                                    or (targetingPlayer and 1000 or 0)))))
                     -- penalize heavily reserved threats to spread, but allow stack when all reserved
                     local score = distance - bonus + (reservationCount * 15)
                     if score < nearestScore then
                         nearest = zombie
                         nearestScore = score
                         nearestAwareness = {
-                            reason = targetingPlayer and "player_target"
-                                or (targetingSelf and "active_target" or (targetingGroup and "group_target" or (immediate and "immediate" or "visible"))),
+                            reason = targetingSelf and "active_target"
+                                or (immediate and "immediate"
+                                    or (targetingGroup and "group_target"
+                                        or (targetingPlayer and "player_target" or "visible"))),
                             distance = math.sqrt(distance),
                         }
                     end
@@ -266,6 +307,49 @@ local function nearestThreat(self, ticks)
     end
     self.pendingThreatAwareness = nearestAwareness
     return nearest
+end
+
+local function shouldReplaceCombatTarget(self, candidate, awareness, ticks)
+    if candidate == nil or candidate == self.combatTarget then
+        return false
+    end
+    local candidateSquare = candidate:getCurrentSquare()
+    local current = self.combatTarget
+    local currentSquare = current ~= nil and current:getCurrentSquare() or nil
+    local survivorSquare = self.character:getCurrentSquare()
+    if candidateSquare == nil or survivorSquare == nil then
+        return false
+    end
+    if current == nil or current:isDead() or currentSquare == nil then
+        return true
+    end
+
+    local candidateDistance = distanceSquared(survivorSquare, candidateSquare)
+    local currentDistance = distanceSquared(survivorSquare, currentSquare)
+    if ticks - (self.lastCombatRetarget or -COMBAT_RETARGET_COOLDOWN_TICKS)
+        < COMBAT_RETARGET_COOLDOWN_TICKS
+        and candidateDistance > 4 then
+        return false
+    end
+
+    local candidateTargetsSelf = candidate:getTarget() == self.character
+    local currentTargetsSelf = current:getTarget() == self.character
+    if candidateTargetsSelf ~= currentTargetsSelf then
+        if candidateTargetsSelf then
+            return candidateDistance <= THREAT_IMMEDIATE_RADIUS * THREAT_IMMEDIATE_RADIUS
+                or candidateDistance + 16 < currentDistance
+        end
+        return awareness ~= nil and awareness.reason == "immediate"
+            and currentDistance > THREAT_IMMEDIATE_RADIUS * THREAT_IMMEDIATE_RADIUS
+    end
+
+    if awareness ~= nil and awareness.reason == "immediate"
+        and currentDistance > THREAT_IMMEDIATE_RADIUS * THREAT_IMMEDIATE_RADIUS then
+        return true
+    end
+    -- One-tile hysteresis prevents two equally relevant zombies from causing target
+    -- thrashing while still allowing a materially closer attacker to take priority.
+    return candidateDistance + 1 < currentDistance
 end
 
 local function nearbyZombieCount(self, radius)
@@ -708,6 +792,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.failedThreats = {}
     self.nextThink = ticks + 15 + ZombRand(30)
     self.nextThreatScan = ticks
+    self.lastCombatRetarget = -COMBAT_RETARGET_COOLDOWN_TICKS
     self.nextWorldSearch = 0
     self.nextExplorationSearch = 0
     self.recoveryStarted = 0
@@ -1074,7 +1159,13 @@ function Controller:beginGroupFollow(ticks)
         self.nextThink = ticks + THINK_MIN_TICKS
         return false
     end
-    local result = tostring(self.bridge:moveNpc(self.id, approach))
+    local result = tostring(moveWithFormationPace(
+        self.bridge,
+        self.id,
+        approach,
+        self.groupLeader,
+        self.character
+    ))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         self.nextThink = ticks + THINK_MIN_TICKS
         return false
@@ -1098,7 +1189,13 @@ function Controller:beginGroupRegroup(member, ticks)
     if approach == nil then
         return false
     end
-    local result = tostring(self.bridge:moveNpc(self.id, approach))
+    local result = tostring(moveWithFormationPace(
+        self.bridge,
+        self.id,
+        approach,
+        member,
+        self.character
+    ))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         return false
     end
@@ -1134,7 +1231,13 @@ function Controller:beginCompanionFollow(ticks)
         self.nextThink = ticks + THINK_MIN_TICKS
         return false
     end
-    local result = tostring(self.bridge:moveNpc(self.id, approach))
+    local result = tostring(moveWithFormationPace(
+        self.bridge,
+        self.id,
+        approach,
+        self.companionTarget,
+        self.character
+    ))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         self.state = "COMPANION_WAIT"
         self.nextThink = ticks + THINK_MIN_TICKS
@@ -1540,10 +1643,15 @@ function Controller:finishDecision(ticks)
     self.regroupMember = nil
     self.activeDecision = nil
     self.state = "IDLE"
-    self.nextThink = math.max(
-        self.nextThink or 0,
-        ticks + THINK_MIN_TICKS + ZombRand(THINK_JITTER_TICKS)
-    )
+    local stayingWithGroup = self.companionOrder == "follow"
+        or self.groupLeader ~= nil
+        or #(self.groupMembers or {}) > 1
+    self.nextThink = stayingWithGroup
+        and (ticks + 5)
+        or math.max(
+            self.nextThink or 0,
+            ticks + THINK_MIN_TICKS + ZombRand(THINK_JITTER_TICKS)
+        )
 end
 
 function Controller:beginCombat(target)
@@ -1904,6 +2012,40 @@ function Controller:tick(ticks)
     end
 
     if self.state == "COMBAT" then
+        if ticks >= self.nextThreatScan then
+            self.nextThreatScan = ticks + THREAT_SCAN_TICKS
+            local replacement = nearestThreat(self, ticks)
+            local replacementAwareness = self.pendingThreatAwareness
+            if shouldReplaceCombatTarget(self, replacement, replacementAwareness, ticks) then
+                local previous = self.combatTarget
+                self.lastCombatRetarget = ticks
+                self.bridge:resetNpcCombat(self.id)
+                self:releaseCombat()
+                self.state = "IDLE"
+                self.activeDecision = nil
+                if self:beginCombat(replacement) then
+                    print(
+                        "[KnoxSurvivors][Autonomy] id=" .. self.id
+                            .. " combat-retarget reason="
+                            .. tostring(replacementAwareness ~= nil
+                                and replacementAwareness.reason or "closer")
+                    )
+                    return
+                end
+                -- A failed replacement must not leave the controller permanently in
+                -- COMBAT with no target. The normal decision loop can reacquire either
+                -- threat on the next scan.
+                self.failedThreats[replacement] = ticks + THREAT_SCAN_TICKS
+                self.state = "IDLE"
+                self.nextThink = ticks + THINK_MIN_TICKS
+                print(
+                    "[KnoxSurvivors][Autonomy] id=" .. self.id
+                        .. " combat-retarget-failed previous=" .. tostring(previous)
+                )
+                return
+            end
+            self.pendingThreatAwareness = nil
+        end
         local result = tostring(self.bridge:tickNpcCombat(self.id))
         if string.find(result, "COMBAT_SUCCEEDED", 1, true) == 1 then
             self.counts.combat = self.counts.combat + 1
@@ -2039,7 +2181,9 @@ function Controller:tick(ticks)
             end
             if self.state == "GROUP_FOLLOW" then
                 self.counts.groupTravel = self.counts.groupTravel + 1
-                self:finishDecision(ticks)
+                self.activeDecision = "follow_group"
+                self.state = "GROUP_WAIT"
+                self.nextThink = ticks + FORMATION_REFRESH_TICKS
                 return
             end
             if self.state == "GROUP_REGROUP" then
@@ -2048,7 +2192,9 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "COMPANION_FOLLOW" then
-                self:finishDecision(ticks)
+                self.activeDecision = "follow_player"
+                self.state = "COMPANION_WAIT"
+                self.nextThink = ticks + FORMATION_REFRESH_TICKS
                 return
             end
             if self.state == "BASE_RETURN" or self.state == "BASE_PATROL" then
