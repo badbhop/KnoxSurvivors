@@ -9,6 +9,7 @@ require "KS_Settings"
 require "KS_ZombieAwareness"
 require "KS_WorldPopulation"
 require "KS_SurvivorStartingGear"
+require "KS_SurvivorLifecyclePolicy"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -423,7 +424,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
     for _, id in ipairs(activeIds) do
         local controller = controllers[id]
         local duty = KnoxPersistence.getSurvivorDuty(id) or {}
-        if world[id] and controller ~= nil and duty.mode ~= "companion" then
+        if controller ~= nil then
             local character = controller.character
             local square = character ~= nil and character:getCurrentSquare() or nil
             local distanceSquared = KnoxWorldPopulation.nearestPlayerDistanceSquared(square, players)
@@ -433,19 +434,13 @@ local function hibernateDistantWorldSurvivors(bridge, players)
             if square == nil then
                 local grace = (detachedGrace[id] or 0) + 1
                 detachedGrace[id] = grace
-                local isWithinActive = finiteDistanceSquared ~= nil and finiteDistanceSquared <= HIBERNATION_DISTANCE_SQUARED
-                local decision = "preserve"
-                local shouldHibernate = false
-                if finiteDistanceSquared == nil then
-                    shouldHibernate = grace >= 1
-                    decision = shouldHibernate and "hibernate-no-finite" or "preserve-no-finite"
-                elseif not isWithinActive then
-                    shouldHibernate = true
-                    decision = "hibernate-far"
-                else
-                    shouldHibernate = grace >= DETACHED_GRACE_CHECKS
-                    decision = shouldHibernate and "hibernate-grace-expired" or "preserve-grace"
-                end
+                local shouldHibernate, decision =
+                    KnoxSurvivorLifecyclePolicy.detachedDecision(
+                        finiteDistanceSquared,
+                        HIBERNATION_DISTANCE_SQUARED,
+                        grace,
+                        DETACHED_GRACE_CHECKS
+                    )
                 print(TAG .. " detach-detected id=" .. tostring(id) .. " actorXYZ=" .. actorXYZDescription(character) .. " currentSquare=" .. squareDescription(square) .. " finiteDistance=" .. tostring(finiteDistance) .. " squareDistance=" .. tostring(squareDistance) .. " detachedTicks=" .. tostring(grace) .. " decision=" .. tostring(decision))
                 if shouldHibernate then
                     detachedGrace[id] = nil
@@ -463,7 +458,17 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                     print(TAG .. " detach-recovered id=" .. tostring(id) .. " actorXYZ=" .. actorXYZDescription(character) .. " square=" .. squareDescription(square) .. " finiteDistance=" .. tostring(finiteDistance))
                 end
                 detachedGrace[id] = nil
-                if distanceSquared ~= nil and distanceSquared > HIBERNATION_DISTANCE_SQUARED then
+                -- Ordinary distance hibernation belongs only to production world
+                -- survivors. A missing square is different: any shell, including a
+                -- companion or developer scenario body, must leave DETACHED through
+                -- the transactional capture/remove path instead of remaining an
+                -- active engine object forever.
+                if KnoxSurvivorLifecyclePolicy.distanceEligible(
+                    world[id] == true,
+                    duty.mode,
+                    distanceSquared,
+                    HIBERNATION_DISTANCE_SQUARED
+                ) then
                     hibernate[#hibernate + 1] = {
                         id = id,
                         controller = controller,

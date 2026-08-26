@@ -293,6 +293,24 @@ survivor's swing range. Compare a survivor and the player standing at similar di
 visibility. The result need not alternate perfectly, but survivors must be valid vanilla
 targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this gate.
 
+## Current foundation regression gate
+
+This gate covers the 2026-08-26 constructor, Survivor Card, and detached-lifecycle fixes:
+
+1. Launch through the development shortcut and load a backed-up save with at least two
+   survivors active.
+2. Open and close Survivor Card for two different survivors. Both cards must render without
+   `ISUI3DModel.lua:110`, `setState of non-table: null`, player invisibility, or camera/input
+   changes.
+3. Leave the card closed and play normally for at least two status intervals. Every
+   `RENDER_DIAGNOSTICS` survivor entry must report `instanceIsLocal0=true`.
+4. With developer tools enabled, create a test survivor and travel far enough to stream its
+   square out. A `detach-detected` transition may appear briefly, but it must be followed by
+   one `hibernate-attempt` and `state=HIBERNATED` instead of repeating `state=DETACHED`.
+
+The Java build and standalone policy checks prove the code path exists; only this live gate
+proves Build 42 actually follows it.
+
 ## Already verified and hibernating
 
 - one-survivor spawn, appearance, equipment, reconstruction, and save/reload;

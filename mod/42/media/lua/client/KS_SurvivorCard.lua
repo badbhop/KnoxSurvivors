@@ -111,6 +111,10 @@ function Window:createChildren()
         self.portraitHeight
     )
     self.portrait:initialise()
+    -- addChild() instantiates UI3DModel.javaObject in Build 42.20. Every method
+    -- below delegates to that Java object, so configure the portrait only after
+    -- it has been attached (the same order used by vanilla character screens).
+    self:addChild(self.portrait)
     self.portrait:setWantMouseEvents(false)
     self.portrait:setState("idle")
     self.portrait:setDirection(IsoDirections.S)
@@ -121,7 +125,6 @@ function Window:createChildren()
     self.portrait:setVisible(false)
     self.portrait:setRenderThisPlayerOnly(self.playerNum)
     self.portrait.boundCharacter = nil
-    self:addChild(self.portrait)
 end
 
 function Window:releasePortrait()

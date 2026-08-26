@@ -78,8 +78,8 @@ The one-button player launcher is being kept for the eventual rebuild release; i
 not be distributed against the old Workshop package.
 
 More detail is in [Architecture](docs/ARCHITECTURE.md),
-[Milestones](docs/MILESTONES.md), [Sandbox Settings](docs/SANDBOX_SETTINGS.md),
-and [Launcher](docs/LAUNCHER.md).
+[Feature Audit](docs/FEATURE_AUDIT.md), [Milestones](docs/MILESTONES.md),
+[Sandbox Settings](docs/SANDBOX_SETTINGS.md), and [Launcher](docs/LAUNCHER.md).
 
 Discord: https://discord.gg/cTfd2WWD4s
 

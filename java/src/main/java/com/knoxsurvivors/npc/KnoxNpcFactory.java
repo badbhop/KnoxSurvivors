@@ -36,6 +36,11 @@ final class KnoxNpcFactory {
         );
 
         Object[] localPlayersBefore = snapshotLocalPlayers(isoPlayerClass);
+        Object playerInstanceBefore = isoPlayerClass.getMethod("getInstance").invoke(null);
+        Object expectedPlayerInstance = localPlayersBefore.length > 0
+            && localPlayersBefore[0] != null
+            ? localPlayersBefore[0]
+            : playerInstanceBefore;
         Object cell = invoke(square, "getCell");
         int x = ((Number) invoke(square, "getX")).intValue();
         int y = ((Number) invoke(square, "getY")).intValue();
@@ -50,7 +55,17 @@ final class KnoxNpcFactory {
             int.class,
             boolean.class
         );
-        Object body = constructor.newInstance(cell, descriptor, x, y, z, false);
+        Object body;
+        try {
+            body = constructor.newInstance(cell, descriptor, x, y, z, false);
+        } finally {
+            // IsoPlayer's constructor assigns every new instance to the global
+            // singleton, even when the object will never own a local-player slot.
+            // Restore local player 0 immediately so UI, camera, Lua, and the shell's
+            // later update guard begin from the correct owner.
+            isoPlayerClass.getMethod("setInstance", isoPlayerClass)
+                .invoke(null, expectedPlayerInstance);
+        }
 
         isoPlayerClass.getMethod("setNpc", boolean.class).invoke(body, true);
         isoPlayerClass.getField("remote").setBoolean(body, false);
@@ -73,6 +88,13 @@ final class KnoxNpcFactory {
         if (!sameLocalPlayers(localPlayersBefore, snapshotLocalPlayers(isoPlayerClass))) {
             safelyRemove(body);
             throw new IllegalStateException("IsoPlayer local-player slots changed during NPC creation");
+        }
+        Object playerInstanceAfter = isoPlayerClass.getMethod("getInstance").invoke(null);
+        if (playerInstanceAfter != expectedPlayerInstance) {
+            isoPlayerClass.getMethod("setInstance", isoPlayerClass)
+                .invoke(null, expectedPlayerInstance);
+            safelyRemove(body);
+            throw new IllegalStateException("IsoPlayer global instance changed during NPC creation");
         }
 
         return new KnoxNpc(id, body, x, y, z);
