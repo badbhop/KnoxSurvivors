@@ -14,6 +14,8 @@ BaseManager.ZONE_TYPES = {
     corpse = true,
     animal_care = true,
     repair = true,
+    construction = true,
+    defense = true,
     general = true,
 }
 
@@ -119,6 +121,32 @@ function BaseManager.ensureFactionBase(faction)
         end
     end
     if base ~= nil then
+        local hasDefenseZone = false
+        for _, zone in pairs(base.zones or {}) do
+            if zone ~= nil and (zone.type == "construction" or zone.type == "defense") then
+                hasDefenseZone = true
+                break
+            end
+        end
+        if not hasDefenseZone then
+            local territory = base.territory or base.home
+            if territory ~= nil then
+                -- Factions choose a modest perimeter one tile beyond their home. It
+                -- only becomes real work when residents carry the normal materials.
+                KnoxPersistence.addBaseZone(base.id, "construction", {
+                    x1 = (tonumber(territory.minX) or 0) - 1,
+                    y1 = (tonumber(territory.minY) or 0) - 1,
+                    x2 = (tonumber(territory.maxX)
+                        or ((tonumber(territory.minX) or 0)
+                            + (tonumber(territory.width) or 1) - 1)) + 1,
+                    y2 = (tonumber(territory.maxY)
+                        or ((tonumber(territory.minY) or 0)
+                            + (tonumber(territory.height) or 1) - 1)) + 1,
+                    z = tonumber(territory.z) or 0,
+                    priority = 75,
+                }, "Defense Perimeter")
+            end
+        end
         for _, survivorId in ipairs(faction.memberIds or {}) do
             KnoxPersistence.setFactionBaseResident(
                 survivorId,

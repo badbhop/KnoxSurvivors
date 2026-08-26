@@ -7,6 +7,7 @@ require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
 require "KS_BaseRepairs"
+require "KS_BaseConstruction"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -383,6 +384,30 @@ local function ensureRepairTask(base, now, character)
     return nil, result
 end
 
+local function ensureConstructionTask(base, now, character)
+    local target = KnoxBaseConstruction.findTask(base, character)
+    if target == nil then return nil, "no_construction_ready" end
+    local requirements = KnoxBaseConstruction.requirements(target, character)
+    if requirements == nil then return nil, "missing_construction_materials" end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then return existing, "existing" end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            reopened.target, reopened.requirements = target, requirements
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(base.id, "construct_defense", target,
+        requirements, 96)
+    if task ~= nil then
+        task.baseId, task.auto, task.retryAtHours = base.id, true, now
+    end
+    return task, result
+end
+
 function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
@@ -399,6 +424,7 @@ function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     ensureCorpseTask(base, now, character)
     ensureAnimalCareTask(base, now, character)
     ensureRepairTask(base, now, character)
+    ensureConstructionTask(base, now, character)
     ensureBarricadeTask(base, now, character)
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)
@@ -493,6 +519,10 @@ function BaseJobs.resolveTaskSquare(task, character)
             target,
             character
         )
+    end
+    if task.type == "construct_defense" then
+        return KnoxBaseConstruction.resolveTaskSquare(
+            KnoxBaseManager.get(task.baseId), target, character)
     end
     local x1 = tonumber(target.x1 or target.x) or 0
     local y1 = tonumber(target.y1 or target.y) or 0

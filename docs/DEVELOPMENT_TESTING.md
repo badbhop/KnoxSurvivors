@@ -190,6 +190,13 @@ the following behavior is not yet called live-verified:
     only if object health rises. Empty supplies, a barricaded door, a removed target, objects
     below 20% health, and a legitimate failed skill roll must remain failed/retryable rather
     than being silently restored or reported as repaired.
+21. Draw a **Defense Construction Area** at least three tiles wide around a small outdoor
+    perimeter, then give a base resident a hammer, planks, nails, hinges, a doorknob, and the
+    required Carpentry level. The resident should build the planned access frame, then its
+    door, before working through wall frames and first-stage walls. Each step must use vanilla
+    Build actions, consume the actual recipe materials, and finish only when the expected
+    Build 42 entity exists in the world. Remove a target or supplies mid-action to confirm the
+    persistent task is released for retry rather than being marked complete.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and

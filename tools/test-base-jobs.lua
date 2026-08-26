@@ -10,6 +10,7 @@ package.loaded["KS_BaseWoodcutting"] = true
 package.loaded["KS_BaseCorpseHandling"] = true
 package.loaded["KS_BaseAnimalCare"] = true
 package.loaded["KS_BaseRepairs"] = true
+package.loaded["KS_BaseConstruction"] = true
 local depotTransfer = nil
 KnoxBaseStorage = {
     findTransfer = function()
@@ -47,6 +48,14 @@ KnoxBaseRepairs = {
         return repairTarget,
             repairTarget ~= nil and "found" or "no_repair_ready"
     end,
+}
+local constructionTarget = nil
+KnoxBaseConstruction = {
+    findTask = function() return constructionTarget end,
+    requirements = function(target) return target ~= nil and {
+        items = { ["Base.Hammer"] = 1, ["Base.Plank"] = 2, ["Base.Nails"] = 2 },
+        skills = { Woodwork = 2 },
+    } or nil end,
 }
 
 local now = 10
@@ -228,4 +237,19 @@ assert(repairTask ~= nil and repairTask.type == "repair"
 assert(repairTask.requirements.items["Base.Plank"] == 2,
     "repair task should retain vanilla material requirements")
 
-print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true repairs=true target_resolution=true")
+base.tasks = {}
+base.nextTaskId = 1
+repairTarget = nil
+constructionTarget = {
+    id = "construct:base-1:wall_frame:10:10:0:N",
+    action = "construct_defense", kind = "wall_frame", entityName = "WoodenWallFrame",
+    x = 10, y = 10, z = 0, north = true,
+}
+local constructionTask, constructionResult = jobs.ensureAutomaticTask(base)
+assert(constructionTask ~= nil and constructionTask.type == "construct_defense"
+    and constructionTask.priority == 96 and constructionResult == "ready",
+    "available defense construction should be queued ahead of routine work")
+assert(constructionTask.requirements.skills.Woodwork == 2,
+    "construction task preserves entity recipe skill requirements")
+
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true repairs=true construction=true target_resolution=true")

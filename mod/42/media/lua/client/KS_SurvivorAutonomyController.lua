@@ -19,6 +19,7 @@ require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
 require "KS_BaseRepairs"
+require "KS_BaseConstruction"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -854,6 +855,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskAnimalBefore = nil
     self.baseTaskRepairTarget = nil
     self.baseTaskRepairBefore = nil
+    self.baseTaskConstructionTarget = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1453,6 +1455,7 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskAnimalBefore = nil
     self.baseTaskRepairTarget = nil
     self.baseTaskRepairBefore = nil
+    self.baseTaskConstructionTarget = nil
     return finished ~= nil
 end
 
@@ -2225,7 +2228,8 @@ function Controller:tick(ticks)
                 and self.baseTask.type ~= "haul_corpse"
                 and self.baseTask.type ~= "animal_water"
                 and self.baseTask.type ~= "animal_feed"
-                and self.baseTask.type ~= "repair") then
+                and self.baseTask.type ~= "repair"
+                and self.baseTask.type ~= "construct_defense") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2407,6 +2411,40 @@ function Controller:tick(ticks)
                         and "The trough has water." or "The animals have feed."
                 )
             end
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "construct_defense" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskConstructionTarget
+                if target == nil then
+                    target = KnoxBaseConstruction.resolveTarget(
+                        self.base, self.baseTask.target, self.character
+                    )
+                    self.baseTaskConstructionTarget = target
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "construction_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult = KnoxBaseConstruction.queueAction(
+                    self.character, target
+                )
+                if action == nil then
+                    self:finishBaseTask(false, "construction_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then return end
+            local complete = KnoxBaseConstruction.isComplete(self.baseTaskConstructionTarget)
+            self:finishBaseTask(complete, complete and "defense_constructed"
+                or "construction_not_completed")
+            if complete then KnoxActivityFeed.speak(self.character, "That should make this place safer.") end
             self:finishDecision(ticks)
             return
         end
@@ -2887,6 +2925,21 @@ function Controller:tick(ticks)
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_barricade"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil and self.baseTask.type == "construct_defense" then
+                    self.baseTaskConstructionTarget = KnoxBaseConstruction.resolveTarget(
+                        self.base, self.baseTask.target, self.character
+                    )
+                    if self.baseTaskConstructionTarget == nil then
+                        self:finishBaseTask(false, "construction_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_construct_defense"
                     self.state = "BASE_TASK_ACTION"
                     return
                 end

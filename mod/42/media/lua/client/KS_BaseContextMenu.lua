@@ -127,6 +127,7 @@ local function addWorkZoneMenu(parent, player, base)
         { "Corpse Drop Area", "corpse" },
         { "Animal Care Area", "animal_care" },
         { "Repair Area", "repair" },
+        { "Defense Construction Area", "construction" },
         { "General Work Area", "general" },
     }
     for _, definition in ipairs(definitions) do
