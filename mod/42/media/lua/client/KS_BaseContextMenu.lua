@@ -4,6 +4,7 @@ require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_BaseTerritorySelector"
 require "KS_BaseZoneSelector"
+require "KS_BaseSetup"
 
 local BaseContextMenu = rawget(_G, "KnoxBaseContextMenu") or {}
 _G.KnoxBaseContextMenu = BaseContextMenu
@@ -75,6 +76,10 @@ end
 
 function BaseContextMenu.selectZone(player, baseId, zoneType, label)
     KnoxBaseZoneSelector.start(player, baseId, zoneType, label)
+end
+
+function BaseContextMenu.openSetup(_, playerNum)
+    KnoxBaseSetup.show(playerNum)
 end
 
 local function addStorageMenu(parent, base, object)
@@ -173,6 +178,7 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
         menu:addOption("Establish Home Base", player, BaseContextMenu.establish, square)
     end
     if base ~= nil then
+        menu:addOption("Open Base Setup", BaseContextMenu, BaseContextMenu.openSetup, playerNum)
         menu:addOption(
             "Set Home Base Boundary",
             player,

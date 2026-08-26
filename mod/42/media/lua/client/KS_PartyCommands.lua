@@ -4,6 +4,7 @@ require "KS_CompanionService"
 require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_SurvivorNotebook"
+require "KS_BaseSetup"
 
 local PartyCommands = rawget(_G, "KnoxPartyCommands") or {}
 _G.KnoxPartyCommands = PartyCommands
@@ -92,6 +93,10 @@ function PartyCommands.openNotebook(_, playerNum)
     KnoxSurvivorNotebook.show(playerNum)
 end
 
+function PartyCommands.openBaseSetup(_, playerNum)
+    KnoxBaseSetup.show(playerNum)
+end
+
 local function populate(menu, playerNum, square)
     menu:addOption("Regroup and Follow", PartyCommands, PartyCommands.followAll, playerNum)
     menu:addOption("Hold Position", PartyCommands, PartyCommands.holdAll, playerNum)
@@ -130,6 +135,10 @@ local function populate(menu, playerNum, square)
     menu:addOption("Show Activity Feed", PartyCommands, PartyCommands.openActivity)
     menu:addOption("Open Survivor Notebook", PartyCommands,
         PartyCommands.openNotebook, playerNum)
+    if base ~= nil then
+        menu:addOption("Open Base Setup", PartyCommands,
+            PartyCommands.openBaseSetup, playerNum)
+    end
     return menu
 end
 
