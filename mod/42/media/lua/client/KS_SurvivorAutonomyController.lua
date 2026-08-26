@@ -2174,7 +2174,8 @@ function Controller:tick(ticks)
                 and self.baseTask.type ~= "farm_harvest"
                 and self.baseTask.type ~= "farm_plow"
                 and self.baseTask.type ~= "farm_seed"
-                and self.baseTask.type ~= "chop_tree") then
+                and self.baseTask.type ~= "chop_tree"
+                and self.baseTask.type ~= "saw_logs") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2227,7 +2228,7 @@ function Controller:tick(ticks)
             self:finishDecision(ticks)
             return
         end
-        if self.baseTask.type == "chop_tree" then
+        if self.baseTask.type == "chop_tree" or self.baseTask.type == "saw_logs" then
             if not self.baseTaskActionQueued then
                 local target = self.baseTaskWoodcuttingTarget
                 if target == nil then
@@ -2252,7 +2253,9 @@ function Controller:tick(ticks)
                     self:finishDecision(ticks)
                     return
                 end
-                self.baseTaskWoodcuttingBefore = target.tree:getObjectIndex()
+                if self.baseTask.type == "chop_tree" then
+                    self.baseTaskWoodcuttingBefore = target.tree:getObjectIndex()
+                end
                 self.baseTaskActionQueued = true
                 self.baseTaskStartedAt = ticks
                 return
@@ -2264,12 +2267,19 @@ function Controller:tick(ticks)
                 self.baseTaskWoodcuttingTarget,
                 self.baseTaskWoodcuttingBefore
             )
+            local taskType = self.baseTask.type
+            local finishReason = complete
+                and (taskType == "saw_logs" and "logs_sawn" or "tree_chopped")
+                or (taskType == "saw_logs" and "logs_not_sawn" or "tree_not_chopped")
             self:finishBaseTask(
                 complete,
-                complete and "tree_chopped" or "tree_not_chopped"
+                finishReason
             )
             if complete then
-                KnoxActivityFeed.speak(self.character, "That tree is down.")
+                KnoxActivityFeed.speak(self.character,
+                    taskType == "saw_logs"
+                        and "The logs are ready." or "That tree is down."
+                )
             end
             self:finishDecision(ticks)
             return
@@ -2645,7 +2655,9 @@ function Controller:tick(ticks)
                     self.state = "BASE_TASK_ACTION"
                     return
                 end
-                if self.baseTask ~= nil and self.baseTask.type == "chop_tree" then
+                if self.baseTask ~= nil
+                    and (self.baseTask.type == "chop_tree"
+                        or self.baseTask.type == "saw_logs") then
                     self.baseTaskWoodcuttingTarget = KnoxBaseWoodcutting.resolveTarget(
                         self.base,
                         self.baseTask.target,
@@ -2656,8 +2668,10 @@ function Controller:tick(ticks)
                         self:finishDecision(ticks)
                         return
                     end
-                    self.baseTaskWoodcuttingBefore =
-                        self.baseTaskWoodcuttingTarget.tree:getObjectIndex()
+                    if self.baseTask.type == "chop_tree" then
+                        self.baseTaskWoodcuttingBefore =
+                            self.baseTaskWoodcuttingTarget.tree:getObjectIndex()
+                    end
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_chop_tree"

@@ -89,8 +89,8 @@ slices still require live in-game confirmation.
 
 ## Later milestones
 
-The next vertical slices are log-to-plank production, corpse hauling, animal care, and repair.
-Storage hauling, guard, patrol, one-plank barricading, crop maintenance, and tree cutting now
+The next vertical slices are corpse hauling, animal care, and repair. Storage hauling, guard,
+patrol, one-plank barricading, crop maintenance, tree cutting, and log-to-plank production now
 have initial executors. Each slice must consume real tools and materials, use normal timed
 actions, respect survivor skills, and survive reload before the next one is added.
 

@@ -238,10 +238,10 @@ local function ensureWoodcuttingTask(base, now, character)
     end
     local task, result = KnoxBaseTaskBoard.queue(
         base.id,
-        "chop_tree",
+        target.action,
         target,
         {},
-        75
+        target.action == "saw_logs" and 78 or 75
     )
     if task ~= nil then
         task.baseId = base.id
