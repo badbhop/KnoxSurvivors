@@ -38,11 +38,19 @@ native-defense interval between swings, including stomp targeting for downed zom
 ready for a fresh live confirmation; it is not marked verified until the run records a real
 survivor reaction and health/injury change.
 
-The zombie handoff now enters both Build 42 combat layers: the action-context attack state for
-animation and the legacy `AttackState` for the native collision callback. This avoids a
-diagnostic state of `ZombieIdleState/action=attack`, where a bite could look armed but never
-reach the engine damage event. NPC creation also refuses an engine layout with no off-slot
-player index instead of risking the primary player's cursor/render channel.
+The current zombie handoff no longer forces either Build 42 combat state. Engine inspection
+showed that the real failure occurs one step earlier: `IsoZombie.isTargetVisible()` reads the
+target player's LOS index, while a Knox shell correctly cannot run the local-player `updateLOS()`
+routine. That made `bCanSeeTarget` fall false on the next engine update and cancelled the bite
+before `AttackCollisionCheck`. Knox now supplies only the unused off-slot index's close-range
+`couldSee` bit, allowing the normal `bAttack` transition, animation, legacy `AttackState`, hit
+reaction, and `BodyDamage` callback to run in their normal order. Diagnostics report both
+`targetIndex` and `targetVisibilityBit`. NPC creation refuses an engine layout with no genuinely
+unused index rather than borrowing a real split-screen player's LOS/cursor/render channel.
+
+The shell's `isLocalPlayer()` override is also explicitly false. Local-player combat callbacks
+needed by survivor melee remain covered by the existing three-call callback transformer; the
+NPC itself no longer leaks into unrelated local input, music, or building-entry branches.
 
 The awareness handoff now keeps a short native-target memory instead of reissuing the same
 target every frame. Close-range perception refreshes are paced, and a zombie keeps its current

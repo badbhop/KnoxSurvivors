@@ -18,6 +18,10 @@ public final class KnoxIsoPlayerShellDefinition {
     private KnoxIsoPlayerShellDefinition() {
     }
 
+    static boolean localPlayerOverrideValue() {
+        return false;
+    }
+
     public static synchronized Class<?> getOrDefine(ClassLoader gameClassLoader)
         throws ReflectiveOperationException {
         if (definedClass != null) {
@@ -139,11 +143,9 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(0);
 
-            // Zombie target/attack checks gate on isLocalPlayer(). Returning true for the
-            // shell lets vanilla zombie-vs-player bite/animation run via the normal
-            // IsoZombie path without a separate zombie transformer. Cursor visibility
-            // is already isolated via off-slot playerIndex (1), so this does not hide
-            // the system cursor.
+            // A Knox shell is never a local input player. Zombie acquisition is supplied
+            // through the narrow perception bridge; claiming local-player ownership here
+            // leaks the shell into unrelated input, music, and building-entry branches.
             output.writeShort(0x0001);
             output.writeShort(12);
             output.writeShort(13);
@@ -153,7 +155,10 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(1);
             output.writeShort(1);
             output.writeInt(2);
-            output.write(new byte[] { 0x04, (byte) 0xAC });
+            output.write(new byte[] {
+                localPlayerOverrideValue() ? (byte) 0x04 : (byte) 0x03,
+                (byte) 0xAC,
+            });
             output.writeShort(0);
             output.writeShort(0);
 

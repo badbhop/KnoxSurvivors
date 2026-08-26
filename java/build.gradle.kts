@@ -73,6 +73,14 @@ val verifyCombatTransformer by tasks.registering(JavaExec::class) {
     }
 }
 
+val verifyIsoPlayerShellPolicy by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies that the generated NPC shell never claims local input ownership."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.engine.KnoxIsoPlayerShellPolicyVerifier")
+}
+
 tasks.check {
-    dependsOn(verifyCombatTransformer)
+    dependsOn(verifyCombatTransformer, verifyIsoPlayerShellPolicy)
 }

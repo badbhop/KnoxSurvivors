@@ -373,6 +373,8 @@ final class KnoxNpcFactory {
         return character.getClass().getSimpleName()
             + "{index="
             + playerIndex
+            + ",localPlayer="
+            + invoke(character, "isLocalPlayer")
             + ",invisible="
             + invoke(character, "isInvisible")
             + ",spriteInvisible="
@@ -1032,8 +1034,8 @@ final class KnoxNpcFactory {
         // playerIndex==0 && isAiming. An off-slot NPC with index 0 therefore hides
         // the real player's cursor while it is in AIMING/ATTACKING. Use the first
         // free local-player slot above 0 so only the real player (slot 0) controls
-        // the cursor. If every slot is occupied (split-screen) fall back to 1 - it
-        // will still collide less than 0 and the cursor guard below keeps it safe.
+        // the cursor. The index also owns Knox's isolated zombie-visibility bit, so
+        // it must never overlap a real split-screen player.
         Object players = isoPlayerClass.getField("players").get(null);
         int length = Array.getLength(players);
         for (int index = 1; index < length; index++) {
@@ -1041,15 +1043,9 @@ final class KnoxNpcFactory {
                 return index;
             }
         }
-        if (length <= 1) {
-            throw new IllegalStateException(
-                "No off-slot IsoPlayer index is available for a Knox NPC"
-            );
-        }
-        // Split-screen can occupy every slot. Reusing slot 1 still keeps the
-        // shell out of the primary cursor channel; the local-player array itself
-        // is verified unchanged immediately after construction.
-        return 1;
+        throw new IllegalStateException(
+            "No unowned IsoPlayer index is available for a Knox NPC"
+        );
     }
 
     private static void requireClass(Object value, String expectedName, String label) {

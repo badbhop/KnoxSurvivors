@@ -1,5 +1,6 @@
 package com.knoxsurvivors.npc;
 
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collection;
@@ -100,7 +101,7 @@ final class KnoxHealthController {
             float targetDistance = refreshZombieTargetVector(zombie, body);
             zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
             if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
-                supplyOffSlotAttackVisibility(zombie);
+                supplyOffSlotAttackVisibility(zombie, body);
             }
             String currentAction = String.valueOf(
                 zombie.getClass().getMethod("getCurrentActionContextStateName").invoke(zombie)
@@ -138,18 +139,13 @@ final class KnoxHealthController {
                     return "ZOMBIE_DIRECTED status=attack-windup distance=" + targetDistance
                         + " " + zombieAttackDiagnostics(zombie, body);
                 }
-                // ActionContext applies the requested state later in the update. Clear
-                // the terminal flags now so an old ZombieBiteDone=true cannot satisfy
-                // attack/to_idle before AttackState.enter gets its callback.
-                zombie.getClass().getMethod("clearVariable", String.class)
-                    .invoke(zombie, "AttackDidDamage");
-                zombie.getClass().getMethod("clearVariable", String.class)
-                    .invoke(zombie, "ZombieBiteDone");
-                zombie.getClass().getMethod("setAttackOutcome", String.class)
-                    .invoke(zombie, "start");
-                enterVanillaZombieAttack(zombie);
-                return "ZOMBIE_DIRECTED status=attack-transition distance=" + targetDistance
-                    + " previousAction=" + currentAction
+                // bAttack is a callback to IsoZombie.getShouldAttack(). With the
+                // shell's isolated visibility bit held through the next engine update,
+                // the normal action transition and legacy AttackState now enter in
+                // their vanilla order. Forcing either state here races the animation
+                // graph and repeatedly skips AttackCollisionCheck.
+                return "ZOMBIE_DIRECTED status=attack-ready distance=" + targetDistance
+                    + " action=" + currentAction
                     + " " + zombieAttackDiagnostics(zombie, body);
             }
             // updateLOS is intentionally disabled on off-slot shells because it writes
@@ -186,7 +182,10 @@ final class KnoxHealthController {
         zombie.getClass().getMethod("spotted", movingObjectClass, boolean.class)
             .invoke(zombie, body, true);
         zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
-        refreshZombieTargetVector(zombie, body);
+        float targetDistance = refreshZombieTargetVector(zombie, body);
+        if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
+            supplyOffSlotAttackVisibility(zombie, body);
+        }
         zombie.getClass().getMethod("pathToCharacter", gameCharacterClass).invoke(zombie, body);
         Object acquiredTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
         String status = acquiredTarget == body ? "acquired" : "rejected";
@@ -196,6 +195,12 @@ final class KnoxHealthController {
     static String zombieAttackDiagnostics(Object zombie, Object body)
         throws ReflectiveOperationException {
         Object target = zombie.getClass().getMethod("getTarget").invoke(zombie);
+        int targetIndex = ((Number) body.getClass().getMethod("getIndex").invoke(body))
+            .intValue();
+        Object zombieSquare = zombie.getClass().getMethod("getCurrentSquare").invoke(zombie);
+        boolean targetVisibilityBit = zombieSquare != null && (Boolean) zombieSquare.getClass()
+            .getMethod("isCouldSee", int.class)
+            .invoke(zombieSquare, targetIndex);
         float dx = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue()
             - ((Number) zombie.getClass().getMethod("getX").invoke(zombie)).floatValue();
         float dy = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue()
@@ -209,6 +214,8 @@ final class KnoxHealthController {
             + " shouldAttack=" + vanillaShouldAttack(zombie)
             + " engineTargetVisible="
             + zombie.getClass().getMethod("isTargetVisible").invoke(zombie)
+            + " targetIndex=" + targetIndex
+            + " targetVisibilityBit=" + targetVisibilityBit
             + " bCanSeeTarget="
             + zombie.getClass().getMethod("getVariableBoolean", String.class)
                 .invoke(zombie, "bCanSeeTarget")
@@ -245,7 +252,7 @@ final class KnoxHealthController {
             + " bleedingParts=" + bleedingParts(body);
     }
 
-    private static void supplyOffSlotAttackVisibility(Object zombie)
+    private static void supplyOffSlotAttackVisibility(Object zombie, Object body)
         throws ReflectiveOperationException {
         // IsoZombie.isTargetVisible() reads IsoGridSquare.isCouldSee(target.getIndex()).
         // A Knox shell deliberately uses an off-slot index and does not run updateLOS,
@@ -253,6 +260,59 @@ final class KnoxHealthController {
         // only the close-range attack variables alive while the perception bridge owns
         // this exact target. The normal getShouldAttack() and collision line checks still
         // reject walls, floors, vehicles, protected targets, and invalid height.
+        int playerIndex = ((Number) body.getClass().getMethod("getIndex").invoke(body))
+            .intValue();
+        Class<?> isoPlayerClass = Class.forName(
+            "zombie.characters.IsoPlayer",
+            false,
+            body.getClass().getClassLoader()
+        );
+        Object players = isoPlayerClass.getField("players").get(null);
+        if (playerIndex <= 0
+            || playerIndex >= Array.getLength(players)
+            || Array.get(players, playerIndex) != null) {
+            throw new IllegalStateException(
+                "Knox NPC visibility index is no longer unowned: " + playerIndex
+            );
+        }
+
+        // IsoZombie.isTargetVisible() asks its current square whether the target's
+        // player index could see it. The shell cannot run IsoPlayer.updateLOS()
+        // because that also controls rendering, camera-adjacent state, music and
+        // local-player alpha. Reserve only the unused index's could-see bit on the
+        // zombie's current and immediately adjacent squares. The one-tile cushion
+        // keeps the bit stable while a close zombie finishes a movement step.
+        Object currentSquare = zombie.getClass().getMethod("getCurrentSquare").invoke(zombie);
+        if (currentSquare != null) {
+            int squareX = ((Number) currentSquare.getClass().getMethod("getX")
+                .invoke(currentSquare)).intValue();
+            int squareY = ((Number) currentSquare.getClass().getMethod("getY")
+                .invoke(currentSquare)).intValue();
+            int squareZ = ((Number) currentSquare.getClass().getMethod("getZ")
+                .invoke(currentSquare)).intValue();
+            Object cell = zombie.getClass().getMethod("getCell").invoke(zombie);
+            Method getGridSquare = cell.getClass().getMethod(
+                "getGridSquare",
+                int.class,
+                int.class,
+                int.class
+            );
+            for (int offsetX = -1; offsetX <= 1; offsetX++) {
+                for (int offsetY = -1; offsetY <= 1; offsetY++) {
+                    Object square = getGridSquare.invoke(
+                        cell,
+                        squareX + offsetX,
+                        squareY + offsetY,
+                        squareZ
+                    );
+                    if (square != null) {
+                        square.getClass().getMethod("setCouldSee", int.class, boolean.class)
+                            .invoke(square, playerIndex, true);
+                    }
+                }
+            }
+        }
+
         Field canSeeTarget = findField(zombie.getClass(), "canSeeTarget");
         if (!canSeeTarget.canAccess(zombie)) {
             canSeeTarget.setAccessible(true);
@@ -297,44 +357,6 @@ final class KnoxHealthController {
             || "walktoward".equals(normalized)
             || "pathfind".equals(normalized)
             || "turnalerted".equals(normalized);
-    }
-
-    private static void enterVanillaZombieAttack(Object zombie)
-        throws ReflectiveOperationException {
-        // Build 42 carries zombie combat in two synchronized layers.  The action
-        // context drives the animation graph, while the legacy state machine owns
-        // AttackState's collision callback.  Setting only the action context can
-        // leave diagnostics at ZombieIdleState/action=attack and never reach the
-        // vanilla bite event, which is exactly the failure mode this bridge is
-        // intended to avoid.
-        Class<?> legacyStateClass = Class.forName(
-            "zombie.ai.State",
-            false,
-            zombie.getClass().getClassLoader()
-        );
-        Class<?> attackStateClass = Class.forName(
-            "zombie.ai.states.AttackState",
-            true,
-            zombie.getClass().getClassLoader()
-        );
-        Object legacyAttackState = attackStateClass.getMethod("instance").invoke(null);
-        zombie.getClass().getMethod("changeState", legacyStateClass)
-            .invoke(zombie, legacyAttackState);
-
-        Object actionContext = zombie.getClass().getMethod("getActionContext").invoke(zombie);
-        Object actionGroup = actionContext.getClass().getMethod("getGroup").invoke(actionContext);
-        Object attackState = actionGroup.getClass().getMethod("findState", String.class)
-            .invoke(actionGroup, "attack");
-        if (attackState == null) {
-            throw new IllegalStateException("Zombie action group has no attack state");
-        }
-        Class<?> actionStateClass = Class.forName(
-            "zombie.characters.action.ActionState",
-            false,
-            zombie.getClass().getClassLoader()
-        );
-        actionContext.getClass().getMethod("setCurrentState", actionStateClass)
-            .invoke(actionContext, attackState);
     }
 
     private static float refreshZombieTargetVector(Object zombie, Object body)

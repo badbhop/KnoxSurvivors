@@ -66,7 +66,7 @@ local function directZombie(bridge, zombie, id, ticks)
     if not success
         or string.find(result or "", "ZOMBIE_DIRECTED status=", 1, true) ~= 1 then
         reportFailure(ticks, result)
-    elseif string.find(result, "status=attack-transition", 1, true) ~= nil
+    elseif string.find(result, "status=attack-ready", 1, true) ~= nil
         or string.find(result, "status=blocked-close", 1, true) ~= nil then
         local lastReport = closeCombatReports[zombie] or -REPORT_COOLDOWN_TICKS
         if ticks - lastReport >= 300 then
