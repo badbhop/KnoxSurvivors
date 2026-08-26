@@ -1590,7 +1590,39 @@ function KnoxPersistence.finishBaseTask(
     task.state = succeeded and "complete" or "blocked"
     task.completedAtHours = tonumber(worldAgeHours) or 0
     task.result = tostring(reason or (succeeded and "complete" or "blocked"))
+    task.retryAtHours = task.completedAtHours
+        + (succeeded and 0 or 0.10)
     return task, "finished"
+end
+
+-- Reopen a completed or blocked recurring task without losing its history.
+-- One task record represents one persistent work-zone assignment; this avoids
+-- creating an unbounded queue every time a guard finishes a patrol.
+function KnoxPersistence.requeueBaseTask(baseId, taskId, worldAgeHours)
+    local base = KnoxPersistence.getBase(baseId)
+    local task = base ~= nil and base.tasks[taskId] or nil
+    if task == nil then
+        return nil, "unknown_task"
+    end
+    if task.state ~= "complete" and task.state ~= "blocked" then
+        return nil, "not_finished"
+    end
+    local now = tonumber(worldAgeHours) or 0
+    local retryAt = tonumber(task.retryAtHours) or 0
+    if now < retryAt then
+        return nil, "retry_not_ready"
+    end
+    task.runs = (tonumber(task.runs) or 0) + 1
+    task.lastResult = task.result
+    task.lastCompletedAtHours = task.completedAtHours
+    task.state = "queued"
+    task.claimedBy = nil
+    task.claimedAtHours = nil
+    task.completedAtHours = nil
+    task.result = nil
+    task.retryAtHours = nil
+    task.requeuedAtHours = now
+    return task, "requeued"
 end
 
 function KnoxPersistence.recoverInterruptedBaseTasks()

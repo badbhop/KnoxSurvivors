@@ -278,11 +278,13 @@ does not collapse into one destination.
 
 Duty, physical presence, capability requirements, and claim ownership are checked before
 a resident can take work. Claims are released when a survivor leaves the base and are
-recovered after an interrupted load. Task types for hauling, farming, barricading,
-woodcutting, patrols, corpse handling, animals, and repair are registered as a planning
-boundary; their world-action executors remain separate live-test milestones. Vanilla crop
-ownership is not treated as a Knox survivor ID because single-player off-slot bodies do
-not provide a stable unique crop owner.
+recovered after an interrupted load. Guard and patrol zones now have a recurring executor:
+the resident claims a persisted task, walks to a standable point in the zone, holds the
+post for a bounded interval, records the result, and reopens the same task on its next
+cycle. The remaining task types for hauling, farming, barricading, woodcutting, corpse
+handling, animals, and repair are still registered as planning boundaries until their
+engine actions are ready. Vanilla crop ownership is not treated as a Knox survivor ID
+because single-player off-slot bodies do not provide a stable unique crop owner.
 
 Player territory is also sent to the Java traversal runtime as a protected structure area.
 Friendly and neutral survivors may still use doors and try an unlocked window, but they

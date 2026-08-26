@@ -3,6 +3,7 @@ require "KS_BaseManager"
 require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_BaseTerritorySelector"
+require "KS_BaseZoneSelector"
 
 local BaseContextMenu = rawget(_G, "KnoxBaseContextMenu") or {}
 _G.KnoxBaseContextMenu = BaseContextMenu
@@ -72,6 +73,10 @@ function BaseContextMenu.selectTerritory(player, baseId)
     KnoxBaseTerritorySelector.start(player, baseId)
 end
 
+function BaseContextMenu.selectZone(player, baseId, zoneType, label)
+    KnoxBaseZoneSelector.start(player, baseId, zoneType, label)
+end
+
 local function addStorageMenu(parent, base, object)
     local count = object:getContainerCount()
     local objectOption = parent:addOption(
@@ -109,6 +114,32 @@ local function addStorageMenu(parent, base, object)
     end
 end
 
+local function addWorkZoneMenu(parent, player, base)
+    local option = parent:addOption("Set Work Area", player, nil)
+    local menu = ISContextMenu:getNew(parent)
+    parent:addSubMenu(option, menu)
+    local definitions = {
+        { "Guard Area", "guard" },
+        { "Patrol Area", "patrol" },
+        { "Farming Area", "farming" },
+        { "Woodcutting Area", "woodcutting" },
+        { "Log Processing Area", "log_processing" },
+        { "Corpse Handling Area", "corpse" },
+        { "Animal Care Area", "animal_care" },
+        { "General Work Area", "general" },
+    }
+    for _, definition in ipairs(definitions) do
+        menu:addOption(
+            definition[1],
+            player,
+            BaseContextMenu.selectZone,
+            base.id,
+            definition[2],
+            definition[1]
+        )
+    end
+end
+
 function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     if not KnoxSettings.enabled() then
         return
@@ -122,7 +153,9 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     local base = KnoxBaseManager.getForOwner("player", playerId)
     local containers = base ~= nil and containerObjects(worldobjects, base) or {}
     local canEstablish = base == nil and square:getBuilding() ~= nil
-    if not canEstablish and #containers == 0 then
+    -- A resident may mark a work area on open ground, so a base menu must not
+    -- depend on the clicked object being a container.
+    if base == nil and not canEstablish and #containers == 0 then
         return
     end
     if test then
@@ -144,6 +177,7 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
             BaseContextMenu.selectTerritory,
             base.id
         )
+        addWorkZoneMenu(menu, player, base)
     end
     for _, object in ipairs(containers) do
         addStorageMenu(menu, base, object)

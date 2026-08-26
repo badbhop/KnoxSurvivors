@@ -124,6 +124,15 @@ the following behavior is not yet called live-verified:
     or attack its locked doors.
 12. Open the Survivor Notebook from the party header and verify Party, Home Base,
     Survivors, and Factions show distinct, readable data.
+13. From a player-owned base, use `Knox Survivors > Set Work Area`, choose Guard Area or
+    Patrol Area, and select two opposite corners. The zone should appear in the Notebook's
+    Home Base tab. A base resident should claim the recurring task, walk to a standable point,
+    remain there briefly, and then record `completed_guard` or `completed_patrol` before the
+    same zone becomes available again. Combat, a new companion order, leaving the base, or
+    a save/reload must release the claim instead of leaving a permanently stuck task.
+14. Marking Farming, Woodcutting, or another unimplemented work area should persist the zone
+    but must not claim it or pretend the world action completed. This is intentional until
+    that job has a real timed action and inventory/resource verification.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -258,8 +267,9 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, job execution, work-zone drawing,
-  and interactive Notebook management remain later gates. The current Notebook is the
+- Firearms/ammunition, cooking, lethal survivor PvP, farming/woodcutting/hauling job
+  executors, and interactive Notebook management remain later gates. Guard/patrol work-zone
+  drawing and execution are now the first live base-job slice. The current Notebook is the
   readable domain shell, not the finished base administration interface.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.

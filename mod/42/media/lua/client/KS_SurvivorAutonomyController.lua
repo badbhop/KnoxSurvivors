@@ -10,6 +10,8 @@ require "KS_SurvivorLooting"
 require "KS_FactionBaseScouting"
 require "KS_FactionSafehouse"
 require "KS_BaseManager"
+require "KS_BaseTaskBoard"
+require "KS_BaseJobs"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -826,6 +828,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.nextRegroupCallout = 0
     self.baseId = nil
     self.base = nil
+    self.baseTask = nil
+    self.baseTaskStartedAt = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -891,11 +895,13 @@ function Controller:interruptForDirective()
         or self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_IDLE"
+        or self.state == "BASE_TASK_MOVE" or self.state == "BASE_TASK_WORK"
         or self.state == "WAITING_TO_RECOVER"
     if not safe then
         return false
     end
     self.bridge:cancelNpcMove(self.id)
+    self:abandonBaseTask("directive_changed")
     self:releaseSupply()
     self:releaseRestSpot()
     self:leaveRecoveryPosture()
@@ -1370,6 +1376,105 @@ function Controller:beginBaseMovement(ticks, returning)
     return true
 end
 
+function Controller:finishBaseTask(succeeded, reason)
+    local task = self.baseTask
+    if task == nil then
+        return false
+    end
+    local baseId = task.baseId or self.baseId
+    local finished, result = KnoxBaseTaskBoard.finish(
+        baseId,
+        task.id,
+        self.id,
+        succeeded == true,
+        reason
+    )
+    if finished == nil then
+        print("[KnoxSurvivors][BaseJobs] finish-failed id=" .. tostring(self.id)
+            .. " task=" .. tostring(task.id) .. " result=" .. tostring(result))
+    end
+    self.baseTask = nil
+    self.baseTaskStartedAt = nil
+    return finished ~= nil
+end
+
+function Controller:abandonBaseTask(reason)
+    if self.baseTask == nil then
+        return false
+    end
+    self.bridge:cancelNpcMove(self.id)
+    local abandoned = self:finishBaseTask(false, reason or "interrupted")
+    self.activeDecision = nil
+    return abandoned
+end
+
+function Controller:beginBaseTask(ticks)
+    if self.base == nil or self.baseId == nil
+        or self.base.settings == nil or self.base.settings.automaticJobs == false
+        or self.baseTask ~= nil then
+        return false
+    end
+    local task, result = KnoxBaseJobs.ensureAutomaticTask(self.base)
+    if task == nil then
+        return false
+    end
+    if task.state == "queued" then
+        task.baseId = self.baseId
+        local eligible, eligibilityResult = KnoxBaseManager.canPerformTask(
+            self.id,
+            self.baseId,
+            task
+        )
+        if not eligible then
+            return false
+        end
+        task, result = KnoxPersistence.claimBaseTask(
+            self.baseId,
+            task.id,
+            self.id,
+            getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+        )
+    elseif task.state ~= "claimed" or task.claimedBy ~= self.id then
+        return false
+    end
+    if task == nil then
+        return false
+    end
+    task.baseId = self.baseId
+    local target = KnoxBaseJobs.resolveTaskSquare(task, self.character)
+    if target == nil then
+        KnoxBaseTaskBoard.finish(
+            self.baseId,
+            task.id,
+            self.id,
+            false,
+            "no_loaded_work_square"
+        )
+        self:recordFailure("base_task_target", ticks, 180)
+        return false
+    end
+    local moveResult = tostring(self.bridge:moveNpc(self.id, target))
+    if string.find(moveResult, "MOVE_STARTED", 1, true) ~= 1 then
+        KnoxBaseTaskBoard.finish(
+            self.baseId,
+            task.id,
+            self.id,
+            false,
+            "task_move_start_failed:" .. moveResult
+        )
+        self:recordFailure("base_task_move:" .. moveResult, ticks, 180)
+        return false
+    end
+    self.baseTask = task
+    self.baseTaskStartedAt = nil
+    self.activeDecision = "base_task_" .. tostring(task.type)
+    self.state = "BASE_TASK_MOVE"
+    print("[KnoxSurvivors][BaseJobs] id=" .. tostring(self.id)
+        .. " task=" .. tostring(task.id) .. " type=" .. tostring(task.type)
+        .. " target=" .. tostring(target:getX()) .. "," .. tostring(target:getY()))
+    return true
+end
+
 function Controller:releaseSupply()
     if self.pendingSupply ~= nil then
         release(self.reservations, "items", self.pendingSupply.item, self.id)
@@ -1476,6 +1581,7 @@ end
 function Controller:abandonCurrentDecision(ticks, reason)
     self.bridge:cancelNpcMove(self.id)
     self.bridge:resetNpcCombat(self.id)
+    self:abandonBaseTask(reason or "decision_abandoned")
     if not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
     end
@@ -1662,6 +1768,7 @@ function Controller:beginCombat(target)
     if not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
     end
+    self:abandonBaseTask("combat_interrupt")
     if self.activeDecision == "rest" or self.activeDecision == "sleep" then
         self:leaveRecoveryPosture()
     end
@@ -1868,6 +1975,8 @@ function Controller:think(ticks)
         )
         if not atBase then
             self:beginBaseMovement(ticks, true)
+        elseif self:beginBaseTask(ticks) then
+            return
         elseif ZombRand(100) < 55 then
             self:beginBaseMovement(ticks, false)
         else
@@ -1943,6 +2052,7 @@ function Controller:tick(ticks)
         or self.state == "GROUP_FOLLOW" or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
+        or self.state == "BASE_TASK_MOVE"
         or self.state == "MEETING_APPROACH"
         or self.state == "MOVING_TO_WINDOW_ENTRY"
         or self.state == "CROSSING_WINDOW_ENTRY"
@@ -1952,6 +2062,7 @@ function Controller:tick(ticks)
         or self.state == "SEARCHING"
         or self.state == "TIMED_ACTION"
         or self.state == "ROBBING"
+        or self.state == "BASE_TASK_WORK"
     if (movementState and stateAge > MOVEMENT_TIMEOUT_TICKS)
         or (actionState and stateAge > ACTION_TIMEOUT_TICKS)
         or (self.state == "BREAKING_LOCKED_DOOR"
@@ -2007,6 +2118,25 @@ function Controller:tick(ticks)
         if ticks >= self.nextThink then
             self.activeDecision = nil
             self.state = "IDLE"
+        end
+        return
+    end
+
+    if self.state == "BASE_TASK_WORK" then
+        if self.baseTask == nil then
+            self.state = "IDLE"
+            self.activeDecision = nil
+            self.nextThink = ticks + THINK_MIN_TICKS
+            return
+        end
+        local started = self.baseTaskStartedAt or ticks
+        if ticks - started >= KnoxBaseJobs.workDuration(self.baseTask) then
+            local taskType = self.baseTask.type
+            self:finishBaseTask(true, "completed_" .. tostring(taskType))
+            KnoxActivityFeed.speak(self.character,
+                taskType == "guard" and "All clear here." or "Patrol done."
+            )
+            self:finishDecision(ticks)
         end
         return
     end
@@ -2108,6 +2238,7 @@ function Controller:tick(ticks)
         or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
+        or self.state == "BASE_TASK_MOVE"
         or self.state == "MEETING_APPROACH"
         or self.state == "MOVING_TO_WINDOW_ENTRY"
         or self.state == "CROSSING_WINDOW_ENTRY" or self.state == "MOVING_TO_REST"
@@ -2201,6 +2332,16 @@ function Controller:tick(ticks)
                 self:finishDecision(ticks)
                 return
             end
+            if self.state == "BASE_TASK_MOVE" then
+                self.baseTaskStartedAt = ticks
+                self.activeDecision = "base_task_work"
+                self.state = "BASE_TASK_WORK"
+                KnoxActivityFeed.speak(self.character,
+                    self.baseTask ~= nil and self.baseTask.type == "guard"
+                        and "I'll keep watch here." or "I'll make a patrol."
+                )
+                return
+            end
             if (self.state == "MOVING_TO_SUPPLY" or self.state == "MOVING_TO_EXPLORE")
                 and self.pendingSupply ~= nil then
                 local supply = self.pendingSupply
@@ -2265,6 +2406,11 @@ function Controller:tick(ticks)
                 self.activeDecision = "base_idle"
                 self.state = "BASE_IDLE"
                 self.nextThink = ticks + 180
+                return
+            end
+            if self.state == "BASE_TASK_MOVE" then
+                self:finishBaseTask(false, "movement_failed:" .. movement)
+                self:finishDecision(ticks)
                 return
             end
             if string.find(movement, "FAILED_LOCKED_DOOR", 1, true) ~= nil
@@ -2386,12 +2532,15 @@ function Controller:status()
         .. " baseScout=" .. tostring(self.counts.baseScout)
         .. " robberies=" .. tostring(self.counts.robberies)
         .. " failures=" .. tostring(self.counts.failures)
+        .. " baseTask=" .. tostring(self.baseTask ~= nil
+            and self.baseTask.type or "none")
         .. " groupLeader=" .. tostring(self.groupLeaderId)
         .. " formationSlot=" .. tostring(self.groupFormationSlot)
         .. " " .. KnoxSurvivorNeeds.describe(KnoxSurvivorNeeds.snapshot(self.character))
 end
 
 function Controller:shutdown()
+    self:abandonBaseTask("shutdown")
     if self.character ~= nil and not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
     end

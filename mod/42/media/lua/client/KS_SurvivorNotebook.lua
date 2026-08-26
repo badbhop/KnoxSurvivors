@@ -15,6 +15,14 @@ local function line(value)
     return tostring(value or "") .. " <LINE> "
 end
 
+local function tableLength(values)
+    local count = 0
+    for _ in pairs(values or {}) do
+        count = count + 1
+    end
+    return count
+end
+
 function Window:partyText()
     local snapshots = KnoxSurvivorViewModel.getForPlayer(self.playerNum)
     local text = "<H1>Party</H1>" .. line("Active companions: " .. tostring(#snapshots))
@@ -36,12 +44,41 @@ function Window:baseText()
     end
     local area = base.territory or base.home
     local residents = KnoxPersistence.getBaseResidentIds(base.id)
-    return "<H1>" .. tostring(base.name or "Home Base") .. "</H1>"
+    local zones = {}
+    for _, zone in pairs(base.zones or {}) do
+        if zone ~= nil and zone.enabled ~= false then
+            zones[#zones + 1] = zone
+        end
+    end
+    table.sort(zones, function(first, second)
+        return tostring(first.label or first.type) < tostring(second.label or second.type)
+    end)
+    local queued, claimed = 0, 0
+    for _, task in pairs(base.tasks or {}) do
+        if task.state == "queued" then
+            queued = queued + 1
+        elseif task.state == "claimed" then
+            claimed = claimed + 1
+        end
+    end
+    local text = "<H1>" .. tostring(base.name or "Home Base") .. "</H1>"
         .. line("Residents: " .. tostring(#residents))
         .. line("Boundary: " .. tostring(area.minX) .. ", " .. tostring(area.minY)
             .. " to " .. tostring(area.maxX or (area.minX + area.width - 1))
             .. ", " .. tostring(area.maxY or (area.minY + area.height - 1)))
-        .. line("All building floors are included. Work zones keep their own floor.")
+        .. line("Work queue: " .. tostring(queued) .. " queued, "
+            .. tostring(claimed) .. " active")
+        .. line("Storage policies: " .. tostring(tableLength(base.storage)))
+    if #zones == 0 then
+        text = text .. line("No work areas set. Use the world menu to mark one.")
+    else
+        text = text .. line("Work areas:")
+        for _, zone in ipairs(zones) do
+            text = text .. line("  " .. tostring(zone.label or zone.type)
+                .. " [" .. tostring(zone.type) .. "]")
+        end
+    end
+    return text .. line("All building floors are included. Work zones keep their own floor.")
 end
 
 function Window:survivorText()

@@ -223,5 +223,22 @@ assert(transferredDuty.mode == "base" and transferredDuty.baseId == base.id,
 assert(transferredTask.state == "claimed"
     and transferredTask.claimedBy == "resident-two",
     "rejected faction transfer must preserve player-base work")
+assert(KnoxPersistence.finishBaseTask(
+    base.id,
+    transferredTask.id,
+    "resident-two",
+    true,
+    "completed_guard",
+    25
+))
+assert(transferredTask.state == "complete" and transferredTask.retryAtHours == 25)
+local reopenedTask, reopenedTaskResult = KnoxPersistence.requeueBaseTask(
+    base.id,
+    transferredTask.id,
+    25
+)
+assert(reopenedTask == transferredTask and reopenedTaskResult == "requeued")
+assert(transferredTask.state == "queued" and transferredTask.runs == 1,
+    "recurring base work should reopen the same persisted task")
 
 print("Companion/base domain PASS migration=true recruitment=true base=true tasks=true")
