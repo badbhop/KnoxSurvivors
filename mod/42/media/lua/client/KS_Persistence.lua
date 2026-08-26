@@ -1492,10 +1492,23 @@ end
 function KnoxPersistence.removeBaseZone(baseId, zoneId)
     local base = KnoxPersistence.getBase(baseId)
     if base == nil or base.zones[zoneId] == nil then
-        return false
+        return false, "unknown_zone"
+    end
+    -- Never delete a target below a resident who is already on the way or
+    -- working. The owner can retry after that task safely finishes/blocks.
+    for _, task in pairs(base.tasks or {}) do
+        if task ~= nil and task.target ~= nil and task.target.autoZoneId == zoneId
+            and task.state == "claimed" then
+            return false, "zone_has_active_task"
+        end
+    end
+    for taskId, task in pairs(base.tasks or {}) do
+        if task ~= nil and task.target ~= nil and task.target.autoZoneId == zoneId then
+            base.tasks[taskId] = nil
+        end
     end
     base.zones[zoneId] = nil
-    return true
+    return true, "removed"
 end
 
 function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot)

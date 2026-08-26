@@ -158,6 +158,22 @@ local zone = assert(KnoxPersistence.addBaseZone(base.id, "guard", {
     x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
 }, "Front gate"))
 assert(zone.type == "guard" and base.zones[zone.id] == zone)
+local queuedZoneTask = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
+    autoZoneId = zone.id, x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
+}, {}, 50))
+assert(KnoxPersistence.removeBaseZone(base.id, zone.id))
+assert(base.zones[zone.id] == nil and base.tasks[queuedZoneTask.id] == nil,
+    "removing an inactive zone clears its queued work")
+local activeZone = assert(KnoxPersistence.addBaseZone(base.id, "guard", {
+    x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
+}, "Active gate"))
+local activeTask = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
+    autoZoneId = activeZone.id, x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
+}, {}, 50))
+assert(KnoxPersistence.claimBaseTask(base.id, activeTask.id, "independent", 24))
+local removedActive, activeReason = KnoxPersistence.removeBaseZone(base.id, activeZone.id)
+assert(not removedActive and activeReason == "zone_has_active_task"
+    and base.zones[activeZone.id] ~= nil, "active work areas are protected")
 
 local policy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     key = "container-stable-1",

@@ -78,6 +78,15 @@ function BaseContextMenu.selectZone(player, baseId, zoneType, label)
     KnoxBaseZoneSelector.start(player, baseId, zoneType, label)
 end
 
+function BaseContextMenu.removeZone(_, baseId, zoneId)
+    local removed, result = KnoxPersistence.removeBaseZone(baseId, zoneId)
+    if removed then
+        KnoxActivityFeed.event("Work area removed.")
+    else
+        KnoxActivityFeed.event("Could not remove work area: " .. tostring(result) .. ".")
+    end
+end
+
 function BaseContextMenu.openSetup(_, playerNum)
     KnoxBaseSetup.show(playerNum)
 end
@@ -147,6 +156,30 @@ local function addWorkZoneMenu(parent, player, base)
     end
 end
 
+local function addManageZoneMenu(parent, base)
+    local zones = {}
+    for _, zone in pairs(base.zones or {}) do
+        if zone ~= nil then zones[#zones + 1] = zone end
+    end
+    if #zones == 0 then return end
+    table.sort(zones, function(a, b)
+        return tostring(a.label or a.type) < tostring(b.label or b.type)
+    end)
+    local option = parent:addOption("Manage Work Areas", nil, nil)
+    local menu = ISContextMenu:getNew(parent)
+    parent:addSubMenu(option, menu)
+    for _, zone in ipairs(zones) do
+        local label = tostring(zone.label or zone.type) .. " ["
+            .. tostring(zone.x1) .. "," .. tostring(zone.y1) .. " to "
+            .. tostring(zone.x2) .. "," .. tostring(zone.y2) .. "]"
+        local zoneOption = menu:addOption(label, nil, nil)
+        local zoneMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(zoneOption, zoneMenu)
+        zoneMenu:addOption("Remove Work Area", BaseContextMenu,
+            BaseContextMenu.removeZone, base.id, zone.id)
+    end
+end
+
 function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     if not KnoxSettings.enabled() then
         return
@@ -186,6 +219,7 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
             base.id
         )
         addWorkZoneMenu(menu, player, base)
+        addManageZoneMenu(menu, base)
     end
     for _, object in ipairs(containers) do
         addStorageMenu(menu, base, object)
