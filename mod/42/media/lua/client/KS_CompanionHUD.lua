@@ -4,6 +4,7 @@ require "KS_SurvivorContextMenu"
 require "KS_SurvivorViewModel"
 require "KS_Settings"
 require "KS_PartyCommands"
+require "KS_CompanionInventoryMenu"
 
 local CompanionHUD = rawget(_G, "KnoxCompanionHUD") or {}
 _G.KnoxCompanionHUD = CompanionHUD
