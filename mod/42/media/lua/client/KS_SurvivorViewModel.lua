@@ -186,6 +186,24 @@ local function orderLabelFor(duty)
         return "Available at base"
     end
     if duty.mode == "companion" then
+        local directive = type(duty.directive) == "table" and duty.directive or nil
+        if directive ~= nil then
+            if directive.kind == "go_to" then
+                return "Moving to location"
+            end
+            if directive.kind == "guard" then
+                return "Guarding location"
+            end
+            if directive.kind == "loot_area" then
+                return "Looting area"
+            end
+            if directive.kind == "loot_building" then
+                return "Looting building"
+            end
+            if directive.kind == "loot_corpses" then
+                return "Looting bodies"
+            end
+        end
         return duty.order == "hold" and "Holding here" or "Following"
     end
     if duty.order == "return" or duty.order == "return_to_base" then
@@ -247,6 +265,15 @@ local function activityFor(duty, state, loaded, alive, currentActivity)
         return "Tired"
     end
     if duty.mode == "companion" then
+        local directive = type(duty.directive) == "table" and duty.directive or nil
+        if directive ~= nil then
+            if directive.kind == "guard" then
+                return "Guarding"
+            end
+            if directive.kind == "go_to" then
+                return "Moving"
+            end
+        end
         return duty.order == "hold" and "Waiting here" or "Following"
     end
     if duty.mode == "base" then

@@ -137,6 +137,8 @@ the following behavior is not yet called live-verified:
     Follow or Hold order. Issue `Guard This Location` and confirm they stay near the
     selected square, still defend themselves, and return there after a short fight.
     Save/load once while a guard order is active; its location and order must survive.
+    Individual survivor menus also provide `Move to Me` and `Guard Here`; the HUD row
+    should change from Follow/Hold to the current directive while either is active.
 10. Close the activity feed with X, then reopen it through the `SQUAD` header menu. Speech
     must show the speaker name plus a stable party/group/faction label and color.
 11. Use `Set Home Base Boundary`, choose two opposite corners around the house and yard,

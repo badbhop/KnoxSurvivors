@@ -90,6 +90,36 @@ local function onHold(_, playerNum, survivorId)
     end, survivorId)
 end
 
+local function pointDirective(kind, square)
+    if square == nil then
+        return nil
+    end
+    return {
+        kind = kind,
+        minX = square:getX(),
+        minY = square:getY(),
+        maxX = square:getX(),
+        maxY = square:getY(),
+        z = square:getZ(),
+    }
+end
+
+local function onMoveToPlayer(_, playerNum, survivorId)
+    runService(playerNum, function(player, id)
+        local directive = pointDirective("go_to", player:getCurrentSquare())
+        return directive ~= nil and KnoxCompanionService.issueDirective(player, id, directive)
+    end, survivorId)
+end
+
+local function onGuardHere(_, playerNum, survivorId)
+    runService(playerNum, function(player, id)
+        local character = KnoxSurvivorRuntime.getCharacter(id)
+        local directive = pointDirective("guard",
+            character ~= nil and character:getCurrentSquare() or nil)
+        return directive ~= nil and KnoxCompanionService.issueDirective(player, id, directive)
+    end, survivorId)
+end
+
 local function onReturnToBase(_, playerNum, survivorId)
     runService(playerNum, KnoxCompanionService.sendToBase, survivorId)
 end
@@ -198,6 +228,8 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         local hold = menu:addOption("Hold here", SurvivorContextMenu, onHold, playerNum, survivorId)
         menu:setOptionChecked(follow, duty.order == "follow")
         menu:setOptionChecked(hold, duty.order == "hold")
+        menu:addOption("Move to Me", SurvivorContextMenu, onMoveToPlayer, playerNum, survivorId)
+        menu:addOption("Guard Here", SurvivorContextMenu, onGuardHere, playerNum, survivorId)
         local base = KnoxBaseManager.getForOwner("player", playerId)
         if base ~= nil then
             menu:addOption(
