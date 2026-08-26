@@ -35,10 +35,11 @@ The latest development pass adds the next layer:
 - persistent player and faction bases, work zones, storage categories, residents, and a
   guarded task queue;
 - base return, guard and patrol work, depot sorting, window barricading, crop work,
-  tree cutting, log sawing, and corpse cleanup through normal world actions.
+  tree cutting, log sawing, corpse cleanup, and trough feeding/watering through normal
+  world actions.
 
 That latest layer builds and passes standalone checks, but the newer base jobs still need
-their in-game passes. Construction, animal care, repairs, the full Survivors Notebook,
+their in-game passes. Construction, repairs, the full Survivors Notebook,
 firearms, vehicles, raids, and away teams are not being claimed as finished.
 
 ## Current live test

@@ -18,6 +18,8 @@ TaskBoard.TASK_TYPES = {
     patrol = true,
     haul_corpse = true,
     animal_care = true,
+    animal_water = true,
+    animal_feed = true,
     repair = true,
 }
 

@@ -130,9 +130,12 @@ the following behavior is not yet called live-verified:
     remain there briefly, and then record `completed_guard` or `completed_patrol` before the
     same zone becomes available again. Combat, a new companion order, leaving the base, or
     a save/reload must release the claim instead of leaving a permanently stuck task.
-14. Marking Animal Care or another work area without an executor should persist the zone but
-    must not claim it or pretend the world action completed. This is intentional until that
-    job has a real timed action and inventory/resource verification.
+14. Set an Animal Care Area over one or more loaded feeding troughs. Give a base resident a
+    container holding water and an animal-feed bag. A trough below half capacity should create
+    one persisted refill task: water uses the normal pour animation and fluid transfer, while
+    feed uses the normal inventory transfer and trough sound. The task should finish only when
+    the real trough amount increases. Full troughs, missing supplies, a removed trough, or an
+    incompatible fluid must be skipped or released for retry instead of claiming success.
 15. To test depot sorting, mark one container `Depot` and another `Food`, `Building Materials`,
     or another supported category. Put one matching item in the depot, send a base resident
     home, and watch for one transfer with the normal rummage animation. The task should finish
@@ -297,12 +300,12 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, animal/repair job executors, and
+- Firearms/ammunition, cooking, lethal survivor PvP, repair job executors, and
   interactive Notebook management remain later gates.
   Guard/patrol work-zone drawing, one-item depot sorting, one-plank barricading, crop work,
-  wood processing, and corpse hauling now have initial executors. The current Notebook is the
-  readable domain shell, not the finished base administration interface; newer jobs still
-  require live in-game confirmation.
+  wood processing, corpse hauling, and trough feeding/watering now have initial executors.
+  The current Notebook is the readable domain shell, not the finished base administration
+  interface; newer jobs still require live in-game confirmation.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.
 - Room-wide alternate-entry planning, sleep furniture selection, death, and

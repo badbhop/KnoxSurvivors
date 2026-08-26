@@ -17,6 +17,7 @@ require "KS_BaseBarricades"
 require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
+require "KS_BaseAnimalCare"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -845,6 +846,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskWoodcuttingBefore = nil
     self.baseTaskCorpseTarget = nil
     self.baseTaskCorpsePhase = nil
+    self.baseTaskAnimalTarget = nil
+    self.baseTaskAnimalBefore = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1421,6 +1424,8 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskWoodcuttingBefore = nil
     self.baseTaskCorpseTarget = nil
     self.baseTaskCorpsePhase = nil
+    self.baseTaskAnimalTarget = nil
+    self.baseTaskAnimalBefore = nil
     return finished ~= nil
 end
 
@@ -2188,7 +2193,9 @@ function Controller:tick(ticks)
                 and self.baseTask.type ~= "farm_seed"
                 and self.baseTask.type ~= "chop_tree"
                 and self.baseTask.type ~= "saw_logs"
-                and self.baseTask.type ~= "haul_corpse") then
+                and self.baseTask.type ~= "haul_corpse"
+                and self.baseTask.type ~= "animal_water"
+                and self.baseTask.type ~= "animal_feed") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2312,6 +2319,63 @@ function Controller:tick(ticks)
             )
             if complete then
                 KnoxActivityFeed.speak(self.character, "The body is out of the way.")
+            end
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "animal_water"
+            or self.baseTask.type == "animal_feed" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskAnimalTarget
+                if target == nil then
+                    target = KnoxBaseAnimalCare.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    self.baseTaskAnimalTarget = target
+                    self.baseTaskAnimalBefore = target ~= nil
+                        and KnoxBaseAnimalCare.snapshot(target) or nil
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "animal_care_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult = KnoxBaseAnimalCare.queueAction(
+                    self.character,
+                    target
+                )
+                if action == nil then
+                    if actionResult == "turning_to_trough" then
+                        return
+                    end
+                    self:finishBaseTask(false,
+                        "animal_care_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then
+                return
+            end
+            local complete = KnoxBaseAnimalCare.isComplete(
+                self.baseTaskAnimalTarget,
+                self.baseTaskAnimalBefore
+            )
+            local taskType = self.baseTask.type
+            self:finishBaseTask(
+                complete,
+                complete and "animal_care_complete" or "animal_care_not_completed"
+            )
+            if complete then
+                KnoxActivityFeed.speak(self.character,
+                    taskType == "animal_water"
+                        and "The trough has water." or "The animals have feed."
+                )
             end
             self:finishDecision(ticks)
             return
@@ -2741,6 +2805,28 @@ function Controller:tick(ticks)
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_barricade"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil
+                    and (self.baseTask.type == "animal_water"
+                        or self.baseTask.type == "animal_feed") then
+                    self.baseTaskAnimalTarget = KnoxBaseAnimalCare.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    if self.baseTaskAnimalTarget == nil then
+                        self:finishBaseTask(false, "animal_care_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskAnimalBefore = KnoxBaseAnimalCare.snapshot(
+                        self.baseTaskAnimalTarget
+                    )
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_" .. tostring(self.baseTask.type)
                     self.state = "BASE_TASK_ACTION"
                     return
                 end

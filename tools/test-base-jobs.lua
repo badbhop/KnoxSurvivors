@@ -8,6 +8,7 @@ package.loaded["KS_BaseBarricades"] = true
 package.loaded["KS_BaseFarming"] = true
 package.loaded["KS_BaseWoodcutting"] = true
 package.loaded["KS_BaseCorpseHandling"] = true
+package.loaded["KS_BaseAnimalCare"] = true
 local depotTransfer = nil
 KnoxBaseStorage = {
     findTransfer = function()
@@ -30,6 +31,13 @@ local corpseTarget = nil
 KnoxBaseCorpseHandling = {
     findTask = function()
         return corpseTarget, corpseTarget ~= nil and "found" or "no_corpse_ready"
+    end,
+}
+local animalTarget = nil
+KnoxBaseAnimalCare = {
+    findTask = function()
+        return animalTarget,
+            animalTarget ~= nil and "water" or "no_animal_care_ready"
     end,
 }
 
@@ -171,4 +179,24 @@ assert(corpseTask ~= nil and corpseTask.type == "haul_corpse"
     and corpseTask.priority == 92 and corpseResult == "ready",
     "task-board priority should prevent renewable work from starving cleanup")
 
-print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true target_resolution=true")
+base.tasks = {}
+base.nextTaskId = 1
+depotTransfer = nil
+corpseTarget = nil
+animalTarget = {
+    id = "animal-care:base-1:pasture:animal_water:30:40:0:2",
+    action = "animal_water",
+    zoneType = "animal_care",
+    zoneId = "pasture",
+    x = 30, y = 40, z = 0,
+    objectIndex = 2,
+    itemType = "Base.WaterBottleFull",
+    itemId = "123",
+}
+local animalTask, animalResult = jobs.ensureAutomaticTask(base)
+assert(animalTask ~= nil and animalTask.type == "animal_water"
+    and animalTask.priority == 89 and animalResult == "ready")
+assert(animalTask.requirements.items["Base.WaterBottleFull"] == 1,
+    "animal task should require the exact carried supply type")
+
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true target_resolution=true")

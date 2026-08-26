@@ -5,6 +5,7 @@ require "KS_BaseBarricades"
 require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
+require "KS_BaseAnimalCare"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -311,6 +312,41 @@ local function ensureCorpseTask(base, now, character)
     return nil, result
 end
 
+local function ensureAnimalCareTask(base, now, character)
+    local target = KnoxBaseAnimalCare.findTask(base, character)
+    if target == nil then
+        return nil, "no_animal_care_ready"
+    end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then
+            return existing, "existing"
+        end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            reopened.target = target
+            reopened.requirements = itemRequirements(target.itemType)
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(
+        base.id,
+        target.action,
+        target,
+        itemRequirements(target.itemType),
+        target.action == "animal_water" and 89 or 87
+    )
+    if task ~= nil then
+        task.baseId = base.id
+        task.auto = true
+        task.retryAtHours = now
+        return task, result
+    end
+    return nil, result
+end
+
 function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
@@ -325,6 +361,7 @@ function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     ensureFarmingTask(base, now, character)
     ensureWoodcuttingTask(base, now, character)
     ensureCorpseTask(base, now, character)
+    ensureAnimalCareTask(base, now, character)
     ensureBarricadeTask(base, now, character)
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)
@@ -405,6 +442,13 @@ function BaseJobs.resolveTaskSquare(task, character)
             character
         )
         return resolved ~= nil and resolved.approach or nil
+    end
+    if task.type == "animal_water" or task.type == "animal_feed" then
+        return KnoxBaseAnimalCare.resolveTaskSquare(
+            KnoxBaseManager.get(task.baseId),
+            target,
+            character
+        )
     end
     local x1 = tonumber(target.x1 or target.x) or 0
     local y1 = tonumber(target.y1 or target.y) or 0

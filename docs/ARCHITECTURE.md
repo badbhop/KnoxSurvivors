@@ -298,8 +298,12 @@ bounded base territory but outside its Corpse Drop Area, walks to it, unequips h
 uses the vanilla grab and drop actions to drag it toward the center of that area. The saved task keeps only corpse coordinates,
 its inventory-item ID with a static-object fallback, and the destination zone ID; live object
 references never enter ModData. Interrupted hauling releases the body before the claim is
-closed. Animal care and
-repair remain later action boundaries.
+closed. Animal Care Areas now discover loaded feeding troughs and create separate water or
+feed tasks only when a resident carries a valid supply. Water uses Build 42's normal
+`ISAddFluidFromItemAction`; feed uses the same inventory-transfer path as a player, which
+lets `ItemContainer` notify the trough and update its animals and overlay. The task persists
+only the master trough coordinates/index and the supply's item type/ID, then verifies that
+the real trough water or feed amount increased. Repair remains a later action boundary.
 Barricade work is the exception: when a resident carries a hammer, plank, and
 nails, the controller discovers an unbarricaded loaded window inside the base and queues the
 vanilla `ISBarricadeAction`; completion is accepted only after a real plank count increase.
