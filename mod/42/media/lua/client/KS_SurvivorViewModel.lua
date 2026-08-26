@@ -331,6 +331,9 @@ function ViewModel.getSurvivor(id, playerNum)
     local relationship = playerId ~= nil
         and KnoxPersistence.getPlayerRelationshipSnapshot(playerId, id)
         or nil
+    local capabilities = KnoxPersistence.getSurvivorCapabilities(id) or {}
+    local faction = affiliation.factionId ~= nil and KnoxPersistence.getFaction ~= nil
+        and KnoxPersistence.getFaction(affiliation.factionId) or nil
     local knownSince = relationship ~= nil and relationship.firstMetHours
         or affiliation.joinedAtHours
     local role = roleFor(affiliation, duty)
@@ -351,6 +354,11 @@ function ViewModel.getSurvivor(id, playerNum)
         role = role,
         roleLabel = ROLE_LABELS[role] or "Survivor",
         professionLabel = professionLabelFor(id),
+        traits = capabilities.traitIds or {},
+        skills = capabilities.skills or {},
+        trust = relationship ~= nil and tonumber(relationship.trust) or nil,
+        relationshipMeetings = relationship ~= nil and tonumber(relationship.meetings) or nil,
+        factionName = faction ~= nil and tostring(faction.name or faction.id or "") or nil,
         ageYears = ageYears ~= nil and math.floor(ageYears) or nil,
         daysSurvived = daysSurvived,
         daysKnown = wholeDaysSince(knownSince, nowHours),
@@ -389,6 +397,7 @@ function ViewModel.getSurvivor(id, playerNum)
             order = tostring(duty.order or "survive"),
             ownerId = duty.ownerId,
             baseId = duty.baseId,
+            jobPreference = duty.jobPreference,
             directiveKind = type(duty.directive) == "table"
                 and tostring(duty.directive.kind or "")
                 or nil,

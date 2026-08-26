@@ -10,7 +10,7 @@ local Window = ISCollapsableWindowJoypad:derive("KnoxSurvivorCardWindow")
 local MAX_LOCAL_PLAYERS = 4
 local REFRESH_MS = 500
 local WINDOW_WIDTH = 430
-local WINDOW_HEIGHT = 325
+local WINDOW_HEIGHT = 385
 local PADDING = 12
 local AVATAR_TEXTURE = getTexture("media/ui/avatarBackgroundWhite.png")
 
@@ -48,6 +48,36 @@ local function dayLabel(value)
     end
     days = math.max(0, math.floor(days))
     return tostring(days) .. (days == 1 and " day" or " days")
+end
+
+local function compactList(values, maximum)
+    local output = {}
+    for _, value in ipairs(values or {}) do
+        if type(value) == "string" and value ~= "" then
+            output[#output + 1] = value
+            if #output >= (maximum or 3) then break end
+        end
+    end
+    return #output > 0 and table.concat(output, ", ") or "None"
+end
+
+local function compactSkills(values, maximum)
+    local output = {}
+    for id, saved in pairs(values or {}) do
+        local level = type(saved) == "table" and tonumber(saved.level) or nil
+        if level ~= nil and level > 0 then
+            output[#output + 1] = { id = tostring(id), level = math.floor(level) }
+        end
+    end
+    table.sort(output, function(a, b)
+        if a.level == b.level then return a.id < b.id end
+        return a.level > b.level
+    end)
+    local labels = {}
+    for index = 1, math.min(#output, maximum or 3) do
+        labels[#labels + 1] = output[index].id .. " " .. tostring(output[index].level)
+    end
+    return #labels > 0 and table.concat(labels, ", ") or "No trained skills yet"
 end
 
 local function companionSnapshot(playerNum, survivorId)
@@ -288,6 +318,23 @@ function Window:prerender()
     y = y + smallHeight + 3
     self:drawText(trimText(UIFont.Small, "Order: " .. tostring(snapshot.orderLabel), infoWidth),
         infoX, y, 0.84, 0.83, 0.77, 1, UIFont.Small)
+    y = y + smallHeight + 3
+    local affiliation = snapshot.factionName ~= nil and ("Faction: " .. snapshot.factionName)
+        or (snapshot.duty ~= nil and snapshot.duty.baseId ~= nil and "Home: base resident"
+            or "Faction: none")
+    self:drawText(trimText(UIFont.Small, affiliation, infoWidth),
+        infoX, y, 0.72, 0.74, 0.67, 1, UIFont.Small)
+    y = y + smallHeight + 3
+    local trust = snapshot.trust ~= nil and ("Trust: " .. tostring(math.floor(snapshot.trust)))
+        or "Trust: unknown"
+    self:drawText(trimText(UIFont.Small, trust .. "  -  Weapon: " .. tostring(snapshot.weaponName), infoWidth),
+        infoX, y, 0.72, 0.74, 0.67, 1, UIFont.Small)
+    y = y + smallHeight + 3
+    self:drawText(trimText(UIFont.Small, "Traits: " .. compactList(snapshot.traits, 3), infoWidth),
+        infoX, y, 0.66, 0.68, 0.62, 1, UIFont.Small)
+    y = y + smallHeight + 3
+    self:drawText(trimText(UIFont.Small, "Skills: " .. compactSkills(snapshot.skills, 2), infoWidth),
+        infoX, y, 0.66, 0.68, 0.62, 1, UIFont.Small)
 
     local vitals = snapshot.vitals or {}
     local rowHeight = smallHeight + 6

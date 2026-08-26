@@ -49,9 +49,12 @@ KnoxPersistence = {
     getSurvivorIdentity = function() return identity end,
     getSurvivorAffiliation = function() return affiliation end,
     getSurvivorDuty = function() return duty end,
-    getSurvivorCapabilities = function() return { professionId = "park-ranger" } end,
+    getSurvivorCapabilities = function() return {
+        professionId = "park-ranger", traitIds = { "Brave", "Outdoorsman" },
+        skills = { Woodwork = { level = 3, xp = 200 } },
+    } end,
     getPlayerRelationshipSnapshot = function()
-        return { firstMetHours = 52 }
+        return { firstMetHours = 52, trust = 61, meetings = 4 }
     end,
     getBase = function() return nil end,
 }
@@ -100,6 +103,8 @@ assert(away.locationLabel == "Away")
 assert(away.vitals.available == false)
 assert(away.vitals.health == nil)
 assert(away.health == 1)
+assert(away.traits[1] == "Brave" and away.skills.Woodwork.level == 3)
+assert(away.trust == 61 and away.relationshipMeetings == 4)
 
 liveCharacter = {
     getCurrentSquare = function() return {} end,
