@@ -9,6 +9,7 @@ require "KS_Persistence"
 require "KS_SurvivorRuntime"
 require "KS_SurvivorViewModel"
 require "KS_SurvivorCard"
+require "KS_CompanionInventory"
 require "KS_Settings"
 
 local SurvivorContextMenu = rawget(_G, "KnoxSurvivorContextMenu") or {}
@@ -84,6 +85,10 @@ local function onMedicalCheck(_, playerNum, survivorId)
     if ISHealthPanel.canPerformMedicalCheck(patient, player) then
         ISTimedActionQueue.add(ISMedicalCheckAction:new(player, patient))
     end
+end
+
+local function onManageInventory(_, playerNum, survivorId)
+    KnoxCompanionInventory.show(playerNum, survivorId)
 end
 
 local function onRecruit(_, playerNum, survivorId)
@@ -244,6 +249,18 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
     end
 
     if duty.mode == "companion" then
+        local inventoryLabel = closeEnough and "Manage Inventory"
+            or "Manage Inventory (too far away)"
+        local inventory = menu:addOption(
+            inventoryLabel,
+            SurvivorContextMenu,
+            onManageInventory,
+            playerNum,
+            survivorId
+        )
+        if not closeEnough then
+            unavailable(inventory)
+        end
         local medicalLabel = closeEnough and "Medical Check"
             or "Medical Check (too far away)"
         local medical = menu:addOption(
