@@ -151,6 +151,11 @@ the following behavior is not yet called live-verified:
     skipped and retried later rather than claimed indefinitely. With a usable digging tool and
     a matching carried seed, an empty suitable square should then be plowed and the resulting
     furrow seeded as two separate normal actions. No seed should mean no pointless plowing.
+18. Set a Woodcutting Area over one or more loaded trees and give the resident a usable axe.
+    The resident should equip the axe, play the normal Chop Tree action, and finish only when
+    the tree object is gone. Missing axes, unloaded trees, or an already-chopped target should
+    be released and retried rather than reported as success. This slice does not yet saw logs
+    into planks.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -285,8 +290,8 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, woodcutting, corpse/animal/repair job
-  executors, and interactive Notebook management remain later gates.
+- Firearms/ammunition, cooking, lethal survivor PvP, log-to-plank conversion, corpse/animal/
+  repair job executors, and interactive Notebook management remain later gates.
   Guard/patrol work-zone drawing, execution, one-item depot sorting, one-plank barricading, and
   basic crop maintenance are now the initial live base-job slices. The current Notebook is the
   readable domain shell, not the finished base administration interface.

@@ -288,8 +288,10 @@ item full type rather than an engine object, so a save/reload can safely retry i
 was taken. Farming zones now have a small maintenance executor: the resident discovers the
 first ripe or dry seeded plant in the loaded zone, walks to it, and queues the vanilla harvest
 or watering action. An empty suitable square can then be plowed and a carried seed sown as
-separate persisted tasks, again using the vanilla timed actions and state verification. The
-remaining action boundaries are woodcutting, corpse handling, animals, and repair.
+separate persisted tasks, again using the vanilla timed actions and state verification. A
+woodcutting zone likewise resolves a loaded tree, requires a real axe, and queues the vanilla
+`ISChopTreeAction`; completion is accepted only after the tree object is removed. Log-to-plank
+production, corpse handling, animals, and repair remain later action boundaries.
 Barricade work is the exception: when a resident carries a hammer, plank, and
 nails, the controller discovers an unbarricaded loaded window inside the base and queues the
 vanilla `ISBarricadeAction`; completion is accepted only after a real plank count increase.

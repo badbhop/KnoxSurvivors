@@ -3,6 +3,7 @@ require "KS_BaseTaskBoard"
 require "KS_BaseStorage"
 require "KS_BaseBarricades"
 require "KS_BaseFarming"
+require "KS_BaseWoodcutting"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -217,6 +218,40 @@ local function ensureFarmingTask(base, now, character)
     return nil, result
 end
 
+local function ensureWoodcuttingTask(base, now, character)
+    local target = KnoxBaseWoodcutting.findTask(base, character)
+    if target == nil then
+        return nil, "no_tree_ready"
+    end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then
+            return existing, "existing"
+        end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            reopened.target = target
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(
+        base.id,
+        "chop_tree",
+        target,
+        {},
+        75
+    )
+    if task ~= nil then
+        task.baseId = base.id
+        task.auto = true
+        task.retryAtHours = now
+        return task, result
+    end
+    return nil, result
+end
+
 function BaseJobs.ensureAutomaticTask(base, character)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
@@ -229,6 +264,14 @@ function BaseJobs.ensureAutomaticTask(base, character)
     local farmingTask, farmingResult = ensureFarmingTask(base, now, character)
     if farmingTask ~= nil then
         return farmingTask, farmingResult
+    end
+    local woodcuttingTask, woodcuttingResult = ensureWoodcuttingTask(
+        base,
+        now,
+        character
+    )
+    if woodcuttingTask ~= nil then
+        return woodcuttingTask, woodcuttingResult
     end
     local barricadeTask, barricadeResult = ensureBarricadeTask(base, now, character)
     if barricadeTask ~= nil then

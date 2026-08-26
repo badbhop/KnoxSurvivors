@@ -15,6 +15,7 @@ require "KS_BaseJobs"
 require "KS_BaseStorage"
 require "KS_BaseBarricades"
 require "KS_BaseFarming"
+require "KS_BaseWoodcutting"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -839,6 +840,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskBarricadeBefore = 0
     self.baseTaskFarmingTarget = nil
     self.baseTaskFarmingBefore = nil
+    self.baseTaskWoodcuttingTarget = nil
+    self.baseTaskWoodcuttingBefore = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1411,6 +1414,8 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskBarricadeBefore = 0
     self.baseTaskFarmingTarget = nil
     self.baseTaskFarmingBefore = nil
+    self.baseTaskWoodcuttingTarget = nil
+    self.baseTaskWoodcuttingBefore = nil
     return finished ~= nil
 end
 
@@ -2168,7 +2173,8 @@ function Controller:tick(ticks)
                 and self.baseTask.type ~= "farm_water"
                 and self.baseTask.type ~= "farm_harvest"
                 and self.baseTask.type ~= "farm_plow"
-                and self.baseTask.type ~= "farm_seed") then
+                and self.baseTask.type ~= "farm_seed"
+                and self.baseTask.type ~= "chop_tree") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2217,6 +2223,53 @@ function Controller:tick(ticks)
             )
             if complete then
                 KnoxActivityFeed.speak(self.character, "One more layer on the windows.")
+            end
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "chop_tree" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskWoodcuttingTarget
+                if target == nil then
+                    target = KnoxBaseWoodcutting.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    self.baseTaskWoodcuttingTarget = target
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "tree_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult = KnoxBaseWoodcutting.queueAction(
+                    self.character,
+                    target
+                )
+                if action == nil then
+                    self:finishBaseTask(false, "tree_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskWoodcuttingBefore = target.tree:getObjectIndex()
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then
+                return
+            end
+            local complete = KnoxBaseWoodcutting.isComplete(
+                self.baseTaskWoodcuttingTarget,
+                self.baseTaskWoodcuttingBefore
+            )
+            self:finishBaseTask(
+                complete,
+                complete and "tree_chopped" or "tree_not_chopped"
+            )
+            if complete then
+                KnoxActivityFeed.speak(self.character, "That tree is down.")
             end
             self:finishDecision(ticks)
             return
@@ -2589,6 +2642,25 @@ function Controller:tick(ticks)
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_" .. tostring(self.baseTask.type)
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil and self.baseTask.type == "chop_tree" then
+                    self.baseTaskWoodcuttingTarget = KnoxBaseWoodcutting.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    if self.baseTaskWoodcuttingTarget == nil then
+                        self:finishBaseTask(false, "tree_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskWoodcuttingBefore =
+                        self.baseTaskWoodcuttingTarget.tree:getObjectIndex()
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_chop_tree"
                     self.state = "BASE_TASK_ACTION"
                     return
                 end
