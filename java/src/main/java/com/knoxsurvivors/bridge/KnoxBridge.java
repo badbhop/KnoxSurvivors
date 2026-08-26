@@ -249,6 +249,11 @@ public final class KnoxBridge {
         return npcRegistry.persistentRecordId(encoded);
     }
 
+    /** Read-only inventory counts from a portable stored survivor record. */
+    public String getNpcRecordInventorySummary(String encoded) {
+        return npcRegistry.persistentRecordInventorySummary(encoded);
+    }
+
     public String beginNpcLiveCombat(String id, Object zombie, Object approachSquare) {
         return npcRegistry.beginLiveCombat(id, zombie, approachSquare);
     }

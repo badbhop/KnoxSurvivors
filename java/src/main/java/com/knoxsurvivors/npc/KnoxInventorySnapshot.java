@@ -4,7 +4,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 
@@ -88,6 +90,26 @@ final class KnoxInventorySnapshot {
             }
         }
         return "none";
+    }
+
+    /**
+     * Stable, read-only count summary for the Lua persistence layer. The full
+     * snapshot remains authoritative for restoration; this deliberately exposes
+     * no mutable inventory API for an unloaded shell.
+     */
+    String summary() {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (ItemState item : items) {
+            counts.merge(item.fullType, 1, Integer::sum);
+        }
+        StringBuilder result = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            if (!result.isEmpty()) {
+                result.append(';');
+            }
+            result.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        return result.toString();
     }
 
     String encode() {

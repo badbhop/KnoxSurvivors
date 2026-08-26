@@ -565,6 +565,10 @@ public final class KnoxNpcRegistry {
         return KnoxSurvivorRecord.decode(encoded).id;
     }
 
+    public synchronized String persistentRecordInventorySummary(String encoded) {
+        return KnoxSurvivorRecord.decode(encoded).inventorySummary();
+    }
+
     public synchronized int activeCount() {
         return activeNpcs.size();
     }

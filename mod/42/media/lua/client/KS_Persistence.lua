@@ -1718,6 +1718,15 @@ function KnoxPersistence.captureActiveSurvivor(id)
         return false, encoded
     end
     local saved = KnoxPersistence.setRecord(id, encoded)
+    if saved and bridge.getNpcRecordInventorySummary ~= nil then
+        local summaryOk, summary = pcall(bridge.getNpcRecordInventorySummary, bridge, encoded)
+        if summaryOk and type(summary) == "string" then
+            local survivor = ensureSurvivorState(id)
+            survivor.inventorySummary = summary
+            survivor.inventorySummaryAtHours = getGameTime() ~= nil
+                and getGameTime():getWorldAgeHours() or 0
+        end
+    end
     local capabilities = rawget(_G, "KnoxSurvivorCapabilities")
     if saved and capabilities ~= nil and capabilities.capture ~= nil then
         local character = bridge:getNpcCharacter(id)

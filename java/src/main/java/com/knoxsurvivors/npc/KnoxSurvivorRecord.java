@@ -56,6 +56,10 @@ final class KnoxSurvivorRecord {
             + "|" + text(physiology.encode());
     }
 
+    String inventorySummary() {
+        return inventory.summary();
+    }
+
     static KnoxSurvivorRecord decode(String encoded) {
         String[] fields = encoded.split("\\|", -1);
         int version = Integer.parseInt(fields[0]);
