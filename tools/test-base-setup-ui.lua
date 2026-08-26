@@ -31,4 +31,10 @@ assert(string.find(party, 'require "KS_BaseSetup"', 1, true),
 assert(string.find(party, 'KnoxBaseSetup.show', 1, true),
     "party menu must be able to open Base Setup")
 
-print("Base setup UI PASS tabs=true selectors=true menu_wiring=true")
+local notebook = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNotebook.lua")
+assert(string.find(notebook, '"Residents", "Away"', 1, true),
+    "Notebook must distinguish residents and unloaded survivors")
+assert(string.find(notebook, 'Away-team simulation is not active yet.', 1, true),
+    "Notebook must not misrepresent unloaded survivors as missions")
+
+print("Base setup UI PASS tabs=true selectors=true menu_wiring=true notebook=true")

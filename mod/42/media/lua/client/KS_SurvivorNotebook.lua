@@ -4,12 +4,14 @@ require "ISUI/ISRichTextPanel"
 require "KS_Persistence"
 require "KS_SurvivorViewModel"
 require "KS_BaseManager"
+require "KS_SurvivorRuntime"
+require "KS_SurvivorCapabilities"
 
 local Notebook = rawget(_G, "KnoxSurvivorNotebook") or {}
 _G.KnoxSurvivorNotebook = Notebook
 
 local Window = ISCollapsableWindow:derive("KnoxSurvivorNotebookWindow")
-local TABS = { "Party", "Home Base", "Survivors", "Factions" }
+local TABS = { "Party", "Home Base", "Residents", "Away", "Survivors", "Factions" }
 
 local function line(value)
     return tostring(value or "") .. " <LINE> "
@@ -29,9 +31,63 @@ function Window:partyText()
     for _, survivor in ipairs(snapshots) do
         text = text .. line("<RGB:0.78,0.84,0.62>" .. survivor.displayName
             .. "<RGB:0.85,0.85,0.82>  -  " .. survivor.activity
-            .. "  -  " .. survivor.order)
+            .. "  -  " .. survivor.orderLabel)
     end
     return text .. (#snapshots == 0 and line("Recruit survivors to build a party.") or "")
+end
+
+function Window:residentText()
+    local player = getSpecificPlayer(self.playerNum)
+    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
+    local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
+    local text = "<H1>Base Residents</H1>"
+    if base == nil then
+        return text .. line("No home base established.")
+    end
+    local ids = KnoxPersistence.getBaseResidentIds(base.id)
+    if #ids == 0 then
+        return text .. line("No survivors are living at this base.")
+    end
+    for _, id in ipairs(ids) do
+        local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
+        local duty = KnoxPersistence.getSurvivorDuty(id) or {}
+        local profile = KnoxPersistence.getSurvivorCapabilities(id) or {}
+        local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
+        local profession = KnoxSurvivorCapabilities.professionLabel(profile) or "Survivor"
+        local loaded = KnoxSurvivorRuntime.getCharacter(id) ~= nil
+        text = text .. line("<RGB:0.78,0.84,0.62>" .. name
+            .. "<RGB:0.85,0.85,0.82>  -  " .. profession
+            .. "  -  " .. (loaded and "at base" or "unloaded")
+            .. "  -  " .. tostring(duty.jobPreference or "auto"))
+    end
+    return text .. line("Change an individual preference from the survivor's context menu.")
+end
+
+function Window:awayText()
+    local ids = KnoxPersistence.getSurvivorIds()
+    local text = "<H1>Away / Unloaded</H1>"
+    local count = 0
+    for _, id in ipairs(ids) do
+        if KnoxPersistence.isSurvivorAlive(id)
+            and KnoxSurvivorRuntime.getCharacter(id) == nil then
+            count = count + 1
+            local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
+            local affiliation = KnoxPersistence.getSurvivorAffiliation(id) or {}
+            local duty = KnoxPersistence.getSurvivorDuty(id) or {}
+            local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
+            local role = duty.mode == "base" and "base resident"
+                or affiliation.kind == "player" and "companion"
+                or affiliation.kind == "faction" and "faction survivor"
+                or "independent"
+            text = text .. line("<RGB:0.78,0.84,0.62>" .. name
+                .. "<RGB:0.85,0.85,0.82>  -  " .. role
+                .. "  -  stored outside the active area")
+        end
+    end
+    if count == 0 then
+        return text .. line("No known survivors are currently unloaded.")
+    end
+    return text .. line("Unloaded survivors retain their identity and stored state. Away-team simulation is not active yet.")
 end
 
 function Window:baseText()
@@ -87,8 +143,13 @@ function Window:survivorText()
     for _, id in ipairs(ids) do
         local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
         local affiliation = KnoxPersistence.getSurvivorAffiliation(id) or {}
+        local duty = KnoxPersistence.getSurvivorDuty(id) or {}
+        local profile = KnoxPersistence.getSurvivorCapabilities(id) or {}
         local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
-        text = text .. line(name .. "  -  " .. tostring(affiliation.kind or "independent"))
+        text = text .. line(name .. "  -  "
+            .. tostring(KnoxSurvivorCapabilities.professionLabel(profile) or "Survivor")
+            .. "  -  " .. tostring(affiliation.kind or "independent")
+            .. "  -  " .. tostring(duty.mode or "autonomous"))
     end
     return text
 end
@@ -112,6 +173,8 @@ function Window:refreshContent()
     local builders = {
         ["Party"] = self.partyText,
         ["Home Base"] = self.baseText,
+        Residents = self.residentText,
+        Away = self.awayText,
         ["Survivors"] = self.survivorText,
         ["Factions"] = self.factionText,
     }
@@ -133,7 +196,7 @@ function Window:createChildren()
     local y = self:titleBarHeight() + 8
     local x = 8
     for _, title in ipairs(TABS) do
-        local width = title == "Home Base" and 92 or 78
+        local width = title == "Home Base" and 92 or (title == "Residents" and 82 or 70)
         local button = ISButton:new(x, y, width, 24, title, self, self.onTab)
         button:initialise()
         button.borderColor = { r = 0.42, g = 0.46, b = 0.28, a = 0.9 }
