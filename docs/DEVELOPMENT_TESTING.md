@@ -143,6 +143,13 @@ the following behavior is not yet called live-verified:
     Build action, consume one plank and two nails, and complete only when the real barricade
     reports one additional plank. Fully barricaded windows should be skipped; missing tools or
     materials should leave no claimed task behind.
+17. Set a farming work area over a loaded crop patch. With one ripe plant, the resident should
+    queue the normal Harvest action and the plant should no longer report harvestable after
+    completion. With a seeded plant below full water and a usable water item in inventory, the
+    resident should queue the normal Water Plant action and the plant's water level should
+    increase. Missing water, unloaded plants, and plants that no longer need work should be
+    skipped and retried later rather than claimed indefinitely. Planting and plowing are not
+    part of this slice yet.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -277,10 +284,10 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, farming/woodcutting, corpse/animal/repair
-  job executors, and interactive Notebook management remain later gates. Guard/patrol work-zone
-  drawing, execution, one-item depot sorting, and one-plank barricading are now the first live
-  base-job slices. The current Notebook is the
+- Firearms/ammunition, cooking, lethal survivor PvP, planting/plowing, woodcutting,
+  corpse/animal/repair job executors, and interactive Notebook management remain later gates.
+  Guard/patrol work-zone drawing, execution, one-item depot sorting, one-plank barricading, and
+  basic crop maintenance are now the initial live base-job slices. The current Notebook is the
   readable domain shell, not the finished base administration interface.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.

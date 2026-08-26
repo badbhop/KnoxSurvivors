@@ -14,6 +14,7 @@ require "KS_BaseTaskBoard"
 require "KS_BaseJobs"
 require "KS_BaseStorage"
 require "KS_BaseBarricades"
+require "KS_BaseFarming"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -836,6 +837,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskActionQueued = false
     self.baseTaskBarricadeTarget = nil
     self.baseTaskBarricadeBefore = 0
+    self.baseTaskFarmingTarget = nil
+    self.baseTaskFarmingBefore = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1406,6 +1409,8 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskActionQueued = false
     self.baseTaskBarricadeTarget = nil
     self.baseTaskBarricadeBefore = 0
+    self.baseTaskFarmingTarget = nil
+    self.baseTaskFarmingBefore = nil
     return finished ~= nil
 end
 
@@ -2159,7 +2164,9 @@ function Controller:tick(ticks)
     if self.state == "BASE_TASK_ACTION" then
         if self.baseTask == nil
             or (self.baseTask.type ~= "sort_depot"
-                and self.baseTask.type ~= "barricade") then
+                and self.baseTask.type ~= "barricade"
+                and self.baseTask.type ~= "farm_water"
+                and self.baseTask.type ~= "farm_harvest") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2208,6 +2215,73 @@ function Controller:tick(ticks)
             )
             if complete then
                 KnoxActivityFeed.speak(self.character, "One more layer on the windows.")
+            end
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "farm_water"
+            or self.baseTask.type == "farm_harvest" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskFarmingTarget
+                if target == nil then
+                    target = KnoxBaseFarming.resolveTarget(
+                        self.base,
+                        self.baseTask.target
+                    )
+                    self.baseTaskFarmingTarget = target
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "farming_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local water = nil
+                if self.baseTask.type == "farm_water" then
+                    local item, uses = KnoxBaseFarming.findWaterItem(
+                        self.character,
+                        self.baseTask.target.waterItemType
+                    )
+                    if item ~= nil then
+                        water = {
+                            item = item,
+                            uses = math.min(
+                                tonumber(uses) or 0,
+                                tonumber(self.baseTask.target.waterUses) or 0
+                            ),
+                        }
+                    end
+                end
+                local action, actionResult = KnoxBaseFarming.queueAction(
+                    self.character,
+                    target,
+                    water
+                )
+                if action == nil then
+                    self:finishBaseTask(false, "farming_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then
+                return
+            end
+            local complete = KnoxBaseFarming.isComplete(
+                self.baseTaskFarmingTarget,
+                self.baseTaskFarmingBefore
+            )
+            local taskType = self.baseTask.type
+            self:finishBaseTask(
+                complete,
+                complete and "farming_action_complete" or "farming_action_not_completed"
+            )
+            if complete then
+                KnoxActivityFeed.speak(self.character,
+                    taskType == "farm_harvest"
+                        and "Harvest is in." or "Crops are watered."
+                )
             end
             self:finishDecision(ticks)
             return
@@ -2484,6 +2558,27 @@ function Controller:tick(ticks)
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_barricade"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil
+                    and (self.baseTask.type == "farm_water"
+                        or self.baseTask.type == "farm_harvest") then
+                    self.baseTaskFarmingTarget = KnoxBaseFarming.resolveTarget(
+                        self.base,
+                        self.baseTask.target
+                    )
+                    if self.baseTaskFarmingTarget == nil then
+                        self:finishBaseTask(false, "farming_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskFarmingBefore = KnoxBaseFarming.snapshot(
+                        self.baseTaskFarmingTarget
+                    )
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_" .. tostring(self.baseTask.type)
                     self.state = "BASE_TASK_ACTION"
                     return
                 end

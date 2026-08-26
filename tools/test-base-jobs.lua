@@ -5,6 +5,7 @@ package.loaded["KS_Persistence"] = true
 package.loaded["KS_BaseTaskBoard"] = true
 package.loaded["KS_BaseStorage"] = true
 package.loaded["KS_BaseBarricades"] = true
+package.loaded["KS_BaseFarming"] = true
 local depotTransfer = nil
 KnoxBaseStorage = {
     findTransfer = function()
@@ -16,6 +17,9 @@ KnoxBaseStorage = {
 }
 KnoxBaseBarricades = {
     canPrepare = function() return false end,
+}
+KnoxBaseFarming = {
+    findTask = function() return nil, "no_farming_action_ready" end,
 }
 
 local now = 10
