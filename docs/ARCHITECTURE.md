@@ -303,7 +303,14 @@ feed tasks only when a resident carries a valid supply. Water uses Build 42's no
 `ISAddFluidFromItemAction`; feed uses the same inventory-transfer path as a player, which
 lets `ItemContainer` notify the trough and update its animals and overlay. The task persists
 only the master trough coordinates/index and the supply's item type/ID, then verifies that
-the real trough water or feed amount increased. Repair remains a later action boundary.
+the real trough water or feed amount increased. Structure repair delegates its entire ruleset
+to Build 42's moveable-repair system. A resident scans a drawn Repair Area, or the loaded base
+territory when no repair area exists, and considers only doors, thumpable structures, and
+barricades between 20% and 95% health that vanilla `canRepairObject` approves. The task keeps
+coordinates, object index, sprite name, and the concrete tools/materials found for that repair.
+After travel, `ISMoveablesAction` performs the normal equip, animation, sound, skill-chance,
+resource-consumption, multi-tile repair, and synchronization path. Knox records success only
+if the actual object health rises; a legitimate skill failure remains a failed retryable task.
 Barricade work is the exception: when a resident carries a hammer, plank, and
 nails, the controller discovers an unbarricaded loaded window inside the base and queues the
 vanilla `ISBarricadeAction`; completion is accepted only after a real plank count increase.

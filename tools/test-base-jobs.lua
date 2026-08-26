@@ -9,6 +9,7 @@ package.loaded["KS_BaseFarming"] = true
 package.loaded["KS_BaseWoodcutting"] = true
 package.loaded["KS_BaseCorpseHandling"] = true
 package.loaded["KS_BaseAnimalCare"] = true
+package.loaded["KS_BaseRepairs"] = true
 local depotTransfer = nil
 KnoxBaseStorage = {
     findTransfer = function()
@@ -38,6 +39,13 @@ KnoxBaseAnimalCare = {
     findTask = function()
         return animalTarget,
             animalTarget ~= nil and "water" or "no_animal_care_ready"
+    end,
+}
+local repairTarget = nil
+KnoxBaseRepairs = {
+    findTask = function()
+        return repairTarget,
+            repairTarget ~= nil and "found" or "no_repair_ready"
     end,
 }
 
@@ -199,4 +207,25 @@ assert(animalTask ~= nil and animalTask.type == "animal_water"
 assert(animalTask.requirements.items["Base.WaterBottleFull"] == 1,
     "animal task should require the exact carried supply type")
 
-print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true target_resolution=true")
+base.tasks = {}
+base.nextTaskId = 1
+animalTarget = nil
+repairTarget = {
+    id = "repair:base-1:territory:12:20:0:4:door",
+    action = "repair",
+    zoneType = "repair",
+    x = 12, y = 20, z = 0,
+    objectIndex = 4,
+    spriteName = "door",
+    requiredItems = {
+        ["Base.Hammer"] = 1,
+        ["Base.Plank"] = 2,
+    },
+}
+local repairTask, repairResult = jobs.ensureAutomaticTask(base)
+assert(repairTask ~= nil and repairTask.type == "repair"
+    and repairTask.priority == 94 and repairResult == "ready")
+assert(repairTask.requirements.items["Base.Plank"] == 2,
+    "repair task should retain vanilla material requirements")
+
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true repairs=true target_resolution=true")

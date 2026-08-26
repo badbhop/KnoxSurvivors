@@ -89,13 +89,17 @@ slices still require live in-game confirmation.
 
 ## Later milestones
 
-The next vertical slice is repair. Storage hauling, guard, patrol,
-one-plank barricading, crop maintenance, tree cutting, log-to-plank production, and corpse
-hauling now have initial executors. Animal Care Areas also have an initial trough executor:
+Storage hauling, guard, patrol, one-plank barricading, crop maintenance, tree cutting,
+log-to-plank production, and corpse hauling now have initial executors. Animal Care Areas
+also have an initial trough executor:
 residents can pour carried water or transfer a real animal-feed bag into a trough through
-vanilla actions. Each slice must consume real tools and materials where applicable, use
-normal timed actions, respect survivor skills, and survive reload before the next one is
-added.
+vanilla actions. Damaged doors, thumpable defenses, and barricades can be repaired through
+the complete vanilla moveable-repair action and material definitions. Each slice must consume
+real tools and materials where applicable, use normal timed actions, respect survivor skills,
+and survive reload before the next one is added.
+
+The next base-production boundary is deliberate construction and defense planning: choosing
+needed walls, gates, and barricade upgrades instead of only maintaining existing structures.
 
 After those jobs: the full Survivors Notebook, companion/base roster management, contextual
 conversations and favors, firearms, vehicles, camps, raids, away teams, and unloaded-world

@@ -18,6 +18,7 @@ require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
+require "KS_BaseRepairs"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -848,6 +849,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskCorpsePhase = nil
     self.baseTaskAnimalTarget = nil
     self.baseTaskAnimalBefore = nil
+    self.baseTaskRepairTarget = nil
+    self.baseTaskRepairBefore = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1426,6 +1429,8 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskCorpsePhase = nil
     self.baseTaskAnimalTarget = nil
     self.baseTaskAnimalBefore = nil
+    self.baseTaskRepairTarget = nil
+    self.baseTaskRepairBefore = nil
     return finished ~= nil
 end
 
@@ -2195,7 +2200,8 @@ function Controller:tick(ticks)
                 and self.baseTask.type ~= "saw_logs"
                 and self.baseTask.type ~= "haul_corpse"
                 and self.baseTask.type ~= "animal_water"
-                and self.baseTask.type ~= "animal_feed") then
+                and self.baseTask.type ~= "animal_feed"
+                and self.baseTask.type ~= "repair") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2376,6 +2382,55 @@ function Controller:tick(ticks)
                     taskType == "animal_water"
                         and "The trough has water." or "The animals have feed."
                 )
+            end
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "repair" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskRepairTarget
+                if target == nil then
+                    target = KnoxBaseRepairs.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    self.baseTaskRepairTarget = target
+                    self.baseTaskRepairBefore = target ~= nil
+                        and KnoxBaseRepairs.snapshot(target) or nil
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "repair_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult = KnoxBaseRepairs.queueAction(
+                    self.character,
+                    target
+                )
+                if action == nil then
+                    self:finishBaseTask(false,
+                        "repair_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then
+                return
+            end
+            local complete = KnoxBaseRepairs.isComplete(
+                self.baseTaskRepairTarget,
+                self.baseTaskRepairBefore
+            )
+            self:finishBaseTask(
+                complete,
+                complete and "structure_repaired" or "repair_not_completed"
+            )
+            if complete then
+                KnoxActivityFeed.speak(self.character, "That should hold now.")
             end
             self:finishDecision(ticks)
             return
@@ -2805,6 +2860,27 @@ function Controller:tick(ticks)
                     self.baseTaskStartedAt = ticks
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_barricade"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil
+                    and self.baseTask.type == "repair" then
+                    self.baseTaskRepairTarget = KnoxBaseRepairs.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    if self.baseTaskRepairTarget == nil then
+                        self:finishBaseTask(false, "repair_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskRepairBefore = KnoxBaseRepairs.snapshot(
+                        self.baseTaskRepairTarget
+                    )
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_repair"
                     self.state = "BASE_TASK_ACTION"
                     return
                 end

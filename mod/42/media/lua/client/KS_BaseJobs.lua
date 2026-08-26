@@ -6,6 +6,7 @@ require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
+require "KS_BaseRepairs"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -347,6 +348,41 @@ local function ensureAnimalCareTask(base, now, character)
     return nil, result
 end
 
+local function ensureRepairTask(base, now, character)
+    local target = KnoxBaseRepairs.findTask(base, character)
+    if target == nil then
+        return nil, "no_repair_ready"
+    end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then
+            return existing, "existing"
+        end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            reopened.target = target
+            reopened.requirements = { items = target.requiredItems or {} }
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(
+        base.id,
+        "repair",
+        target,
+        { items = target.requiredItems or {} },
+        94
+    )
+    if task ~= nil then
+        task.baseId = base.id
+        task.auto = true
+        task.retryAtHours = now
+        return task, result
+    end
+    return nil, result
+end
+
 function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
@@ -362,6 +398,7 @@ function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     ensureWoodcuttingTask(base, now, character)
     ensureCorpseTask(base, now, character)
     ensureAnimalCareTask(base, now, character)
+    ensureRepairTask(base, now, character)
     ensureBarricadeTask(base, now, character)
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)
@@ -445,6 +482,13 @@ function BaseJobs.resolveTaskSquare(task, character)
     end
     if task.type == "animal_water" or task.type == "animal_feed" then
         return KnoxBaseAnimalCare.resolveTaskSquare(
+            KnoxBaseManager.get(task.baseId),
+            target,
+            character
+        )
+    end
+    if task.type == "repair" then
+        return KnoxBaseRepairs.resolveTaskSquare(
             KnoxBaseManager.get(task.baseId),
             target,
             character

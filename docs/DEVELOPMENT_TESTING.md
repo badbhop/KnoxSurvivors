@@ -166,6 +166,14 @@ the following behavior is not yet called live-verified:
     use the normal drop action. Bodies already in the drop area and animal bodies
     are deliberately excluded from this job. Starting combat, changing the resident's order,
     or failing the route while dragging must release the body and leave the task retryable.
+20. Damage a player-built door, thumpable wall/fence, or barricade to between 20% and 95%
+    health. Give a base resident the exact tools and materials shown by vanilla Repair mode.
+    With no Repair Area the resident should maintain a loaded target anywhere in the base;
+    drawing a Repair Area should restrict discovery to that zone. The normal repair animation,
+    sound, material consumption, and skill-based chance should run. Knox must report success
+    only if object health rises. Empty supplies, a barricaded door, a removed target, objects
+    below 20% health, and a legitimate failed skill roll must remain failed/retryable rather
+    than being silently restored or reported as repaired.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -300,10 +308,11 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, repair job executors, and
+- Firearms/ammunition, cooking, lethal survivor PvP, deliberate construction, and
   interactive Notebook management remain later gates.
   Guard/patrol work-zone drawing, one-item depot sorting, one-plank barricading, crop work,
-  wood processing, corpse hauling, and trough feeding/watering now have initial executors.
+  wood processing, corpse hauling, trough feeding/watering, and structure repair now have
+  initial executors.
   The current Notebook is the readable domain shell, not the finished base administration
   interface; newer jobs still require live in-game confirmation.
 - If a recorded square is not loaded, the survivor remains stored instead of being

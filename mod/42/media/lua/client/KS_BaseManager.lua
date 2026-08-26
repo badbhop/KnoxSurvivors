@@ -13,6 +13,7 @@ BaseManager.ZONE_TYPES = {
     patrol = true,
     corpse = true,
     animal_care = true,
+    repair = true,
     general = true,
 }
 
