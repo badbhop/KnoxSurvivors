@@ -86,6 +86,8 @@ final class KnoxHealthController {
     }
 
     static String directZombieAt(Object zombie, Object body) throws ReflectiveOperationException {
+        String stage = "load-classes";
+        try {
         Class<?> movingObjectClass = Class.forName(
             "zombie.iso.IsoMovingObject",
             false,
@@ -96,16 +98,22 @@ final class KnoxHealthController {
             false,
             body.getClass().getClassLoader()
         );
+        stage = "read-current-target";
         Object currentTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
         if (currentTarget == body) {
+            stage = "refresh-current-target-vector";
             float targetDistance = refreshZombieTargetVector(zombie, body);
+            stage = "restore-current-target";
             zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
             if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
+                stage = "supply-current-target-visibility";
                 supplyOffSlotAttackVisibility(zombie, body);
             }
+            stage = "read-current-target-action";
             String currentAction = String.valueOf(
                 zombie.getClass().getMethod("getCurrentActionContextStateName").invoke(zombie)
             );
+            stage = "read-current-target-attacking";
             boolean attacking = (Boolean) zombie.getClass()
                 .getMethod("isZombieAttacking", movingObjectClass)
                 .invoke(zombie, body);
@@ -127,9 +135,12 @@ final class KnoxHealthController {
                 // vanilla AttackState collision event accepts a real DistTo() of 1.0.
                 // Clamp only the perception vector inside that same collision envelope;
                 // every other getShouldAttack() guard remains authoritative.
+                stage = "clamp-current-target-vector";
                 clampZombieAttackVector(zombie, STANDING_ATTACK_VECTOR_RANGE);
             }
+            stage = "check-current-target-attack";
             if (vanillaShouldAttack(zombie)) {
+                stage = "read-current-target-seen-time";
                 float targetSeenTime = ((Number) zombie.getClass()
                     .getMethod("getTargetSeenTime").invoke(zombie)).floatValue();
                 // Zombie_Bite_Start is gated by targetSeenTime > 0.5. Resetting this
@@ -151,9 +162,12 @@ final class KnoxHealthController {
             // updateLOS is intentionally disabled on off-slot shells because it writes
             // into local-player lighting. Keep pursuing until vanilla getShouldAttack()
             // passes; its standing-zombie distance limit is 0.72 tiles.
+            stage = "spot-current-target";
             zombie.getClass().getMethod("spotted", movingObjectClass, boolean.class)
                 .invoke(zombie, body, true);
+            stage = "reassert-current-target";
             zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
+            stage = "path-current-target";
             zombie.getClass().getMethod("pathToCharacter", gameCharacterClass)
                 .invoke(zombie, body);
             if (targetDistance <= VANILLA_BITE_COLLISION_RANGE) {
@@ -176,20 +190,32 @@ final class KnoxHealthController {
 
         // This is only an acquisition bridge for off-slot NPCs. It deliberately does not
         // touch already-targeted zombies; their current target and subsequent combat stay vanilla.
+        stage = "unprotect-acquired-target";
         body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
+        stage = "enable-acquired-zombie";
         zombie.getClass().getMethod("setUseless", boolean.class).invoke(zombie, false);
         zombie.getClass().getMethod("setCanWalk", boolean.class).invoke(zombie, true);
+        stage = "spot-acquired-target";
         zombie.getClass().getMethod("spotted", movingObjectClass, boolean.class)
             .invoke(zombie, body, true);
+        stage = "set-acquired-target";
         zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
+        stage = "refresh-acquired-target-vector";
         float targetDistance = refreshZombieTargetVector(zombie, body);
         if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
+            stage = "supply-acquired-target-visibility";
             supplyOffSlotAttackVisibility(zombie, body);
         }
+        stage = "path-acquired-target";
         zombie.getClass().getMethod("pathToCharacter", gameCharacterClass).invoke(zombie, body);
+        stage = "read-acquired-target";
         Object acquiredTarget = zombie.getClass().getMethod("getTarget").invoke(zombie);
         String status = acquiredTarget == body ? "acquired" : "rejected";
+        stage = "read-acquired-target-health";
         return "ZOMBIE_DIRECTED status=" + status + " targetHealth=" + health(body);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            throw new IllegalStateException("direct-zombie stage=" + stage, exception);
+        }
     }
 
     static String zombieAttackDiagnostics(Object zombie, Object body)

@@ -727,7 +727,11 @@ public final class KnoxNpcRegistry {
 
     private static String failure(String prefix, Throwable throwable) {
         Throwable cause = rootCause(throwable);
-        String result = prefix + " " + cause.getClass().getName() + ": " + cause.getMessage();
+        String result = prefix + " " + throwable.getClass().getName() + ": "
+            + throwable.getMessage();
+        if (cause != throwable) {
+            result += " root=" + cause.getClass().getName() + ": " + cause.getMessage();
+        }
         KnoxAgent.writeLog("ERROR NPC probe " + result);
         return result;
     }
