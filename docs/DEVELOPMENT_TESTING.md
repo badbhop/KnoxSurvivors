@@ -119,57 +119,62 @@ the following behavior is not yet called live-verified:
    weapon, health, food, water, and rest bars update without stealing mouse input.
 4. Test Follow and Hold from both the world menu and HUD right-click. Lead a zombie close;
    combat may interrupt the order, but the survivor should resume it afterward.
-5. Return to the main menu and reload. The same person, occupation, traits, perk progress,
+5. Stand within four tiles of a companion, right-click them, and choose `Medical Check`.
+   The real player should walk into range, play the vanilla medical-check action, and open
+   the regular body-part treatment window for that survivor. Treat a real minor wound with
+   a carried bandage, then save/reload: the treatment and the consumed item must persist.
+   Do not treat this as complete until it has been checked with an off-slot survivor body.
+6. Return to the main menu and reload. The same person, occupation, traits, perk progress,
    ownership, command, and HUD row must return. No duplicate panels should appear.
-6. Inside an unclaimed building, use `Knox Survivors > Establish Home Base`. Right-click
+7. Inside an unclaimed building, use `Knox Survivors > Establish Home Base`. Right-click
    a container inside it and set one storage category. Reload and confirm both remain.
-7. Choose `Return to Base` while the home area is loaded. The survivor should move back,
+8. Choose `Return to Base` while the home area is loaded. The survivor should move back,
    then alternate between short patrols and idle time around the home. They are not eligible
    for future jobs until physically inside the saved base bounds.
-8. If possible, repeat recruitment/HUD ownership with a second split-screen player. Each
+9. If possible, repeat recruitment/HUD ownership with a second split-screen player. Each
    viewport must show and command only its own companions.
-9. Right-click the `SQUAD` header. Test whole-party Follow, Hold, and traversal policy.
+10. Right-click the `SQUAD` header. Test whole-party Follow, Hold, and traversal policy.
    Right-click the world and issue Loot Nearby Area, Loot This Building, and Loot Dead
    Bodies. Critical needs and combat may interrupt, but survivors must resume and then
    return to their primary order when the directive finishes.
-10. From a world-square Party Orders menu, issue `Move Party Here`. Survivors should
+11. From a world-square Party Orders menu, issue `Move Party Here`. Survivors should
     travel to the selected square, report arrival once, then return to their underlying
     Follow or Hold order. Issue `Guard This Location` and confirm they stay near the
     selected square, still defend themselves, and return there after a short fight.
     Save/load once while a guard order is active; its location and order must survive.
     Individual survivor menus also provide `Move to Me` and `Guard Here`; the HUD row
     should change from Follow/Hold to the current directive while either is active.
-10. Close the activity feed with X, then reopen it through the `SQUAD` header menu. Speech
+12. Close the activity feed with X, then reopen it through the `SQUAD` header menu. Speech
     must show the speaker name plus a stable party/group/faction label and color.
-11. Use `Set Home Base Boundary`, choose two opposite corners around the house and yard,
+13. Use `Set Home Base Boundary`, choose two opposite corners around the house and yard,
     and confirm the territory persists. Residents must navigate every floor normally.
     Friendly survivors may open ordinary entries but must not smash player-base windows
     or attack its locked doors.
-12. Open the Survivor Notebook from the party header and verify Party, Home Base,
+14. Open the Survivor Notebook from the party header and verify Party, Home Base,
     Survivors, and Factions show distinct, readable data.
-13. From a player-owned base, use `Knox Survivors > Set Work Area`, choose Guard Area or
+15. From a player-owned base, use `Knox Survivors > Set Work Area`, choose Guard Area or
     Patrol Area, and select two opposite corners. The zone should appear in the Notebook's
     Home Base tab. A base resident should claim the recurring task, walk to a standable point,
     remain there briefly, and then record `completed_guard` or `completed_patrol` before the
     same zone becomes available again. Combat, a new companion order, leaving the base, or
     a save/reload must release the claim instead of leaving a permanently stuck task.
-14. Set an Animal Care Area over one or more loaded feeding troughs. Give a base resident a
+16. Set an Animal Care Area over one or more loaded feeding troughs. Give a base resident a
     container holding water and an animal-feed bag. A trough below half capacity should create
     one persisted refill task: water uses the normal pour animation and fluid transfer, while
     feed uses the normal inventory transfer and trough sound. The task should finish only when
     the real trough amount increases. Full troughs, missing supplies, a removed trough, or an
     incompatible fluid must be skipped or released for retry instead of claiming success.
-15. To test depot sorting, mark one container `Depot` and another `Food`, `Building Materials`,
+17. To test depot sorting, mark one container `Depot` and another `Food`, `Building Materials`,
     or another supported category. Put one matching item in the depot, send a base resident
     home, and watch for one transfer with the normal rummage animation. The task should finish
     only after the item leaves the depot; an empty depot or unloaded destination must leave the
     task waiting/retryable rather than deleting the item or claiming success.
-16. Give a base resident a hammer, a plank, and at least two nails, then leave an unbarricaded
+18. Give a base resident a hammer, a plank, and at least two nails, then leave an unbarricaded
     closed window inside the base boundary. The resident should walk to it, play the vanilla
     Build action, consume one plank and two nails, and complete only when the real barricade
     reports one additional plank. Fully barricaded windows should be skipped; missing tools or
     materials should leave no claimed task behind.
-17. Set a farming work area over a loaded crop patch. With one ripe plant, the resident should
+19. Set a farming work area over a loaded crop patch. With one ripe plant, the resident should
     queue the normal Harvest action and the plant should no longer report harvestable after
     completion. With a seeded plant below full water and a usable water item in inventory, the
     resident should queue the normal Water Plant action and the plant's water level should
@@ -177,19 +182,19 @@ the following behavior is not yet called live-verified:
     skipped and retried later rather than claimed indefinitely. With a usable digging tool and
     a matching carried seed, an empty suitable square should then be plowed and the resulting
     furrow seeded as two separate normal actions. No seed should mean no pointless plowing.
-18. Set a Woodcutting Area over one or more loaded trees and give the resident a usable axe.
+20. Set a Woodcutting Area over one or more loaded trees and give the resident a usable axe.
     The resident should equip the axe, play the normal Chop Tree action, and finish only when
     the tree object is gone. Missing axes, unloaded trees, or an already-chopped target should
     be released and retried rather than reported as success. If the resident carries a log and
     a usable saw, the next task should use the vanilla SawLogs recipe and consume the log for
     real planks; missing recipe, tool, or skill should leave it retryable.
-19. Set a Corpse Drop Area on clear ground inside the base, then leave a human or zombie body
+21. Set a Corpse Drop Area on clear ground inside the base, then leave a human or zombie body
     elsewhere in the loaded base territory. The resident should walk adjacent to the body, put
     away held items, use the normal grab animation, drag the body to the drop-area center, and
     use the normal drop action. Bodies already in the drop area and animal bodies
     are deliberately excluded from this job. Starting combat, changing the resident's order,
     or failing the route while dragging must release the body and leave the task retryable.
-20. Damage a player-built door, thumpable wall/fence, or barricade to between 20% and 95%
+22. Damage a player-built door, thumpable wall/fence, or barricade to between 20% and 95%
     health. Give a base resident the exact tools and materials shown by vanilla Repair mode.
     With no Repair Area the resident should maintain a loaded target anywhere in the base;
     drawing a Repair Area should restrict discovery to that zone. The normal repair animation,
@@ -197,7 +202,7 @@ the following behavior is not yet called live-verified:
     only if object health rises. Empty supplies, a barricaded door, a removed target, objects
     below 20% health, and a legitimate failed skill roll must remain failed/retryable rather
     than being silently restored or reported as repaired.
-21. Draw a **Defense Construction Area** at least three tiles wide around a small outdoor
+23. Draw a **Defense Construction Area** at least three tiles wide around a small outdoor
     perimeter, then give a base resident a hammer, planks, nails, hinges, a doorknob, and the
     required Carpentry level. The resident should build the planned access frame, then its
     door, before working through wall frames and first-stage walls. Each step must use vanilla

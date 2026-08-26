@@ -1,6 +1,8 @@
 require "ISUI/ISContextMenu"
 require "ISUI/ISModalDialog"
 require "ISUI/ISWorldObjectContextMenu"
+require "ISUI/ISHealthPanel"
+require "TimedActions/ISMedicalCheckAction"
 require "KS_CompanionService"
 require "KS_BaseManager"
 require "KS_Persistence"
@@ -68,6 +70,20 @@ end
 
 local function onViewSurvivor(_, playerNum, survivorId)
     KnoxSurvivorCard.show(playerNum, survivorId)
+end
+
+local function onMedicalCheck(_, playerNum, survivorId)
+    local player = getSpecificPlayer(playerNum)
+    local patient = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if player == nil or patient == nil then
+        return
+    end
+    -- This is the same vanilla timed action used to examine another player.  An
+    -- IsoPlayer survivor supplies the same patient/BodyDamage surface, while the
+    -- real local player stays the doctor and retains normal UI/input ownership.
+    if ISHealthPanel.canPerformMedicalCheck(patient, player) then
+        ISTimedActionQueue.add(ISMedicalCheckAction:new(player, patient))
+    end
 end
 
 local function onRecruit(_, playerNum, survivorId)
@@ -225,6 +241,21 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
     if not owned then
         addRecruitOption(menu, player, survivorId, closeEnough)
         return true
+    end
+
+    if duty.mode == "companion" then
+        local medicalLabel = closeEnough and "Medical Check"
+            or "Medical Check (too far away)"
+        local medical = menu:addOption(
+            medicalLabel,
+            SurvivorContextMenu,
+            onMedicalCheck,
+            playerNum,
+            survivorId
+        )
+        if not closeEnough then
+            unavailable(medical)
+        end
     end
 
     if duty.mode == "base" then
