@@ -34,12 +34,12 @@ The latest development pass adds the next layer:
 - one HUD per local player with split-screen-aware placement and ownership;
 - persistent player and faction bases, work zones, storage categories, residents, and a
   guarded task queue;
-- simple base return, idle, and patrol behavior while full jobs are built out.
+- base return, guard and patrol work, depot sorting, window barricading, crop work,
+  tree cutting, log sawing, and corpse cleanup through normal world actions.
 
-That latest layer builds and passes standalone save-domain checks, but it still needs its
-first in-game pass. Farming, construction, hauling, barricade jobs, guard zones, the full
-Survivors Notebook, firearms, vehicles, raids, and away teams are not being claimed as
-finished.
+That latest layer builds and passes standalone checks, but the newer base jobs still need
+their in-game passes. Construction, animal care, repairs, the full Survivors Notebook,
+firearms, vehicles, raids, and away teams are not being claimed as finished.
 
 ## Current live test
 

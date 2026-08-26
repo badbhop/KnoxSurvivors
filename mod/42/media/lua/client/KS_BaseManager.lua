@@ -316,6 +316,21 @@ local function meetsRequirements(survivorId, profile, requirements)
             return false, "recipe=" .. tostring(recipeId)
         end
     end
+    for fullType, required in pairs(requirements ~= nil and requirements.items or {}) do
+        local count = 0
+        if character ~= nil and character.getInventory ~= nil then
+            local inventory = character:getInventory()
+            local success, value = pcall(function()
+                return inventory:getItemCount(tostring(fullType), true)
+            end)
+            if success then
+                count = tonumber(value) or 0
+            end
+        end
+        if count < (tonumber(required) or 1) then
+            return false, "item=" .. tostring(fullType)
+        end
+    end
     return true, "eligible"
 end
 

@@ -124,7 +124,7 @@ local function addWorkZoneMenu(parent, player, base)
         { "Farming Area", "farming" },
         { "Woodcutting Area", "woodcutting" },
         { "Log Processing Area", "log_processing" },
-        { "Corpse Handling Area", "corpse" },
+        { "Corpse Drop Area", "corpse" },
         { "Animal Care Area", "animal_care" },
         { "General Work Area", "general" },
     }

@@ -4,6 +4,7 @@ require "KS_BaseStorage"
 require "KS_BaseBarricades"
 require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
+require "KS_BaseCorpseHandling"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -104,6 +105,17 @@ local function taskTarget(zone)
     }
 end
 
+local function itemRequirements(...)
+    local items = {}
+    for index = 1, select("#", ...) do
+        local fullType = select(index, ...)
+        if type(fullType) == "string" and fullType ~= "" then
+            items[fullType] = (items[fullType] or 0) + 1
+        end
+    end
+    return next(items) ~= nil and { items = items } or {}
+end
+
 local function ensureDepotTask(base, now)
     local transfer = KnoxBaseStorage.findTransfer(base)
     if transfer == nil then
@@ -169,7 +181,12 @@ local function ensureBarricadeTask(base, now, character)
         base.id,
         "barricade",
         target,
-        {},
+        itemRequirements(
+            KnoxBaseBarricades.findHammer(character):getFullType(),
+            "Base.Plank",
+            "Base.Nails",
+            "Base.Nails"
+        ),
         95
     )
     if task ~= nil then
@@ -203,7 +220,11 @@ local function ensureFarmingTask(base, now, character)
         base.id,
         target.action,
         target,
-        {},
+        itemRequirements(
+            target.waterItemType,
+            target.plowToolType,
+            target.seedItemType
+        ),
         target.action == "farm_harvest" and 100
             or target.action == "farm_seed" and 95
             or target.action == "farm_water" and 85
@@ -240,7 +261,11 @@ local function ensureWoodcuttingTask(base, now, character)
         base.id,
         target.action,
         target,
-        {},
+        itemRequirements(
+            target.axeType,
+            target.logType,
+            target.sawType
+        ),
         target.action == "saw_logs" and 78 or 75
     )
     if task ~= nil then
@@ -252,41 +277,61 @@ local function ensureWoodcuttingTask(base, now, character)
     return nil, result
 end
 
-function BaseJobs.ensureAutomaticTask(base, character)
+local function ensureCorpseTask(base, now, character)
+    local target = KnoxBaseCorpseHandling.findTask(base, character)
+    if target == nil then
+        return nil, "no_corpse_ready"
+    end
+    local existing = taskForTargetId(base, target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then
+            return existing, "existing"
+        end
+        local reopened = reopenWhenReady(existing, now)
+        if reopened ~= nil then
+            reopened.target = target
+            return reopened, "reopened"
+        end
+        return nil, "retry_not_ready"
+    end
+    local task, result = KnoxBaseTaskBoard.queue(
+        base.id,
+        "haul_corpse",
+        target,
+        {},
+        92
+    )
+    if task ~= nil then
+        task.baseId = base.id
+        task.auto = true
+        task.retryAtHours = now
+        return task, result
+    end
+    return nil, result
+end
+
+function BaseJobs.ensureAutomaticTask(base, character, survivorId)
     if base == nil or base.settings == nil or base.settings.automaticJobs == false then
         return nil, "automatic_jobs_disabled"
     end
     local now = worldAge()
-    local depotTask, depotResult = ensureDepotTask(base, now)
-    if depotTask ~= nil then
-        return depotTask, depotResult
-    end
-    local farmingTask, farmingResult = ensureFarmingTask(base, now, character)
-    if farmingTask ~= nil then
-        return farmingTask, farmingResult
-    end
-    local woodcuttingTask, woodcuttingResult = ensureWoodcuttingTask(
-        base,
-        now,
-        character
-    )
-    if woodcuttingTask ~= nil then
-        return woodcuttingTask, woodcuttingResult
-    end
-    local barricadeTask, barricadeResult = ensureBarricadeTask(base, now, character)
-    if barricadeTask ~= nil then
-        return barricadeTask, barricadeResult
-    end
+    -- Discover every currently executable job before choosing one. Returning from
+    -- the first finder starved cleanup and security whenever a renewable farming or
+    -- woodcutting target existed. The persistent task board already owns priority
+    -- and claim ordering, so let it make that choice and leave lower-priority work
+    -- queued for another eligible resident.
+    ensureDepotTask(base, now)
+    ensureFarmingTask(base, now, character)
+    ensureWoodcuttingTask(base, now, character)
+    ensureCorpseTask(base, now, character)
+    ensureBarricadeTask(base, now, character)
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)
         if existing ~= nil then
             existing.baseId = base.id
-            if existing.state == "queued" or existing.state == "claimed" then
-                return existing, "existing"
-            end
-            local reopened = reopenWhenReady(existing, now)
-            if reopened ~= nil then
-                return reopened, "reopened"
+            if existing.state ~= "queued" and existing.state ~= "claimed" then
+                reopenWhenReady(existing, now)
             end
         else
             local task, result = KnoxBaseTaskBoard.queue(
@@ -300,13 +345,27 @@ function BaseJobs.ensureAutomaticTask(base, character)
                 task.baseId = base.id
                 task.auto = true
                 task.retryAtHours = now + (zone.type == "guard" and 0.25 or 0.10)
-                return task, result
+            else
+                print("[KnoxSurvivors][BaseJobs] queue-failed base=" .. tostring(base.id)
+                    .. " zone=" .. tostring(zone.id) .. " result=" .. tostring(result))
             end
-            print("[KnoxSurvivors][BaseJobs] queue-failed base=" .. tostring(base.id)
-                .. " zone=" .. tostring(zone.id) .. " result=" .. tostring(result))
         end
     end
-    return nil, "no_ready_work_zone"
+    local queued = KnoxBaseTaskBoard.queued(base.id)
+    for _, task in ipairs(queued) do
+        if survivorId == nil then
+            return task, "ready"
+        end
+        local eligible = KnoxBaseManager.canPerformTask(
+            survivorId,
+            base.id,
+            task
+        )
+        if eligible then
+            return task, "ready"
+        end
+    end
+    return nil, #queued > 0 and "no_eligible_task" or "no_ready_work_zone"
 end
 
 local function candidateSquare(cell, x, y, z, origin)
@@ -338,6 +397,14 @@ function BaseJobs.resolveTaskSquare(task, character)
     local cell = getCell ~= nil and getCell() or nil
     if target == nil or cell == nil then
         return nil
+    end
+    if task.type == "haul_corpse" or target.action == "haul_corpse" then
+        local resolved = KnoxBaseCorpseHandling.resolveTarget(
+            KnoxBaseManager.get(task.baseId),
+            target,
+            character
+        )
+        return resolved ~= nil and resolved.approach or nil
     end
     local x1 = tonumber(target.x1 or target.x) or 0
     local y1 = tonumber(target.y1 or target.y) or 0

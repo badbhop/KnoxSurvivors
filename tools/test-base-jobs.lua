@@ -7,6 +7,7 @@ package.loaded["KS_BaseStorage"] = true
 package.loaded["KS_BaseBarricades"] = true
 package.loaded["KS_BaseFarming"] = true
 package.loaded["KS_BaseWoodcutting"] = true
+package.loaded["KS_BaseCorpseHandling"] = true
 local depotTransfer = nil
 KnoxBaseStorage = {
     findTransfer = function()
@@ -24,6 +25,12 @@ KnoxBaseFarming = {
 }
 KnoxBaseWoodcutting = {
     findTask = function() return nil, "no_tree_ready" end,
+}
+local corpseTarget = nil
+KnoxBaseCorpseHandling = {
+    findTask = function()
+        return corpseTarget, corpseTarget ~= nil and "found" or "no_corpse_ready"
+    end,
 }
 
 local now = 10
@@ -87,6 +94,18 @@ KnoxBaseTaskBoard = {
             baseId, taskType, target, requirements, priority
         )
     end,
+    queued = function()
+        local tasks = {}
+        for _, value in pairs(base.tasks) do
+            if value.state == "queued" then
+                tasks[#tasks + 1] = value
+            end
+        end
+        table.sort(tasks, function(first, second)
+            return first.priority > second.priority
+        end)
+        return tasks
+    end,
 }
 
 local function square(x, y, z)
@@ -107,15 +126,15 @@ end
 local jobs = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseJobs.lua")
 local task, result = jobs.ensureAutomaticTask(base)
 assert(task ~= nil and task.type == "guard", "guard zone should be first supported job")
-assert(result == "queued" and task.target.autoZoneId == "base-1-zone-guard")
+assert(result == "ready" and task.target.autoZoneId == "base-1-zone-guard")
 
 local sameTask, sameResult = jobs.ensureAutomaticTask(base)
-assert(sameTask == task and sameResult == "existing", "queued job should be reused")
+assert(sameTask == task and sameResult == "ready", "queued job should be reused")
 
 task.state = "complete"
 task.retryAtHours = now
 local reopened, reopenedResult = jobs.ensureAutomaticTask(base)
-assert(reopened == task and reopenedResult == "reopened")
+assert(reopened == task and reopenedResult == "ready")
 assert(task.state == "queued" and task.requeuedAtHours == now)
 
 local target = jobs.resolveTaskSquare(task, {
@@ -137,6 +156,19 @@ depotTransfer = {
 }
 local depotTask, depotResult = jobs.ensureAutomaticTask(base)
 assert(depotTask ~= nil and depotTask.type == "sort_depot"
-    and depotResult == "queued", "available depot transfer should be scheduled")
+    and depotResult == "ready", "available depot transfer should be scheduled")
 
-print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true target_resolution=true")
+corpseTarget = {
+    id = "corpse:base-1:cleanup:10:20:0:item-99",
+    action = "haul_corpse",
+    zoneType = "corpse",
+    zoneId = "cleanup",
+    corpseX = 10, corpseY = 20, corpseZ = 0,
+    dropX = 12, dropY = 22, dropZ = 0,
+}
+local corpseTask, corpseResult = jobs.ensureAutomaticTask(base)
+assert(corpseTask ~= nil and corpseTask.type == "haul_corpse"
+    and corpseTask.priority == 92 and corpseResult == "ready",
+    "task-board priority should prevent renewable work from starving cleanup")
+
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true target_resolution=true")

@@ -105,4 +105,37 @@ assert(left:refreshFormationFollow(60), "moving leader refreshes formation path"
 assert(captured.left:getX() == 11 and captured.left:getY() == 9,
     "formation destination follows moving leader")
 
-print("Autonomy formation PASS release=true slots=true refresh=true")
+local droppedCorpse = false
+local clearedActions = false
+KnoxBaseCorpseHandling = {
+    isDragging = function() return true end,
+}
+KnoxBaseTaskBoard = {
+    finish = function()
+        return {}, "complete"
+    end,
+}
+ISTimedActionQueue = {
+    clear = function() clearedActions = true end,
+}
+local corpseCharacter = {
+    getCharacterActions = function()
+        return { isEmpty = function() return false end }
+    end,
+    setDoGrappleLetGo = function()
+        droppedCorpse = true
+    end,
+}
+local corpseController = setmetatable({
+    id = "corpse-worker",
+    character = corpseCharacter,
+    bridge = bridge,
+    baseId = "base-1",
+    baseTask = { id = "corpse-task", baseId = "base-1", type = "haul_corpse" },
+}, Controller)
+assert(corpseController:abandonBaseTask("combat_interrupt"),
+    "interrupted corpse task should be closed")
+assert(clearedActions and droppedCorpse,
+    "interruption should clear actions and release a dragged corpse")
+
+print("Autonomy formation PASS release=true slots=true refresh=true corpse_interrupt=true")

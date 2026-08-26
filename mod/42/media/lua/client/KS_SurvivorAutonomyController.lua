@@ -16,6 +16,7 @@ require "KS_BaseStorage"
 require "KS_BaseBarricades"
 require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
+require "KS_BaseCorpseHandling"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
@@ -842,6 +843,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskFarmingBefore = nil
     self.baseTaskWoodcuttingTarget = nil
     self.baseTaskWoodcuttingBefore = nil
+    self.baseTaskCorpseTarget = nil
+    self.baseTaskCorpsePhase = nil
     self.factionId = nil
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
@@ -1416,6 +1419,8 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskFarmingBefore = nil
     self.baseTaskWoodcuttingTarget = nil
     self.baseTaskWoodcuttingBefore = nil
+    self.baseTaskCorpseTarget = nil
+    self.baseTaskCorpsePhase = nil
     return finished ~= nil
 end
 
@@ -1426,6 +1431,9 @@ function Controller:abandonBaseTask(reason)
     self.bridge:cancelNpcMove(self.id)
     if self.character ~= nil and not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
+    end
+    if self.character ~= nil and KnoxBaseCorpseHandling.isDragging(self.character) then
+        pcall(function() self.character:setDoGrappleLetGo() end)
     end
     local abandoned = self:finishBaseTask(false, reason or "interrupted")
     self.activeDecision = nil
@@ -1438,7 +1446,11 @@ function Controller:beginBaseTask(ticks)
         or self.baseTask ~= nil then
         return false
     end
-    local task, result = KnoxBaseJobs.ensureAutomaticTask(self.base, self.character)
+    local task, result = KnoxBaseJobs.ensureAutomaticTask(
+        self.base,
+        self.character,
+        self.id
+    )
     if task == nil then
         return false
     end
@@ -2175,7 +2187,8 @@ function Controller:tick(ticks)
                 and self.baseTask.type ~= "farm_plow"
                 and self.baseTask.type ~= "farm_seed"
                 and self.baseTask.type ~= "chop_tree"
-                and self.baseTask.type ~= "saw_logs") then
+                and self.baseTask.type ~= "saw_logs"
+                and self.baseTask.type ~= "haul_corpse") then
             self:finishBaseTask(false, "unsupported_base_action")
             self:finishDecision(ticks)
             return
@@ -2224,6 +2237,81 @@ function Controller:tick(ticks)
             )
             if complete then
                 KnoxActivityFeed.speak(self.character, "One more layer on the windows.")
+            end
+            self:finishDecision(ticks)
+            return
+        end
+        if self.baseTask.type == "haul_corpse" then
+            if not self.baseTaskActionQueued then
+                local target = self.baseTaskCorpseTarget
+                if target == nil then
+                    target = KnoxBaseCorpseHandling.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    self.baseTaskCorpseTarget = target
+                end
+                if target == nil then
+                    self:finishBaseTask(false, "corpse_target_invalid")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult
+                if self.baseTaskCorpsePhase == "drop" then
+                    action, actionResult = KnoxBaseCorpseHandling.queueDrop(
+                        self.character,
+                        target
+                    )
+                else
+                    self.baseTaskCorpsePhase = "grab"
+                    action, actionResult = KnoxBaseCorpseHandling.queueGrab(
+                        self.character,
+                        target
+                    )
+                end
+                if action == nil then
+                    self:finishBaseTask(false, "corpse_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskActionQueued = true
+                self.baseTaskStartedAt = ticks
+                return
+            end
+            if not self.character:getCharacterActions():isEmpty() then
+                return
+            end
+            if self.baseTaskCorpsePhase == "grab" then
+                if not KnoxBaseCorpseHandling.isDragging(self.character) then
+                    self:finishBaseTask(false, "corpse_grab_not_completed")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local target = self.baseTaskCorpseTarget
+                local moveResult = tostring(self.bridge:moveNpc(
+                    self.id,
+                    target ~= nil and target.dropSquare or nil
+                ))
+                if string.find(moveResult, "MOVE_STARTED", 1, true) ~= 1 then
+                    pcall(function() self.character:setDoGrappleLetGo() end)
+                    self:finishBaseTask(false, "corpse_drop_move:" .. moveResult)
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskCorpsePhase = "drop"
+                self.baseTaskActionQueued = false
+                self.baseTaskStartedAt = ticks
+                self.state = "BASE_TASK_MOVE"
+                return
+            end
+            local complete = not KnoxBaseCorpseHandling.isDragging(self.character)
+            self:finishBaseTask(
+                complete,
+                complete and "corpse_hauled" or "corpse_drop_not_completed"
+            )
+            if complete then
+                KnoxActivityFeed.speak(self.character, "The body is out of the way.")
             end
             self:finishDecision(ticks)
             return
@@ -2594,6 +2682,31 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "BASE_TASK_MOVE" then
+                if self.baseTask ~= nil and self.baseTask.type == "haul_corpse" then
+                    if self.baseTaskCorpsePhase == "drop" then
+                        self.baseTaskStartedAt = ticks
+                        self.baseTaskActionQueued = false
+                        self.activeDecision = "base_task_haul_corpse_drop"
+                        self.state = "BASE_TASK_ACTION"
+                        return
+                    end
+                    self.baseTaskCorpseTarget = KnoxBaseCorpseHandling.resolveTarget(
+                        self.base,
+                        self.baseTask.target,
+                        self.character
+                    )
+                    if self.baseTaskCorpseTarget == nil then
+                        self:finishBaseTask(false, "corpse_target_invalid")
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    self.baseTaskCorpsePhase = "grab"
+                    self.baseTaskStartedAt = ticks
+                    self.baseTaskActionQueued = false
+                    self.activeDecision = "base_task_haul_corpse_grab"
+                    self.state = "BASE_TASK_ACTION"
+                    return
+                end
                 if self.baseTask ~= nil and self.baseTask.type == "sort_depot" then
                     self.baseTaskTransfer = KnoxBaseStorage.resolveTransfer(
                         self.base,
@@ -2754,6 +2867,15 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "BASE_TASK_MOVE" then
+                if self.baseTask ~= nil and self.baseTask.type == "haul_corpse" then
+                    if self.baseTaskCorpsePhase == "drop"
+                        and KnoxBaseCorpseHandling.isDragging(self.character) then
+                        pcall(function() self.character:setDoGrappleLetGo() end)
+                    end
+                    self:finishBaseTask(false, "corpse_movement_failed:" .. movement)
+                    self:finishDecision(ticks)
+                    return
+                end
                 self:finishBaseTask(false, "movement_failed:" .. movement)
                 self:finishDecision(ticks)
                 return

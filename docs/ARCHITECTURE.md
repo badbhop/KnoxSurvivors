@@ -292,13 +292,25 @@ separate persisted tasks, again using the vanilla timed actions and state verifi
 woodcutting zone likewise resolves a loaded tree, requires a real axe, and queues the vanilla
 `ISChopTreeAction`; completion is accepted only after the tree object is removed. Log-to-plank
 production resolves a carried log and saw, validates the vanilla `SawLogs` recipe, and queues
-`ISCraftAction`; completion is accepted only after the source log is consumed. Corpse handling,
-animals, and repair remain later action boundaries.
+`ISCraftAction`; completion is accepted only after the source log is consumed. Corpse handling
+now has the same kind of executor: a resident finds a loaded human or zombie body inside the
+bounded base territory but outside its Corpse Drop Area, walks to it, unequips held items, then
+uses the vanilla grab and drop actions to drag it toward the center of that area. The saved task keeps only corpse coordinates,
+its inventory-item ID with a static-object fallback, and the destination zone ID; live object
+references never enter ModData. Interrupted hauling releases the body before the claim is
+closed. Animal care and
+repair remain later action boundaries.
 Barricade work is the exception: when a resident carries a hammer, plank, and
 nails, the controller discovers an unbarricaded loaded window inside the base and queues the
 vanilla `ISBarricadeAction`; completion is accepted only after a real plank count increase.
 Vanilla crop ownership is not treated as a Knox survivor ID because single-player off-slot
 bodies do not provide a stable unique crop owner.
+
+Automatic discovery queues all currently executable job families before selecting work.
+The shared task board chooses by persisted priority and filters each resident against skill,
+trait, recipe, and carried-item requirements. This prevents renewable farming or tree work
+from starving security and cleanup, while also preventing a resident without the exact tools
+or materials from claiming a task another resident prepared.
 
 Player territory is also sent to the Java traversal runtime as a protected structure area.
 Friendly and neutral survivors may still use doors and try an unlocked window, but they

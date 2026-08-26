@@ -130,9 +130,9 @@ the following behavior is not yet called live-verified:
     remain there briefly, and then record `completed_guard` or `completed_patrol` before the
     same zone becomes available again. Combat, a new companion order, leaving the base, or
     a save/reload must release the claim instead of leaving a permanently stuck task.
-14. Marking Farming, Woodcutting, or another unimplemented work area should persist the zone
-    but must not claim it or pretend the world action completed. This is intentional until
-    that job has a real timed action and inventory/resource verification.
+14. Marking Animal Care or another work area without an executor should persist the zone but
+    must not claim it or pretend the world action completed. This is intentional until that
+    job has a real timed action and inventory/resource verification.
 15. To test depot sorting, mark one container `Depot` and another `Food`, `Building Materials`,
     or another supported category. Put one matching item in the depot, send a base resident
     home, and watch for one transfer with the normal rummage animation. The task should finish
@@ -157,6 +157,12 @@ the following behavior is not yet called live-verified:
     be released and retried rather than reported as success. If the resident carries a log and
     a usable saw, the next task should use the vanilla SawLogs recipe and consume the log for
     real planks; missing recipe, tool, or skill should leave it retryable.
+19. Set a Corpse Drop Area on clear ground inside the base, then leave a human or zombie body
+    elsewhere in the loaded base territory. The resident should walk adjacent to the body, put
+    away held items, use the normal grab animation, drag the body to the drop-area center, and
+    use the normal drop action. Bodies already in the drop area and animal bodies
+    are deliberately excluded from this job. Starting combat, changing the resident's order,
+    or failing the route while dragging must release the body and leave the task retryable.
 
 Report the first exception or incorrect ownership transition rather than continuing on a
 damaged test save. Live portrait framing, world-menu picking, distant-base return, and
@@ -291,11 +297,12 @@ targets and take normal attacks. Any `[ZombieAwareness] failed=` line fails this
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, corpse/animal/repair job executors, and
+- Firearms/ammunition, cooking, lethal survivor PvP, animal/repair job executors, and
   interactive Notebook management remain later gates.
-  Guard/patrol work-zone drawing, execution, one-item depot sorting, one-plank barricading, and
-  basic crop maintenance are now the initial live base-job slices. The current Notebook is the
-  readable domain shell, not the finished base administration interface.
+  Guard/patrol work-zone drawing, one-item depot sorting, one-plank barricading, crop work,
+  wood processing, and corpse hauling now have initial executors. The current Notebook is the
+  readable domain shell, not the finished base administration interface; newer jobs still
+  require live in-game confirmation.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.
 - Room-wide alternate-entry planning, sleep furniture selection, death, and

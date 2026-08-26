@@ -89,10 +89,11 @@ slices still require live in-game confirmation.
 
 ## Later milestones
 
-The next vertical slices are corpse hauling, animal care, and repair. Storage hauling, guard,
-patrol, one-plank barricading, crop maintenance, tree cutting, and log-to-plank production now
-have initial executors. Each slice must consume real tools and materials, use normal timed
-actions, respect survivor skills, and survive reload before the next one is added.
+The next vertical slices are animal care and repair. Storage hauling, guard, patrol,
+one-plank barricading, crop maintenance, tree cutting, log-to-plank production, and corpse
+hauling now have initial executors. Each slice must consume real tools and materials where
+applicable, use normal timed actions, respect survivor skills, and survive reload before the
+next one is added.
 
 After those jobs: the full Survivors Notebook, companion/base roster management, contextual
 conversations and favors, firearms, vehicles, camps, raids, away teams, and unloaded-world

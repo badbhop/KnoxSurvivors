@@ -325,7 +325,9 @@ function Farming.findTask(base, character)
                             "farm_plow",
                             nil,
                             0,
-                            plowTool
+                            plowTool,
+                            seed,
+                            seedType
                         ), "plow"
                     end
                 end

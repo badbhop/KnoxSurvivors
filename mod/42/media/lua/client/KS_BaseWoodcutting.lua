@@ -142,7 +142,7 @@ local function zoneBounds(zone)
         math.max(minX, maxX), math.max(minY, maxY), tonumber(zone.z) or 0
 end
 
-local function descriptor(base, zone, square, tree)
+local function descriptor(base, zone, square, tree, axe)
     return {
         id = "woodcut:" .. tostring(base.id) .. ":"
             .. tostring(square:getX()) .. ":" .. tostring(square:getY()) .. ":"
@@ -155,6 +155,7 @@ local function descriptor(base, zone, square, tree)
         y = square:getY(),
         z = square:getZ(),
         objectIndex = tree ~= nil and tree:getObjectIndex() or -1,
+        axeType = axe ~= nil and axe:getFullType() or nil,
     }
 end
 
@@ -186,6 +187,7 @@ function Woodcutting.findTask(base, character)
             y = math.floor((minY + maxY) / 2),
             z = z,
             logType = "Base.Log",
+            sawType = saw:getFullType(),
         }, "saw_logs"
     end
     if axe == nil then
@@ -200,7 +202,7 @@ function Woodcutting.findTask(base, character)
                 local square = cell:getGridSquare(x, y, z)
                 local tree = treeAt(square)
                 if tree ~= nil then
-                    return descriptor(base, zone, square, tree), "found"
+                    return descriptor(base, zone, square, tree, axe), "found"
                 end
             end
         end
