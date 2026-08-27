@@ -200,6 +200,9 @@ end
 function KnoxPanel:new(x, y, width, height)
     local o = ISPanelJoypad.new(self, x, y, width, height)
     o:noBackground()
+    o:setScrollChildren(true)
+    o:addScrollBars()
+    o:setScrollWithParent(false)
     o.snapshot = nil
     return o
 end
@@ -235,8 +238,16 @@ local function ensureViews(window)
     if window.infoView == nil then
         local view = ISCharacterScreen:new(0, 8, window.panel.width, 400, window.playerNum)
         view:initialise()
-        view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
-        view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        view:setScrollChildren(true)
+        view:addScrollBars()
+        view:setScrollWithParent(false)
+        -- Keep window compact — view scrolls instead of resizing window (vanilla would grow parent).
+        view.setWidthAndParentWidth = function(self, w) self:setWidth(math.min(w, self.parent and self.parent.width or w)) end
+        view.setHeightAndParentHeight = function(self, h)
+            self:setHeight(h)
+            local avail = self.parent and self.parent:getHeight() or h
+            self:setScrollHeight(math.max(h, avail))
+        end
         view.char = survivor
         view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
         view.knoxWindow = window
@@ -254,8 +265,7 @@ local function ensureViews(window)
             local snap = self.knoxWindow and self.knoxWindow.snapshot or nil
             if snap == nil then return end
             local y = self:getHeight() + 10
-            local w = self.width - 20
-            local smallH = getTextManager():getFontHeight(UIFont.Small)
+            local w = math.max(20, self.width - 20)
             -- Separator
             self:drawRect(10, y, w, 1, 0.5, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
             y = y + 8
@@ -263,8 +273,9 @@ local function ensureViews(window)
             self:drawText("KNOX", 16, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
             y = y + 20
             local function kv(label, value)
+                local vw = math.max(20, w - 70)
                 self:drawText(tostring(label), 10, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-                self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), w - 70), 10 + w, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+                self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), vw), 10 + w, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
                 y = y + 16
             end
             kv("Time Alive", dayLabel(snap.daysSurvived))
@@ -275,7 +286,7 @@ local function ensureViews(window)
             kv("Group", snap.affiliation and snap.affiliation.kind or "independent")
             local job = snap.duty and snap.duty.jobPreference or nil
             if job ~= nil and job ~= "" and job ~= "auto" then kv("Base Job", job:sub(1,1):upper()..job:sub(2)) end
-            kv("Base / Activity", snap.locationLabel .. " — " .. (snap.orderLabel or ""))
+            kv("Base / Activity", trimText(UIFont.Small, snap.locationLabel .. " — " .. (snap.orderLabel or ""), w - 70))
             local act = snap.activity or "Idle"
             if snap.distanceTiles ~= nil then act = act .. " (" .. tostring(math.floor(snap.distanceTiles+0.5)) .. " tiles)" end
             kv("Activity", act)
@@ -283,7 +294,6 @@ local function ensureViews(window)
             if nh > self:getHeight() then
                 self:setHeight(nh)
                 self:setScrollHeight(nh)
-                if self:getParent() then self:getParent():setScrollHeight(nh) end
             end
         end
         window.infoView = view
@@ -591,6 +601,23 @@ end
 
 local function onResolutionChange()
     for _, window in pairs(windows) do
+        local _, _, sw, sh = screenBounds(window.playerNum)
+        local nw = math.min(WINDOW_WIDTH, math.max(1, sw - 20))
+        local nh = math.min(WINDOW_HEIGHT, math.max(1, sh - 20))
+        window:setWidth(nw)
+        window:setHeight(nh)
+        if window.panel ~= nil then
+            local th = window:titleBarHeight()
+            local rh = window:resizeWidgetHeight()
+            window.panel:setWidth(nw)
+            window.panel:setHeight(nh - th - rh)
+            for _, v in ipairs(window.panel.viewList or {}) do
+                if v.view ~= nil then
+                    v.view:setWidth(window.panel.width)
+                    -- Height stays content-driven; panel clips and scrolls.
+                end
+            end
+        end
         window:clampToViewport()
     end
 end
