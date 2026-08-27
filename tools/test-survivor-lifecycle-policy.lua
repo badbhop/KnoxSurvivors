@@ -20,4 +20,11 @@ assert(not policy.distanceEligible(true, "companion", 101, 100))
 assert(not policy.distanceEligible(false, "autonomous", 101, 100))
 assert(not policy.distanceEligible(true, "autonomous", 99, 100))
 
-print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true")
+local autonomyPath = rootPath .. "/mod/42/media/lua/client/KS_SurvivorAutonomy.lua"
+local autonomy = assert(io.open(autonomyPath, "r")):read("*a")
+assert(autonomy:find("DEAD_REMOVE_PENDING", 1, true),
+    "dead bodies must remain registered until engine teardown succeeds")
+assert(autonomy:find("bridge:removeNpc(id)", 1, true),
+    "dead survivor lifecycle must request engine-shell removal")
+
+print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true dead_teardown=true")

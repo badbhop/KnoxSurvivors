@@ -324,19 +324,32 @@ local function currentPlayers()
     return players
 end
 
-local function retireDeadSurvivor(id, controller)
+local function retireDeadSurvivor(bridge, id, controller)
     pcall(function()
         controller:shutdown()
     end)
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     KnoxPersistence.markSurvivorDead(id, now, "world_death")
-    KnoxSurvivorRuntime.unregister(id, controller)
-    controllers[id] = nil
-    removeActiveId(id)
-    print(TAG .. " id=" .. tostring(id) .. " state=DEAD persisted=true")
+    local removed = tostring(bridge:removeNpc(id))
+    local registryStillActive = bridge:getNpcCharacter(id) ~= nil
+    if string.find(removed, "REMOVED", 1, true) == 1
+        or removed == "NONE_ACTIVE" or not registryStillActive then
+        KnoxSurvivorRuntime.unregister(id, controller)
+        controllers[id] = nil
+        removeActiveId(id)
+        print(TAG .. " id=" .. tostring(id)
+            .. " state=DEAD persisted=true remove=" .. tostring(removed))
+        return
+    end
+    -- Do not silently forget a failed engine teardown. Keeping the stopped runtime
+    -- registered makes the next lifecycle pass retry removal against the same shell
+    -- rather than spawning a duplicate identity elsewhere.
+    controller.state = "STOPPED"
+    print(TAG .. " id=" .. tostring(id)
+        .. " state=DEAD_REMOVE_PENDING result=" .. tostring(removed))
 end
 
-local function retireDeadControllers()
+local function retireDeadControllers(bridge)
     local dead = {}
     for _, id in ipairs(activeIds) do
         local controller = controllers[id]
@@ -350,7 +363,7 @@ local function retireDeadControllers()
         end
     end
     for _, entry in ipairs(dead) do
-        retireDeadSurvivor(entry.id, entry.controller)
+        retireDeadSurvivor(bridge, entry.id, entry.controller)
     end
 end
 
@@ -680,7 +693,7 @@ update = function()
         populationReady = true
         print(TAG .. " state=RUNNING " .. tostring(evidence))
     end
-    retireDeadControllers()
+    retireDeadControllers(bridge)
     if ticks >= nextHibernationUpdate then
         nextHibernationUpdate = ticks + HIBERNATION_INTERVAL_TICKS
         hibernateDistantWorldSurvivors(bridge, currentPlayers())

@@ -130,6 +130,8 @@ public final class KnoxNpcRegistry {
         String description = runtime.npc().describe();
         try {
             KnoxNpcFactory.remove(runtime.npc());
+            runtime.reset();
+            activeNpcs.remove(id);
             KnoxAgent.writeLog("NPC probe REMOVED " + description);
             return "REMOVED " + description;
         } catch (Throwable throwable) {
@@ -141,9 +143,6 @@ public final class KnoxNpcRegistry {
                     + cause.getMessage()
             );
             return "REMOVE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
-        } finally {
-            runtime.reset();
-            activeNpcs.remove(id);
         }
     }
 
