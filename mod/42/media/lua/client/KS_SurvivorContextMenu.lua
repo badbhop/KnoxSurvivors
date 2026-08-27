@@ -200,6 +200,15 @@ local function onReturnToBase(_, playerNum, survivorId)
     runService(playerNum, KnoxCompanionService.sendToBase, survivorId)
 end
 
+local function onFinishInventory(_, playerNum, survivorId)
+    if KnoxCompanionInventory ~= nil and KnoxCompanionInventory.finish ~= nil then
+        KnoxCompanionInventory.finish(playerNum)
+    elseif KnoxCompanionInventory ~= nil and KnoxCompanionInventory.clear ~= nil then
+        KnoxCompanionInventory.clear(playerNum)
+        if ISInventoryPage ~= nil and ISInventoryPage.dirtyUI ~= nil then ISInventoryPage.dirtyUI() end
+    end
+end
+
 local function onBaseJobPreference(_, playerNum, survivorId, preference)
     runService(playerNum, function(player, id)
         return KnoxCompanionService.setBaseJobPreference(player, id, preference)
@@ -341,6 +350,7 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             jobsMenu:setOptionChecked(option, duty.jobPreference == choice[2]
                 or (duty.jobPreference == nil and choice[2] == "auto"))
         end
+        ordersMenu:addOption("Done", SurvivorContextMenu, onFinishInventory, playerNum, survivorId)
     elseif duty.mode == "companion" then
         local orders = menu:addOption("Orders", nil, nil)
         local ordersMenu = ISContextMenu:getNew(menu)
@@ -391,6 +401,7 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                 survivorId
             )
         end
+        ordersMenu:addOption("Done", SurvivorContextMenu, onFinishInventory, playerNum, survivorId)
     end
     menu:addOption("Dismiss", SurvivorContextMenu, onDismiss, playerNum, survivorId)
     return true

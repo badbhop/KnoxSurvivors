@@ -268,13 +268,81 @@ if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.createMenu ~
                 if savedGetSpecificPlayer ~= nil then return savedGetSpecificPlayer(p) end
                 return nil
             end
-            -- Force isInPlayerInventory=true so clothing/wear branch is evaluated
-            -- (loot panes are false and skip that branch).
-            local ok, result = pcall(function() return origCreate(player, true, items, x, y, origin) end)
+            -- Keep original isInPlayerInventory (false for loot) so Drop is not offered
+            -- for survivor items — player must Take first. Wear branch is gated on
+            -- tests.clothing, not isInPlayerInventory, so it still appears.
+            local ok, result = pcall(function() return origCreate(player, isInPlayerInventory, items, x, y, origin) end)
             _G.getSpecificPlayer = savedGetSpecificPlayer
             if ok then return result else error(result, 0) end
         end
         return origCreate(player, isInPlayerInventory, items, x, y, origin)
+    end
+end
+
+local function getSurvivorForItem(item)
+    if item == nil or item.getContainer == nil then return nil, nil end
+    local ok, container = pcall(function() return item:getContainer() end)
+    if not ok or container == nil then return nil, nil end
+    for pNum, sid in pairs(active) do
+        local ch = KnoxSurvivorRuntime.getCharacter(sid)
+        if ch ~= nil then
+            local inv = ch:getInventory()
+            if inv == container then return ch, sid end
+            local ok2, items = pcall(function() return inv:getItems() end)
+            if ok2 and items ~= nil then
+                for i = 0, items:size() - 1 do
+                    local bag = items:get(i)
+                    local bInv = bag ~= nil and bag.getInventory ~= nil and bag:getInventory() or nil
+                    if bInv == container then return ch, sid end
+                end
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function inventoryLog(action, sid, item, player)
+    local itemType = "unknown"
+    pcall(function() itemType = tostring(item:getFullType()) end)
+    local msg = "[KnoxSurvivors][Inventory] action=" .. tostring(action) .. " survivor=" .. tostring(sid) .. " item=" .. itemType .. " player=" .. tostring(player)
+    print(msg)
+    local agent = rawget(_G, "KnoxAgent")
+    if agent ~= nil and agent.writeLog ~= nil then pcall(function() agent.writeLog("Inventory " .. msg) end) end
+end
+
+if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.wearItem ~= nil then
+    if CompanionInventory._origWearItem == nil then CompanionInventory._origWearItem = ISInventoryPaneContextMenu.wearItem end
+    local origWear = CompanionInventory._origWearItem
+    ISInventoryPaneContextMenu.wearItem = function(item, player)
+        local ch, sid = getSurvivorForItem(item)
+        if ch ~= nil then
+            inventoryLog("wear", sid, item, player)
+            -- Ensure survivor walk adj? vanilla transferIfNeeded will handle, but we bypass player transfer.
+            local ok = pcall(function() ISInventoryPaneContextMenu.transferIfNeeded(ch, item) end)
+            if not ok then pcall(function() print("[KnoxSurvivors][Inventory] transferIfNeeded failed") end) end
+            ISTimedActionQueue.add(ISWearClothing:new(ch, item, 50))
+            return
+        end
+        return origWear(item, player)
+    end
+end
+
+if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.transferIfNeeded ~= nil then
+    if CompanionInventory._origTransferIfNeeded == nil then CompanionInventory._origTransferIfNeeded = ISInventoryPaneContextMenu.transferIfNeeded end
+    local origTransfer = CompanionInventory._origTransferIfNeeded
+    ISInventoryPaneContextMenu.transferIfNeeded = function(playerObj, item, preventTransferWorldObjects)
+        local ch, sid = getSurvivorForItem(item)
+        if ch ~= nil and ch == playerObj then
+            -- Already in correct inventory, just log
+            inventoryLog("transferIfNeeded-survivor-noop", sid, item, playerObj:getPlayerNum())
+            -- For survivor, haveToBeTransfered should be false (item already in survivor inv), so do nothing
+            return origTransfer(playerObj, item, preventTransferWorldObjects)
+        end
+        if ch ~= nil then
+            inventoryLog("transferIfNeeded-survivor-redirect", sid, item, playerObj:getPlayerNum())
+            return origTransfer(ch, item, preventTransferWorldObjects)
+        end
+        return origTransfer(playerObj, item, preventTransferWorldObjects)
     end
 end
 
@@ -316,6 +384,21 @@ end
 
 function CompanionInventory.clear(playerNum)
     if active ~= nil then active[playerNum] = nil end
+end
+
+function CompanionInventory.finish(playerNum)
+    local sid = active[playerNum]
+    if active ~= nil then active[playerNum] = nil end
+    local loot = getPlayerLoot(playerNum)
+    if loot ~= nil then
+        local floor = ISInventoryPage.GetFloorContainer and ISInventoryPage.GetFloorContainer(playerNum) or nil
+        if floor ~= nil then
+            pcall(function() loot:setNewContainer(floor) end)
+            loot.title = nil
+        end
+        ISInventoryPage.dirtyUI()
+    end
+    inventoryLog("finish", sid or tostring(playerNum), { getFullType = function() return "finish" end }, playerNum)
 end
 
 return CompanionInventory
