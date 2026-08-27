@@ -4,6 +4,8 @@ require "ISUI/ISUI3DModel"
 require "XpSystem/ISUI/ISCharacterScreen"
 require "XpSystem/ISUI/ISCharacterInfo"
 require "XpSystem/ISUI/ISHealthPanel"
+require "XpSystem/ISUI/ISCharacterProtection"
+require "XpSystem/ISUI/ISClothingInsPanel"
 require "KS_SurvivorViewModel"
 
 local SurvivorCard = rawget(_G, "KnoxSurvivorCard") or {}
@@ -125,7 +127,7 @@ local function restoreJoypadFocus(window)
     setJoypadFocus(window.playerNum, previous)
 end
 
--- Knox tab — preserves Knox-specific data (relationship / base / activity) inside vanilla tab frame.
+-- Knox tab — misc history / current job only. Vanilla tabs now cover portrait, traits, skills, health, protection, temperature.
 local KnoxPanel = ISPanelJoypad:derive("KnoxSurvivorKnoxPanel")
 
 function KnoxPanel:prerender()
@@ -159,34 +161,16 @@ function KnoxPanel:prerender()
     self:drawText("Survived " .. dayLabel(snapshot.daysSurvived) .. "  |  Known " .. dayLabel(snapshot.daysKnown), PADDING, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
     y = y + smallH + SECTION_GAP
 
-    sectionHeader("Occupation")
-    keyValue("Profession", snapshot.professionLabel)
-    if snapshot.duty ~= nil and snapshot.duty.baseId ~= nil then
-        keyValue("Home Base", "Base resident")
-    end
+    sectionHeader("History")
+    keyValue("Time Alive", dayLabel(snapshot.daysSurvived))
+    keyValue("Known", dayLabel(snapshot.daysKnown))
     y = y + 4
-    sectionHeader("Traits / Skills")
-    self:drawText("Traits", PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    self:drawText(trimText(UIFont.Small, compactList(snapshot.traits, 3), w - 60), PADDING + 60, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
-    y = y + smallH + 3
-    self:drawText("Skills", PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    self:drawText(trimText(UIFont.Small, compactSkills(snapshot.skills, 3), w - 60), PADDING + 60, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
-    y = y + smallH + SECTION_GAP
-
-    sectionHeader("Equipment")
-    keyValue("Weapon", snapshot.weaponName)
-    y = y + 4
-    sectionHeader("Relationship")
-    keyValue("Faction", snapshot.factionName or "None")
-    local trustVal = snapshot.trust ~= nil and math.floor(snapshot.trust) or nil
-    local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
-    local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_DIM)) or COL_DIM
-    keyValue("Trust", trustLabel, trustCol)
-    y = y + 4
-    sectionHeader("Base / Activity")
+    sectionHeader("Current Job")
     local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil
     if job ~= nil and job ~= "" and job ~= "auto" then
         keyValue("Job", job:sub(1,1):upper() .. job:sub(2))
+    else
+        keyValue("Job", "Automatic")
     end
     keyValue("Location", snapshot.locationLabel)
     keyValue("Order", snapshot.orderLabel)
@@ -195,6 +179,14 @@ function KnoxPanel:prerender()
         status = status .. " (" .. tostring(math.floor(snapshot.distanceTiles + 0.5)) .. " tiles)"
     end
     keyValue("Activity", status)
+    y = y + 4
+    sectionHeader("Relationship")
+    keyValue("Faction", snapshot.factionName or "None")
+    local trustVal = snapshot.trust ~= nil and math.floor(snapshot.trust) or nil
+    local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
+    local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_DIM)) or COL_DIM
+    keyValue("Trust", trustLabel, trustCol)
+    keyValue("Group", snapshot.affiliation and snapshot.affiliation.kind or "independent")
 end
 
 function KnoxPanel:new(x, y, width, height)
@@ -241,7 +233,6 @@ local function ensureViews(window)
         view:setScrollChildren(true)
         view:addScrollBars()
         view:setScrollWithParent(false)
-        -- Keep window compact — view scrolls instead of resizing window (vanilla would grow parent).
         view.setWidthAndParentWidth = function(self, w) self:setWidth(math.min(w, self.parent and self.parent.width or w)) end
         view.setHeightAndParentHeight = function(self, h)
             self:setHeight(h)
@@ -258,6 +249,10 @@ local function ensureViews(window)
             pcall(function() view:loadProfession() end)
             view:loadBeardAndHairStyle()
         end
+        -- Hide vanilla change buttons for survivor — no haircut and no discovered media here.
+        if view.hairButton ~= nil then view.hairButton:setVisible(false); view.hairButton:setEnable(false) end
+        if view.beardButton ~= nil then view.beardButton:setVisible(false); view.beardButton:setEnable(false) end
+        if view.literatureButton ~= nil then view.literatureButton:setVisible(false); view.literatureButton:setEnable(false) end
         -- Augment vanilla Info with Knox fields (relationship/faction/base) using restrained style.
         local origRender = view.render
         view.render = function(self)
@@ -266,7 +261,6 @@ local function ensureViews(window)
             if snap == nil then return end
             local y = self:getHeight() + 10
             local w = math.max(20, self.width - 20)
-            -- Separator
             self:drawRect(10, y, w, 1, 0.5, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
             y = y + 8
             self:drawRect(10, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
@@ -312,29 +306,6 @@ local function ensureViews(window)
             view.progressBarLoaded = false
             view.reloadSkillBar = true
         end
-        -- When survivor has no live IsoPlayer, fall back to persisted snapshot skills for display.
-        local origPrerender = view.prerender
-        view.prerender = function(self)
-            -- Inject persisted levels into vanilla XP before draw when off-slot not fully synced.
-            if self.char ~= nil and self.knoxSnapshot ~= nil and self.knoxSnapshot.skills ~= nil then
-                pcall(function()
-                    for perkId, saved in pairs(self.knoxSnapshot.skills) do
-                        local lvl = tonumber(saved.level)
-                        if lvl ~= nil and lvl > 0 then
-                            local perk = PerkFactory.getPerk(PerkFactory.getPerkFromName(tostring(perkId)))
-                            if perk ~= nil then
-                                -- Keep vanilla progress bars in sync with persisted value where vanilla is stale.
-                                local cur = self.char:getPerkLevel(perk)
-                                if cur ~= lvl then
-                                    -- Do not mutate live XP heavily; just ensure display reflects persisted (overlay handled below).
-                                end
-                            end
-                        end
-                    end
-                end)
-            end
-            if origPrerender then origPrerender(self) end
-        end
         window.skillsView = view
         window.panel:addView(xpSystemText.skills, view)
     end
@@ -353,6 +324,35 @@ local function ensureViews(window)
         window.healthView = view
         window.panel:addView(xpSystemText.health, view)
     end
+    if window.protectionView == nil and survivor ~= nil then
+        local view = ISCharacterProtection:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
+        view:initialise()
+        view:setScrollChildren(true)
+        view:addScrollBars()
+        view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
+        view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        view.char = survivor
+        view.playerNum = survivor:getPlayerNum()
+        view.bFemale = survivor:isFemale()
+        view.sex = view.bFemale and "female" or "male"
+        view.bodyOutline = getTexture("media/ui/defense/" .. view.sex .. "_base.png")
+        pcall(function() view:create() end)
+        window.protectionView = view
+        window.panel:addView(xpSystemText.protection, view)
+    end
+    if window.clothingView == nil and survivor ~= nil then
+        local view = ISClothingInsPanel:new(survivor, 0, 8, window.panel.width, window.panel.height - 8)
+        view:initialise()
+        view:setScrollChildren(true)
+        view:addScrollBars()
+        view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
+        view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        view.player = survivor
+        view.playerNum = survivor:getPlayerNum()
+        view.char = survivor
+        window.clothingView = view
+        window.panel:addView(xpSystemText.clothingIns, view)
+    end
     if window.knoxView == nil then
         local view = KnoxPanel:new(0, 8, window.panel.width, window.panel.height - 8)
         view:initialise()
@@ -362,7 +362,6 @@ local function ensureViews(window)
 
     -- Bind all vanilla views to the selected survivor (never local player)
     if survivor ~= nil then
-        -- Info
         if window.infoView.char ~= survivor then
             window.infoView.char = survivor
             window.infoView.playerNum = survivor:getPlayerNum()
@@ -371,9 +370,11 @@ local function ensureViews(window)
             pcall(function() window.infoView:loadTraits() end)
             pcall(function() window.infoView:loadProfession() end)
             window.infoView:loadBeardAndHairStyle()
+            if window.infoView.hairButton ~= nil then window.infoView.hairButton:setVisible(false) end
+            if window.infoView.beardButton ~= nil then window.infoView.beardButton:setVisible(false) end
+            if window.infoView.literatureButton ~= nil then window.infoView.literatureButton:setVisible(false) end
         end
         window.infoView.knoxWindow = window
-        -- Skills
         if window.skillsView.char ~= survivor then
             window.skillsView.char = survivor
             window.skillsView.playerNum = survivor:getPlayerNum()
@@ -382,7 +383,6 @@ local function ensureViews(window)
             window.skillsView.reloadSkillBar = true
         end
         window.skillsView.knoxSnapshot = window.snapshot
-        -- Health — keep doctor as local player for safe treatment
         if window.healthView ~= nil and window.healthView.character ~= survivor then
             local localPlayer = getSpecificPlayer(window.playerNum)
             if localPlayer ~= nil then
@@ -395,6 +395,19 @@ local function ensureViews(window)
             window.healthView.playerNum = localPlayer ~= nil and localPlayer:getPlayerNum() or survivor:getPlayerNum()
             window.healthView.characterX = survivor:getX()
             window.healthView.characterY = survivor:getY()
+        end
+        if window.protectionView ~= nil and window.protectionView.char ~= survivor then
+            window.protectionView.char = survivor
+            window.protectionView.playerNum = survivor:getPlayerNum()
+            window.protectionView.bFemale = survivor:isFemale()
+            window.protectionView.sex = window.protectionView.bFemale and "female" or "male"
+            window.protectionView.bodyOutline = getTexture("media/ui/defense/" .. window.protectionView.sex .. "_base.png")
+            pcall(function() window.protectionView:create() end)
+        end
+        if window.clothingView ~= nil and window.clothingView.player ~= survivor then
+            window.clothingView.player = survivor
+            window.clothingView.playerNum = survivor:getPlayerNum()
+            window.clothingView.char = survivor
         end
     end
     if window.knoxView ~= nil then
