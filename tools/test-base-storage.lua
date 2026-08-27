@@ -135,4 +135,9 @@ local available, reason = storage.requirementsAvailable(
 assert(not available and reason == "missing_assigned_item=Base.Nails",
     "missing storage supplies must not be treated as an abstract stockpile")
 
-print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true task_supply=true")
+local controllerSource = assert(io.open(rootPath
+    .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua", "r")):read("*a")
+assert(controllerSource:find("Base job blocked:", 1, true),
+    "blocked base supply requirements must give the player a visible reason")
+
+print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true task_supply=true feedback=true")

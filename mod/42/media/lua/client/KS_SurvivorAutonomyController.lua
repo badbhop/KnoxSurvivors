@@ -1524,6 +1524,8 @@ function Controller:beginBaseTaskSupplyOrWork(ticks)
             return self:beginBaseTaskWorkMove(ticks)
         end
         self:finishBaseTask(false, tostring(result))
+        KnoxActivityFeed.speak(self.character, "We're missing supplies for that job.")
+        KnoxActivityFeed.event("Base job blocked: " .. tostring(result) .. ".")
         self:recordFailure("base_task_supply:" .. tostring(result), ticks, 300)
         return false
     end
