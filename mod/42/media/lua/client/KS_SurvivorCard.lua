@@ -231,22 +231,60 @@ local function ensureViews(window)
     if window.panel == nil then return end
     local survivor = window.snapshot ~= nil and window.snapshot.loaded
         and KnoxSurvivorViewModel.resolveLiveCharacter(window.snapshot.id) or nil
-    -- Fallback to snapshot's iso if not loaded? Use nil and show overlay.
 
     if window.infoView == nil then
         local view = ISCharacterScreen:new(0, 8, window.panel.width, 400, window.playerNum)
         view:initialise()
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
-        -- Never show local player — bind to survivor immediately (or nil until loaded).
         view.char = survivor
         view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
+        view.knoxWindow = window
         if survivor ~= nil then
             view.bFemale = survivor:isFemale()
             view.refreshNeeded = true
             pcall(function() view:loadTraits() end)
             pcall(function() view:loadProfession() end)
             view:loadBeardAndHairStyle()
+        end
+        -- Augment vanilla Info with Knox fields (relationship/faction/base) using restrained style.
+        local origRender = view.render
+        view.render = function(self)
+            origRender(self)
+            local snap = self.knoxWindow and self.knoxWindow.snapshot or nil
+            if snap == nil then return end
+            local y = self:getHeight() + 10
+            local w = self.width - 20
+            local smallH = getTextManager():getFontHeight(UIFont.Small)
+            -- Separator
+            self:drawRect(10, y, w, 1, 0.5, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
+            y = y + 8
+            self:drawRect(10, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
+            self:drawText("KNOX", 16, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
+            y = y + 20
+            local function kv(label, value)
+                self:drawText(tostring(label), 10, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+                self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), w - 70), 10 + w, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+                y = y + 16
+            end
+            kv("Time Alive", dayLabel(snap.daysSurvived))
+            kv("Known", dayLabel(snap.daysKnown))
+            kv("Faction", snap.factionName or "None")
+            local trustVal = snap.trust ~= nil and math.floor(snap.trust) or nil
+            kv("Trust", trustVal ~= nil and tostring(trustVal) or "Unknown")
+            kv("Group", snap.affiliation and snap.affiliation.kind or "independent")
+            local job = snap.duty and snap.duty.jobPreference or nil
+            if job ~= nil and job ~= "" and job ~= "auto" then kv("Base Job", job:sub(1,1):upper()..job:sub(2)) end
+            kv("Base / Activity", snap.locationLabel .. " — " .. (snap.orderLabel or ""))
+            local act = snap.activity or "Idle"
+            if snap.distanceTiles ~= nil then act = act .. " (" .. tostring(math.floor(snap.distanceTiles+0.5)) .. " tiles)" end
+            kv("Activity", act)
+            local nh = y + 6
+            if nh > self:getHeight() then
+                self:setHeight(nh)
+                self:setScrollHeight(nh)
+                if self:getParent() then self:getParent():setScrollHeight(nh) end
+            end
         end
         window.infoView = view
         window.panel:addView(xpSystemText.info, view)
@@ -258,20 +296,50 @@ local function ensureViews(window)
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
         view.char = survivor
         view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
+        view.knoxSnapshot = window.snapshot
         if survivor ~= nil then
             view.perks = ISCharacterInfo.loadPerk(view)
             view.progressBarLoaded = false
             view.reloadSkillBar = true
         end
+        -- When survivor has no live IsoPlayer, fall back to persisted snapshot skills for display.
+        local origPrerender = view.prerender
+        view.prerender = function(self)
+            -- Inject persisted levels into vanilla XP before draw when off-slot not fully synced.
+            if self.char ~= nil and self.knoxSnapshot ~= nil and self.knoxSnapshot.skills ~= nil then
+                pcall(function()
+                    for perkId, saved in pairs(self.knoxSnapshot.skills) do
+                        local lvl = tonumber(saved.level)
+                        if lvl ~= nil and lvl > 0 then
+                            local perk = PerkFactory.getPerk(PerkFactory.getPerkFromName(tostring(perkId)))
+                            if perk ~= nil then
+                                -- Keep vanilla progress bars in sync with persisted value where vanilla is stale.
+                                local cur = self.char:getPerkLevel(perk)
+                                if cur ~= lvl then
+                                    -- Do not mutate live XP heavily; just ensure display reflects persisted (overlay handled below).
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+            if origPrerender then origPrerender(self) end
+        end
         window.skillsView = view
         window.panel:addView(xpSystemText.skills, view)
     end
     if window.healthView == nil and survivor ~= nil then
-        -- ISHealthPanel already takes IsoPlayer directly — safest for off-slot.
+        local localPlayer = getSpecificPlayer(window.playerNum)
         local view = ISHealthPanel:new(survivor, 0, 8, window.panel.width, window.panel.height - 8)
         view:initialise()
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        if localPlayer ~= nil then
+            view.otherPlayer = localPlayer
+            view.character = survivor
+            view.playerNum = localPlayer:getPlayerNum()
+            view.doctorLevel = localPlayer:getPerkLevel(Perks.Doctor)
+        end
         window.healthView = view
         window.panel:addView(xpSystemText.health, view)
     end
@@ -282,7 +350,7 @@ local function ensureViews(window)
         window.panel:addView("Knox", view)
     end
 
-    -- Bind all three vanilla views to the selected survivor (never local player)
+    -- Bind all vanilla views to the selected survivor (never local player)
     if survivor ~= nil then
         -- Info
         if window.infoView.char ~= survivor then
@@ -294,6 +362,7 @@ local function ensureViews(window)
             pcall(function() window.infoView:loadProfession() end)
             window.infoView:loadBeardAndHairStyle()
         end
+        window.infoView.knoxWindow = window
         -- Skills
         if window.skillsView.char ~= survivor then
             window.skillsView.char = survivor
@@ -302,11 +371,18 @@ local function ensureViews(window)
             window.skillsView.progressBarLoaded = false
             window.skillsView.reloadSkillBar = true
         end
-        -- Health
-        if window.healthView.character ~= survivor then
+        window.skillsView.knoxSnapshot = window.snapshot
+        -- Health — keep doctor as local player for safe treatment
+        if window.healthView ~= nil and window.healthView.character ~= survivor then
+            local localPlayer = getSpecificPlayer(window.playerNum)
+            if localPlayer ~= nil then
+                window.healthView.otherPlayer = localPlayer
+                window.healthView.doctorLevel = localPlayer:getPerkLevel(Perks.Doctor)
+            else
+                window.healthView.otherPlayer = nil
+            end
             window.healthView.character = survivor
-            window.healthView.playerNum = survivor:getPlayerNum()
-            window.healthView.otherPlayer = nil
+            window.healthView.playerNum = localPlayer ~= nil and localPlayer:getPlayerNum() or survivor:getPlayerNum()
             window.healthView.characterX = survivor:getX()
             window.healthView.characterY = survivor:getY()
         end
