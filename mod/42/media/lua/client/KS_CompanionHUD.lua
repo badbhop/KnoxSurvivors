@@ -104,7 +104,7 @@ function Panel:calculateMetrics()
     self.mediumFontHeight = medium
     self.portraitSize = portrait
     self.headerHeight = medium + 12
-    self.rowHeight = math.max(72, small * 4 + 12)
+    self.rowHeight = math.max(74, small * 4 + 14)
     self.panelWidth = 188
     self.sidebarOption = getCore():getOptionSidebarSize()
 end
@@ -310,32 +310,32 @@ function Panel:rowAt(y)
     return slot, self.snapshots[self.scrollOffset + slot]
 end
 
-local function barColour(value)
-    if value <= 0.25 then
-        return { r = 0.68, g = 0.20, b = 0.16, a = 1 }
-    end
-    if value <= 0.50 then
-        return { r = 0.72, g = 0.52, b = 0.18, a = 1 }
-    end
-    return { r = 0.38, g = 0.58, b = 0.28, a = 1 }
-end
+local BAR_HEIGHT = 6
 
-function Panel:drawBar(x, y, width, value)
+local BAR_COLOURS = {
+    health = { r = 0.72, g = 0.22, b = 0.18 },
+    hunger = { r = 0.78, g = 0.54, b = 0.14 },
+    thirst = { r = 0.22, g = 0.50, b = 0.82 },
+    fatigue = { r = 0.68, g = 0.34, b = 0.72 },
+}
+
+function Panel:drawBar(x, y, width, value, colour)
     local amount = clamp(tonumber(value) or 0, 0, 1)
-    self:drawRect(x, y, width, 5, 0.9, 0.12, 0.12, 0.12)
-    local colour = barColour(amount)
-    self:drawRect(x, y, math.floor(width * amount), 5,
-        colour.a, colour.r, colour.g, colour.b)
+    self:drawRect(x, y, width, BAR_HEIGHT, 0.92, 0.10, 0.10, 0.10)
+    local c = colour or BAR_COLOURS.health
+    local fade = 0.55 + amount * 0.45
+    self:drawRect(x, y, math.floor(width * amount), BAR_HEIGHT,
+        0.92, c.r * fade, c.g * fade, c.b * fade)
 end
 
 function Panel:prerender()
     ISPanel.prerender(self)
-    self:drawRect(0, 0, self.width, self.headerHeight, 0.72, 0.08, 0.08, 0.07)
+    self:drawRect(0, 0, self.width, self.headerHeight, 0.80, 0.08, 0.08, 0.08)
     self:drawText(
         "SQUAD  " .. tostring(#self.snapshots),
         OUTER_PADDING,
         math.floor((self.headerHeight - self.mediumFontHeight) / 2),
-        0.84, 0.82, 0.75, 1,
+        0.86, 0.86, 0.84, 1,
         UIFont.Medium
     )
     if #self.snapshots > self.visibleCapacity then
@@ -345,7 +345,7 @@ function Panel:prerender()
             tostring(first) .. "-" .. tostring(last),
             self.width - OUTER_PADDING,
             math.floor((self.headerHeight - self.smallFontHeight) / 2) + 1,
-            0.65, 0.65, 0.62, 1,
+            0.68, 0.68, 0.68, 1,
             UIFont.Small
         )
     end
@@ -357,27 +357,27 @@ function Panel:prerender()
             + (slot - 1) * (self.rowHeight + ROW_GAP)
         local selected = snapshot.id == self.selectedId
         local hovered = slot == self.hoverSlot
-        local shade = selected and 0.24 or (hovered and 0.18 or 0.12)
+        local shade = selected and 0.22 or (hovered and 0.17 or 0.11)
         self:drawRect(OUTER_PADDING, y, self.width - OUTER_PADDING * 2, self.rowHeight,
-            0.86, shade, shade, shade * 0.92)
-        local border = hovered and 0.70 or (selected and 0.58 or 0.32)
+            0.88, shade, shade, shade)
+        local border = hovered and 0.62 or (selected and 0.50 or 0.28)
         self:drawRectBorder(OUTER_PADDING, y, self.width - OUTER_PADDING * 2,
-            self.rowHeight, 0.9, border, border, border * 0.92)
+            self.rowHeight, 0.9, border, border, border)
 
         local portraitX = OUTER_PADDING + 3
         local portraitY = y + 3
         local portraitWidth = self.portraitSize - 6
         local portraitHeight = self.rowHeight - 6
         self:drawRect(portraitX, portraitY, portraitWidth, portraitHeight,
-            0.9, 0.17, 0.17, 0.16)
+            0.9, 0.14, 0.14, 0.14)
         if AVATAR_TEXTURE ~= nil then
             self:drawTextureScaled(AVATAR_TEXTURE, portraitX, portraitY,
-                portraitWidth, portraitHeight, 0.30, 0.42, 0.42, 0.40)
+                portraitWidth, portraitHeight, 0.30, 0.38, 0.38, 0.38)
         end
         if not snapshot.loaded or not self.portraitAvailable[slot] then
             self:drawTextCentre(initials(snapshot), portraitX + portraitWidth / 2,
                 portraitY + (portraitHeight - self.mediumFontHeight) / 2,
-                0.78, 0.78, 0.72, 1, UIFont.Medium)
+                0.80, 0.80, 0.80, 1, UIFont.Medium)
         end
 
         local textX = OUTER_PADDING + self.portraitSize + 5
@@ -386,31 +386,31 @@ function Panel:prerender()
         local order = snapshot.order == "hold" and "HOLD" or "FOLLOW"
         local badgeWidth = getTextManager():MeasureStringX(UIFont.Small, order) + 8
         self:drawRect(textRight - badgeWidth, y + 5, badgeWidth, self.smallFontHeight + 2,
-            0.72, 0.20, 0.24, 0.17)
+            0.78, 0.14, 0.14, 0.14)
         self:drawTextCentre(order, textRight - badgeWidth / 2, y + 6,
-            0.80, 0.84, 0.73, 1, UIFont.Small)
+            0.82, 0.82, 0.78, 1, UIFont.Small)
 
         local nameWidth = math.max(20, textWidth - badgeWidth - 5)
         self:drawText(trimText(UIFont.Medium, snapshot.displayName, nameWidth),
-            textX, y + 5, 0.94, 0.93, 0.88, 1, UIFont.Medium)
+            textX, y + 5, 0.95, 0.95, 0.93, 1, UIFont.Medium)
 
         local status = snapshot.activity
         if snapshot.distanceTiles ~= nil then
             status = status .. " - " .. tostring(math.floor(snapshot.distanceTiles + 0.5)) .. " tiles"
         end
         self:drawText(trimText(UIFont.Small, status, textWidth), textX,
-            y + 8 + self.mediumFontHeight, 0.74, 0.76, 0.70, 1, UIFont.Small)
+            y + 8 + self.mediumFontHeight, 0.72, 0.72, 0.70, 1, UIFont.Small)
         self:drawText(trimText(UIFont.Small, snapshot.weaponName, textWidth), textX,
             y + 10 + self.mediumFontHeight + self.smallFontHeight,
-            0.64, 0.64, 0.60, 1, UIFont.Small)
+            0.62, 0.62, 0.60, 1, UIFont.Small)
 
-        local barY = y + self.rowHeight - 10
-        local gap = 3
+        local barY = y + self.rowHeight - BAR_HEIGHT - 5
+        local gap = 4
         local barWidth = math.floor((textWidth - gap * 3) / 4)
-        self:drawBar(textX, barY, barWidth, snapshot.health)
-        self:drawBar(textX + barWidth + gap, barY, barWidth, snapshot.needs.food)
-        self:drawBar(textX + (barWidth + gap) * 2, barY, barWidth, snapshot.needs.water)
-        self:drawBar(textX + (barWidth + gap) * 3, barY, barWidth, snapshot.needs.rest)
+        self:drawBar(textX, barY, barWidth, snapshot.health, BAR_COLOURS.health)
+        self:drawBar(textX + barWidth + gap, barY, barWidth, snapshot.needs.food, BAR_COLOURS.hunger)
+        self:drawBar(textX + (barWidth + gap) * 2, barY, barWidth, snapshot.needs.water, BAR_COLOURS.thirst)
+        self:drawBar(textX + (barWidth + gap) * 3, barY, barWidth, snapshot.needs.rest, BAR_COLOURS.fatigue)
     end
 end
 
@@ -523,8 +523,8 @@ function Panel:new(playerNum)
     panel.hoverSlot = nil
     panel.draggingHeader = false
     panel.dragMoved = false
-    panel.backgroundColor = { r = 0.045, g = 0.05, b = 0.035, a = 0.82 }
-    panel.borderColor = { r = 0.38, g = 0.43, b = 0.25, a = 0.95 }
+    panel.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.88 }
+    panel.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.92 }
     panel:calculateMetrics()
     panel.manualPosition = type(playerPreferences(playerNum)) == "table"
     return panel
