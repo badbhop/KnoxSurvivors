@@ -358,12 +358,18 @@ function Window:createChildren()
 end
 
 function Window:new(playerNum)
-    local width, height = 560, 450
+    local rawW, rawH = 560, 450
+    local sw = getPlayerScreenWidth(playerNum)
+    local sh = getPlayerScreenHeight(playerNum)
+    local width = math.min(rawW, math.max(1, sw - 20))
+    local height = math.min(rawH, math.max(1, sh - 20))
     local left, top = getPlayerScreenLeft(playerNum), getPlayerScreenTop(playerNum)
-    local window = ISCollapsableWindow:new(left + (getPlayerScreenWidth(playerNum) - width) / 2,
-        top + (getPlayerScreenHeight(playerNum) - height) / 2, width, height)
+    local window = ISCollapsableWindow:new(left + (sw - width) / 2,
+        top + (sh - height) / 2, width, height)
     setmetatable(window, self); self.__index = self
     window.playerNum = playerNum; window.activeTab = "Overview"
+    window.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.94 }
+    window.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.95 }
     window:setTitle("Base Setup")
     window:setResizable(true)
     return window

@@ -11,12 +11,12 @@ local MAX_LOCAL_PLAYERS = 4
 local REFRESH_MS = 500
 local WINDOW_WIDTH = 460
 local WINDOW_HEIGHT = 500
-local PADDING = 12
+local PADDING = 10
 local SECTION_GAP = 8
 local AVATAR_TEXTURE = getTexture("media/ui/avatarBackgroundWhite.png")
 
 local COL_BG      = { 0.06, 0.06, 0.06 }
-local COL_BORDER  = { 0.22, 0.22, 0.22 }
+local COL_BORDER  = { 0.28, 0.28, 0.28 }
 local COL_SEC_BG  = { 0.10, 0.10, 0.10 }
 local COL_SEC_HDR = { 0.70, 0.70, 0.68 }
 local COL_LABEL   = { 0.62, 0.62, 0.60 }
@@ -261,11 +261,12 @@ end
 
 function Window:drawCondition(label, y, value, available, highIsBad, colour)
     local labelWidth = 58
-    local barX = PADDING + labelWidth
-    local barWidth = self.rightColWidth - labelWidth
-    self:drawText(label, PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    local rx = self.rightColX or (self.portraitX + self.portraitWidth + 14)
+    local barX = rx + labelWidth
+    local barWidth = math.max(20, self.rightColWidth - labelWidth - 34)
+    self:drawText(label, rx, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
     self:drawRect(barX, y + 3, barWidth, 6, 0.92, 0.10, 0.10, 0.10)
-    self:drawRectBorder(barX, y + 3, barWidth, 6, 0.72, 0.22, 0.22, 0.22)
+    self:drawRectBorder(barX, y + 3, barWidth, 6, 0.72, 0.28, 0.28, 0.28)
     if available then
         local amount = clamp(tonumber(value) or 0, 0, 1)
         local c = colour or COL_HEALTH
@@ -294,6 +295,7 @@ function Window:prerender()
 
     local leftCol = PADDING
     local rightCol = self.portraitX + self.portraitWidth + 14
+    self.rightColX = rightCol
     self.rightColWidth = self.width - rightCol - PADDING
     local contentW = self.rightColWidth
     local y

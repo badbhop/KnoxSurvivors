@@ -14,6 +14,8 @@ _G.KnoxSurvivorNotebook = Notebook
 
 local Window = ISCollapsableWindow:derive("KnoxSurvivorNotebookWindow")
 local TABS = { "Overview", "Survivors", "Base", "Work", "Missions" }
+local UI_PAD = 10
+local BUTTON_HGT = getTextManager():getFontHeight(UIFont.Small) + 6
 
 local function line(value)
     return tostring(value or "") .. " <LINE> "
@@ -355,42 +357,45 @@ end
 function Window:createChildren()
     ISCollapsableWindow.createChildren(self)
     self.tabButtons = {}
-    local y = self:titleBarHeight() + 8
-    local x = 8
+    local y = self:titleBarHeight() + UI_PAD
+    local x = UI_PAD
     for _, title in ipairs(TABS) do
         local w = 72
         if title == "Survivors" then w = 80
         elseif title == "Overview" then w = 76
         elseif title == "Missions" then w = 78 end
-        local button = ISButton:new(x, y, w, 24, title, self, self.onTab)
+        local button = ISButton:new(x, y, w, BUTTON_HGT, title, self, self.onTab)
         button:initialise()
         button.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
         self:addChild(button)
         self.tabButtons[#self.tabButtons + 1] = button
         x = x + w + 4
     end
-    -- Base setup controls (visible only on Base tab)
+    -- Base controls — same spacing as BaseSetup (10px pad, small+6 height), scrollable content.
     self.setupButtons = {}
-    local by = y + 28
-    self.highlightButton = ISButton:new(8, by, 118, 22, "Highlights: OFF", self, self.onToggleHighlights)
+    local by = y + BUTTON_HGT + 6
+    self.highlightButton = ISButton:new(UI_PAD, by, 118, BUTTON_HGT, "Highlights: OFF", self, self.onToggleHighlights)
     self.highlightButton:initialise()
     self.highlightButton.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
     self:addChild(self.highlightButton)
     self.setupButtons[#self.setupButtons + 1] = self.highlightButton
-    self.editBoundaryBtn = ISButton:new(130, by, 112, 22, "Edit Boundary", self, self.onEditBoundaryNotebook)
+    self.editBoundaryBtn = ISButton:new(UI_PAD + 122, by, 112, BUTTON_HGT, "Edit Boundary", self, self.onEditBoundaryNotebook)
     self.editBoundaryBtn:initialise()
+    self.editBoundaryBtn.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
     self:addChild(self.editBoundaryBtn)
     self.setupButtons[#self.setupButtons + 1] = self.editBoundaryBtn
-    self.addAreaBtn = ISButton:new(246, by, 92, 22, "Add Area", self, self.onAddZoneNotebook)
+    self.addAreaBtn = ISButton:new(UI_PAD + 238, by, 92, BUTTON_HGT, "Add Area", self, self.onAddZoneNotebook)
     self.addAreaBtn:initialise()
+    self.addAreaBtn.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
     self:addChild(self.addAreaBtn)
     self.setupButtons[#self.setupButtons + 1] = self.addAreaBtn
-    self.openSetupBtn = ISButton:new(342, by, 118, 22, "Open Base Setup", self, self.onAddZoneNotebook)
+    self.openSetupBtn = ISButton:new(UI_PAD + 334, by, 118, BUTTON_HGT, "Open Base Setup", self, self.onAddZoneNotebook)
     self.openSetupBtn:initialise()
+    self.openSetupBtn.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
     self:addChild(self.openSetupBtn)
     self.setupButtons[#self.setupButtons + 1] = self.openSetupBtn
     for _, b in ipairs(self.setupButtons) do b:setVisible(false) end
-    self.content = ISRichTextPanel:new(8, by + 28, self.width - 16, self.height - by - 36)
+    self.content = ISRichTextPanel:new(UI_PAD, by + BUTTON_HGT + 6, self.width - UI_PAD * 2, self.height - by - BUTTON_HGT - 14)
     self.content:initialise()
     self.content.background = true
     self.content.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.92 }
@@ -401,12 +406,16 @@ function Window:createChildren()
 end
 
 function Window:new(playerNum)
-    local width, height = 580, 460
+    local rawW, rawH = 580, 460
+    local sw = getPlayerScreenWidth(playerNum)
+    local sh = getPlayerScreenHeight(playerNum)
+    local width = math.min(rawW, math.max(1, sw - 20))
+    local height = math.min(rawH, math.max(1, sh - 20))
     local left = getPlayerScreenLeft(playerNum)
     local top = getPlayerScreenTop(playerNum)
     local window = ISCollapsableWindow:new(
-        left + (getPlayerScreenWidth(playerNum) - width) / 2,
-        top + (getPlayerScreenHeight(playerNum) - height) / 2,
+        left + (sw - width) / 2,
+        top + (sh - height) / 2,
         width,
         height
     )
@@ -414,6 +423,8 @@ function Window:new(playerNum)
     self.__index = self
     window.playerNum = playerNum
     window.activeTab = "Overview"
+    window.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.94 }
+    window.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.95 }
     window:setTitle("Knox Survivors")
     window:setResizable(true)
     return window

@@ -21,32 +21,36 @@ local GROUP_COLOURS = {
 local FeedWindow = ISCollapsableWindow:derive("KnoxActivityFeedWindow")
 
 function FeedWindow:new(x, y)
-    local window = ISCollapsableWindow:new(x, y, WINDOW_WIDTH, WINDOW_HEIGHT)
+    -- Keep compact; clamp to viewport like other Knox windows.
+    local w = math.min(WINDOW_WIDTH, math.max(1, getCore():getScreenWidth() - 20))
+    local h = math.min(WINDOW_HEIGHT, math.max(1, getCore():getScreenHeight() - 20))
+    local window = ISCollapsableWindow:new(x, y, w, h)
     setmetatable(window, self)
     self.__index = self
     window:setTitle("Knox Survivors")
     window:setResizable(true)
-    window.backgroundColor = { r = 0, g = 0, b = 0, a = 0.72 }
-    window.borderColor = { r = 0.4, g = 0.4, b = 0.4, a = 1 }
+    window.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.88 }
+    window.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.92 }
     return window
 end
 
 function FeedWindow:createChildren()
     ISCollapsableWindow.createChildren(self)
-    -- Remove the X (close) button - feed stays open, vanilla resizable frame remains.
     if self.closeButton ~= nil then
         self.closeButton:setVisible(false)
         self.closeButton:setEnable(false)
     end
     local titleHeight = self:titleBarHeight()
+    local pad = 10
     self.messagePanel = ISRichTextPanel:new(
-        6,
+        pad,
         titleHeight + 4,
-        self.width - 12,
-        self.height - titleHeight - 10
+        self.width - pad * 2,
+        self.height - titleHeight - pad - 2
     )
     self.messagePanel:initialise()
-    self.messagePanel.background = false
+    self.messagePanel.background = true
+    self.messagePanel.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.92 }
     self.messagePanel.autosetheight = false
     self.messagePanel.clip = true
     self.messagePanel:setMargins(6, 4, 6, 4)
