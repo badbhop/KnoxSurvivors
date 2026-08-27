@@ -172,9 +172,13 @@ function Window:factionText()
     for id, faction in pairs(factions) do
         if faction ~= nil then
             count = count + 1
+            local camp = KnoxPersistence.getFactionCamp ~= nil
+                and KnoxPersistence.getFactionCamp(id) or nil
             text = text .. line(tostring(id) .. "  -  "
                 .. tostring(#(faction.memberIds or {})) .. " members"
-                .. (faction.homeBaseId ~= nil and "  -  based" or "  -  travelling"))
+                .. (faction.homeBaseId ~= nil and "  -  based"
+                    or camp ~= nil and "  -  sheltering at " .. tostring(camp.name)
+                    or "  -  travelling"))
         end
     end
     return text .. (count == 0 and line("No organized factions are known.") or "")

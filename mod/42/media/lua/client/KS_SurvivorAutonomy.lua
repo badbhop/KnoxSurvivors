@@ -11,6 +11,7 @@ require "KS_WorldPopulation"
 require "KS_SurvivorStartingGear"
 require "KS_SurvivorLifecyclePolicy"
 require "KS_UnloadedSurvival"
+require "KS_FactionCamps"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -561,6 +562,7 @@ local function reconcileWorldPopulation(bridge)
         and KnoxPersistence.advanceAwayTeams(now) or 0
     local advanced, notable = KnoxUnloadedSurvival.advanceAll(activeIds, now)
     local summary = KnoxWorldPopulation.maintain(now)
+    KnoxFactionCamps.reconcile(controllers, activeIds, now)
     local remaining = math.max(0, KnoxSettings.maxActiveSurvivors() - #activeIds)
     local candidates, rejected = KnoxWorldPopulation.activationCandidates(
         bridge,

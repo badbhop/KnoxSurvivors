@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 9
+local SCHEMA_VERSION = 10
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local function root()
@@ -23,6 +23,10 @@ local function root()
         data.factions = {}
     end
     data.nextFactionId = data.nextFactionId or 1
+    if type(data.camps) ~= "table" then
+        data.camps = {}
+    end
+    data.nextCampId = tonumber(data.nextCampId) or 1
     if type(data.awayTeams) ~= "table" then
         data.awayTeams = {}
     end
@@ -1311,6 +1315,70 @@ function KnoxPersistence.getFaction(id)
     return type(id) == "string" and root().factions[id] or nil
 end
 
+function KnoxPersistence.getCamps()
+    return root().camps
+end
+
+function KnoxPersistence.getFactionCamp(factionId)
+    local faction = KnoxPersistence.getFaction(factionId)
+    local campId = faction ~= nil and faction.campId or nil
+    return campId ~= nil and root().camps[campId] or nil
+end
+
+-- Camps are deliberately lightweight shelter records.  They are not bases, do
+-- not claim a SafeHouse, and do not create work/storage ownership; they merely
+-- preserve where a homeless faction has gathered until it establishes a home.
+function KnoxPersistence.createFactionCamp(factionId, location, worldAgeHours)
+    local faction = KnoxPersistence.getFaction(factionId)
+    if faction == nil or faction.homeBase ~= nil or type(location) ~= "table"
+        or tonumber(location.x) == nil or tonumber(location.y) == nil then
+        return nil, "invalid_camp"
+    end
+    local existing = KnoxPersistence.getFactionCamp(factionId)
+    if existing ~= nil then
+        return existing, "existing"
+    end
+    if #(faction.memberIds or {}) < 2 then
+        return nil, "not_enough_members"
+    end
+    local data = root()
+    local id = "camp-" .. tostring(data.nextCampId)
+    data.nextCampId = data.nextCampId + 1
+    local camp = {
+        id = id,
+        factionId = factionId,
+        name = tostring(location.name or "Temporary Shelter"),
+        x = math.floor(tonumber(location.x)),
+        y = math.floor(tonumber(location.y)),
+        z = math.floor(tonumber(location.z) or 0),
+        buildingId = location.buildingId ~= nil and tostring(location.buildingId) or nil,
+        createdAtHours = tonumber(worldAgeHours) or 0,
+        lastGatheredAtHours = tonumber(worldAgeHours) or 0,
+    }
+    data.camps[id] = camp
+    faction.campId = id
+    return camp, "created"
+end
+
+function KnoxPersistence.touchFactionCamp(factionId, worldAgeHours)
+    local camp = KnoxPersistence.getFactionCamp(factionId)
+    if camp ~= nil then
+        camp.lastGatheredAtHours = tonumber(worldAgeHours) or camp.lastGatheredAtHours
+    end
+    return camp
+end
+
+function KnoxPersistence.clearFactionCamp(factionId, reason, worldAgeHours)
+    local faction = KnoxPersistence.getFaction(factionId)
+    local camp = faction ~= nil and KnoxPersistence.getFactionCamp(factionId) or nil
+    if faction == nil or camp == nil then return false end
+    root().camps[camp.id] = nil
+    faction.campId = nil
+    faction.lastCampReason = tostring(reason or "cleared")
+    faction.lastCampChangedAtHours = tonumber(worldAgeHours) or 0
+    return true
+end
+
 function KnoxPersistence.getFactionForSurvivor(id)
     local survivor = ensureSurvivorState(id)
     if survivor ~= nil and survivor.affiliation.factionId ~= nil then
@@ -1547,6 +1615,7 @@ function KnoxPersistence.confirmFactionHomeBase(factionId, buildingId, worldAgeH
     candidate.selectedAtHours = tonumber(worldAgeHours) or 0
     faction.homeBase = candidate
     faction.baseSearch.candidate = nil
+    KnoxPersistence.clearFactionCamp(factionId, "home_established", worldAgeHours)
     return faction.homeBase, "selected"
 end
 
