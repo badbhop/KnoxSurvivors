@@ -820,6 +820,7 @@ function KnoxPersistence.setPlayerCompanion(id, playerId, order, worldAgeHours)
     survivor.duty = {
         mode = "companion",
         order = order == "hold" and "hold" or "follow",
+        combatStance = "defensive",
         ownerId = playerId,
         changedAtHours = tonumber(worldAgeHours) or 0,
         revision = (tonumber(survivor.duty.revision) or 0) + 1,
@@ -926,6 +927,21 @@ function KnoxPersistence.updateCompanionOrder(id, playerId, order, worldAgeHours
     return true
 end
 
+function KnoxPersistence.setCompanionCombatStance(id, playerId, stance, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    local allowed = stance == "passive" or stance == "defensive" or stance == "aggressive"
+    if survivor == nil or not allowed
+        or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.mode ~= "companion" then
+        return false
+    end
+    survivor.duty.combatStance = stance
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
 function KnoxPersistence.getSurvivorPolicies(id)
     local survivor = ensureSurvivorState(id)
     return survivor ~= nil and copyFlat(survivor.policies) or nil
@@ -999,7 +1015,8 @@ function KnoxPersistence.getCompanionIds(playerId)
         return ids
     end
     for id, survivor in pairs(root().survivors) do
-        if survivor ~= nil and survivor.affiliation ~= nil
+        if survivor ~= nil and survivor.alive ~= false
+            and survivor.affiliation ~= nil
             and survivor.affiliation.kind == "player"
             and survivor.affiliation.ownerId == playerId
             and survivor.duty ~= nil and survivor.duty.mode == "companion" then

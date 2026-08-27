@@ -115,6 +115,9 @@ function CompanionService.canRecruit(player, survivorId)
     end
     local playerId = CompanionService.getPlayerId(player)
     local character, availability = validateInteraction(player, survivorId)
+    if not KnoxPersistence.isSurvivorAlive(survivorId) then
+        return false, "character_dead"
+    end
     if playerId == nil then
         return false, "player_unavailable"
     end
@@ -209,6 +212,26 @@ function CompanionService.commandAll(player, order)
             or "Party order: hold position.")
     end
     return changed > 0, changed
+end
+
+function CompanionService.setCombatStance(player, survivorId, stance)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionCombatStance(
+        survivorId, playerId, stance, worldAge()
+    ) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil then
+        local lines = {
+            passive = "I'll stay close and keep my head down.",
+            defensive = "I'll cover us, but I won't chase them.",
+            aggressive = "I'll clear anything I see.",
+        }
+        KnoxActivityFeed.speak(character, lines[stance] or "I'll adjust.")
+    end
+    return true, stance
 end
 
 function CompanionService.setClimbing(player, survivorId, allowed)
@@ -374,6 +397,9 @@ function CompanionService.syncController(survivorId, controller)
             duty.order,
             formationSlot
         )
+        if controller.setCompanionCombatStance ~= nil then
+            controller:setCompanionCombatStance(duty.combatStance)
+        end
         local policies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
         if controller.setCompanionPolicy ~= nil then
             controller:setCompanionPolicy(policies.allowClimbing ~= false)

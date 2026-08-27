@@ -146,6 +146,41 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    /**
+     * Uses the same Build 42 IsoDeadBody constructor used for a dead IsoPlayer. The
+     * constructor transfers inventory, worn items, and visual state onto a real,
+     * world-owned corpse; only then is the contained NPC shell detached.
+     */
+    public synchronized String retireAsCorpse(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "NONE_ACTIVE";
+        }
+        try {
+            Object body = runtime.npc().getBody();
+            ClassLoader loader = body.getClass().getClassLoader();
+            Class<?> characterClass = Class.forName(
+                "zombie.characters.IsoGameCharacter", false, loader
+            );
+            Class<?> corpseClass = Class.forName(
+                "zombie.iso.objects.IsoDeadBody", false, loader
+            );
+            corpseClass.getConstructor(characterClass).newInstance(body);
+            KnoxNpcFactory.remove(runtime.npc());
+            runtime.reset();
+            activeNpcs.remove(id);
+            KnoxAgent.writeLog("NPC lifecycle CORPSE_CREATED id=" + id);
+            return "CORPSE_CREATED id=" + id;
+        } catch (Throwable throwable) {
+            Throwable cause = rootCause(throwable);
+            KnoxAgent.writeLog(
+                "ERROR NPC corpse conversion failed " + cause.getClass().getName()
+                    + ": " + cause.getMessage()
+            );
+            return "CORPSE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
+        }
+    }
+
     public synchronized String beginCombatOne(Object zombie, Object approachSquare) {
         return beginCombat(TEST_SURVIVOR_ID, zombie, approachSquare, false);
     }

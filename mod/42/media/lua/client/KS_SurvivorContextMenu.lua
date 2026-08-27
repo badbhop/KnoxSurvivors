@@ -3,6 +3,7 @@ require "ISUI/ISModalDialog"
 require "ISUI/ISWorldObjectContextMenu"
 require "ISUI/ISHealthPanel"
 require "TimedActions/ISMedicalCheckAction"
+require "TimedActions/ISWalkToTimedAction"
 require "KS_CompanionService"
 require "KS_BaseManager"
 require "KS_Persistence"
@@ -79,12 +80,25 @@ local function onMedicalCheck(_, playerNum, survivorId)
     if player == nil or patient == nil then
         return
     end
-    -- This is the same vanilla timed action used to examine another player.  An
-    -- IsoPlayer survivor supplies the same patient/BodyDamage surface, while the
-    -- real local player stays the doctor and retains normal UI/input ownership.
-    if ISHealthPanel.canPerformMedicalCheck(patient, player) then
-        ISTimedActionQueue.add(ISMedicalCheckAction:new(player, patient))
+    if not ISHealthPanel.canPerformMedicalCheck(patient, player) then
+        return
     end
+    -- Hold the survivor so the BodyDamage positions (otherPlayerX/Y) do not
+    -- change mid-action. The companion controller will otherwise pursue/move
+    -- and the ISMedicalCheckAction:isValid() position check fails.
+    runService(playerNum, function(p, id)
+        return KnoxCompanionService.command(p, id, "hold")
+    end, survivorId)
+    -- Walk player adjacent if needed — vanilla medical check expects you to be
+    -- on the same tile, otherwise isValid fails immediately.
+    local pSquare = player:getCurrentSquare()
+    local sSquare = patient:getCurrentSquare()
+    if pSquare ~= nil and sSquare ~= nil and pSquare ~= sSquare then
+        if pSquare:isBlockedTo(sSquare) or player:DistToSquared(patient) > 2 then
+            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sSquare))
+        end
+    end
+    ISTimedActionQueue.add(ISMedicalCheckAction:new(player, patient))
 end
 
 local function onManageInventory(_, playerNum, survivorId)
@@ -111,6 +125,12 @@ local function onHold(_, playerNum, survivorId)
     end, survivorId)
 end
 
+local function onCombatStance(_, playerNum, survivorId, stance)
+    runService(playerNum, function(player, id)
+        return KnoxCompanionService.setCombatStance(player, id, stance)
+    end, survivorId)
+end
+
 local function pointDirective(kind, square)
     if square == nil then
         return nil
@@ -123,6 +143,41 @@ local function pointDirective(kind, square)
         maxY = square:getY(),
         z = square:getZ(),
     }
+end
+
+local function areaDirective(kind, square, radius)
+    if square == nil then return nil end
+    local r = math.max(1, tonumber(radius) or 10)
+    return {
+        kind = kind,
+        minX = square:getX() - r,
+        minY = square:getY() - r,
+        maxX = square:getX() + r,
+        maxY = square:getY() + r,
+        z = square:getZ(),
+    }
+end
+
+local function buildingDirective(square)
+    local building = square ~= nil and square:getBuilding() or nil
+    local definition = building ~= nil and building:getDef() or nil
+    if definition == nil then return nil end
+    return {
+        kind = "loot_building",
+        buildingId = tostring(definition:getID()),
+        minX = definition:getX(),
+        minY = definition:getY(),
+        maxX = definition:getX() + definition:getW() - 1,
+        maxY = definition:getY() + definition:getH() - 1,
+        z = square:getZ(),
+    }
+end
+
+local function onLootOrder(_, playerNum, survivorId, directive)
+    if directive == nil then return end
+    runService(playerNum, function(player, id)
+        return KnoxCompanionService.issueDirective(player, id, directive)
+    end, survivorId)
 end
 
 local function onMoveToPlayer(_, playerNum, survivorId)
@@ -261,25 +316,19 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         if not closeEnough then
             unavailable(inventory)
         end
-        local medicalLabel = closeEnough and "Medical Check"
-            or "Medical Check (too far away)"
-        local medical = menu:addOption(
-            medicalLabel,
-            SurvivorContextMenu,
-            onMedicalCheck,
-            playerNum,
-            survivorId
-        )
-        if not closeEnough then
-            unavailable(medical)
-        end
+        -- Medical Check lives inside Orders to reduce top-level clutter;
+        -- still reachable via Survivor Name -> Orders -> Medical Check.
     end
 
     if duty.mode == "base" then
+        -- Keep quick Follow at top for base residents, but group job prefs under Orders
         menu:addOption("Follow", SurvivorContextMenu, onFollow, playerNum, survivorId)
-        local jobs = menu:addOption("Base Job Preference", nil, nil)
-        local jobsMenu = ISContextMenu:getNew(menu)
-        menu:addSubMenu(jobs, jobsMenu)
+        local orders = menu:addOption("Orders", nil, nil)
+        local ordersMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(orders, ordersMenu)
+        local jobs = ordersMenu:addOption("Base Job Preference", nil, nil)
+        local jobsMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(jobs, jobsMenu)
         local choices = {
             { "Automatic", "auto" }, { "Guard", "guard" }, { "Patrol", "patrol" },
             { "Farming", "farming" }, { "Woodwork & Defense", "woodwork" },
@@ -293,15 +342,48 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                 or (duty.jobPreference == nil and choice[2] == "auto"))
         end
     elseif duty.mode == "companion" then
-        local follow = menu:addOption("Follow", SurvivorContextMenu, onFollow, playerNum, survivorId)
-        local hold = menu:addOption("Hold here", SurvivorContextMenu, onHold, playerNum, survivorId)
-        menu:setOptionChecked(follow, duty.order == "follow")
-        menu:setOptionChecked(hold, duty.order == "hold")
-        menu:addOption("Move to Me", SurvivorContextMenu, onMoveToPlayer, playerNum, survivorId)
-        menu:addOption("Guard Here", SurvivorContextMenu, onGuardHere, playerNum, survivorId)
+        local orders = menu:addOption("Orders", nil, nil)
+        local ordersMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(orders, ordersMenu)
+        local follow = ordersMenu:addOption("Follow", SurvivorContextMenu, onFollow, playerNum, survivorId)
+        local hold = ordersMenu:addOption("Hold here", SurvivorContextMenu, onHold, playerNum, survivorId)
+        ordersMenu:setOptionChecked(follow, duty.order == "follow")
+        ordersMenu:setOptionChecked(hold, duty.order == "hold")
+        ordersMenu:addOption("Move to Me", SurvivorContextMenu, onMoveToPlayer, playerNum, survivorId)
+        ordersMenu:addOption("Guard Here", SurvivorContextMenu, onGuardHere, playerNum, survivorId)
+        local stanceRoot = ordersMenu:addOption("Combat Stance", nil, nil)
+        local stanceMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(stanceRoot, stanceMenu)
+        local stance = duty.combatStance or "defensive"
+        for _, choice in ipairs({
+            { "Passive — stay close", "passive" },
+            { "Defensive — protect us", "defensive" },
+            { "Aggressive — clear threats", "aggressive" },
+        }) do
+            local option = stanceMenu:addOption(choice[1], SurvivorContextMenu,
+                onCombatStance, playerNum, survivorId, choice[2])
+            stanceMenu:setOptionChecked(option, stance == choice[2])
+        end
+        local medicalLabel = closeEnough and "Medical Check" or "Medical Check (too far away)"
+        local medical = ordersMenu:addOption(medicalLabel, SurvivorContextMenu, onMedicalCheck, playerNum, survivorId)
+        if not closeEnough then unavailable(medical) end
+        local lootRoot = ordersMenu:addOption("Loot Orders", nil, nil)
+        local lootMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(lootRoot, lootMenu)
+        local lootChar = KnoxSurvivorRuntime.getCharacter(survivorId)
+        local lootSquare = lootChar ~= nil and lootChar:getCurrentSquare() or player:getCurrentSquare()
+        local area = areaDirective("loot_area", lootSquare, 10)
+        local corpses = areaDirective("loot_corpses", lootSquare, 15)
+        local building = buildingDirective(lootSquare)
+        local lootArea = lootMenu:addOption("Loot Nearby Area", SurvivorContextMenu, onLootOrder, playerNum, survivorId, area)
+        local lootCorpses = lootMenu:addOption("Loot Dead Bodies", SurvivorContextMenu, onLootOrder, playerNum, survivorId, corpses)
+        local lootBuilding = lootMenu:addOption("Loot This Building", SurvivorContextMenu, onLootOrder, playerNum, survivorId, building)
+        if area == nil then lootArea.notAvailable = true end
+        if corpses == nil then lootCorpses.notAvailable = true end
+        if building == nil then lootBuilding.notAvailable = true end
         local base = KnoxBaseManager.getForOwner("player", playerId)
         if base ~= nil then
-            menu:addOption(
+            ordersMenu:addOption(
                 "Return to Base",
                 SurvivorContextMenu,
                 onReturnToBase,

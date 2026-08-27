@@ -331,9 +331,14 @@ local function retireDeadSurvivor(bridge, id, controller)
     end)
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     KnoxPersistence.markSurvivorDead(id, now, "world_death")
-    local removed = tostring(bridge:removeNpc(id))
+    -- Convert the dead shell through Build 42's own IsoDeadBody constructor before
+    -- removing its contained runtime shell. This retains the corpse, clothing and
+    -- inventory for normal world cleanup/reanimation instead of deleting the body.
+    local removed = bridge.retireNpcAsCorpse ~= nil
+        and tostring(bridge:retireNpcAsCorpse(id))
+        or "CORPSE_FAILED bridge_unavailable"
     local registryStillActive = bridge:getNpcCharacter(id) ~= nil
-    if string.find(removed, "REMOVED", 1, true) == 1
+    if string.find(removed, "CORPSE_CREATED", 1, true) == 1
         or removed == "NONE_ACTIVE" or not registryStillActive then
         KnoxSurvivorRuntime.unregister(id, controller)
         controllers[id] = nil

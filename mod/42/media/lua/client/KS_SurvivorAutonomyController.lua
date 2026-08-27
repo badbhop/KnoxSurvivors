@@ -826,6 +826,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.companionOwnerId = nil
     self.companionTarget = nil
     self.companionOrder = nil
+    self.companionCombatStance = "defensive"
     self.companionFormationSlot = 1
     self.companionDirective = nil
     self.directiveMisses = 0
@@ -979,6 +980,47 @@ function Controller:setCompanionOrder(ownerId, player, order, formationSlot)
     end
 end
 
+function Controller:setCompanionCombatStance(stance)
+    local normalized = stance == "passive" and "passive"
+        or (stance == "aggressive" and "aggressive" or "defensive")
+    if self.companionCombatStance == normalized then
+        return
+    end
+    self.companionCombatStance = normalized
+    if normalized == "passive" and self.state == "COMBAT" then
+        self.bridge:resetNpcCombat(self.id)
+        self:releaseCombat()
+        self.activeDecision = nil
+        self.state = "IDLE"
+        self.nextThink = 0
+    end
+end
+
+function Controller:allowsCompanionThreat(target)
+    if self.companionOrder == nil then
+        return true
+    end
+    if self.companionCombatStance == "passive" then
+        return false
+    end
+    if self.companionCombatStance == "aggressive" then
+        return true
+    end
+    if target == nil then
+        return false
+    end
+    if target:getTarget() == self.character then
+        return true
+    end
+    local owner = self.companionTarget
+    local square = self.character:getCurrentSquare()
+    local targetSquare = target:getCurrentSquare()
+    if owner == nil or square == nil or targetSquare == nil or target:getTarget() ~= owner then
+        return false
+    end
+    return distanceSquared(square, targetSquare) <= THREAT_GROUP_ASSIST_RADIUS * THREAT_GROUP_ASSIST_RADIUS
+end
+
 function Controller:setCompanionPolicy(allowClimbing)
     self.allowClimbing = allowClimbing ~= false
     self.bridge:setNpcClimbingAllowed(self.id, self.allowClimbing)
@@ -1009,6 +1051,7 @@ function Controller:clearCompanionOrder()
     self.companionOwnerId = nil
     self.companionTarget = nil
     self.companionOrder = nil
+    self.companionCombatStance = "defensive"
     self.companionFormationSlot = 1
 end
 
@@ -2062,6 +2105,9 @@ end
 
 function Controller:think(ticks)
     local threat = nearestThreat(self, ticks)
+    if not self:allowsCompanionThreat(threat) then
+        threat = nil
+    end
     local decision = KnoxSurvivorNeeds.decide(self.character, threat)
     if decision.kind == "fight" then
         if not self:beginCombat(decision.target) then
@@ -2275,6 +2321,9 @@ function Controller:tick(ticks)
             end
         end
         local threat = nearestThreat(self, ticks)
+        if not self:allowsCompanionThreat(threat) then
+            threat = nil
+        end
         if threat ~= nil and self:beginCombat(threat) then
             return
         end
@@ -2802,6 +2851,9 @@ function Controller:tick(ticks)
         if ticks >= self.nextThreatScan then
             self.nextThreatScan = ticks + THREAT_SCAN_TICKS
             local replacement = nearestThreat(self, ticks)
+            if not self:allowsCompanionThreat(replacement) then
+                replacement = nil
+            end
             local replacementAwareness = self.pendingThreatAwareness
             if shouldReplaceCombatTarget(self, replacement, replacementAwareness, ticks) then
                 local previous = self.combatTarget

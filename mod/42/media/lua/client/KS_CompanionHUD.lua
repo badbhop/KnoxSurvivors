@@ -407,6 +407,12 @@ function Panel:prerender()
         local barY = y + self.rowHeight - 10
         local gap = 3
         local barWidth = math.floor((textWidth - gap * 3) / 4)
+        -- Labels use vanilla small font for glanceability (matches HealthPanel)
+        local labelY = barY - 8
+        self:drawText("HP", textX + barWidth/2 - getTextManager():MeasureStringX(UIFont.Small, "HP")/2, labelY, 0.85,0.85,0.82,1, UIFont.Small)
+        self:drawText("Hun", textX + barWidth + gap + barWidth/2 - getTextManager():MeasureStringX(UIFont.Small, "Hun")/2, labelY, 0.85,0.85,0.82,1, UIFont.Small)
+        self:drawText("Thirst", textX + (barWidth+gap)*2 + barWidth/2 - getTextManager():MeasureStringX(UIFont.Small, "Thirst")/2, labelY, 0.85,0.85,0.82,1, UIFont.Small)
+        self:drawText("Fat", textX + (barWidth+gap)*3 + barWidth/2 - getTextManager():MeasureStringX(UIFont.Small, "Fat")/2, labelY, 0.85,0.85,0.82,1, UIFont.Small)
         self:drawBar(textX, barY, barWidth, snapshot.health)
         self:drawBar(textX + barWidth + gap, barY, barWidth, snapshot.needs.food)
         self:drawBar(textX + (barWidth + gap) * 2, barY, barWidth, snapshot.needs.water)

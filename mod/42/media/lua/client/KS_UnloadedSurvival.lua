@@ -239,8 +239,11 @@ function Simulation.applyToLoaded(id, character)
         stats:set(CharacterStat.FATIGUE, clamp(state.fatigue, 0, 1))
         stats:set(CharacterStat.ENDURANCE, clamp(state.endurance, 0, 1))
         local bodyDamage = character:getBodyDamage()
-        bodyDamage:setHealth(clamp(state.health, 0, 100))
-        bodyDamage:calculateOverallHealth()
+        -- BodyDamage has no setHealth() in Build 42.20.3.  The aggregate
+        -- body-health setter is the supported counterpart to getHealth(); the
+        -- old call was caught by pcall, so a survivor still spawned but every
+        -- spawn produced a Lua error and skipped its unloaded-health restore.
+        bodyDamage:setOverallBodyHealth(clamp(state.health, 0, 100))
     end)
     if ok then
         state.status = "loaded"

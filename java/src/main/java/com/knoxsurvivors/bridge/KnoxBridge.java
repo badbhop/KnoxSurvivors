@@ -49,6 +49,11 @@ public final class KnoxBridge {
         return npcRegistry.remove(id);
     }
 
+    /** Converts a dead survivor shell into the game's normal lootable corpse before teardown. */
+    public String retireNpcAsCorpse(String id) {
+        return npcRegistry.retireAsCorpse(id);
+    }
+
     public String moveTestNpc(Object square) {
         return npcRegistry.moveOne(square);
     }
