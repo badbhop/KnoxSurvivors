@@ -5,6 +5,7 @@ require "KS_Settings"
 require "KS_BaseTerritorySelector"
 require "KS_BaseZoneSelector"
 require "KS_BaseSetup"
+require "KS_SurvivorAutonomy"
 
 local BaseContextMenu = rawget(_G, "KnoxBaseContextMenu") or {}
 _G.KnoxBaseContextMenu = BaseContextMenu
@@ -89,6 +90,12 @@ end
 
 function BaseContextMenu.openSetup(_, playerNum)
     KnoxBaseSetup.show(playerNum)
+end
+
+function BaseContextMenu.dispatchScout(player, base, square)
+    local success, result = KnoxSurvivorAutonomy.dispatchBaseScout(player, base.id, square)
+    KnoxActivityFeed.event(success and ("Scout departed: " .. tostring(result) .. ".")
+        or ("Could not send scout: " .. tostring(result) .. "."))
 end
 
 local function addStorageMenu(parent, base, object)
@@ -220,6 +227,8 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
         )
         addWorkZoneMenu(menu, player, base)
         addManageZoneMenu(menu, base)
+        menu:addOption("Send Available Resident to Scout Here", player,
+            BaseContextMenu.dispatchScout, base, square)
     end
     for _, object in ipairs(containers) do
         addStorageMenu(menu, base, object)

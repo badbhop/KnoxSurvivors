@@ -895,6 +895,51 @@ function Autonomy.dispatchDeveloperScout(player, destinationSquare)
     return true, team.id
 end
 
+-- Normal player-base scouting command. It sends exactly one available, loaded resident
+-- so the base never empties itself from a broad context-menu action.
+function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
+    if playerId == nil or destinationSquare == nil or bridge == nil then
+        return false, "dispatch_unavailable"
+    end
+    local selected, controller = nil, nil
+    for _, id in ipairs(KnoxPersistence.getBaseResidentIds(baseId)) do
+        local duty = KnoxPersistence.getSurvivorDuty(id) or {}
+        local runtime = controllers[id]
+        if duty.mode == "base" and duty.ownerId == playerId and runtime ~= nil then
+            selected, controller = id, runtime
+            break
+        end
+    end
+    if selected == nil then
+        return false, "need_loaded_base_resident"
+    end
+    local saved, evidence = controller:shutdown()
+    if not saved then
+        return false, "capture_failed=" .. tostring(evidence)
+    end
+    local removed = tostring(bridge:removeNpc(selected))
+    if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
+        return false, "remove_failed=" .. removed
+    end
+    KnoxSurvivorRuntime.unregister(selected, controller)
+    controllers[selected] = nil
+    removeActiveId(selected)
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local team, result = KnoxPersistence.createAwayTeam(
+        "player", playerId, { selected }, "scout",
+        {
+            x = destinationSquare:getX(), y = destinationSquare:getY(),
+            z = destinationSquare:getZ(), label = "Player scout destination",
+        }, now, now + 2
+    )
+    if team == nil then
+        return false, "mission_create_failed=" .. tostring(result)
+    end
+    return true, team.id
+end
+
 function Autonomy.status()
     return {
         ids = activeIds,

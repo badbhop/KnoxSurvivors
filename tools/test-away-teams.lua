@@ -39,6 +39,12 @@ assert(autonomySource:find("function Autonomy.dispatchDeveloperScout", 1, true),
 assert(autonomySource:find("controller:shutdown()", 1, true)
     and autonomySource:find("bridge:removeNpc(id)", 1, true),
     "dispatch must capture and remove bodies before marking a team away")
+assert(autonomySource:find("function Autonomy.dispatchBaseScout", 1, true),
+    "player base command must have a non-developer scout handoff")
+local baseMenuSource = assert(io.open(rootPath
+    .. "/mod/42/media/lua/client/KS_BaseContextMenu.lua", "r")):read("*a")
+assert(baseMenuSource:find("Send Available Resident to Scout Here", 1, true),
+    "player base menu must expose scouting")
 
 assert(persistence.advanceAwayTeams(11) == 0)
 assert(persistence.advanceAwayTeams(12) == 1)
