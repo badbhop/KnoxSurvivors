@@ -1,6 +1,7 @@
 require "KS_Persistence"
 require "KS_SurvivorCapabilities"
 require "KS_SurvivorRuntime"
+require "KS_BaseStorage"
 
 local BaseManager = rawget(_G, "KnoxBaseManager") or {}
 _G.KnoxBaseManager = BaseManager
@@ -318,7 +319,7 @@ local function findTraitDefinition(id)
     return nil
 end
 
-local function meetsRequirements(survivorId, profile, requirements)
+local function meetsRequirements(survivorId, profile, requirements, base)
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
     for perkId, required in pairs(requirements ~= nil and requirements.skills or {}) do
         local level = KnoxSurvivorCapabilities.skillLevel(profile, perkId)
@@ -345,22 +346,12 @@ local function meetsRequirements(survivorId, profile, requirements)
             return false, "recipe=" .. tostring(recipeId)
         end
     end
-    for fullType, required in pairs(requirements ~= nil and requirements.items or {}) do
-        local count = 0
-        if character ~= nil and character.getInventory ~= nil then
-            local inventory = character:getInventory()
-            local success, value = pcall(function()
-                return inventory:getItemCount(tostring(fullType), true)
-            end)
-            if success then
-                count = tonumber(value) or 0
-            end
-        end
-        if count < (tonumber(required) or 1) then
-            return false, "item=" .. tostring(fullType)
-        end
-    end
-    return true, "eligible"
+    local available, reason = KnoxBaseStorage.requirementsAvailable(
+        base,
+        character,
+        requirements
+    )
+    return available, available and "eligible" or reason
 end
 
 function BaseManager.canPerformTask(survivorId, baseId, task)
@@ -383,7 +374,8 @@ function BaseManager.canPerformTask(survivorId, baseId, task)
     return meetsRequirements(
         survivorId,
         profile,
-        task ~= nil and task.requirements or nil
+        task ~= nil and task.requirements or nil,
+        base
     )
 end
 

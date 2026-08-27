@@ -264,6 +264,98 @@ local function firstMatchingItem(container, category)
     return nil
 end
 
+local function inventoryItemCount(inventory, fullType)
+    if inventory == nil or inventory.getItemCount == nil then
+        return 0
+    end
+    local success, count = pcall(inventory.getItemCount, inventory, tostring(fullType), true)
+    return success and math.max(0, tonumber(count) or 0) or 0
+end
+
+local function policyCanSupply(policy, itemType)
+    local category = Storage.classifyItem({
+        getFullType = function() return itemType end,
+    })
+    local policyCategory = tostring(policy ~= nil and policy.category or "")
+    return policyCategory == "depot" or policyCategory == "general"
+        or policyCategory == category
+end
+
+-- Finds one real item needed by a claimed base task.  It deliberately searches
+-- only assigned base storage and returns one transfer at a time, allowing the
+-- normal timed-action queue to remain the sole owner of the inventory change.
+function Storage.findRequiredTransfer(base, character, requirements)
+    local inventory = character ~= nil and character:getInventory() or nil
+    local requiredItems = requirements ~= nil and requirements.items or {}
+    for itemType, required in pairs(requiredItems) do
+        local needed = math.max(0, math.floor(tonumber(required) or 0))
+        if needed > inventoryItemCount(inventory, itemType) then
+            for _, policy in ipairs(Storage.policies(base)) do
+                if policyCanSupply(policy, tostring(itemType)) then
+                    local resolved = Storage.resolvePolicy(policy)
+                    if resolved ~= nil then
+                        local items = resolved.container:getItems()
+                        for index = 0, items:size() - 1 do
+                            local item = items:get(index)
+                            if fullType(item) == tostring(itemType) then
+                                return {
+                                    sourcePolicy = policy,
+                                    source = resolved,
+                                    item = item,
+                                    itemType = tostring(itemType),
+                                    required = needed,
+                                }, "found"
+                            end
+                        end
+                    end
+                end
+            end
+            return nil, "missing_assigned_item=" .. tostring(itemType)
+        end
+    end
+    return nil, "requirements_ready"
+end
+
+function Storage.requirementsAvailable(base, character, requirements)
+    local inventory = character ~= nil and character:getInventory() or nil
+    local requiredItems = requirements ~= nil and requirements.items or {}
+    for itemType, required in pairs(requiredItems) do
+        local remaining = math.max(0, math.floor(tonumber(required) or 0))
+            - inventoryItemCount(inventory, itemType)
+        if remaining > 0 then
+            for _, policy in ipairs(Storage.policies(base)) do
+                if policyCanSupply(policy, tostring(itemType)) then
+                    local resolved = Storage.resolvePolicy(policy)
+                    if resolved ~= nil then
+                        local items = resolved.container:getItems()
+                        for index = 0, items:size() - 1 do
+                            local item = items:get(index)
+                            if fullType(item) == tostring(itemType) then
+                                remaining = remaining - itemQuantity(item)
+                                if remaining <= 0 then break end
+                            end
+                        end
+                    end
+                end
+                if remaining <= 0 then break end
+            end
+        end
+        if remaining > 0 then
+            return false, "missing_assigned_item=" .. tostring(itemType)
+        end
+    end
+    return true, "available"
+end
+
+function Storage.approachSquare(transfer, character)
+    local square = transfer ~= nil and transfer.source ~= nil and transfer.source.square or nil
+    if square == nil then return nil end
+    local approach = AdjacentFreeTileFinder ~= nil
+        and AdjacentFreeTileFinder.Find(square, character) or nil
+    if approach ~= nil then return approach end
+    return square.canStand ~= nil and square:canStand() and square or nil
+end
+
 function Storage.findTransfer(base)
     local policies = Storage.policies(base)
     local depots = {}

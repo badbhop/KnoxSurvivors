@@ -116,4 +116,23 @@ summary = storage.summarize(base)
 assert(summary.misplacedItems == 1 and summary.totals.tools == 0,
     "misplaced assigned-container items must not inflate available resource totals")
 
-print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true")
+local worker = {
+    getInventory = function()
+        return { getItemCount = function() return 0 end }
+    end,
+}
+local requiredTransfer, requiredResult = storage.findRequiredTransfer(
+    base, worker, { items = { ["Base.Plank"] = 1 } }
+)
+assert(requiredTransfer ~= nil and requiredResult == "found"
+    and requiredTransfer.sourcePolicy.key == "depot",
+    "a base task should retrieve exact required items only from assigned storage")
+assert(storage.requirementsAvailable(base, worker, { items = { ["Base.Plank"] = 1 } }),
+    "assigned base supplies should make a task eligible before pickup")
+local available, reason = storage.requirementsAvailable(
+    base, worker, { items = { ["Base.Nails"] = 1 } }
+)
+assert(not available and reason == "missing_assigned_item=Base.Nails",
+    "missing storage supplies must not be treated as an abstract stockpile")
+
+print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true task_supply=true")

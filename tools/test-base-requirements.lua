@@ -4,6 +4,7 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 package.loaded["KS_Persistence"] = true
 package.loaded["KS_SurvivorCapabilities"] = true
 package.loaded["KS_SurvivorRuntime"] = true
+package.loaded["KS_BaseStorage"] = true
 
 Events = {
     OnGameStart = { Add = function() end },
@@ -50,6 +51,16 @@ KnoxSurvivorCapabilities = {
 KnoxSurvivorRuntime = {
     getCharacter = function(id) return id == "worker" and character or nil end,
     activeIds = function() return {} end,
+}
+KnoxBaseStorage = {
+    requirementsAvailable = function(_, worker, requirements)
+        for fullType, required in pairs(requirements.items or {}) do
+            if worker:getInventory():getItemCount(fullType, true) < required then
+                return false, "item=" .. fullType
+            end
+        end
+        return true, "available"
+    end,
 }
 
 local manager = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseManager.lua")

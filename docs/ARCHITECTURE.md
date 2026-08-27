@@ -285,7 +285,11 @@ cycle. A depot policy can also pair with a categorized destination policy: the r
 finds one matching item in the loaded depot, walks to it, and moves it through the normal
 off-slot inventory-transfer action. The persistent task stores stable policy keys and an
 item full type rather than an engine object, so a save/reload can safely retry if the item
-was taken. Farming zones now have a small maintenance executor: the resident discovers the
+was taken. Before a claimed task starts its actual world action, a resident checks its
+exact item requirements against their carried inventory plus currently loaded assigned base
+containers. Missing items are collected one transfer at a time through the same off-slot
+inventory action; streamed-out or absent storage blocks the task rather than becoming an
+implicit supply pool. Farming zones now have a small maintenance executor: the resident discovers the
 first ripe or dry seeded plant in the loaded zone, walks to it, and queues the vanilla harvest
 or watering action. An empty suitable square can then be plowed and a carried seed sown as
 separate persisted tasks, again using the vanilla timed actions and state verification. A
@@ -319,7 +323,7 @@ bodies do not provide a stable unique crop owner.
 
 Automatic discovery queues all currently executable job families before selecting work.
 The shared task board chooses by persisted priority and filters each resident against skill,
-trait, recipe, and carried-item requirements. This prevents renewable farming or tree work
+trait, recipe, and real assigned-storage item requirements. This prevents renewable farming or tree work
 from starving security and cleanup, while also preventing a resident without the exact tools
 or materials from claiming a task another resident prepared.
 

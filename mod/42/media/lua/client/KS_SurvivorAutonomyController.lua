@@ -843,6 +843,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTask = nil
     self.baseTaskStartedAt = nil
     self.baseTaskTransfer = nil
+    self.baseTaskSupplyTransfer = nil
     self.baseTaskActionQueued = false
     self.baseTaskBarricadeTarget = nil
     self.baseTaskBarricadeBefore = 0
@@ -945,6 +946,8 @@ function Controller:interruptForDirective()
         or self.state == "BASE_IDLE"
         or self.state == "BASE_TASK_MOVE" or self.state == "BASE_TASK_WORK"
         or self.state == "BASE_TASK_ACTION"
+        or self.state == "BASE_TASK_SUPPLY_MOVE"
+        or self.state == "BASE_TASK_SUPPLY_TRANSFER"
         or self.state == "WAITING_TO_RECOVER"
     if not safe then
         return false
@@ -1450,6 +1453,7 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTask = nil
     self.baseTaskStartedAt = nil
     self.baseTaskTransfer = nil
+    self.baseTaskSupplyTransfer = nil
     self.baseTaskActionQueued = false
     self.baseTaskBarricadeTarget = nil
     self.baseTaskBarricadeBefore = 0
@@ -1481,6 +1485,65 @@ function Controller:abandonBaseTask(reason)
     local abandoned = self:finishBaseTask(false, reason or "interrupted")
     self.activeDecision = nil
     return abandoned
+end
+
+function Controller:beginBaseTaskWorkMove(ticks)
+    local task = self.baseTask
+    local target = task ~= nil and KnoxBaseJobs.resolveTaskSquare(task, self.character) or nil
+    if target == nil then
+        self:finishBaseTask(false, "no_loaded_work_square")
+        self:recordFailure("base_task_target", ticks, 180)
+        return false
+    end
+    local moveResult = tostring(self.bridge:moveNpc(self.id, target))
+    if string.find(moveResult, "MOVE_STARTED", 1, true) ~= 1 then
+        self:finishBaseTask(false, "task_move_start_failed:" .. moveResult)
+        self:recordFailure("base_task_move:" .. moveResult, ticks, 180)
+        return false
+    end
+    self.baseTaskStartedAt = nil
+    self.activeDecision = "base_task_" .. tostring(task.type)
+    self.state = "BASE_TASK_MOVE"
+    print("[KnoxSurvivors][BaseJobs] id=" .. tostring(self.id)
+        .. " task=" .. tostring(task.id) .. " type=" .. tostring(task.type)
+        .. " target=" .. tostring(target:getX()) .. "," .. tostring(target:getY()))
+    return true
+end
+
+-- A resident first gathers one required item at a time from assigned, currently
+-- loaded base storage.  The actual move remains a normal inventory transfer;
+-- missing or streamed-out material blocks the task instead of inventing stock.
+function Controller:beginBaseTaskSupplyOrWork(ticks)
+    local transfer, result = KnoxBaseStorage.findRequiredTransfer(
+        self.base,
+        self.character,
+        self.baseTask ~= nil and self.baseTask.requirements or nil
+    )
+    if transfer == nil then
+        if result == "requirements_ready" then
+            return self:beginBaseTaskWorkMove(ticks)
+        end
+        self:finishBaseTask(false, tostring(result))
+        self:recordFailure("base_task_supply:" .. tostring(result), ticks, 300)
+        return false
+    end
+    local approach = KnoxBaseStorage.approachSquare(transfer, self.character)
+    if approach == nil then
+        self:finishBaseTask(false, "storage_approach_unavailable")
+        self:recordFailure("base_task_supply:storage_approach_unavailable", ticks, 300)
+        return false
+    end
+    local moveResult = tostring(self.bridge:moveNpc(self.id, approach))
+    if string.find(moveResult, "MOVE_STARTED", 1, true) ~= 1 then
+        self:finishBaseTask(false, "storage_move_start_failed:" .. moveResult)
+        self:recordFailure("base_task_supply_move:" .. moveResult, ticks, 300)
+        return false
+    end
+    self.baseTaskSupplyTransfer = transfer
+    self.baseTaskStartedAt = nil
+    self.activeDecision = "base_task_collect_supplies"
+    self.state = "BASE_TASK_SUPPLY_MOVE"
+    return true
 end
 
 function Controller:beginBaseTask(ticks)
@@ -1520,39 +1583,9 @@ function Controller:beginBaseTask(ticks)
     if task == nil then
         return false
     end
-    task.baseId = self.baseId
-    local target = KnoxBaseJobs.resolveTaskSquare(task, self.character)
-    if target == nil then
-        KnoxBaseTaskBoard.finish(
-            self.baseId,
-            task.id,
-            self.id,
-            false,
-            "no_loaded_work_square"
-        )
-        self:recordFailure("base_task_target", ticks, 180)
-        return false
-    end
-    local moveResult = tostring(self.bridge:moveNpc(self.id, target))
-    if string.find(moveResult, "MOVE_STARTED", 1, true) ~= 1 then
-        KnoxBaseTaskBoard.finish(
-            self.baseId,
-            task.id,
-            self.id,
-            false,
-            "task_move_start_failed:" .. moveResult
-        )
-        self:recordFailure("base_task_move:" .. moveResult, ticks, 180)
-        return false
-    end
     self.baseTask = task
-    self.baseTaskStartedAt = nil
-    self.activeDecision = "base_task_" .. tostring(task.type)
-    self.state = "BASE_TASK_MOVE"
-    print("[KnoxSurvivors][BaseJobs] id=" .. tostring(self.id)
-        .. " task=" .. tostring(task.id) .. " type=" .. tostring(task.type)
-        .. " target=" .. tostring(target:getX()) .. "," .. tostring(target:getY()))
-    return true
+    task.baseId = self.baseId
+    return self:beginBaseTaskSupplyOrWork(ticks)
 end
 
 function Controller:releaseSupply()
@@ -2200,6 +2233,7 @@ function Controller:tick(ticks)
         or self.state == "MOVING_TO_COMPANION_POINT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_TASK_MOVE"
+        or self.state == "BASE_TASK_SUPPLY_MOVE"
         or self.state == "MEETING_APPROACH"
         or self.state == "MOVING_TO_WINDOW_ENTRY"
         or self.state == "CROSSING_WINDOW_ENTRY"
@@ -2211,6 +2245,7 @@ function Controller:tick(ticks)
         or self.state == "ROBBING"
         or self.state == "BASE_TASK_WORK"
         or self.state == "BASE_TASK_ACTION"
+        or self.state == "BASE_TASK_SUPPLY_TRANSFER"
     if (movementState and stateAge > MOVEMENT_TIMEOUT_TICKS)
         or (actionState and stateAge > ACTION_TIMEOUT_TICKS)
         or (self.state == "BREAKING_LOCKED_DOOR"
@@ -2287,6 +2322,21 @@ function Controller:tick(ticks)
             )
             self:finishDecision(ticks)
         end
+        return
+    end
+
+    if self.state == "BASE_TASK_SUPPLY_TRANSFER" then
+        if self.baseTask == nil or self.baseTaskSupplyTransfer == nil then
+            self.state = "IDLE"
+            self.activeDecision = nil
+            self.nextThink = ticks + THINK_MIN_TICKS
+            return
+        end
+        if not self.character:getCharacterActions():isEmpty() then
+            return
+        end
+        self.baseTaskSupplyTransfer = nil
+        self:beginBaseTaskSupplyOrWork(ticks)
         return
     end
 
@@ -2962,6 +3012,34 @@ function Controller:tick(ticks)
                 self:finishDecision(ticks)
                 return
             end
+            if self.state == "BASE_TASK_SUPPLY_MOVE" then
+                local transfer = self.baseTaskSupplyTransfer
+                local source = transfer ~= nil and transfer.source ~= nil
+                    and transfer.source.container or nil
+                if self.baseTask == nil or transfer == nil or source == nil
+                    or source:contains(transfer.item) == false then
+                    self:finishBaseTask(false, "assigned_supply_no_longer_available")
+                    self:finishDecision(ticks)
+                    return
+                end
+                local action, actionResult = KnoxInventoryActions.queueTransfer(
+                    self.character,
+                    transfer.item,
+                    source,
+                    self.character:getInventory(),
+                    nil
+                )
+                if action == nil then
+                    self:finishBaseTask(false,
+                        "assigned_supply_transfer_queue:" .. tostring(actionResult))
+                    self:finishDecision(ticks)
+                    return
+                end
+                self.baseTaskStartedAt = ticks
+                self.activeDecision = "base_task_collect_supplies"
+                self.state = "BASE_TASK_SUPPLY_TRANSFER"
+                return
+            end
             if self.state == "BASE_TASK_MOVE" then
                 if self.baseTask ~= nil and self.baseTask.type == "haul_corpse" then
                     if self.baseTaskCorpsePhase == "drop" then
@@ -3224,6 +3302,11 @@ function Controller:tick(ticks)
                 self.activeDecision = "base_idle"
                 self.state = "BASE_IDLE"
                 self.nextThink = ticks + 180
+                return
+            end
+            if self.state == "BASE_TASK_SUPPLY_MOVE" then
+                self:finishBaseTask(false, "assigned_supply_movement_failed:" .. movement)
+                self:finishDecision(ticks)
                 return
             end
             if self.state == "BASE_TASK_MOVE" then
