@@ -11,14 +11,12 @@ final class KnoxCombatController {
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
     private static final int ATTACK_RECOVERY_TICKS = 24;
     private static final float REAPPROACH_BUFFER = 0.20f;
-    private static final int LIVE_PURSUIT_REFRESH_TICKS = 6;
 
     private KnoxNpc npc;
     private Object target;
     private String phase = "IDLE";
     private int ticks;
     private int lastAttackTick = -ATTACK_RETRY_TICKS;
-    private int lastReapproachTick = -LIVE_PURSUIT_REFRESH_TICKS;
     private int attackRequests;
     private float initialTargetHealth;
     private float lastTargetHealth;
@@ -33,6 +31,7 @@ final class KnoxCombatController {
     private boolean attackCycleActive;
     private boolean liveCombat;
     private int defenseWindowUntil;
+    private Object approachSquare;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -104,6 +103,7 @@ final class KnoxCombatController {
         reset();
         npc = activeNpc;
         target = zombie;
+        this.approachSquare = approachSquare;
         liveCombat = !controlledGate;
         Object body = npc.getBody();
         Class.forName(
@@ -153,12 +153,7 @@ final class KnoxCombatController {
             target.getClass().getMethod("setUseless", boolean.class).invoke(target, false);
         }
 
-        KnoxNpcFactory.followCharacter(npc, target);
-        // Unlike a local player, the contained NPC shell has no player-input update
-        // loop to advance PathFindBehavior2 for it.  tick() owns that advance below;
-        // record this initial request so the first combat tick drives it instead of
-        // immediately replacing a just-created route.
-        lastReapproachTick = 0;
+        beginLiveApproach();
         phase = "APPROACHING";
         String result = "COMBAT_STARTED mode=" + (controlledGate ? "gate" : "live")
             + " targetHealth=" + initialTargetHealth
@@ -238,20 +233,15 @@ final class KnoxCombatController {
 
         if ("APPROACHING".equals(phase) && !obstacleTarget) {
             if (targetDistance > reapproachThreshold) {
-                // Live pursuit used to only issue pathToCharacter() calls.  That
-                // creates a valid engine path, but a contained off-slot IsoPlayer
-                // does not receive vanilla local-player movement input to consume it.
-                // Drive the same captured-route adapter used by ordinary survivor
-                // movement before periodically refreshing the moving target.
+                // Keep one range-based destination under the captured-route adapter.
+                // Replacing it with pathToCharacter() every few ticks sends the shell
+                // into the target's occupied space, then repeatedly invalidates its
+                // own route as the target and animation graph move.
                 String movement = KnoxNpcFactory.tickMovement(npc, targetDistance, "run");
                 if (movement.startsWith("Failed")) {
                     phase = "FAILED";
                     clearAttackIntent();
                     return "COMBAT_FAILED LIVE_PURSUIT " + movement;
-                }
-                if (ticks - lastReapproachTick >= LIVE_PURSUIT_REFRESH_TICKS) {
-                    KnoxNpcFactory.followCharacter(npc, target);
-                    lastReapproachTick = ticks;
                 }
                 return "COMBAT_APPROACHING movement=" + movement
                     + " liveDistance=" + targetDistance
@@ -284,10 +274,9 @@ final class KnoxCombatController {
                 || (Boolean) body.getClass().getMethod("isPerformingAttackAnimation").invoke(body);
             if (!attackInProgress) {
                 clearAttackIntent();
-                KnoxNpcFactory.followCharacter(npc, target);
+                beginLiveApproach();
                 phase = "APPROACHING";
                 aimTicks = 0;
-                lastReapproachTick = ticks;
                 KnoxAgent.writeLog(
                     "NPC combat REAPPROACH distance=" + targetDistance
                         + " desiredRange=" + desiredAttackRange
@@ -334,7 +323,12 @@ final class KnoxCombatController {
 
         boolean targetOnFloor = !obstacleTarget
             && (Boolean) target.getClass().getMethod("isOnFloor").invoke(target);
-        faceTarget(body, targetX, targetY);
+        // SwipeStatePlayer owns orientation during an active swing. Forcing a new
+        // heading during that graph produces visible 360-degree turns and can move
+        // the collision arc away from the attack target.
+        if (!attackActive) {
+            faceTarget(body, targetX, targetY);
+        }
         applyCombatStance(body, false, targetOnFloor);
 
         if ("AIMING".equals(phase)) {
@@ -455,7 +449,6 @@ final class KnoxCombatController {
         phase = "IDLE";
         ticks = 0;
         lastAttackTick = -ATTACK_RETRY_TICKS;
-        lastReapproachTick = -LIVE_PURSUIT_REFRESH_TICKS;
         attackRequests = 0;
         initialTargetHealth = 0.0f;
         lastTargetHealth = 0.0f;
@@ -470,6 +463,18 @@ final class KnoxCombatController {
         attackCycleActive = false;
         liveCombat = false;
         defenseWindowUntil = 0;
+        approachSquare = null;
+    }
+
+    private void beginLiveApproach() throws ReflectiveOperationException {
+        if (approachSquare == null) {
+            throw new IllegalStateException("Live combat has no approach square");
+        }
+        // The selected square establishes the side from which this survivor should
+        // engage. The final point remains at weapon range from the zombie, not on
+        // the zombie's current coordinate.
+        KnoxNpcFactory.moveToRangeFrom(npc, target, approachSquare, desiredAttackRange);
+        npc.getBody().getClass().getMethod("setRunning", boolean.class).invoke(npc.getBody(), true);
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {
