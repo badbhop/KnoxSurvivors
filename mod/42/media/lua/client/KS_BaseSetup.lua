@@ -3,6 +3,7 @@ require "ISUI/ISButton"
 require "ISUI/ISComboBox"
 require "ISUI/ISRichTextPanel"
 require "KS_BaseManager"
+require "KS_BaseStorage"
 require "KS_BaseTerritorySelector"
 require "KS_BaseZoneSelector"
 require "KS_CompanionService"
@@ -130,6 +131,37 @@ function Window:storageText(base)
             .. "<RGB:0.85,0.85,0.82>  -  " .. tostring(policy.containerType or "container")
             .. " at " .. tostring(policy.x) .. "," .. tostring(policy.y))
     end
+    local summary = KnoxBaseStorage.summarize(base)
+    text = text .. line("") .. "<H2>Loaded Supplies</H2>"
+    local labels = {
+        food = "Food", water = "Water", medical = "Medical", weapons = "Weapons",
+        ammunition = "Ammunition", tools = "Tools", building = "Building",
+        farming = "Farming", clothing = "Clothing", other = "Other",
+    }
+    local entries = {}
+    for _, category in ipairs(KnoxBaseStorage.RESOURCE_CATEGORIES) do
+        entries[#entries + 1] = category
+    end
+    entries[#entries + 1] = "other"
+    for _, category in ipairs(entries) do
+        local count = tonumber(summary.totals[category]) or 0
+        if count > 0 then
+            text = text .. line("<RGB:0.78,0.84,0.62>" .. tostring(labels[category])
+                .. "<RGB:0.85,0.85,0.82>: " .. tostring(count))
+        end
+    end
+    if summary.loadedPolicies == 0 then
+        text = text .. line("No assigned storage is currently loaded.")
+    end
+    if summary.unavailablePolicies > 0 then
+        text = text .. line(tostring(summary.unavailablePolicies)
+            .. " assigned container(s) are outside the loaded area and are not counted.")
+    end
+    if summary.misplacedItems > 0 then
+        text = text .. line(tostring(summary.misplacedItems)
+            .. " item(s) are in the wrong assigned container and await depot sorting.")
+    end
+    text = text .. line("Supply totals are a live view of loaded containers, not simulated stock.")
     return text
 end
 

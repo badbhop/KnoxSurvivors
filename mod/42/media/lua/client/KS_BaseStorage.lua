@@ -46,6 +46,21 @@ local FARMING_TYPES = {
     ["Base.Fertilizer"] = true,
 }
 
+-- Keep the base-facing categories deliberately small and aligned with the storage
+-- context menu.  A summary is only a view of loaded world containers; it never
+-- becomes a second inventory or a source of simulated supplies.
+Storage.RESOURCE_CATEGORIES = {
+    "food",
+    "water",
+    "medical",
+    "weapons",
+    "ammunition",
+    "tools",
+    "building",
+    "farming",
+    "clothing",
+}
+
 local function fullType(item)
     if item == nil or item.getFullType == nil then
         return ""
@@ -157,6 +172,67 @@ function Storage.matchesCategory(item, category)
             or item.IsInventoryContainer ~= nil and item:IsInventoryContainer()
     end
     return false
+end
+
+function Storage.classifyItem(item)
+    for _, category in ipairs(Storage.RESOURCE_CATEGORIES) do
+        if Storage.matchesCategory(item, category) then
+            return category
+        end
+    end
+    return "other"
+end
+
+local function itemQuantity(item)
+    if item ~= nil and item.getCount ~= nil then
+        local success, count = pcall(item.getCount, item)
+        if success and tonumber(count) ~= nil then
+            return math.max(1, math.floor(tonumber(count)))
+        end
+    end
+    return 1
+end
+
+local function emptyResourceTotals()
+    local totals = { other = 0 }
+    for _, category in ipairs(Storage.RESOURCE_CATEGORIES) do
+        totals[category] = 0
+    end
+    return totals
+end
+
+-- Returns an honest snapshot of assigned storage that is currently available in
+-- the loaded cell.  Unloaded/missing containers are reported separately rather
+-- than assumed empty or treated as an abstract stockpile.
+function Storage.summarize(base)
+    local summary = {
+        totals = emptyResourceTotals(),
+        loadedPolicies = 0,
+        unavailablePolicies = 0,
+        misplacedItems = 0,
+    }
+    for _, policy in ipairs(Storage.policies(base)) do
+        local resolved = Storage.resolvePolicy(policy)
+        if resolved == nil then
+            summary.unavailablePolicies = summary.unavailablePolicies + 1
+        else
+            summary.loadedPolicies = summary.loadedPolicies + 1
+            local items = resolved.container:getItems()
+            for index = 0, items:size() - 1 do
+                local item = items:get(index)
+                local category = Storage.classifyItem(item)
+                local quantity = itemQuantity(item)
+                local policyCategory = tostring(policy.category or "general")
+                if policyCategory == "depot" or policyCategory == "general"
+                    or policyCategory == category then
+                    summary.totals[category] = (summary.totals[category] or 0) + quantity
+                else
+                    summary.misplacedItems = summary.misplacedItems + quantity
+                end
+            end
+        end
+    end
+    return summary
 end
 
 local function hasRoom(container, item)

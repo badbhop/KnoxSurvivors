@@ -54,7 +54,9 @@ local function square(x, y, z, object)
 end
 
 local depotItem = item("Base.Plank")
-local depot = container("crate", { depotItem })
+local foodItem = item("Base.TinnedSoup")
+local misplacedItem = item("Base.HandAxe")
+local depot = container("crate", { depotItem, foodItem })
 local destination = container("crate", {})
 local depotObject = {}
 function depotObject:getObjectIndex() return 1 end
@@ -103,4 +105,15 @@ local resolved, resolvedResult = storage.resolveTransfer(base, target)
 assert(resolved ~= nil and resolvedResult == "resolved")
 assert(resolved.item == depotItem and resolved.source.container == depot)
 
-print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true")
+local summary = storage.summarize(base)
+assert(summary.loadedPolicies == 2 and summary.unavailablePolicies == 0,
+    "summary should only count resolved assigned containers")
+assert(summary.totals.building == 1 and summary.totals.food == 1,
+    "depot contents should be classified into real resource categories")
+
+destination.values[#destination.values + 1] = misplacedItem
+summary = storage.summarize(base)
+assert(summary.misplacedItems == 1 and summary.totals.tools == 0,
+    "misplaced assigned-container items must not inflate available resource totals")
+
+print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true")
