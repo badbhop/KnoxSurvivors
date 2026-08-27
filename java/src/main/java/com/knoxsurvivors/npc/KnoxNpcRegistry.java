@@ -569,6 +569,15 @@ public final class KnoxNpcRegistry {
         return KnoxSurvivorRecord.decode(encoded).inventorySummary();
     }
 
+    /**
+     * Removes one exact item from an unloaded survivor record. A blank response
+     * means no matching item was present, so callers can leave persistent needs
+     * unchanged rather than inventing a consumed resource.
+     */
+    public synchronized String consumePersistentRecordItem(String encoded, String fullType) {
+        return KnoxSurvivorRecord.decode(encoded).consumeInventoryItem(fullType);
+    }
+
     public synchronized int activeCount() {
         return activeNpcs.size();
     }

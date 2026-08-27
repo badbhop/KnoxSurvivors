@@ -60,6 +60,25 @@ final class KnoxSurvivorRecord {
         return inventory.summary();
     }
 
+    String consumeInventoryItem(String fullType) {
+        KnoxInventorySnapshot consumed = inventory.withoutFirst(fullType);
+        if (consumed == null) {
+            return null;
+        }
+        return new KnoxSurvivorRecord(
+            id,
+            x,
+            y,
+            z,
+            positionX,
+            positionY,
+            appearance,
+            consumed,
+            health,
+            physiology
+        ).encode();
+    }
+
     static KnoxSurvivorRecord decode(String encoded) {
         String[] fields = encoded.split("\\|", -1);
         int version = Integer.parseInt(fields[0]);

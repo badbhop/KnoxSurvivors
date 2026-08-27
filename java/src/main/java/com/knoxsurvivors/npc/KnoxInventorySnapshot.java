@@ -112,6 +112,27 @@ final class KnoxInventorySnapshot {
         return result.toString();
     }
 
+    /**
+     * Returns a new portable inventory after consuming one exact item type.  This is
+     * intentionally record-only: unloaded simulation must not materialize a body,
+     * create a replacement item, or mutate a loaded world inventory.
+     */
+    KnoxInventorySnapshot withoutFirst(String fullType) {
+        if (fullType == null || fullType.isBlank()) {
+            return null;
+        }
+        List<ItemState> remaining = new ArrayList<>(items.size());
+        boolean removed = false;
+        for (ItemState item : items) {
+            if (!removed && fullType.equals(item.fullType)) {
+                removed = true;
+                continue;
+            }
+            remaining.add(item);
+        }
+        return removed ? new KnoxInventorySnapshot(remaining) : null;
+    }
+
     String encode() {
         StringBuilder encoded = new StringBuilder(Integer.toString(SCHEMA_VERSION));
         for (ItemState item : items) {

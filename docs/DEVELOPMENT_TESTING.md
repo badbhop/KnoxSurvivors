@@ -103,6 +103,26 @@ For the next live pass:
 9. Separate one travelling-group member by more than the retrieve leash. The leader should
    wait or move back toward that member rather than continuing to widen the separation.
 
+## Unloaded survival ledger — live retest required
+
+When a captured survivor is not active, Knox now advances a compact persisted survival
+ledger rather than freezing their needs completely. It uses the portable inventory record:
+if an unloaded survivor drinks or eats, the matching stored item is removed before the need
+is relieved. Rest and endurance recovery are then applied to the same ledger and restored to
+the body when that survivor materializes again.
+
+1. Give a survivor at least one food item and one drink, then allow normal distance
+   hibernation. Do not use a developer preset that gives the survivor endless supplies.
+2. Advance enough game time while away for needs to matter, then return until the same ID
+   restores. The survivor should retain its identity and have its restored needs applied.
+3. Look for restrained `[KnoxSurvivors][Unloaded]` event lines only when a food/water item was
+   consumed or an exceptional condition occurred. There should be no per-tick spam.
+4. Save, quit, and reload while the survivor is hibernated; returning to the area must restore
+   the same stored ledger and must not duplicate the consumed item.
+
+The focused `test-unloaded-survival.lua` check covers record-backed consumption, rest
+recovery, and durable starvation/dehydration death. It does not prove live engine behavior.
+
 Do not call this gate complete until activation, hibernation, restoration, and one real zombie
 attack have all been observed in game, and the collected log contains no formation retry storm.
 

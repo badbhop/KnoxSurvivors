@@ -254,6 +254,11 @@ public final class KnoxBridge {
         return npcRegistry.persistentRecordInventorySummary(encoded);
     }
 
+    /** Consumes one real stored item without reconstructing the survivor body. */
+    public String consumeNpcRecordItem(String encoded, String fullType) {
+        return npcRegistry.consumePersistentRecordItem(encoded, fullType);
+    }
+
     public String beginNpcLiveCombat(String id, Object zombie, Object approachSquare) {
         return npcRegistry.beginLiveCombat(id, zombie, approachSquare);
     }

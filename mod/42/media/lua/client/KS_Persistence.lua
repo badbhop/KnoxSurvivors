@@ -391,6 +391,37 @@ function KnoxPersistence.getLastKnownNeeds(id)
         or nil
 end
 
+function KnoxPersistence.getInventorySummary(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and tostring(survivor.inventorySummary or "") or ""
+end
+
+function KnoxPersistence.setInventorySummary(id, summary, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or type(summary) ~= "string" then
+        return false
+    end
+    survivor.inventorySummary = summary
+    survivor.inventorySummaryAtHours = tonumber(worldAgeHours) or 0
+    return true
+end
+
+function KnoxPersistence.getUnloadedSurvivalState(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and type(survivor.unloadedSurvival) == "table"
+        and copySerializable(survivor.unloadedSurvival)
+        or nil
+end
+
+function KnoxPersistence.setUnloadedSurvivalState(id, state)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or type(state) ~= "table" then
+        return false
+    end
+    survivor.unloadedSurvival = copySerializable(state)
+    return survivor.unloadedSurvival ~= nil
+end
+
 function KnoxPersistence.setTestRecord(encoded)
     return KnoxPersistence.setRecord(TEST_SURVIVOR_ID, encoded)
 end
@@ -1745,6 +1776,14 @@ function KnoxPersistence.captureActiveSurvivor(id)
                 survivor.lastKnownNeedsAtHours = getGameTime() ~= nil
                     and getGameTime():getWorldAgeHours()
                     or 0
+                local unloaded = rawget(_G, "KnoxUnloadedSurvival")
+                if unloaded ~= nil and unloaded.captureLoaded ~= nil then
+                    unloaded.captureLoaded(
+                        id,
+                        snapshot,
+                        survivor.lastKnownNeedsAtHours
+                    )
+                end
             end
         end
     end

@@ -10,6 +10,7 @@ require "KS_ZombieAwareness"
 require "KS_WorldPopulation"
 require "KS_SurvivorStartingGear"
 require "KS_SurvivorLifecyclePolicy"
+require "KS_UnloadedSurvival"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -239,6 +240,7 @@ local function registerController(bridge, id, character, result)
         character,
         getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     )
+    KnoxUnloadedSurvival.applyToLoaded(id, character)
     controllers[id] = KnoxAutonomyController.new(
         id,
         character,
@@ -542,6 +544,7 @@ end
 local function reconcileWorldPopulation(bridge)
     local players = currentPlayers()
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local advanced, notable = KnoxUnloadedSurvival.advanceAll(activeIds, now)
     local summary = KnoxWorldPopulation.maintain(now)
     local remaining = math.max(0, KnoxSettings.maxActiveSurvivors() - #activeIds)
     local candidates, rejected = KnoxWorldPopulation.activationCandidates(
@@ -580,6 +583,10 @@ local function reconcileWorldPopulation(bridge)
             .. " active=" .. tostring(#activeIds)
             .. " activated=" .. tostring(activated)
             .. " waitingSquares=" .. tostring(rejected.saved_square_not_loaded or 0))
+    end
+    if notable > 0 then
+        print(TAG .. " unloaded-simulation advanced=" .. tostring(advanced)
+            .. " notable=" .. tostring(notable))
     end
 end
 
