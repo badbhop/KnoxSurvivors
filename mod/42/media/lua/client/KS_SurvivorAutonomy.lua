@@ -853,6 +853,16 @@ function Autonomy.dispatchDeveloperScout(player, destinationSquare)
     if #selected == 0 then
         return false, "no_faction_members"
     end
+    local destination = {
+        x = destinationSquare:getX(), y = destinationSquare:getY(),
+        z = destinationSquare:getZ(), label = "Scouting destination",
+    }
+    local valid, validation = KnoxPersistence.validateAwayTeam(
+        ownerKind, ownerId, selected, "scout", destination
+    )
+    if not valid then
+        return false, "mission_invalid=" .. tostring(validation)
+    end
     for _, id in ipairs(selected) do
         local controller = controllers[id]
         local saved, evidence = false, "missing"
@@ -880,10 +890,7 @@ function Autonomy.dispatchDeveloperScout(player, destinationSquare)
         ownerId,
         selected,
         "scout",
-        {
-            x = destinationSquare:getX(), y = destinationSquare:getY(),
-            z = destinationSquare:getZ(), label = "Scouting destination",
-        },
+        destination,
         now,
         now + 2
     )
@@ -915,6 +922,16 @@ function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
     if selected == nil then
         return false, "need_loaded_base_resident"
     end
+    local destination = {
+        x = destinationSquare:getX(), y = destinationSquare:getY(),
+        z = destinationSquare:getZ(), label = "Player scout destination",
+    }
+    local valid, validation = KnoxPersistence.validateAwayTeam(
+        "player", playerId, { selected }, "scout", destination
+    )
+    if not valid then
+        return false, "mission_invalid=" .. tostring(validation)
+    end
     local saved, evidence = controller:shutdown()
     if not saved then
         return false, "capture_failed=" .. tostring(evidence)
@@ -929,10 +946,7 @@ function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     local team, result = KnoxPersistence.createAwayTeam(
         "player", playerId, { selected }, "scout",
-        {
-            x = destinationSquare:getX(), y = destinationSquare:getY(),
-            z = destinationSquare:getZ(), label = "Player scout destination",
-        }, now, now + 2
+        destination, now, now + 2
     )
     if team == nil then
         return false, "mission_create_failed=" .. tostring(result)

@@ -18,6 +18,16 @@ data.survivors = {
     },
 }
 
+local valid, validation = persistence.validateAwayTeam(
+    "player", "player-1", { "one", "two" }, "scout",
+    { x = 110, y = 220, z = 0 }
+)
+assert(valid and validation == "valid", "dispatch must validate before body handoff")
+local invalid, invalidReason = persistence.validateAwayTeam(
+    "player", "wrong-owner", { "one" }, "scout", { x = 110, y = 220 }
+)
+assert(not invalid and invalidReason == "invalid_member=one",
+    "invalid ownership must be rejected before body removal")
 local team, result = persistence.createAwayTeam(
     "player", "player-1", { "one", "two" }, "scout",
     { x = 110, y = 220, z = 0, label = "Riverside" }, 10, 12
@@ -39,6 +49,8 @@ assert(autonomySource:find("function Autonomy.dispatchDeveloperScout", 1, true),
 assert(autonomySource:find("controller:shutdown()", 1, true)
     and autonomySource:find("bridge:removeNpc(id)", 1, true),
     "dispatch must capture and remove bodies before marking a team away")
+assert(autonomySource:find("validateAwayTeam", 1, true),
+    "dispatch must validate a mission before taking down its active bodies")
 assert(autonomySource:find("function Autonomy.dispatchBaseScout", 1, true),
     "player base command must have a non-developer scout handoff")
 local baseMenuSource = assert(io.open(rootPath
@@ -53,4 +65,4 @@ assert(completed.state == "complete" and completed.result.kind == "scouted")
 assert(persistence.getSurvivorDuty("one").mode == "base")
 assert(persistence.getSurvivorDuty("two").mode == "companion")
 
-print("Away teams PASS persistence=true duty_restore=true scout_no_resources=true")
+print("Away teams PASS validation=true persistence=true duty_restore=true scout_no_resources=true")

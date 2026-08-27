@@ -572,7 +572,7 @@ end
 -- Creates a durable mission assignment. The caller must first hibernate/remove any
 -- loaded bodies; this data operation deliberately does not fabricate a world result or
 -- mutate their inventories.
-function KnoxPersistence.createAwayTeam(ownerKind, ownerId, memberIds, missionType, destination, worldAgeHours, etaHours)
+local function validateAwayTeamInput(ownerKind, ownerId, memberIds, missionType, destination)
     if (ownerKind ~= "player" and ownerKind ~= "faction")
         or type(ownerId) ~= "string" or ownerId == ""
         or not AWAY_MISSION_TYPES[missionType]
@@ -596,6 +596,26 @@ function KnoxPersistence.createAwayTeam(ownerKind, ownerId, memberIds, missionTy
     end
     if #members == 0 then
         return nil, "no_members"
+    end
+    return members, "valid"
+end
+
+-- Dispatchers validate this before taking a loaded shell down.  This protects
+-- the identity/body handoff from ordinary bad owner, destination, or duty data;
+-- the subsequent create call repeats the validation at the mutation boundary.
+function KnoxPersistence.validateAwayTeam(ownerKind, ownerId, memberIds, missionType, destination)
+    local members, result = validateAwayTeamInput(
+        ownerKind, ownerId, memberIds, missionType, destination
+    )
+    return members ~= nil, result
+end
+
+function KnoxPersistence.createAwayTeam(ownerKind, ownerId, memberIds, missionType, destination, worldAgeHours, etaHours)
+    local members, validation = validateAwayTeamInput(
+        ownerKind, ownerId, memberIds, missionType, destination
+    )
+    if members == nil then
+        return nil, validation
     end
     local data = root()
     local teamId = "away-" .. tostring(math.max(1, math.floor(data.nextAwayTeamId)))
