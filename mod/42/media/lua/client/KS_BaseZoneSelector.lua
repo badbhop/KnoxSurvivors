@@ -5,35 +5,172 @@ require "KS_ActivityFeed"
 local BaseZoneSelector = rawget(_G, "KnoxBaseZoneSelector") or {}
 _G.KnoxBaseZoneSelector = BaseZoneSelector
 
+local ZONE_HIGHLIGHT = {
+    guard       = { r = 0.85, g = 0.20, b = 0.20, a = 0.32 },
+    patrol      = { r = 0.85, g = 0.55, b = 0.15, a = 0.32 },
+    farming     = { r = 0.20, g = 0.70, b = 0.20, a = 0.30 },
+    woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = 0.30 },
+    log_processing = { r = 0.60, g = 0.42, b = 0.18, a = 0.30 },
+    corpse      = { r = 0.55, g = 0.55, b = 0.55, a = 0.28 },
+    animal_care = { r = 0.85, g = 0.70, b = 0.10, a = 0.30 },
+    repair      = { r = 0.20, g = 0.50, b = 0.85, a = 0.30 },
+    construction= { r = 0.70, g = 0.40, b = 0.85, a = 0.30 },
+    general     = { r = 0.52, g = 0.52, b = 0.75, a = 0.28 },
+}
+
 local Selection = {}
 Selection.__index = Selection
 
+local activeSelection = nil
+local tickHooked = false
+
+local function pickMouseSquare(player)
+    if player == nil or getCell() == nil then return nil, nil, nil, nil end
+    local z = player:getZ()
+    local mx, my = getMouseX(), getMouseY()
+    local ok1, wx = pcall(function() return screenToIsoX(player:getPlayerNum(), mx, my, z) end)
+    local ok2, wy = pcall(function() return screenToIsoY(player:getPlayerNum(), mx, my, z) end)
+    if not ok1 or not ok2 then return nil, nil, nil, z end
+    local sq = getCell():getGridSquare(wx, wy, z)
+    return sq, wx, wy, z
+end
+
+local function draftTick()
+    if activeSelection == nil or activeSelection.firstSquare == nil or activeSelection.pendingConfirm then return end
+    local player = activeSelection.player
+    if player == nil then return end
+    local _, wx, wy, z = pickMouseSquare(player)
+    if wx == nil or wy == nil then return end
+    local x1 = activeSelection.firstSquare:getX()
+    local y1 = activeSelection.firstSquare:getY()
+    local minX = math.min(x1, wx)
+    local maxX = math.max(x1, wx)
+    local minY = math.min(y1, wy)
+    local maxY = math.max(y1, wy)
+    local col = ZONE_HIGHLIGHT[activeSelection.zoneType] or ZONE_HIGHLIGHT.general
+    pcall(function()
+        if addAreaHighlightForPlayer ~= nil then
+            addAreaHighlightForPlayer(player:getPlayerNum(), minX, minY, maxX + 1, maxY + 1, z, col.r, col.g, col.b, col.a)
+        elseif addAreaHighlight ~= nil then
+            addAreaHighlight(minX, minY, maxX + 1, maxY + 1, z, col.r, col.g, col.b, col.a)
+        end
+    end)
+end
+
+local function hookTick(instance)
+    activeSelection = instance
+    if not tickHooked then
+        Events.OnTick.Add(draftTick)
+        tickHooked = true
+    end
+end
+
+local function unhookTick(instance)
+    if activeSelection == instance then
+        activeSelection = nil
+    end
+    if activeSelection == nil and tickHooked then
+        pcall(function() Events.OnTick.Remove(draftTick) end)
+        tickHooked = false
+    end
+end
+
+local function clearDraftHighlight(instance)
+    if instance == nil or instance.firstSquare == nil then return end
+    pcall(function()
+        local x1 = instance.firstSquare:getX()
+        local y1 = instance.firstSquare:getY()
+        local _, wx, wy, z = pickMouseSquare(instance.player)
+        if wx ~= nil then
+            local minX = math.min(x1, wx)
+            local minY = math.min(y1, wy)
+            local maxX = math.max(x1, wx)
+            local maxY = math.max(y1, wy)
+            local pn = instance.player:getPlayerNum()
+            if removeAreaHighlightForPlayer ~= nil then
+                removeAreaHighlightForPlayer(pn, minX, minY, maxX + 1, maxY + 1, z)
+            elseif removeAreaHighlight ~= nil then
+                removeAreaHighlight(minX, minY, maxX + 1, maxY + 1, z)
+            end
+            if addAreaHighlightForPlayer ~= nil then
+                -- push a transparent update to overwrite stale preview
+                addAreaHighlightForPlayer(pn, minX, minY, maxX + 1, maxY + 1, z, 0, 0, 0, 0)
+            end
+        end
+    end)
+end
+
+function Selection:confirmCreate(secondSquare)
+    local x1 = self.firstSquare:getX()
+    local y1 = self.firstSquare:getY()
+    local x2 = secondSquare:getX()
+    local y2 = secondSquare:getY()
+    local w = math.abs(x2 - x1) + 1
+    local h = math.abs(y2 - y1) + 1
+    local total = w * h
+    self.pendingSecond = secondSquare
+    self.pendingConfirm = true
+
+    -- Keep highlight visible while modal is up — tick continues to draw.
+    local prompt = "Create " .. tostring(self.label) .. "  " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(total) .. " tiles)?"
+    local modal = ISModalDialog:new(0, 0, 360, 150, prompt, true, nil, function(button)
+        self.pendingConfirm = false
+        unhookTick(self)
+        clearDraftHighlight(self)
+        if button.internal == "YES" then
+            local zone, result = KnoxBaseManager.addZone(
+                self.baseId,
+                self.zoneType,
+                { x1 = x1, y1 = y1, x2 = x2, y2 = y2, z = self.firstSquare:getZ() },
+                self.label
+            )
+            if zone ~= nil then
+                KnoxActivityFeed.event(tostring(self.label) .. " saved — " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(total) .. " tiles).")
+            else
+                KnoxActivityFeed.event("Could not save work area: " .. tostring(result) .. ".")
+            end
+        else
+            KnoxActivityFeed.event(tostring(self.label) .. " not saved — cancelled at confirmation.")
+        end
+        self.cursor = nil
+        self.firstSquare = nil
+        self.pendingSecond = nil
+    end)
+    modal:initialise()
+    modal:addToUIManager()
+    modal.moveWithMouse = true
+    if getJoypadData(self.player:getPlayerNum()) then
+        modal:centerOnScreen(self.player:getPlayerNum())
+        setJoypadFocus(self.player:getPlayerNum(), modal)
+    end
+end
+
 function Selection:onSquareSelected(square)
     self.cursor = nil
+    if square == nil then
+        unhookTick(self)
+        return
+    end
     if self.firstSquare == nil then
         self.firstSquare = square
-        KnoxActivityFeed.event("Work area: select the opposite corner.")
+        KnoxActivityFeed.event("First corner set for " .. tostring(self.label) .. " at " .. tostring(square:getX()) .. "," .. tostring(square:getY()) .. ". Now click the opposite corner — highlighted area is preview. Right-click cancels.")
+        hookTick(self)
         self.cursor = ISSelectCursor:new(self.player, self, self.onSquareSelected)
         getCell():setDrag(self.cursor, self.player:getPlayerNum())
         return
     end
-    local zone, result = KnoxBaseManager.addZone(
-        self.baseId,
-        self.zoneType,
-        {
-            x1 = self.firstSquare:getX(),
-            y1 = self.firstSquare:getY(),
-            x2 = square:getX(),
-            y2 = square:getY(),
-            z = self.firstSquare:getZ(),
-        },
-        self.label
-    )
-    if zone ~= nil then
-        KnoxActivityFeed.event("Work area set: " .. tostring(self.label) .. ".")
-    else
-        KnoxActivityFeed.event("Could not set work area: " .. tostring(result) .. ".")
-    end
+    -- Second corner — ask for confirmation (matches vanilla DesignationZone confirm).
+    self:confirmCreate(square)
+end
+
+function Selection:onSquareSelectedCancel()
+    unhookTick(self)
+    clearDraftHighlight(self)
+    self.cursor = nil
+    self.firstSquare = nil
+    self.pendingConfirm = false
+    self.pendingSecond = nil
+    KnoxActivityFeed.event(tostring(self.label) .. " selection cancelled. Right-click again if needed.")
 end
 
 function BaseZoneSelector.start(player, baseId, zoneType, label)
@@ -47,10 +184,12 @@ function BaseZoneSelector.start(player, baseId, zoneType, label)
         label = label or zoneType,
         firstSquare = nil,
         cursor = nil,
+        pendingConfirm = false,
+        pendingSecond = nil,
     }, Selection)
     selection.cursor = ISSelectCursor:new(player, selection, selection.onSquareSelected)
     getCell():setDrag(selection.cursor, player:getPlayerNum())
-    KnoxActivityFeed.event("Work area: select the first corner for " .. tostring(selection.label) .. ".")
+    KnoxActivityFeed.event("Add " .. tostring(selection.label) .. ": click first corner, then opposite corner. Highlighted rectangle is preview. Confirm size to save. Right-click cancels.")
     return true
 end
 

@@ -8,26 +8,144 @@ _G.KnoxBaseTerritorySelector = BaseTerritorySelector
 local Selection = {}
 Selection.__index = Selection
 
+local activeSelection = nil
+local tickHooked = false
+
+local BOUNDARY_COLOR = { r = 0.30, g = 0.62, b = 0.30, a = 0.32 }
+
+local function pickMouseSquare(player)
+    if player == nil or getCell() == nil then return nil, nil, nil, nil end
+    local z = player:getZ()
+    local mx, my = getMouseX(), getMouseY()
+    local ok1, wx = pcall(function() return screenToIsoX(player:getPlayerNum(), mx, my, z) end)
+    local ok2, wy = pcall(function() return screenToIsoY(player:getPlayerNum(), mx, my, z) end)
+    if not ok1 or not ok2 then return nil, nil, nil, z end
+    local sq = getCell():getGridSquare(wx, wy, z)
+    return sq, wx, wy, z
+end
+
+local function draftTick()
+    if activeSelection == nil or activeSelection.firstSquare == nil or activeSelection.pendingConfirm then return end
+    local player = activeSelection.player
+    if player == nil then return end
+    local _, wx, wy, z = pickMouseSquare(player)
+    if wx == nil or wy == nil then return end
+    local x1 = activeSelection.firstSquare:getX()
+    local y1 = activeSelection.firstSquare:getY()
+    local minX = math.min(x1, wx)
+    local maxX = math.max(x1, wx)
+    local minY = math.min(y1, wy)
+    local maxY = math.max(y1, wy)
+    pcall(function()
+        if addAreaHighlightForPlayer ~= nil then
+            addAreaHighlightForPlayer(player:getPlayerNum(), minX, minY, maxX + 1, maxY + 1, z,
+                BOUNDARY_COLOR.r, BOUNDARY_COLOR.g, BOUNDARY_COLOR.b, BOUNDARY_COLOR.a)
+        elseif addAreaHighlight ~= nil then
+            addAreaHighlight(minX, minY, maxX + 1, maxY + 1, z,
+                BOUNDARY_COLOR.r, BOUNDARY_COLOR.g, BOUNDARY_COLOR.b, BOUNDARY_COLOR.a)
+        end
+    end)
+end
+
+local function hookTick(instance)
+    activeSelection = instance
+    if not tickHooked then
+        Events.OnTick.Add(draftTick)
+        tickHooked = true
+    end
+end
+
+local function unhookTick(instance)
+    if activeSelection == instance then activeSelection = nil end
+    if activeSelection == nil and tickHooked then
+        pcall(function() Events.OnTick.Remove(draftTick) end)
+        tickHooked = false
+    end
+end
+
+local function clearDraftHighlight(instance)
+    if instance == nil or instance.firstSquare == nil then return end
+    pcall(function()
+        local x1 = instance.firstSquare:getX()
+        local y1 = instance.firstSquare:getY()
+        local _, wx, wy, z = pickMouseSquare(instance.player)
+        if wx ~= nil then
+            local minX = math.min(x1, wx)
+            local minY = math.min(y1, wy)
+            local maxX = math.max(x1, wx)
+            local maxY = math.max(y1, wy)
+            local pn = instance.player:getPlayerNum()
+            if removeAreaHighlightForPlayer ~= nil then
+                removeAreaHighlightForPlayer(pn, minX, minY, maxX + 1, maxY + 1, z)
+            elseif removeAreaHighlight ~= nil then
+                removeAreaHighlight(minX, minY, maxX + 1, maxY + 1, z)
+            end
+            if addAreaHighlightForPlayer ~= nil then
+                addAreaHighlightForPlayer(pn, minX, minY, maxX + 1, maxY + 1, z, 0, 0, 0, 0)
+            end
+        end
+    end)
+end
+
+function Selection:confirmCreate(secondSquare)
+    local x1 = self.firstSquare:getX()
+    local y1 = self.firstSquare:getY()
+    local x2 = secondSquare:getX()
+    local y2 = secondSquare:getY()
+    local w = math.abs(x2 - x1) + 1
+    local h = math.abs(y2 - y1) + 1
+    self.pendingConfirm = true
+    local prompt = "Set home boundary  " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(w * h) .. " tiles, all floors)?"
+    local modal = ISModalDialog:new(0, 0, 380, 150, prompt, true, nil, function(button)
+        self.pendingConfirm = false
+        unhookTick(self)
+        clearDraftHighlight(self)
+        if button.internal == "YES" then
+            local territory, result = KnoxBaseManager.setTerritory(self.player, self.baseId, self.firstSquare, secondSquare)
+            if territory ~= nil then
+                KnoxActivityFeed.event("Home boundary saved — " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(w * h) .. " tiles, all floors).")
+            else
+                KnoxActivityFeed.event("Could not set home boundary: " .. tostring(result) .. ".")
+            end
+        else
+            KnoxActivityFeed.event("Home boundary not saved — cancelled at confirmation.")
+        end
+        self.cursor = nil
+        self.firstSquare = nil
+    end)
+    modal:initialise()
+    modal:addToUIManager()
+    modal.moveWithMouse = true
+    if getJoypadData(self.player:getPlayerNum()) then
+        modal:centerOnScreen(self.player:getPlayerNum())
+        setJoypadFocus(self.player:getPlayerNum(), modal)
+    end
+end
+
 function Selection:onSquareSelected(square)
     self.cursor = nil
+    if square == nil then
+        unhookTick(self)
+        return
+    end
     if self.firstSquare == nil then
         self.firstSquare = square
-        KnoxActivityFeed.event("Base boundary: select the opposite corner.")
+        KnoxActivityFeed.event("First corner set at " .. tostring(square:getX()) .. "," .. tostring(square:getY()) .. ". Now click opposite corner — highlighted area is preview. Right-click cancels.")
+        hookTick(self)
         self.cursor = ISSelectCursor:new(self.player, self, self.onSquareSelected)
         getCell():setDrag(self.cursor, self.player:getPlayerNum())
         return
     end
-    local territory, result = KnoxBaseManager.setTerritory(
-        self.player,
-        self.baseId,
-        self.firstSquare,
-        square
-    )
-    if territory ~= nil then
-        KnoxActivityFeed.event("Home base boundary updated across all floors.")
-    else
-        KnoxActivityFeed.event("Could not set base boundary: " .. tostring(result) .. ".")
-    end
+    self:confirmCreate(square)
+end
+
+function Selection:onSquareSelectedCancel()
+    unhookTick(self)
+    clearDraftHighlight(self)
+    self.cursor = nil
+    self.firstSquare = nil
+    self.pendingConfirm = false
+    KnoxActivityFeed.event("Home boundary selection cancelled.")
 end
 
 function BaseTerritorySelector.start(player, baseId)
@@ -39,10 +157,11 @@ function BaseTerritorySelector.start(player, baseId)
         baseId = baseId,
         firstSquare = nil,
         cursor = nil,
+        pendingConfirm = false,
     }, Selection)
     selection.cursor = ISSelectCursor:new(player, selection, selection.onSquareSelected)
     getCell():setDrag(selection.cursor, player:getPlayerNum())
-    KnoxActivityFeed.event("Base boundary: select the first corner.")
+    KnoxActivityFeed.event("Set home boundary: click first corner, then opposite corner. Highlighted area is preview. Confirm size to save. Right-click cancels.")
     return true
 end
 
