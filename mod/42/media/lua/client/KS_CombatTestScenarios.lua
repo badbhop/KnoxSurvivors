@@ -10,6 +10,12 @@ local SNAPSHOT_INTERVAL_TICKS = 120
 
 local definitions = {
     duel = { population = "single", zombies = 1, label = "Survivor vs Zombie" },
+    crawler_duel = {
+        population = "single",
+        zombies = 1,
+        crawler = true,
+        label = "Survivor vs Crawler",
+    },
     survivor_horde = { population = "single", zombies = 4, label = "Survivor vs Zombie Group" },
     group_horde = { population = "group", zombies = 5, label = "Travel Group vs Zombies" },
     faction_horde = { population = "faction", zombies = 8, label = "Faction vs Zombies" },
@@ -220,6 +226,7 @@ function CombatTests.start(playerNum, scenario)
         zombiesKilled = 0,
         attackActionSeen = false,
         attackDidDamageSeen = false,
+        crawlerConfigured = definition.crawler ~= true,
         finished = false,
     }
     for _, id in ipairs(ids) do
@@ -241,6 +248,12 @@ function CombatTests.start(playerNum, scenario)
             )
             local zombie = spawned ~= nil and spawned:size() > 0 and spawned:get(0) or nil
             if zombie ~= nil then
+                if definition.crawler == true then
+                    local crawlerSuccess = pcall(function()
+                        zombie:setCrawler(true)
+                    end)
+                    active.crawlerConfigured = crawlerSuccess
+                end
                 active.zombies[#active.zombies + 1] = zombie
                 active.zombieOwners[#active.zombieOwners + 1] = ownerId
                 preferredOwners[zombie] = ownerId
@@ -259,6 +272,8 @@ function CombatTests.start(playerNum, scenario)
     print(TAG .. " START scenario=combat_" .. tostring(scenario)
         .. " survivors=" .. table.concat(ids, ",")
         .. " zombies=" .. tostring(#active.zombies)
+        .. " crawler=" .. tostring(definition.crawler == true)
+        .. " crawlerConfigured=" .. tostring(active.crawlerConfigured)
         .. " timeoutTicks=" .. tostring(TIMEOUT_TICKS))
     KnoxActivityFeed.event("Started " .. definition.label
         .. ". The test reports itself; use Cleanup Combat Test when finished.")

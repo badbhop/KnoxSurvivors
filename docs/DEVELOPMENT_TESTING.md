@@ -21,11 +21,13 @@ attack outcome, collision-damage flag, and survivor health. **Cleanup Combat Tes
 only zombies created by the selected preset; the deliberately spawned development survivors
 remain persistent so save/reload can still be tested.
 
-For the current native-bite gate, run **Survivor vs Zombie Group** first. Keep the player far
-enough away that the test remains uncontaminated, and wait for the automatic result. If it is
-not PASS, write one combat snapshot before cleanup, close the game normally, and use the
-collected run folder. That single run should distinguish failure to acquire, approach,
-transition into the bite animation, fire its collision event, or apply BodyDamage.
+For the current native-bite gate, run **Survivor vs Zombie** and then **Survivor vs Crawler**.
+Keep the player far enough away that the test remains uncontaminated, and wait for each automatic
+result. The start line records `crawler=false` or `crawler=true crawlerConfigured=true`; if the
+latter is not true, stop there and collect the logs. If either result is not PASS, write one
+combat snapshot before cleanup, close the game normally, and use the collected run folder. That
+single comparison distinguishes failure to acquire, approach, transition into the bite animation,
+fire its collision event, or apply BodyDamage.
 
 The 2026-08-25 duel and survivor-group runs reported PARTIAL: survivor approach, melee
 animation, damage, kills, and moving-target re-approach worked, but zombie collision damage was

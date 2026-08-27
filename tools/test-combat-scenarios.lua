@@ -22,6 +22,7 @@ local function zombie()
         setTarget = function() end,
         setUseless = function() end,
         setCanWalk = function() end,
+        setCrawler = function(self, value) self.crawling = value end,
         removeFromWorld = function() removed = removed + 1 end,
         removeFromSquare = function() end,
     }
@@ -72,6 +73,7 @@ assert(loadfile("mod/42/media/lua/client/KS_CombatTestScenarios.lua"))()
 
 local expected = {
     duel = { 1, 1 },
+    crawler_duel = { 1, 1 },
     survivor_horde = { 1, 4 },
     group_horde = { 2, 5 },
     faction_horde = { 3, 8 },
@@ -88,6 +90,6 @@ for scenario, counts in pairs(expected) do
 end
 KnoxCombatTestScenarios.cleanup(true)
 assert(KnoxCombatTestScenarios.status().active == false, "cleanup clears active test")
-assert(removed == 1 + 4 + 5 + 8 + 12, "only scenario zombies are cleaned")
+assert(removed == 1 + 1 + 4 + 5 + 8 + 12, "only scenario zombies are cleaned")
 
 print("Combat scenarios PASS presets=true cleanup=true")

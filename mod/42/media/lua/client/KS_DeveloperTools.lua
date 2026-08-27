@@ -18,6 +18,7 @@ local SCENARIOS = {
 
 local COMBAT_SCENARIOS = {
     { "Survivor vs Zombie", "duel" },
+    { "Survivor vs Crawler", "crawler_duel" },
     { "Survivor vs Zombie Group", "survivor_horde" },
     { "Travel Group vs Zombies", "group_horde" },
     { "Faction vs Zombies", "faction_horde" },
