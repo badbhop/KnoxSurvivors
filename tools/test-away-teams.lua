@@ -27,6 +27,11 @@ assert(team.state == "outbound" and #team.memberIds == 2)
 assert(persistence.getSurvivorDuty("one").mode == "away")
 assert(persistence.getAwayTeamForSurvivor("two").id == team.id)
 
+local populationSource = assert(io.open(rootPath
+    .. "/mod/42/media/lua/client/KS_WorldPopulation.lua", "r")):read("*a")
+assert(populationSource:find('return nil, "away_mission"', 1, true),
+    "nearby population activation must leave assigned away-team members unloaded")
+
 assert(persistence.advanceAwayTeams(11) == 0)
 assert(persistence.advanceAwayTeams(12) == 1)
 local completed = persistence.getAwayTeam(team.id)

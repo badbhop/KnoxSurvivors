@@ -524,6 +524,13 @@ function WorldPopulation.activationCandidate(id, bridge, options)
     if type(id) ~= "string" or id == "" or not KnoxPersistence.isSurvivorAlive(id) then
         return nil, "not_living"
     end
+    local duty = KnoxPersistence.getSurvivorDuty(id)
+    -- An away team owns its members' off-world lifecycle until it finishes or
+    -- blocks. Normal proximity activation must not pull them back into a loaded
+    -- engine shell just because the player passes their recorded origin.
+    if duty ~= nil and duty.mode == "away" then
+        return nil, "away_mission"
+    end
     local players = playersFrom(options)
     local maximumDistance = type(options) == "table"
         and tonumber(options.maximumDistance)
