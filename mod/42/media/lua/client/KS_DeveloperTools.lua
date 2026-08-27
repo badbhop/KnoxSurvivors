@@ -52,6 +52,15 @@ function DeveloperTools.printStatus()
     KnoxActivityFeed.event("Developer status written to console.txt.")
 end
 
+function DeveloperTools.dispatchScout(playerNum, worldObjects)
+    local square = worldObjects ~= nil and worldObjects[1] ~= nil
+        and worldObjects[1]:getSquare() or nil
+    local player = getSpecificPlayer(playerNum)
+    local success, result = KnoxSurvivorAutonomy.dispatchDeveloperScout(player, square)
+    KnoxActivityFeed.event(success and ("Faction scout team departed: " .. tostring(result) .. ".")
+        or ("Scout dispatch failed: " .. tostring(result) .. "."))
+end
+
 local function onFill(playerNum, context, worldObjects, test)
     if not KnoxSettings.developerToolsEnabled() then
         return
@@ -78,6 +87,9 @@ local function onFill(playerNum, context, worldObjects, test)
     for _, definition in ipairs(COMBAT_SCENARIOS) do
         combatMenu:addOption(definition[1], playerNum, KnoxCombatTestScenarios.start, definition[2])
     end
+
+    menu:addOption("Dispatch Loaded Faction Scout Here", playerNum,
+        DeveloperTools.dispatchScout, worldObjects)
 
     menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)
     menu:addOption("Write Combat Snapshot to Log", nil, KnoxCombatTestScenarios.writeSnapshot)

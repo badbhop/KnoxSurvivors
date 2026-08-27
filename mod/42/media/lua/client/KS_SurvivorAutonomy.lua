@@ -822,6 +822,79 @@ function Autonomy.spawnDeveloperScenario(player, scenario)
     return true, table.concat(ids, ",") .. " " .. tostring(configureResult)
 end
 
+-- Developer-only handoff gate for the away-team lifecycle. It uses the same
+-- capture/remove sequence as distance hibernation; a mission is never persisted while
+-- one of its members still owns an active engine shell.
+function Autonomy.dispatchDeveloperScout(player, destinationSquare)
+    if not KnoxSettings.developerToolsEnabled() then
+        return false, "developer_tools_disabled"
+    end
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if player == nil or destinationSquare == nil or bridge == nil then
+        return false, "dispatch_unavailable"
+    end
+    local selected, ownerKind, ownerId = {}, nil, nil
+    for _, id in ipairs(activeIds) do
+        local affiliation = KnoxPersistence.getSurvivorAffiliation(id) or {}
+        if affiliation.kind == "faction" and type(affiliation.factionId) == "string" then
+            ownerKind, ownerId = "faction", affiliation.factionId
+            break
+        end
+    end
+    if ownerKind == nil then
+        return false, "need_loaded_faction_survivor"
+    end
+    for _, id in ipairs(activeIds) do
+        local affiliation = KnoxPersistence.getSurvivorAffiliation(id) or {}
+        if affiliation.kind == ownerKind and affiliation.factionId == ownerId then
+            selected[#selected + 1] = id
+        end
+    end
+    if #selected == 0 then
+        return false, "no_faction_members"
+    end
+    for _, id in ipairs(selected) do
+        local controller = controllers[id]
+        local saved, evidence = false, "missing"
+        if controller ~= nil then
+            saved, evidence = controller:shutdown()
+        end
+        if not saved then
+            return false, "capture_failed=" .. tostring(id) .. " " .. tostring(evidence)
+        end
+    end
+    for _, id in ipairs(selected) do
+        local removed = tostring(bridge:removeNpc(id))
+        if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
+            return false, "remove_failed=" .. tostring(id) .. " " .. removed
+        end
+    end
+    for _, id in ipairs(selected) do
+        KnoxSurvivorRuntime.unregister(id, controllers[id])
+        controllers[id] = nil
+        removeActiveId(id)
+    end
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local team, result = KnoxPersistence.createAwayTeam(
+        ownerKind,
+        ownerId,
+        selected,
+        "scout",
+        {
+            x = destinationSquare:getX(), y = destinationSquare:getY(),
+            z = destinationSquare:getZ(), label = "Scouting destination",
+        },
+        now,
+        now + 2
+    )
+    if team == nil then
+        return false, "mission_create_failed=" .. tostring(result)
+    end
+    print(TAG .. " away-dispatched id=" .. tostring(team.id)
+        .. " members=" .. table.concat(selected, ",") .. " result=" .. tostring(result))
+    return true, team.id
+end
+
 function Autonomy.status()
     return {
         ids = activeIds,

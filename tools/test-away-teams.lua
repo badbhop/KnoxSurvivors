@@ -32,6 +32,14 @@ local populationSource = assert(io.open(rootPath
 assert(populationSource:find('return nil, "away_mission"', 1, true),
     "nearby population activation must leave assigned away-team members unloaded")
 
+local autonomySource = assert(io.open(rootPath
+    .. "/mod/42/media/lua/client/KS_SurvivorAutonomy.lua", "r")):read("*a")
+assert(autonomySource:find("function Autonomy.dispatchDeveloperScout", 1, true),
+    "developer dispatch must use the same autonomy lifecycle owner")
+assert(autonomySource:find("controller:shutdown()", 1, true)
+    and autonomySource:find("bridge:removeNpc(id)", 1, true),
+    "dispatch must capture and remove bodies before marking a team away")
+
 assert(persistence.advanceAwayTeams(11) == 0)
 assert(persistence.advanceAwayTeams(12) == 1)
 local completed = persistence.getAwayTeam(team.id)
