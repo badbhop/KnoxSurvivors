@@ -85,6 +85,33 @@ val verifyZombieVisibilityTransformer by tasks.registering(JavaExec::class) {
     }
 }
 
+val verifyZombieVisibilityRuntime by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Defines the transformed IsoZombie class with Project Zomboid's Java runtime."
+    dependsOn(tasks.testClasses)
+    doFirst {
+        val gameHome = file(pzHome.get())
+        val gameJar = gameHome.resolve("projectzomboid.jar")
+        val javaRuntime = gameHome.resolve("jre64/bin/java.exe")
+        require(javaRuntime.isFile) {
+            "Project Zomboid Java runtime not found at ${javaRuntime.absolutePath}"
+        }
+        val classpath = listOf(
+            sourceSets.main.get().output.classesDirs.asPath,
+            sourceSets.test.get().output.classesDirs.asPath,
+            gameJar.absolutePath,
+        ).joinToString(System.getProperty("path.separator"))
+        commandLine(
+            javaRuntime.absolutePath,
+            "-Xverify:all",
+            "-cp",
+            classpath,
+            "com.knoxsurvivors.agent.KnoxZombieVisibilityClassVerifier",
+            gameJar.absolutePath,
+        )
+    }
+}
+
 val verifyIsoPlayerShellPolicy by tasks.registering(JavaExec::class) {
     group = "verification"
     description = "Verifies that the generated NPC shell never claims local input ownership."
@@ -94,5 +121,10 @@ val verifyIsoPlayerShellPolicy by tasks.registering(JavaExec::class) {
 }
 
 tasks.check {
-    dependsOn(verifyCombatTransformer, verifyZombieVisibilityTransformer, verifyIsoPlayerShellPolicy)
+    dependsOn(
+        verifyCombatTransformer,
+        verifyZombieVisibilityTransformer,
+        verifyZombieVisibilityRuntime,
+        verifyIsoPlayerShellPolicy,
+    )
 }
