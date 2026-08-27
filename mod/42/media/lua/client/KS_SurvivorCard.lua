@@ -1,5 +1,9 @@
 require "ISUI/ISCollapsableWindowJoypad"
+require "ISUI/ISTabPanel"
 require "ISUI/ISUI3DModel"
+require "XpSystem/ISUI/ISCharacterScreen"
+require "XpSystem/ISUI/ISCharacterInfo"
+require "XpSystem/ISUI/ISHealthPanel"
 require "KS_SurvivorViewModel"
 
 local SurvivorCard = rawget(_G, "KnoxSurvivorCard") or {}
@@ -9,11 +13,10 @@ local Window = ISCollapsableWindowJoypad:derive("KnoxSurvivorCardWindow")
 
 local MAX_LOCAL_PLAYERS = 4
 local REFRESH_MS = 500
-local WINDOW_WIDTH = 460
-local WINDOW_HEIGHT = 500
+local WINDOW_WIDTH = 620
+local WINDOW_HEIGHT = 540
 local PADDING = 10
 local SECTION_GAP = 8
-local AVATAR_TEXTURE = getTexture("media/ui/avatarBackgroundWhite.png")
 
 local COL_BG      = { 0.06, 0.06, 0.06 }
 local COL_BORDER  = { 0.28, 0.28, 0.28 }
@@ -23,10 +26,6 @@ local COL_LABEL   = { 0.62, 0.62, 0.60 }
 local COL_VALUE   = { 0.88, 0.88, 0.85 }
 local COL_DIM     = { 0.52, 0.52, 0.50 }
 local COL_ACCENT  = { 0.48, 0.56, 0.38 }
-local COL_HEALTH  = { 0.72, 0.22, 0.18 }
-local COL_HUNGER  = { 0.78, 0.54, 0.14 }
-local COL_THIRST  = { 0.22, 0.50, 0.82 }
-local COL_FATIGUE = { 0.68, 0.34, 0.72 }
 
 local windows = {}
 local nextRefreshAt = 0
@@ -46,13 +45,6 @@ local function trimText(font, text, maximumWidth)
         value = string.sub(value, 1, #value - 1)
     end
     return value .. suffix
-end
-
-local function initials(snapshot)
-    local first = string.sub(tostring(snapshot ~= nil and snapshot.forename or ""), 1, 1)
-    local last = string.sub(tostring(snapshot ~= nil and snapshot.surname or ""), 1, 1)
-    local value = string.upper(first .. last)
-    return value ~= "" and value or "?"
 end
 
 local function dayLabel(value)
@@ -133,75 +125,195 @@ local function restoreJoypadFocus(window)
     setJoypadFocus(window.playerNum, previous)
 end
 
+-- Knox tab — preserves Knox-specific data (relationship / base / activity) inside vanilla tab frame.
+local KnoxPanel = ISPanelJoypad:derive("KnoxSurvivorKnoxPanel")
+
+function KnoxPanel:prerender()
+    ISPanelJoypad.prerender(self)
+    local snapshot = self.snapshot
+    if snapshot == nil then return end
+    local smallH = getTextManager():getFontHeight(UIFont.Small)
+    local y = PADDING
+    local w = self.width - PADDING * 2
+
+    local function sectionHeader(title)
+        self:drawRect(PADDING, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
+        self:drawText(title:upper(), PADDING + 6, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
+        y = y + 20
+    end
+    local function keyValue(label, value, col)
+        local c = col or COL_VALUE
+        self:drawText(tostring(label), PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+        self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), w - 70), PADDING + w, y, c[1], c[2], c[3], 1, UIFont.Small)
+        y = y + 16
+    end
+
+    self:drawText(trimText(UIFont.Medium, snapshot.displayName, w), PADDING, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Medium)
+    local mediumH = getTextManager():getFontHeight(UIFont.Medium)
+    y = y + mediumH + 4
+    local age = snapshot.ageYears ~= nil and "Age " .. tostring(snapshot.ageYears) or ""
+    if age ~= "" then
+        self:drawText(age, PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+        y = y + smallH + 2
+    end
+    self:drawText("Survived " .. dayLabel(snapshot.daysSurvived) .. "  |  Known " .. dayLabel(snapshot.daysKnown), PADDING, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
+    y = y + smallH + SECTION_GAP
+
+    sectionHeader("Occupation")
+    keyValue("Profession", snapshot.professionLabel)
+    if snapshot.duty ~= nil and snapshot.duty.baseId ~= nil then
+        keyValue("Home Base", "Base resident")
+    end
+    y = y + 4
+    sectionHeader("Traits / Skills")
+    self:drawText("Traits", PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    self:drawText(trimText(UIFont.Small, compactList(snapshot.traits, 3), w - 60), PADDING + 60, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+    y = y + smallH + 3
+    self:drawText("Skills", PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    self:drawText(trimText(UIFont.Small, compactSkills(snapshot.skills, 3), w - 60), PADDING + 60, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+    y = y + smallH + SECTION_GAP
+
+    sectionHeader("Equipment")
+    keyValue("Weapon", snapshot.weaponName)
+    y = y + 4
+    sectionHeader("Relationship")
+    keyValue("Faction", snapshot.factionName or "None")
+    local trustVal = snapshot.trust ~= nil and math.floor(snapshot.trust) or nil
+    local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
+    local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_DIM)) or COL_DIM
+    keyValue("Trust", trustLabel, trustCol)
+    y = y + 4
+    sectionHeader("Base / Activity")
+    local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil
+    if job ~= nil and job ~= "" and job ~= "auto" then
+        keyValue("Job", job:sub(1,1):upper() .. job:sub(2))
+    end
+    keyValue("Location", snapshot.locationLabel)
+    keyValue("Order", snapshot.orderLabel)
+    local status = snapshot.activity or "Idle"
+    if snapshot.distanceTiles ~= nil then
+        status = status .. " (" .. tostring(math.floor(snapshot.distanceTiles + 0.5)) .. " tiles)"
+    end
+    keyValue("Activity", status)
+end
+
+function KnoxPanel:new(x, y, width, height)
+    local o = ISPanelJoypad.new(self, x, y, width, height)
+    o:noBackground()
+    o.snapshot = nil
+    return o
+end
+
 function Window:createChildren()
     ISCollapsableWindowJoypad.createChildren(self)
     self.pinButton:setVisible(false)
     self.collapseButton:setVisible(false)
 
-    local titleHeight = self:titleBarHeight()
-    self.portraitX = PADDING
-    self.portraitY = titleHeight + PADDING
-    self.portraitWidth = math.min(124, math.max(100, math.floor((self.width - PADDING * 3) * 0.30)))
-    self.portraitHeight = math.min(156, math.max(120, math.floor(self.height * 0.32)))
+    local th = self:titleBarHeight()
+    local rh = self:resizeWidgetHeight()
+    -- ISTabPanel matching ISCharacterInfoWindow:117 — tabPadX 10, equalTabWidth false
+    self.panel = ISTabPanel:new(0, th, self.width, self.height - th - rh)
+    self.panel:initialise()
+    self.panel.tabPadX = 10
+    self.panel.equalTabWidth = false
+    self.panel:setAnchorRight(true)
+    self.panel:setAnchorBottom(true)
+    self:addChild(self.panel)
 
-    self.portrait = ISUI3DModel:new(
-        self.portraitX,
-        self.portraitY,
-        self.portraitWidth,
-        self.portraitHeight
-    )
-    self.portrait:initialise()
-    -- addChild() instantiates UI3DModel.javaObject in Build 42.20. Every method
-    -- below delegates to that Java object, so configure the portrait only after
-    -- it has been attached (the same order used by vanilla character screens).
-    self:addChild(self.portrait)
-    self.portrait:setWantMouseEvents(false)
-    self.portrait:setState("idle")
-    self.portrait:setDirection(IsoDirections.S)
-    self.portrait:setIsometric(false)
-    self.portrait:setDoRandomExtAnimations(false)
-    self.portrait:setZoom(14)
-    self.portrait:setYOffset(-0.85)
-    self.portrait:setVisible(false)
-    self.portrait:setRenderThisPlayerOnly(self.playerNum)
-    self.portrait.boundCharacter = nil
+    -- Views are created lazily when survivor is known so they can bind to the correct IsoPlayer.
+    self.infoView = nil
+    self.skillsView = nil
+    self.healthView = nil
+    self.knoxView = nil
 end
 
-function Window:releasePortrait()
-    if self.portrait == nil then
-        return
-    end
-    pcall(function()
-        self.portrait:setCharacter(nil)
-    end)
-    self.portrait.boundCharacter = nil
-    self.portraitAvailable = false
-    self.portrait:setVisible(false)
-end
+local function ensureViews(window)
+    if window.panel == nil then return end
+    local survivor = window.snapshot ~= nil and window.snapshot.loaded
+        and KnoxSurvivorViewModel.resolveLiveCharacter(window.snapshot.id) or nil
+    -- Fallback to snapshot's iso if not loaded? Use nil and show overlay.
 
-function Window:refreshPortrait()
-    local character = self.snapshot ~= nil and self.snapshot.loaded
-        and KnoxSurvivorViewModel.resolveLiveCharacter(self.snapshot.id)
-        or nil
-    if character == nil then
-        self:releasePortrait()
-        return
+    if window.infoView == nil then
+        local view = ISCharacterScreen:new(0, 8, window.panel.width, 400, window.playerNum)
+        view:initialise()
+        view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
+        view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        -- Never show local player — bind to survivor immediately (or nil until loaded).
+        view.char = survivor
+        view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
+        if survivor ~= nil then
+            view.bFemale = survivor:isFemale()
+            view.refreshNeeded = true
+            pcall(function() view:loadTraits() end)
+            pcall(function() view:loadProfession() end)
+            view:loadBeardAndHairStyle()
+        end
+        window.infoView = view
+        window.panel:addView(xpSystemText.info, view)
     end
-    if self.portrait.boundCharacter == character and self.portraitAvailable then
-        return
+    if window.skillsView == nil then
+        local view = ISCharacterInfo:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
+        view:initialise()
+        view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
+        view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        view.char = survivor
+        view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
+        if survivor ~= nil then
+            view.perks = ISCharacterInfo.loadPerk(view)
+            view.progressBarLoaded = false
+            view.reloadSkillBar = true
+        end
+        window.skillsView = view
+        window.panel:addView(xpSystemText.skills, view)
     end
-    local success = pcall(function()
-        self.portrait:setCharacter(nil)
-        self.portrait:setCharacter(character)
-        self.portrait:setState("idle")
-    end)
-    if not success then
-        self:releasePortrait()
-        return
+    if window.healthView == nil and survivor ~= nil then
+        -- ISHealthPanel already takes IsoPlayer directly — safest for off-slot.
+        local view = ISHealthPanel:new(survivor, 0, 8, window.panel.width, window.panel.height - 8)
+        view:initialise()
+        view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
+        view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
+        window.healthView = view
+        window.panel:addView(xpSystemText.health, view)
     end
-    self.portrait.boundCharacter = character
-    self.portraitAvailable = true
-    self.portrait:setVisible(true)
+    if window.knoxView == nil then
+        local view = KnoxPanel:new(0, 8, window.panel.width, window.panel.height - 8)
+        view:initialise()
+        window.knoxView = view
+        window.panel:addView("Knox", view)
+    end
+
+    -- Bind all three vanilla views to the selected survivor (never local player)
+    if survivor ~= nil then
+        -- Info
+        if window.infoView.char ~= survivor then
+            window.infoView.char = survivor
+            window.infoView.playerNum = survivor:getPlayerNum()
+            window.infoView.bFemale = survivor:isFemale()
+            window.infoView.refreshNeeded = true
+            pcall(function() window.infoView:loadTraits() end)
+            pcall(function() window.infoView:loadProfession() end)
+            window.infoView:loadBeardAndHairStyle()
+        end
+        -- Skills
+        if window.skillsView.char ~= survivor then
+            window.skillsView.char = survivor
+            window.skillsView.playerNum = survivor:getPlayerNum()
+            window.skillsView.perks = ISCharacterInfo.loadPerk(window.skillsView)
+            window.skillsView.progressBarLoaded = false
+            window.skillsView.reloadSkillBar = true
+        end
+        -- Health
+        if window.healthView.character ~= survivor then
+            window.healthView.character = survivor
+            window.healthView.playerNum = survivor:getPlayerNum()
+            window.healthView.otherPlayer = nil
+            window.healthView.characterX = survivor:getX()
+            window.healthView.characterY = survivor:getY()
+        end
+    end
+    if window.knoxView ~= nil then
+        window.knoxView.snapshot = window.snapshot
+    end
 end
 
 function Window:refreshSnapshot()
@@ -211,14 +323,18 @@ function Window:refreshSnapshot()
         return false
     end
     self.snapshot = snapshot
-    self:refreshPortrait()
+    ensureViews(self)
+    -- Nudge vanilla views to refresh when survivor moved / leveled
+    if self.infoView ~= nil and self.infoView.char ~= nil then
+        self.infoView.refreshNeeded = true
+    end
+    if self.skillsView ~= nil then
+        self.skillsView.reloadSkillBar = false
+    end
     return true
 end
 
 function Window:setSurvivor(survivorId)
-    if self.survivorId ~= survivorId then
-        self:releasePortrait()
-    end
     self.survivorId = survivorId
     return self:refreshSnapshot()
 end
@@ -237,166 +353,12 @@ function Window:centerInViewport()
     self:clampToViewport()
 end
 
-local function drawSectionHeader(window, x, y, w, title)
-    window:drawRect(x, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
-    window:drawText(title:upper(), x + 6, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
-    return y + 20
-end
-
-local function drawKeyValue(window, x, y, w, label, value, valCol)
-    local c = valCol or COL_VALUE
-    window:drawText(tostring(label), x, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    window:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), w - 60), x + w, y, c[1], c[2], c[3], 1, UIFont.Small)
-    return y + 16
-end
-
-local function drawBar(window, x, y, w, value, colour)
-    local amount = clamp(tonumber(value) or 0, 0, 1)
-    window:drawRect(x, y, w, 6, 0.92, 0.10, 0.10, 0.10)
-    window:drawRectBorder(x, y, w, 6, 0.72, 0.22, 0.22, 0.22)
-    local fade = 0.55 + amount * 0.45
-    window:drawRect(x + 1, y + 1, math.max(0, math.floor((w - 2) * amount)), 4,
-        0.92, colour[1] * fade, colour[2] * fade, colour[3] * fade)
-end
-
-function Window:drawCondition(label, y, value, available, highIsBad, colour)
-    local labelWidth = 58
-    local rx = self.rightColX or (self.portraitX + self.portraitWidth + 14)
-    local barX = rx + labelWidth
-    local barWidth = math.max(20, self.rightColWidth - labelWidth - 34)
-    self:drawText(label, rx, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    self:drawRect(barX, y + 3, barWidth, 6, 0.92, 0.10, 0.10, 0.10)
-    self:drawRectBorder(barX, y + 3, barWidth, 6, 0.72, 0.28, 0.28, 0.28)
-    if available then
-        local amount = clamp(tonumber(value) or 0, 0, 1)
-        local c = colour or COL_HEALTH
-        local bad = highIsBad and amount >= 0.75 or (not highIsBad and amount <= 0.25)
-        local warn = highIsBad and amount >= 0.45 or (not highIsBad and amount <= 0.50)
-        if bad then c = COL_HEALTH elseif warn then c = COL_HUNGER end
-        local fade = 0.55 + amount * 0.45
-        self:drawRect(barX + 1, y + 3, math.max(0, math.floor((barWidth - 2) * amount)), 4,
-            0.92, c[1] * fade, c[2] * fade, c[3] * fade)
-        self:drawTextRight(tostring(math.floor(amount * 100 + 0.5)) .. "%",
-            self.width - PADDING, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
-    else
-        self:drawTextRight("--", self.width - PADDING, y,
-            COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
-    end
-end
-
 function Window:prerender()
     ISCollapsableWindowJoypad.prerender(self)
-    local snapshot = self.snapshot
-    if snapshot == nil then return end
-
-    local titleH = self:titleBarHeight()
-    local smallH = getTextManager():getFontHeight(UIFont.Small)
-    local mediumH = getTextManager():getFontHeight(UIFont.Medium)
-
-    local leftCol = PADDING
-    local rightCol = self.portraitX + self.portraitWidth + 14
-    self.rightColX = rightCol
-    self.rightColWidth = self.width - rightCol - PADDING
-    local contentW = self.rightColWidth
-    local y
-
-    -- Portrait background
-    self:drawRect(self.portraitX, self.portraitY, self.portraitWidth, self.portraitHeight,
-        0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
-    self:drawRectBorder(self.portraitX, self.portraitY, self.portraitWidth, self.portraitHeight,
-        0.88, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
-    if AVATAR_TEXTURE ~= nil then
-        self:drawTextureScaled(AVATAR_TEXTURE, self.portraitX, self.portraitY,
-            self.portraitWidth, self.portraitHeight, 0.30, 0.34, 0.34, 0.34)
+    -- Tab content is drawn by ISTabPanel children; window just keeps title correct.
+    if self.snapshot ~= nil then
+        self:setTitle(trimText(UIFont.Medium, self.snapshot.displayName, self.width - 40))
     end
-    if not self.portraitAvailable then
-        self:drawTextCentre(initials(snapshot),
-            self.portraitX + self.portraitWidth / 2,
-            self.portraitY + (self.portraitHeight - mediumH) / 2,
-            COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Medium)
-    end
-
-    -- Identity (below portrait)
-    y = self.portraitY + self.portraitHeight + 8
-    self:drawText(trimText(UIFont.Medium, snapshot.displayName, self.portraitWidth),
-        self.portraitX, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Medium)
-    y = y + mediumH + 3
-    local age = snapshot.ageYears ~= nil and "Age " .. tostring(snapshot.ageYears) or ""
-    self:drawText(trimText(UIFont.Small, age, self.portraitWidth),
-        self.portraitX, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    y = y + smallH + 2
-    self:drawText("Survived " .. dayLabel(snapshot.daysSurvived),
-        self.portraitX, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
-    y = y + smallH + 2
-    self:drawText("Known " .. dayLabel(snapshot.daysKnown),
-        self.portraitX, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
-
-    -- Occupation
-    y = titleH + PADDING
-    y = drawSectionHeader(self, rightCol, y, contentW, "Occupation")
-    y = drawKeyValue(self, rightCol, y, contentW, "Profession", snapshot.professionLabel)
-    if snapshot.duty ~= nil and snapshot.duty.baseId ~= nil then
-        y = drawKeyValue(self, rightCol, y, contentW, "Home Base", "Base resident")
-    end
-
-    -- Traits / Skills
-    y = y + 4
-    y = drawSectionHeader(self, rightCol, y, contentW, "Traits / Skills")
-    self:drawText("Traits", rightCol, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    self:drawText(trimText(UIFont.Small, compactList(snapshot.traits, 3), contentW - 48),
-        rightCol + 48, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
-    y = y + smallH + 3
-    self:drawText("Skills", rightCol, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-    self:drawText(trimText(UIFont.Small, compactSkills(snapshot.skills, 3), contentW - 48),
-        rightCol + 48, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
-
-    -- Health / Vitals
-    y = y + smallH + SECTION_GAP
-    y = drawSectionHeader(self, rightCol, y, contentW, "Health / Vitals")
-    local vitals = snapshot.vitals or {}
-    if not vitals.available then
-        self:drawText("Away from group", rightCol + 6, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
-        y = y + smallH + 4
-    end
-    local barX = rightCol + 58
-    local barW = contentW - 58
-    self:drawCondition("Health", y, vitals.health, vitals.available, false, COL_HEALTH)
-    y = y + smallH + 6
-    self:drawCondition("Hunger", y, vitals.hunger, vitals.available, true, COL_HUNGER)
-    y = y + smallH + 6
-    self:drawCondition("Thirst", y, vitals.thirst, vitals.available, true, COL_THIRST)
-    y = y + smallH + 6
-    self:drawCondition("Fatigue", y, vitals.fatigue, vitals.available, true, COL_FATIGUE)
-
-    -- Equipment
-    y = y + smallH + SECTION_GAP
-    y = drawSectionHeader(self, rightCol, y, contentW, "Equipment")
-    y = drawKeyValue(self, rightCol, y, contentW, "Weapon", snapshot.weaponName)
-
-    -- Relationship / Trust
-    y = y + 4
-    y = drawSectionHeader(self, rightCol, y, contentW, "Relationship")
-    local faction = snapshot.factionName or "None"
-    y = drawKeyValue(self, rightCol, y, contentW, "Faction", faction)
-    local trustVal = snapshot.trust ~= nil and math.floor(snapshot.trust) or nil
-    local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
-    local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_HEALTH)) or COL_DIM
-    y = drawKeyValue(self, rightCol, y, contentW, "Trust", trustLabel, trustCol)
-
-    -- Base / Activity
-    y = y + 4
-    y = drawSectionHeader(self, rightCol, y, contentW, "Base / Activity")
-    local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil
-    if job ~= nil and job ~= "" and job ~= "auto" then
-        y = drawKeyValue(self, rightCol, y, contentW, "Job", job:sub(1, 1):upper() .. job:sub(2))
-    end
-    y = drawKeyValue(self, rightCol, y, contentW, "Location", snapshot.locationLabel)
-    y = drawKeyValue(self, rightCol, y, contentW, "Order", snapshot.orderLabel)
-    local status = snapshot.activity or "Idle"
-    if snapshot.distanceTiles ~= nil then
-        status = status .. " (" .. tostring(math.floor(snapshot.distanceTiles + 0.5)) .. " tiles)"
-    end
-    y = drawKeyValue(self, rightCol, y, contentW, "Activity", status)
 end
 
 function Window:onMouseUp(x, y)
@@ -416,11 +378,23 @@ function Window:onJoypadDown(button, joypadData)
         self:close()
         return
     end
+    if button == Joypad.LBumper or button == Joypad.RBumper then
+        if self.panel ~= nil and self.panel.viewList ~= nil and #self.panel.viewList > 1 then
+            local idx = self.panel:getActiveViewIndex()
+            if button == Joypad.LBumper then
+                idx = idx == 1 and #self.panel.viewList or idx - 1
+            else
+                idx = idx == #self.panel.viewList and 1 or idx + 1
+            end
+            self.panel:activateView(self.panel.viewList[idx].name)
+            setJoypadFocus(self.playerNum, self.panel:getActiveView())
+        end
+        return
+    end
     ISCollapsableWindowJoypad.onJoypadDown(self, button, joypadData)
 end
 
 function Window:destroy(restoreFocus)
-    self:releasePortrait()
     self.snapshot = nil
     self:setVisible(false)
     self:removeFromUIManager()
@@ -447,8 +421,6 @@ function Window:new(playerNum)
     window.playerNum = playerNum
     window.survivorId = nil
     window.snapshot = nil
-    window.portrait = nil
-    window.portraitAvailable = false
     window.previousJoypadFocus = nil
     window.resizable = false
     window.pin = true
@@ -493,7 +465,7 @@ function SurvivorCard.show(playerNum, survivorId)
     window:bringToTop()
     window:clampToViewport()
     if JoypadState.players[playerNum + 1] ~= nil then
-        setJoypadFocus(playerNum, window)
+        setJoypadFocus(playerNum, window.panel and window.panel:getActiveView() or window)
     end
     return window
 end
