@@ -199,8 +199,17 @@ if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.getContainer
     end
     local origGetContainers = CompanionInventory._origGetContainers
     ISInventoryPaneContextMenu.getContainers = function(character)
-        local ok, result = pcall(function() return origGetContainers(character) end)
-        if ok and result ~= nil then return result end
+        -- Survivor shells have playerNum -1 and no playerData; vanilla getContainers
+        -- does getPlayerInventory(-1).inventoryPane → null deref (Kahlua RuntimeException
+        -- not always pcall-catchable). Detect survivor first and bypass vanilla path.
+        local isSurvivor = false
+        for _, sid in pairs(active) do
+            if KnoxSurvivorRuntime.getCharacter(sid) == character then isSurvivor = true; break end
+        end
+        if not isSurvivor then
+            local ok, result = pcall(function() return origGetContainers(character) end)
+            if ok and result ~= nil then return result end
+        end
         local fallback = ArrayList.new()
         local ok2, inv = pcall(function() return character:getInventory() end)
         if ok2 and inv ~= nil then fallback:add(inv) end
