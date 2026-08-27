@@ -1,6 +1,8 @@
 require "BuildingObjects/ISSelectCursor"
 require "KS_BaseManager"
 require "KS_ActivityFeed"
+require "KS_BaseHighlights"
+require "KS_Persistence"
 
 local BaseZoneSelector = rawget(_G, "KnoxBaseZoneSelector") or {}
 _G.KnoxBaseZoneSelector = BaseZoneSelector
@@ -35,6 +37,20 @@ local function pickMouseSquare(player)
     return sq, wx, wy, z
 end
 
+local function isInsideTerritory(minX, minY, maxX, maxY, z, base)
+    if base == nil then return false end
+    local area = base.territory or base.home
+    if area == nil then return false end
+    local bMinX = tonumber(area.minX)
+    local bMinY = tonumber(area.minY)
+    local bMaxX = tonumber(area.maxX or (bMinX and area.width and bMinX + area.width - 1 or bMinX))
+    local bMaxY = tonumber(area.maxY or (bMinY and area.height and bMinY + area.height - 1 or bMinY))
+    if bMinX == nil or bMinY == nil or bMaxX == nil or bMaxY == nil then return false end
+    local bz = tonumber(area.z or z)
+    if tonumber(z) ~= bz then return false end
+    return minX >= bMinX and maxX <= bMaxX and minY >= bMinY and maxY <= bMaxY
+end
+
 local function draftTick()
     if activeSelection == nil or activeSelection.firstSquare == nil or activeSelection.pendingConfirm then return end
     local player = activeSelection.player
@@ -47,18 +63,55 @@ local function draftTick()
     local maxX = math.max(x1, wx)
     local minY = math.min(y1, wy)
     local maxY = math.max(y1, wy)
+    local base = KnoxPersistence.getBase(activeSelection.baseId)
+    local inside = isInsideTerritory(minX, minY, maxX, maxY, z, base)
     local col = ZONE_HIGHLIGHT[activeSelection.zoneType] or ZONE_HIGHLIGHT.general
+    -- Valid = inside base boundary; invalid glows BadHighlitedColor (vanilla invalid).
+    if not inside then
+        local bad = getCore() and getCore():getBadHighlitedColor() or nil
+        if bad ~= nil then
+            col = { r = bad:getR(), g = bad:getG(), b = bad:getB(), a = 0.38 }
+        else
+            col = { r = 0.90, g = 0.15, b = 0.15, a = 0.38 }
+        end
+    end
     pcall(function()
         if addAreaHighlightForPlayer ~= nil then
             addAreaHighlightForPlayer(player:getPlayerNum(), minX, minY, maxX + 1, maxY + 1, z, col.r, col.g, col.b, col.a)
         elseif addAreaHighlight ~= nil then
             addAreaHighlight(minX, minY, maxX + 1, maxY + 1, z, col.r, col.g, col.b, col.a)
         end
+        -- Overlaps remain readable: draw intersect borders with thin contrasting outline
+        -- over the subdued existing fills, instead of blending into one block.
+        if base ~= nil and base.zones ~= nil and inside then
+            local pn = player:getPlayerNum()
+            for _, zone in pairs(base.zones) do
+                if zone ~= nil and zone.x1 ~= nil and (zone.z or 0) == z then
+                    local zx1 = math.min(tonumber(zone.x1), tonumber(zone.x2))
+                    local zx2 = math.max(tonumber(zone.x1), tonumber(zone.x2))
+                    local zy1 = math.min(tonumber(zone.y1), tonumber(zone.y2))
+                    local zy2 = math.max(tonumber(zone.y1), tonumber(zone.y2))
+                    local ix1 = math.max(minX, zx1); local ix2 = math.min(maxX, zx2)
+                    local iy1 = math.max(minY, zy1); local iy2 = math.min(maxY, zy2)
+                    if ix1 <= ix2 and iy1 <= iy2 then
+                        -- Contrast border over overlap — restrained white, not rainbow.
+                        if addAreaHighlightForPlayer ~= nil then
+                            addAreaHighlightForPlayer(pn, ix1, iy1, ix2 + 1, iy2 + 1, z, 0.92, 0.92, 0.88, 0.18)
+                        end
+                        -- Thin Bad tint on the overlap itself keeps conflicts obvious.
+                        if addAreaHighlightForPlayer ~= nil then
+                            addAreaHighlightForPlayer(pn, ix1, iy1, ix2 + 1, iy2 + 1, z, 0.90, 0.55, 0.15, 0.10)
+                        end
+                    end
+                end
+            end
+        end
     end)
 end
 
 local function hookTick(instance)
     activeSelection = instance
+    KnoxBaseHighlights.setDraft(instance.player:getPlayerNum(), true, instance.zoneType)
     if not tickHooked then
         Events.OnTick.Add(draftTick)
         tickHooked = true
@@ -72,6 +125,9 @@ local function unhookTick(instance)
     if activeSelection == nil and tickHooked then
         pcall(function() Events.OnTick.Remove(draftTick) end)
         tickHooked = false
+    end
+    if instance ~= nil and instance.player ~= nil then
+        KnoxBaseHighlights.setDraft(instance.player:getPlayerNum(), false, nil)
     end
 end
 

@@ -5,6 +5,7 @@ local Highlights = rawget(_G, "KnoxBaseHighlights") or {}
 _G.KnoxBaseHighlights = Highlights
 
 local enabled = {}
+local draftByPlayer = {}
 
 local function setSquareHighlighted(square, highlight, color)
     if square == nil or square:getFloor() == nil then return end
@@ -57,27 +58,49 @@ function Highlights.toggle(playerNum)
     return Highlights.isEnabled(playerNum)
 end
 
+function Highlights.setDraft(playerNum, active, zoneType)
+    playerNum = tonumber(playerNum) or 0
+    if active then
+        draftByPlayer[playerNum] = { active = true, zoneType = zoneType }
+    else
+        draftByPlayer[playerNum] = nil
+    end
+    Highlights.refresh(playerNum)
+end
+
+function Highlights.isDraft(playerNum)
+    local entry = draftByPlayer[tonumber(playerNum) or 0]
+    return entry ~= nil and entry.active == true
+end
+
 function Highlights.refresh(playerNum)
     playerNum = tonumber(playerNum) or 0
     local player = getSpecificPlayer(playerNum)
     local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
     local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
-    local show = Highlights.isEnabled(playerNum) and base ~= nil
+    local draft = draftByPlayer[playerNum]
+    local isDraft = draft ~= nil and draft.active
+    local show = base ~= nil and (Highlights.isEnabled(playerNum) or isDraft)
     -- Clear previous highlights by iterating all known areas once more
     -- Vanilla highlight is per-square; we just re-apply correct state.
+    -- During draft, existing are subdued so overlaps stay readable.
     if base ~= nil then
         local territory = base.territory or base.home
-        local colorTerritory = { r = 0.25, g = 0.55, b = 0.25, a = 0.85 }
+        -- Draft strongest, existing subdued: vanilla area-highlight-and-confirm pattern.
+        local territoryAlpha = isDraft and 0.14 or 0.85
+        local zoneAlpha = isDraft and 0.12 or 0.85
+        local zoneAlphaGeneral = isDraft and 0.10 or 0.75
+        local colorTerritory = { r = 0.25, g = 0.55, b = 0.25, a = territoryAlpha }
         local colorZones = {
-            guard = { r = 0.85, g = 0.2, b = 0.2, a = 0.9 },
-            patrol = { r = 0.85, g = 0.55, b = 0.15, a = 0.85 },
-            farming = { r = 0.2, g = 0.7, b = 0.2, a = 0.85 },
-            woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = 0.85 },
-            corpse = { r = 0.5, g = 0.5, b = 0.5, a = 0.85 },
-            animal_care = { r = 0.85, g = 0.7, b = 0.1, a = 0.85 },
-            repair = { r = 0.2, g = 0.5, b = 0.85, a = 0.85 },
-            construction = { r = 0.7, g = 0.4, b = 0.85, a = 0.85 },
-            general = { r = 0.4, g = 0.4, b = 0.85, a = 0.75 },
+            guard = { r = 0.85, g = 0.2, b = 0.2, a = zoneAlpha },
+            patrol = { r = 0.85, g = 0.55, b = 0.15, a = zoneAlpha },
+            farming = { r = 0.2, g = 0.7, b = 0.2, a = zoneAlpha },
+            woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = zoneAlpha },
+            corpse = { r = 0.5, g = 0.5, b = 0.5, a = zoneAlpha },
+            animal_care = { r = 0.85, g = 0.7, b = 0.1, a = zoneAlpha },
+            repair = { r = 0.2, g = 0.5, b = 0.85, a = zoneAlpha },
+            construction = { r = 0.7, g = 0.4, b = 0.85, a = zoneAlpha },
+            general = { r = 0.4, g = 0.4, b = 0.85, a = zoneAlphaGeneral },
         }
         -- First clear all then re-apply if enabled, to avoid stale highlights after disable.
         forEachSquare(territory, function(sq) setSquareHighlighted(sq, false) end)

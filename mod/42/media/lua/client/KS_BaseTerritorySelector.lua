@@ -1,6 +1,8 @@
 require "BuildingObjects/ISSelectCursor"
 require "KS_BaseManager"
 require "KS_ActivityFeed"
+require "KS_BaseHighlights"
+require "KS_Persistence"
 
 local BaseTerritorySelector = rawget(_G, "KnoxBaseTerritorySelector") or {}
 _G.KnoxBaseTerritorySelector = BaseTerritorySelector
@@ -44,11 +46,32 @@ local function draftTick()
             addAreaHighlight(minX, minY, maxX + 1, maxY + 1, z,
                 BOUNDARY_COLOR.r, BOUNDARY_COLOR.g, BOUNDARY_COLOR.b, BOUNDARY_COLOR.a)
         end
+        -- Keep overlaps readable: subdued existing fills + thin contrast over intersect.
+        local base = KnoxPersistence.getBase(activeSelection.baseId)
+        if base ~= nil and base.zones ~= nil then
+            local pn = player:getPlayerNum()
+            for _, zone in pairs(base.zones) do
+                if zone ~= nil and zone.x1 ~= nil and (zone.z or 0) == z then
+                    local zx1 = math.min(tonumber(zone.x1), tonumber(zone.x2))
+                    local zx2 = math.max(tonumber(zone.x1), tonumber(zone.x2))
+                    local zy1 = math.min(tonumber(zone.y1), tonumber(zone.y2))
+                    local zy2 = math.max(tonumber(zone.y1), tonumber(zone.y2))
+                    local ix1 = math.max(minX, zx1); local ix2 = math.min(maxX, zx2)
+                    local iy1 = math.max(minY, zy1); local iy2 = math.min(maxY, zy2)
+                    if ix1 <= ix2 and iy1 <= iy2 then
+                        if addAreaHighlightForPlayer ~= nil then
+                            addAreaHighlightForPlayer(pn, ix1, iy1, ix2 + 1, iy2 + 1, z, 0.92, 0.92, 0.88, 0.16)
+                        end
+                    end
+                end
+            end
+        end
     end)
 end
 
 local function hookTick(instance)
     activeSelection = instance
+    KnoxBaseHighlights.setDraft(instance.player:getPlayerNum(), true, "boundary")
     if not tickHooked then
         Events.OnTick.Add(draftTick)
         tickHooked = true
@@ -60,6 +83,9 @@ local function unhookTick(instance)
     if activeSelection == nil and tickHooked then
         pcall(function() Events.OnTick.Remove(draftTick) end)
         tickHooked = false
+    end
+    if instance ~= nil and instance.player ~= nil then
+        KnoxBaseHighlights.setDraft(instance.player:getPlayerNum(), false, nil)
     end
 end
 
