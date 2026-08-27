@@ -301,13 +301,26 @@ local function getSurvivorForItem(item)
     return nil, nil
 end
 
+local inventoryLogLast = {}
 local function inventoryLog(action, sid, item, player)
+    local now = getTimestampMs and getTimestampMs() or 0
+    local key = tostring(sid) .. ":" .. tostring(action)
+    if inventoryLogLast[key] and now - inventoryLogLast[key] < 800 then return end
+    inventoryLogLast[key] = now
     local itemType = "unknown"
     pcall(function() itemType = tostring(item:getFullType()) end)
     local msg = "[KnoxSurvivors][Inventory] action=" .. tostring(action) .. " survivor=" .. tostring(sid) .. " item=" .. itemType .. " player=" .. tostring(player)
-    print(msg)
-    local agent = rawget(_G, "KnoxAgent")
-    if agent ~= nil and agent.writeLog ~= nil then pcall(function() agent.writeLog("Inventory " .. msg) end) end
+    -- Efficient diagnostics: throttle and only spam when developer diagnostics enabled, but always log wear/equip/finish
+    local isDev = false
+    pcall(function()
+        if rawget(_G, "KnoxSettings") and KnoxSettings.showDeveloperDiagnostics then isDev = KnoxSettings.showDeveloperDiagnostics() == true end
+        if not isDev and isDebugEnabled ~= nil and isDebugEnabled() then isDev = true end
+    end)
+    if isDev or action == "wear" or action == "equipWeapon" or action == "finish" then
+        print(msg)
+        local agent = rawget(_G, "KnoxAgent")
+        if agent ~= nil and agent.writeLog ~= nil then pcall(function() agent.writeLog("Inventory " .. msg) end) end
+    end
 end
 
 if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.wearItem ~= nil then
