@@ -13,16 +13,19 @@ Status meanings:
 
 ## Verification baseline
 
-Audited on 2026-08-26 through commit `435cb85`, with the zombie-bridge diagnostic
-improvement described below awaiting its next live run.
+Audited on 2026-08-26 through commit `fd61d84`, with the narrow standing-zombie
+visibility adapter described below awaiting its first live run.
 
-- all 23 standalone Lua tests pass;
-- all 56 mod Lua files parse with Lua 5.1;
-- `:java:build` passes, including the three-call melee-transformer verifier;
-- the latest collected live run is `dev-runs/20260826-054852`;
-- that run contains no render-corruption or generic movement/combat-failure line, but
-  it repeatedly reports `ZOMBIE_DIRECT_FAILED` with an unhelpful empty engine exception;
-  the bridge now records its exact failed stage on the next run rather than obscuring it;
+- all 25 standalone Lua tests pass;
+- all mod Lua files parse with Lua 5.1;
+- `:java:build stageWorkshop` passes, including the three-call melee-transformer verifier
+  and the two-call Build 42.20.3 zombie-visibility-transformer verifier;
+- the latest collected live run is `dev-runs/20260826-084152`;
+- that run proves crawler zombie damage can reach an off-slot survivor BodyDamage, but
+  standing zombies repeatedly fail while writing the unused off-slot lighting bit. Exact
+  Build 42.20.3 inspection shows standing attacks require `IsoZombie.isTargetVisible()`,
+  while crawlers bypass that branch. The new adapter changes only that single visibility
+  query for an actual Knox shell and leaves real players on their native lighting path;
 - commit `a00c8e2` restores `IsoPlayer.instance` immediately after the shell constructor,
   fixes the Survivor Card model-child order, and bounds detached-shell cleanup for every
   active survivor identity;
@@ -42,7 +45,7 @@ Neither uncommitted fix is considered working until a new live run confirms it.
 | 2. Survivor autonomy | **Partial** | Roaming, supply-aware exploration, container searching, ranked looting, equipment, needs, melee, rest, medicine, and traversal states exist in `KS_SurvivorAutonomyController.lua`. Firearms are absent; purposeful long-range goals and several failure paths remain incomplete. Live logs show frozen/detached actors and high failure counts. |
 | 3. Priority/action ownership | **Partial, retry defect patched** | One Lua controller owns high-level state and Java owns movement/combat requests. Reservations, cancellation, deadlines, and task claims exist. Formation start/tick failures now cancel stale movement ownership and enter a bounded wait instead of immediately requesting another route; live verification is pending. |
 | 4. Navigation/human movement | **Partial, retry defect patched** | Walking, running pace, formation catch-up, doors, windows, smashing, climbing, fences, alternate entry, cooldowns, and route abandonment exist. Consecutive formation failures now retain an escalating bounded cooldown. Multi-floor and alternate-route behavior remain unproven in live play. |
-| 5. Full combat | **Partial / live bridge defect under diagnosis** | Native melee attack integration, moving-target refresh, target reservations, zombie awareness, endurance, condition, injury capture, and group threat selection exist. The latest live run repeatedly fails the off-slot zombie-perception bridge before a useful attack state can be observed; the next run will name the exact failing bridge stage. Firearms, reloads, ammo policy, and survivor PvP are missing. |
+| 5. Full combat | **Partial / standing-zombie adapter unverified** | Native melee attack integration, moving-target refresh, target reservations, zombie awareness, endurance, condition, injury capture, and group threat selection exist. The latest live run isolates standing-zombie failure to the unavailable off-slot lighting bit; a Build 42.20.3-verified two-call transformer now adapts only `IsoZombie.isTargetVisible()` for the contained Knox shell. Crawler damage already reaches real BodyDamage, but a new live standing-zombie duel is still required. Firearms, reloads, ammo policy, and survivor PvP are missing. |
 | 6. Needs, health, medical, inventory | **Partial** | Real hunger, thirst, fatigue, endurance, food/water consumption, BodyDamage, self-bandaging, improvised bandage sourcing, inventory ranking, and equipment exist. The player can give selected items to a nearby loaded companion through vanilla transfer, use a split-screen-safe companion inventory window to take carried items back, and open the native medical-check screen with the real player as doctor. Nested/container inventory management and live verification of off-slot treatment/transfer remain incomplete. |
 | 7. Skills, traits, occupations | **Implemented, unverified** | Deterministic Build 42 profession/trait generation, perk levels, XP capture/restore, and job requirement checks exist and pass standalone persistence checks. Long save/unload/reconstruction progression still needs a live pass. |
 | 8. Social system | **Partial** | First/last meetings, nearby time, encounter counts, shared activity, trust, greetings, joining, declining, persistent hostility, robbery, player conversations, and recruitment exist. Dialogue is still small and repetitive; survivor PvP and deeper faction diplomacy/favors are absent. |

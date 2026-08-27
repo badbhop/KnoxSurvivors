@@ -38,15 +38,14 @@ native-defense interval between swings, including stomp targeting for downed zom
 ready for a fresh live confirmation; it is not marked verified until the run records a real
 survivor reaction and health/injury change.
 
-The current zombie handoff no longer forces either Build 42 combat state. Engine inspection
-showed that the real failure occurs one step earlier: `IsoZombie.isTargetVisible()` reads the
-target player's LOS index, while a Knox shell correctly cannot run the local-player `updateLOS()`
-routine. That made `bCanSeeTarget` fall false on the next engine update and cancelled the bite
-before `AttackCollisionCheck`. Knox now supplies only the unused off-slot index's close-range
-`couldSee` bit, allowing the normal `bAttack` transition, animation, legacy `AttackState`, hit
-reaction, and `BodyDamage` callback to run in their normal order. Diagnostics report both
-`targetIndex` and `targetVisibilityBit`. NPC creation refuses an engine layout with no genuinely
-unused index rather than borrowing a real split-screen player's LOS/cursor/render channel.
+The current zombie handoff no longer forces either Build 42 combat state. Fresh engine evidence
+showed that the old bridge was trying to write the unused off-slot lighting bit, which Build
+42.20.3 does not create for a contained NPC. Crawlers can attack because their close-range branch
+skips that standing-zombie visibility gate. Knox now adapts only the single
+`IsoZombie.isTargetVisible()` lookup for a confirmed Knox shell; real players still use their
+normal lighting data. The adapter does not change target selection, pathing, collision, attack
+states, animation callbacks, hit rolls, or BodyDamage. The standing-zombie result is still
+live-unverified until the next duel records the full native attack and injury sequence.
 
 The shell's `isLocalPlayer()` override is also explicitly false. Local-player combat callbacks
 needed by survivor melee remain covered by the existing three-call callback transformer; the

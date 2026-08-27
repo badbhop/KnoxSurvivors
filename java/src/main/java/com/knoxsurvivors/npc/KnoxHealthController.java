@@ -1,6 +1,5 @@
 package com.knoxsurvivors.npc;
 
-import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collection;
@@ -107,7 +106,7 @@ final class KnoxHealthController {
             zombie.getClass().getMethod("setTarget", movingObjectClass).invoke(zombie, body);
             if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
                 stage = "supply-current-target-visibility";
-                supplyOffSlotAttackVisibility(zombie, body);
+                supplyKnoxTargetVisibility(zombie);
             }
             stage = "read-current-target-action";
             String currentAction = String.valueOf(
@@ -204,7 +203,7 @@ final class KnoxHealthController {
         float targetDistance = refreshZombieTargetVector(zombie, body);
         if (targetDistance <= ATTACK_VISIBILITY_ENVELOPE) {
             stage = "supply-acquired-target-visibility";
-            supplyOffSlotAttackVisibility(zombie, body);
+            supplyKnoxTargetVisibility(zombie);
         }
         stage = "path-acquired-target";
         zombie.getClass().getMethod("pathToCharacter", gameCharacterClass).invoke(zombie, body);
@@ -278,67 +277,12 @@ final class KnoxHealthController {
             + " bleedingParts=" + bleedingParts(body);
     }
 
-    private static void supplyOffSlotAttackVisibility(Object zombie, Object body)
+    private static void supplyKnoxTargetVisibility(Object zombie)
         throws ReflectiveOperationException {
-        // IsoZombie.isTargetVisible() reads IsoGridSquare.isCouldSee(target.getIndex()).
-        // A Knox shell deliberately uses an off-slot index and does not run updateLOS,
-        // otherwise it corrupts the real player's visibility and cursor channels. Keep
-        // only the close-range attack variables alive while the perception bridge owns
-        // this exact target. The normal getShouldAttack() and collision line checks still
-        // reject walls, floors, vehicles, protected targets, and invalid height.
-        int playerIndex = ((Number) body.getClass().getMethod("getIndex").invoke(body))
-            .intValue();
-        Class<?> isoPlayerClass = Class.forName(
-            "zombie.characters.IsoPlayer",
-            false,
-            body.getClass().getClassLoader()
-        );
-        Object players = isoPlayerClass.getField("players").get(null);
-        if (playerIndex <= 0
-            || playerIndex >= Array.getLength(players)
-            || Array.get(players, playerIndex) != null) {
-            throw new IllegalStateException(
-                "Knox NPC visibility index is no longer unowned: " + playerIndex
-            );
-        }
-
-        // IsoZombie.isTargetVisible() asks its current square whether the target's
-        // player index could see it. The shell cannot run IsoPlayer.updateLOS()
-        // because that also controls rendering, camera-adjacent state, music and
-        // local-player alpha. Reserve only the unused index's could-see bit on the
-        // zombie's current and immediately adjacent squares. The one-tile cushion
-        // keeps the bit stable while a close zombie finishes a movement step.
-        Object currentSquare = zombie.getClass().getMethod("getCurrentSquare").invoke(zombie);
-        if (currentSquare != null) {
-            int squareX = ((Number) currentSquare.getClass().getMethod("getX")
-                .invoke(currentSquare)).intValue();
-            int squareY = ((Number) currentSquare.getClass().getMethod("getY")
-                .invoke(currentSquare)).intValue();
-            int squareZ = ((Number) currentSquare.getClass().getMethod("getZ")
-                .invoke(currentSquare)).intValue();
-            Object cell = zombie.getClass().getMethod("getCell").invoke(zombie);
-            Method getGridSquare = cell.getClass().getMethod(
-                "getGridSquare",
-                int.class,
-                int.class,
-                int.class
-            );
-            for (int offsetX = -1; offsetX <= 1; offsetX++) {
-                for (int offsetY = -1; offsetY <= 1; offsetY++) {
-                    Object square = getGridSquare.invoke(
-                        cell,
-                        squareX + offsetX,
-                        squareY + offsetY,
-                        squareZ
-                    );
-                    if (square != null) {
-                        square.getClass().getMethod("setCouldSee", int.class, boolean.class)
-                            .invoke(square, playerIndex, true);
-                    }
-                }
-            }
-        }
-
+        // Build 42.20.3 creates lighting data only for real local-player slots. A contained
+        // Knox shell cannot safely own one, so the agent adapts the sole visibility lookup in
+        // IsoZombie.isTargetVisible() for that shell. Keep the engine-owned perception timers
+        // here; native target/path/attack/damage processing still decides the outcome.
         Field canSeeTarget = findField(zombie.getClass(), "canSeeTarget");
         if (!canSeeTarget.canAccess(zombie)) {
             canSeeTarget.setAccessible(true);

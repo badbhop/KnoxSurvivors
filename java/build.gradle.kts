@@ -73,6 +73,18 @@ val verifyCombatTransformer by tasks.registering(JavaExec::class) {
     }
 }
 
+val verifyZombieVisibilityTransformer by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies the Knox shell visibility adapter against the configured game jar."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.agent.KnoxZombieVisibilityTransformerVerifier")
+    doFirst {
+        val gameJar = file(pzHome.get()).resolve("projectzomboid.jar")
+        args(gameJar.absolutePath)
+    }
+}
+
 val verifyIsoPlayerShellPolicy by tasks.registering(JavaExec::class) {
     group = "verification"
     description = "Verifies that the generated NPC shell never claims local input ownership."
@@ -82,5 +94,5 @@ val verifyIsoPlayerShellPolicy by tasks.registering(JavaExec::class) {
 }
 
 tasks.check {
-    dependsOn(verifyCombatTransformer, verifyIsoPlayerShellPolicy)
+    dependsOn(verifyCombatTransformer, verifyZombieVisibilityTransformer, verifyIsoPlayerShellPolicy)
 }

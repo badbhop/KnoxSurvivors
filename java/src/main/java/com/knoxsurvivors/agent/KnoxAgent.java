@@ -26,7 +26,9 @@ public final class KnoxAgent {
 
         if ("pz-game".equals(arguments)) {
             instrumentation.addTransformer(new KnoxSwipeStateTransformer(), false);
+            instrumentation.addTransformer(new KnoxZombieVisibilityTransformer(), false);
             writeLog("combat callback transformer installed");
+            writeLog("zombie visibility transformer installed");
         }
 
         try {
