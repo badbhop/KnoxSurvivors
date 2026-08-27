@@ -154,6 +154,11 @@ final class KnoxCombatController {
         }
 
         KnoxNpcFactory.followCharacter(npc, target);
+        // Unlike a local player, the contained NPC shell has no player-input update
+        // loop to advance PathFindBehavior2 for it.  tick() owns that advance below;
+        // record this initial request so the first combat tick drives it instead of
+        // immediately replacing a just-created route.
+        lastReapproachTick = 0;
         phase = "APPROACHING";
         String result = "COMBAT_STARTED mode=" + (controlledGate ? "gate" : "live")
             + " targetHealth=" + initialTargetHealth
@@ -233,11 +238,23 @@ final class KnoxCombatController {
 
         if ("APPROACHING".equals(phase) && !obstacleTarget) {
             if (targetDistance > reapproachThreshold) {
+                // Live pursuit used to only issue pathToCharacter() calls.  That
+                // creates a valid engine path, but a contained off-slot IsoPlayer
+                // does not receive vanilla local-player movement input to consume it.
+                // Drive the same captured-route adapter used by ordinary survivor
+                // movement before periodically refreshing the moving target.
+                String movement = KnoxNpcFactory.tickMovement(npc, targetDistance, "run");
+                if (movement.startsWith("Failed")) {
+                    phase = "FAILED";
+                    clearAttackIntent();
+                    return "COMBAT_FAILED LIVE_PURSUIT " + movement;
+                }
                 if (ticks - lastReapproachTick >= LIVE_PURSUIT_REFRESH_TICKS) {
                     KnoxNpcFactory.followCharacter(npc, target);
                     lastReapproachTick = ticks;
                 }
-                return "COMBAT_APPROACHING liveDistance=" + targetDistance
+                return "COMBAT_APPROACHING movement=" + movement
+                    + " liveDistance=" + targetDistance
                     + " desiredRange=" + desiredAttackRange
                     + " targetHealth=" + currentHealth;
             }
