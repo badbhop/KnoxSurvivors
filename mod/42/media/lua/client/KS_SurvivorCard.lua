@@ -9,10 +9,24 @@ local Window = ISCollapsableWindowJoypad:derive("KnoxSurvivorCardWindow")
 
 local MAX_LOCAL_PLAYERS = 4
 local REFRESH_MS = 500
-local WINDOW_WIDTH = 430
-local WINDOW_HEIGHT = 385
+local WINDOW_WIDTH = 460
+local WINDOW_HEIGHT = 500
 local PADDING = 12
+local SECTION_GAP = 8
 local AVATAR_TEXTURE = getTexture("media/ui/avatarBackgroundWhite.png")
+
+local COL_BG      = { 0.06, 0.06, 0.06 }
+local COL_BORDER  = { 0.22, 0.22, 0.22 }
+local COL_SEC_BG  = { 0.10, 0.10, 0.10 }
+local COL_SEC_HDR = { 0.70, 0.70, 0.68 }
+local COL_LABEL   = { 0.62, 0.62, 0.60 }
+local COL_VALUE   = { 0.88, 0.88, 0.85 }
+local COL_DIM     = { 0.52, 0.52, 0.50 }
+local COL_ACCENT  = { 0.48, 0.56, 0.38 }
+local COL_HEALTH  = { 0.72, 0.22, 0.18 }
+local COL_HUNGER  = { 0.78, 0.54, 0.14 }
+local COL_THIRST  = { 0.22, 0.50, 0.82 }
+local COL_FATIGUE = { 0.68, 0.34, 0.72 }
 
 local windows = {}
 local nextRefreshAt = 0
@@ -125,14 +139,10 @@ function Window:createChildren()
     self.collapseButton:setVisible(false)
 
     local titleHeight = self:titleBarHeight()
-    local smallHeight = getTextManager():getFontHeight(UIFont.Small)
-    local conditionRowHeight = smallHeight + 6
-    local firstConditionY = self.height - PADDING - 8 - conditionRowHeight * 3
-    local conditionsY = firstConditionY - smallHeight - 7
     self.portraitX = PADDING
     self.portraitY = titleHeight + PADDING
-    self.portraitWidth = math.min(136, math.max(88, math.floor((self.width - PADDING * 3) * 0.40)))
-    self.portraitHeight = math.min(164, math.max(96, conditionsY - self.portraitY - 10))
+    self.portraitWidth = math.min(124, math.max(100, math.floor((self.width - PADDING * 3) * 0.30)))
+    self.portraitHeight = math.min(156, math.max(120, math.floor(self.height * 0.32)))
 
     self.portrait = ISUI3DModel:new(
         self.portraitX,
@@ -227,129 +237,164 @@ function Window:centerInViewport()
     self:clampToViewport()
 end
 
-local function conditionColour(value, highIsBad)
-    if highIsBad then
-        if value >= 0.75 then
-            return 0.68, 0.20, 0.16
-        end
-        if value >= 0.45 then
-            return 0.72, 0.52, 0.18
-        end
-        return 0.38, 0.58, 0.28
-    end
-    if value <= 0.25 then
-        return 0.68, 0.20, 0.16
-    end
-    if value <= 0.50 then
-        return 0.72, 0.52, 0.18
-    end
-    return 0.38, 0.58, 0.28
+local function drawSectionHeader(window, x, y, w, title)
+    window:drawRect(x, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
+    window:drawText(title:upper(), x + 6, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
+    return y + 20
 end
 
-function Window:drawCondition(label, y, value, available, highIsBad)
+local function drawKeyValue(window, x, y, w, label, value, valCol)
+    local c = valCol or COL_VALUE
+    window:drawText(tostring(label), x, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    window:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), w - 60), x + w, y, c[1], c[2], c[3], 1, UIFont.Small)
+    return y + 16
+end
+
+local function drawBar(window, x, y, w, value, colour)
+    local amount = clamp(tonumber(value) or 0, 0, 1)
+    window:drawRect(x, y, w, 6, 0.92, 0.10, 0.10, 0.10)
+    window:drawRectBorder(x, y, w, 6, 0.72, 0.22, 0.22, 0.22)
+    local fade = 0.55 + amount * 0.45
+    window:drawRect(x + 1, y + 1, math.max(0, math.floor((w - 2) * amount)), 4,
+        0.92, colour[1] * fade, colour[2] * fade, colour[3] * fade)
+end
+
+function Window:drawCondition(label, y, value, available, highIsBad, colour)
     local labelWidth = 58
-    local valueWidth = 42
     local barX = PADDING + labelWidth
-    local barWidth = math.max(30, self.width - barX - valueWidth - PADDING)
-    self:drawText(label, PADDING, y - 3, 0.82, 0.82, 0.77, 1, UIFont.Small)
-    self:drawRect(barX, y, barWidth, 8, 0.90, 0.11, 0.11, 0.10)
-    self:drawRectBorder(barX, y, barWidth, 8, 0.72, 0.34, 0.34, 0.31)
+    local barWidth = self.rightColWidth - labelWidth
+    self:drawText(label, PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    self:drawRect(barX, y + 3, barWidth, 6, 0.92, 0.10, 0.10, 0.10)
+    self:drawRectBorder(barX, y + 3, barWidth, 6, 0.72, 0.22, 0.22, 0.22)
     if available then
         local amount = clamp(tonumber(value) or 0, 0, 1)
-        local red, green, blue = conditionColour(amount, highIsBad)
-        self:drawRect(barX + 1, y + 1, math.floor((barWidth - 2) * amount), 6,
-            0.95, red, green, blue)
+        local c = colour or COL_HEALTH
+        local bad = highIsBad and amount >= 0.75 or (not highIsBad and amount <= 0.25)
+        local warn = highIsBad and amount >= 0.45 or (not highIsBad and amount <= 0.50)
+        if bad then c = COL_HEALTH elseif warn then c = COL_HUNGER end
+        local fade = 0.55 + amount * 0.45
+        self:drawRect(barX + 1, y + 3, math.max(0, math.floor((barWidth - 2) * amount)), 4,
+            0.92, c[1] * fade, c[2] * fade, c[3] * fade)
         self:drawTextRight(tostring(math.floor(amount * 100 + 0.5)) .. "%",
-            self.width - PADDING, y - 3, 0.78, 0.78, 0.73, 1, UIFont.Small)
+            self.width - PADDING, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
     else
-        self:drawTextRight("--", self.width - PADDING, y - 3,
-            0.55, 0.55, 0.52, 1, UIFont.Small)
+        self:drawTextRight("--", self.width - PADDING, y,
+            COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
     end
 end
 
 function Window:prerender()
     ISCollapsableWindowJoypad.prerender(self)
     local snapshot = self.snapshot
-    if snapshot == nil then
-        return
-    end
+    if snapshot == nil then return end
 
+    local titleH = self:titleBarHeight()
+    local smallH = getTextManager():getFontHeight(UIFont.Small)
+    local mediumH = getTextManager():getFontHeight(UIFont.Medium)
+
+    local leftCol = PADDING
+    local rightCol = self.portraitX + self.portraitWidth + 14
+    self.rightColWidth = self.width - rightCol - PADDING
+    local contentW = self.rightColWidth
+    local y
+
+    -- Portrait background
     self:drawRect(self.portraitX, self.portraitY, self.portraitWidth, self.portraitHeight,
-        0.90, 0.15, 0.15, 0.14)
+        0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
     self:drawRectBorder(self.portraitX, self.portraitY, self.portraitWidth, self.portraitHeight,
-        0.88, 0.36, 0.39, 0.28)
+        0.88, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
     if AVATAR_TEXTURE ~= nil then
         self:drawTextureScaled(AVATAR_TEXTURE, self.portraitX, self.portraitY,
-            self.portraitWidth, self.portraitHeight, 0.28, 0.42, 0.42, 0.40)
+            self.portraitWidth, self.portraitHeight, 0.30, 0.34, 0.34, 0.34)
     end
     if not self.portraitAvailable then
-        local mediumHeight = getTextManager():getFontHeight(UIFont.Medium)
         self:drawTextCentre(initials(snapshot),
             self.portraitX + self.portraitWidth / 2,
-            self.portraitY + (self.portraitHeight - mediumHeight) / 2,
-            0.80, 0.80, 0.74, 1, UIFont.Medium)
+            self.portraitY + (self.portraitHeight - mediumH) / 2,
+            COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Medium)
     end
 
-    local infoX = self.portraitX + self.portraitWidth + 14
-    local infoWidth = self.width - infoX - PADDING
-    local y = self.portraitY
-    local smallHeight = getTextManager():getFontHeight(UIFont.Small)
-    local mediumHeight = getTextManager():getFontHeight(UIFont.Medium)
-    self:drawText(trimText(UIFont.Medium, snapshot.displayName, infoWidth),
-        infoX, y, 0.94, 0.93, 0.88, 1, UIFont.Medium)
-    y = y + mediumHeight + 4
+    -- Identity (below portrait)
+    y = self.portraitY + self.portraitHeight + 8
+    self:drawText(trimText(UIFont.Medium, snapshot.displayName, self.portraitWidth),
+        self.portraitX, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Medium)
+    y = y + mediumH + 3
+    local age = snapshot.ageYears ~= nil and "Age " .. tostring(snapshot.ageYears) or ""
+    self:drawText(trimText(UIFont.Small, age, self.portraitWidth),
+        self.portraitX, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    y = y + smallH + 2
+    self:drawText("Survived " .. dayLabel(snapshot.daysSurvived),
+        self.portraitX, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
+    y = y + smallH + 2
+    self:drawText("Known " .. dayLabel(snapshot.daysKnown),
+        self.portraitX, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
 
-    local age = snapshot.ageYears ~= nil and "Age " .. tostring(snapshot.ageYears) or "Age unknown"
-    local profession = tostring(snapshot.professionLabel or "Survivor")
-    self:drawText(trimText(UIFont.Small, profession .. "  -  " .. age, infoWidth),
-        infoX, y, 0.73, 0.75, 0.68, 1, UIFont.Small)
-    y = y + smallHeight + 6
-    self:drawText("Survived: " .. dayLabel(snapshot.daysSurvived),
-        infoX, y, 0.80, 0.80, 0.75, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    self:drawText("Known: " .. dayLabel(snapshot.daysKnown),
-        infoX, y, 0.80, 0.80, 0.75, 1, UIFont.Small)
-    y = y + smallHeight + 8
-    self:drawText(trimText(UIFont.Small, "Role: " .. tostring(snapshot.roleLabel), infoWidth),
-        infoX, y, 0.84, 0.83, 0.77, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    self:drawText(trimText(UIFont.Small, "Location: " .. tostring(snapshot.locationLabel), infoWidth),
-        infoX, y, 0.84, 0.83, 0.77, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    self:drawText(trimText(UIFont.Small, "Order: " .. tostring(snapshot.orderLabel), infoWidth),
-        infoX, y, 0.84, 0.83, 0.77, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    local affiliation = snapshot.factionName ~= nil and ("Faction: " .. snapshot.factionName)
-        or (snapshot.duty ~= nil and snapshot.duty.baseId ~= nil and "Home: base resident"
-            or "Faction: none")
-    self:drawText(trimText(UIFont.Small, affiliation, infoWidth),
-        infoX, y, 0.72, 0.74, 0.67, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    local trust = snapshot.trust ~= nil and ("Trust: " .. tostring(math.floor(snapshot.trust)))
-        or "Trust: unknown"
-    self:drawText(trimText(UIFont.Small, trust .. "  -  Weapon: " .. tostring(snapshot.weaponName), infoWidth),
-        infoX, y, 0.72, 0.74, 0.67, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    self:drawText(trimText(UIFont.Small, "Traits: " .. compactList(snapshot.traits, 3), infoWidth),
-        infoX, y, 0.66, 0.68, 0.62, 1, UIFont.Small)
-    y = y + smallHeight + 3
-    self:drawText(trimText(UIFont.Small, "Skills: " .. compactSkills(snapshot.skills, 2), infoWidth),
-        infoX, y, 0.66, 0.68, 0.62, 1, UIFont.Small)
+    -- Occupation
+    y = titleH + PADDING
+    y = drawSectionHeader(self, rightCol, y, contentW, "Occupation")
+    y = drawKeyValue(self, rightCol, y, contentW, "Profession", snapshot.professionLabel)
+    if snapshot.duty ~= nil and snapshot.duty.baseId ~= nil then
+        y = drawKeyValue(self, rightCol, y, contentW, "Home Base", "Base resident")
+    end
 
+    -- Traits / Skills
+    y = y + 4
+    y = drawSectionHeader(self, rightCol, y, contentW, "Traits / Skills")
+    self:drawText("Traits", rightCol, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    self:drawText(trimText(UIFont.Small, compactList(snapshot.traits, 3), contentW - 48),
+        rightCol + 48, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+    y = y + smallH + 3
+    self:drawText("Skills", rightCol, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+    self:drawText(trimText(UIFont.Small, compactSkills(snapshot.skills, 3), contentW - 48),
+        rightCol + 48, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+
+    -- Health / Vitals
+    y = y + smallH + SECTION_GAP
+    y = drawSectionHeader(self, rightCol, y, contentW, "Health / Vitals")
     local vitals = snapshot.vitals or {}
-    local rowHeight = smallHeight + 6
-    local firstBarY = self.height - PADDING - 8 - rowHeight * 3
-    local conditionsY = firstBarY - smallHeight - 7
-    self:drawText("CURRENT CONDITION", PADDING, conditionsY,
-        0.70, 0.72, 0.64, 1, UIFont.Small)
     if not vitals.available then
-        self:drawTextRight("Unavailable while away", self.width - PADDING, conditionsY,
-            0.58, 0.58, 0.55, 1, UIFont.Small)
+        self:drawText("Away from group", rightCol + 6, y, COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
+        y = y + smallH + 4
     end
-    self:drawCondition("Health", firstBarY, vitals.health, vitals.available, false)
-    self:drawCondition("Hunger", firstBarY + rowHeight, vitals.hunger, vitals.available, true)
-    self:drawCondition("Thirst", firstBarY + rowHeight * 2, vitals.thirst, vitals.available, true)
-    self:drawCondition("Fatigue", firstBarY + rowHeight * 3, vitals.fatigue, vitals.available, true)
+    local barX = rightCol + 58
+    local barW = contentW - 58
+    self:drawCondition("Health", y, vitals.health, vitals.available, false, COL_HEALTH)
+    y = y + smallH + 6
+    self:drawCondition("Hunger", y, vitals.hunger, vitals.available, true, COL_HUNGER)
+    y = y + smallH + 6
+    self:drawCondition("Thirst", y, vitals.thirst, vitals.available, true, COL_THIRST)
+    y = y + smallH + 6
+    self:drawCondition("Fatigue", y, vitals.fatigue, vitals.available, true, COL_FATIGUE)
+
+    -- Equipment
+    y = y + smallH + SECTION_GAP
+    y = drawSectionHeader(self, rightCol, y, contentW, "Equipment")
+    y = drawKeyValue(self, rightCol, y, contentW, "Weapon", snapshot.weaponName)
+
+    -- Relationship / Trust
+    y = y + 4
+    y = drawSectionHeader(self, rightCol, y, contentW, "Relationship")
+    local faction = snapshot.factionName or "None"
+    y = drawKeyValue(self, rightCol, y, contentW, "Faction", faction)
+    local trustVal = snapshot.trust ~= nil and math.floor(snapshot.trust) or nil
+    local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
+    local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_HEALTH)) or COL_DIM
+    y = drawKeyValue(self, rightCol, y, contentW, "Trust", trustLabel, trustCol)
+
+    -- Base / Activity
+    y = y + 4
+    y = drawSectionHeader(self, rightCol, y, contentW, "Base / Activity")
+    local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil
+    if job ~= nil and job ~= "" and job ~= "auto" then
+        y = drawKeyValue(self, rightCol, y, contentW, "Job", job:sub(1, 1):upper() .. job:sub(2))
+    end
+    y = drawKeyValue(self, rightCol, y, contentW, "Location", snapshot.locationLabel)
+    y = drawKeyValue(self, rightCol, y, contentW, "Order", snapshot.orderLabel)
+    local status = snapshot.activity or "Idle"
+    if snapshot.distanceTiles ~= nil then
+        status = status .. " (" .. tostring(math.floor(snapshot.distanceTiles + 0.5)) .. " tiles)"
+    end
+    y = drawKeyValue(self, rightCol, y, contentW, "Activity", status)
 end
 
 function Window:onMouseUp(x, y)
@@ -405,8 +450,8 @@ function Window:new(playerNum)
     window.previousJoypadFocus = nil
     window.resizable = false
     window.pin = true
-    window.backgroundColor = { r = 0.045, g = 0.05, b = 0.035, a = 0.94 }
-    window.borderColor = { r = 0.38, g = 0.43, b = 0.25, a = 0.95 }
+    window.backgroundColor = { r = COL_BG[1], g = COL_BG[2], b = COL_BG[3], a = 0.94 }
+    window.borderColor = { r = COL_BORDER[1], g = COL_BORDER[2], b = COL_BORDER[3], a = 0.95 }
     window:setTitle("Survivor")
     return window
 end
