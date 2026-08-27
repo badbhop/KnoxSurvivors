@@ -10,6 +10,7 @@ final class KnoxCombatController {
     private static final int AIM_SETTLE_TICKS = 18;
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
     private static final int ATTACK_RECOVERY_TICKS = 24;
+    private static final int MISSED_SWINGS_BEFORE_REPOSITION = 3;
     private static final float REAPPROACH_BUFFER = 0.20f;
 
     private KnoxNpc npc;
@@ -32,6 +33,7 @@ final class KnoxCombatController {
     private boolean liveCombat;
     private int defenseWindowUntil;
     private Object approachSquare;
+    private int attacksAtLastDamage;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
@@ -173,6 +175,7 @@ final class KnoxCombatController {
         float currentHealth = health(target);
         if (currentHealth < lastTargetHealth) {
             damageObserved = true;
+            attacksAtLastDamage = attackRequests;
             KnoxAgent.writeLog(
                 "NPC combat DAMAGE targetHealth=" + currentHealth + " previous=" + lastTargetHealth
             );
@@ -329,6 +332,29 @@ final class KnoxCombatController {
         if (!attackActive) {
             faceTarget(body, targetX, targetY);
         }
+
+        if (liveCombat
+            && attackRequests - attacksAtLastDamage >= MISSED_SWINGS_BEFORE_REPOSITION) {
+            clearAttackIntent();
+            KnoxNpcFactory.moveToRangeFromCurrentSide(
+                npc,
+                target,
+                approachSquare,
+                desiredAttackRange
+            );
+            npc.getBody().getClass().getMethod("setRunning", boolean.class).invoke(npc.getBody(), true);
+            phase = "APPROACHING";
+            aimTicks = 0;
+            attackCycleActive = false;
+            attacksAtLastDamage = attackRequests;
+            KnoxAgent.writeLog(
+                "NPC combat REPOSITION missedSwings=" + MISSED_SWINGS_BEFORE_REPOSITION
+                    + " distance=" + targetDistance
+                    + " desiredRange=" + desiredAttackRange
+            );
+            return "COMBAT_REPOSITIONING distance=" + targetDistance
+                + " targetHealth=" + currentHealth;
+        }
         applyCombatStance(body, false, targetOnFloor);
 
         if ("AIMING".equals(phase)) {
@@ -464,6 +490,7 @@ final class KnoxCombatController {
         liveCombat = false;
         defenseWindowUntil = 0;
         approachSquare = null;
+        attacksAtLastDamage = 0;
     }
 
     private void beginLiveApproach() throws ReflectiveOperationException {

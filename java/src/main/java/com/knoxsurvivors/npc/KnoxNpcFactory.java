@@ -168,6 +168,42 @@ final class KnoxNpcFactory {
         );
     }
 
+    static void moveToRangeFromCurrentSide(
+        KnoxNpc npc,
+        Object target,
+        Object fallbackApproachSquare,
+        float desiredRange
+    ) throws ReflectiveOperationException {
+        requireClass(fallbackApproachSquare, GRID_SQUARE_CLASS, "fallback approach square");
+        Object body = npc.getBody();
+        float targetX = ((Number) invoke(target, "getX")).floatValue();
+        float targetY = ((Number) invoke(target, "getY")).floatValue();
+        float targetZ = ((Number) invoke(target, "getZ")).floatValue();
+        float directionX = ((Number) invoke(body, "getX")).floatValue() - targetX;
+        float directionY = ((Number) invoke(body, "getY")).floatValue() - targetY;
+        float length = (float) Math.sqrt(directionX * directionX + directionY * directionY);
+        if (length <= 0.001f) {
+            float referenceX = ((Number) invoke(fallbackApproachSquare, "getX")).floatValue() + 0.5f;
+            float referenceY = ((Number) invoke(fallbackApproachSquare, "getY")).floatValue() + 0.5f;
+            directionX = referenceX - targetX;
+            directionY = referenceY - targetY;
+            length = (float) Math.sqrt(directionX * directionX + directionY * directionY);
+        }
+        if (length <= 0.001f) {
+            throw new IllegalArgumentException("Cannot determine a current combat approach direction");
+        }
+        invoke(
+            body,
+            "pathToLocationF",
+            float.class,
+            float.class,
+            float.class,
+            targetX + directionX / length * desiredRange,
+            targetY + directionY / length * desiredRange,
+            targetZ
+        );
+    }
+
     static void followCharacter(KnoxNpc npc, Object target)
         throws ReflectiveOperationException {
         Object body = npc.getBody();
