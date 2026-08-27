@@ -129,6 +129,16 @@ public final class KnoxBridge {
         return npcRegistry.equipBest(id);
     }
 
+    /** Equip a real carried weapon chosen by the Lua planner. */
+    public String equipNpcOwnedWeapon(String id, String fullType) {
+        return npcRegistry.equipOwnedWeapon(id, fullType);
+    }
+
+    /** Developer-only real-item kit for the native firearm test path. */
+    public String seedNpcFirearmTestKit(String id) {
+        return npcRegistry.seedFirearmTestKit(id);
+    }
+
     public boolean isTestNpcFemale() {
         return npcRegistry.isOneFemale();
     }

@@ -379,6 +379,52 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    /** Equips an existing, validated inventory weapon selected by a gameplay controller. */
+    public synchronized String equipOwnedWeapon(String id, String fullType) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "EQUIP_FAILED NONE_ACTIVE";
+        }
+        try {
+            String equipped = KnoxEquipmentController.equipOwnedWeapon(
+                runtime.npc().getBody(),
+                fullType
+            );
+            if (equipped.startsWith("EQUIPPED_WEAPON")) {
+                runtime.setLastRecord(captureRecord(runtime.npc()));
+            }
+            KnoxAgent.writeLog("NPC equipment id=" + id + " " + equipped);
+            return equipped;
+        } catch (Throwable throwable) {
+            return failure("EQUIP_FAILED", throwable);
+        }
+    }
+
+    /** Developer-only real-item kit used to verify the native reload/fire path. */
+    public synchronized String seedFirearmTestKit(String id) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "FIREARM_KIT_FAILED NONE_ACTIVE";
+        }
+        try {
+            Object inventory = runtime.npc().getBody().getClass().getMethod("getInventory").invoke(
+                runtime.npc().getBody()
+            );
+            inventory.getClass().getMethod("AddItem", String.class).invoke(inventory, "Base.Pistol");
+            inventory.getClass().getMethod("AddItem", String.class).invoke(inventory, "Base.9mmClip");
+            for (int index = 0; index < 24; index++) {
+                inventory.getClass().getMethod("AddItem", String.class)
+                    .invoke(inventory, "Base.Bullets9mm");
+            }
+            runtime.setLastRecord(captureRecord(runtime.npc()));
+            String result = "FIREARM_KIT_ADDED pistol=true magazine=true rounds=24";
+            KnoxAgent.writeLog("NPC equipment id=" + id + " " + result);
+            return result;
+        } catch (Throwable throwable) {
+            return failure("FIREARM_KIT_FAILED", throwable);
+        }
+    }
+
     public synchronized boolean isOneFemale() {
         return isFemale(TEST_SURVIVOR_ID);
     }

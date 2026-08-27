@@ -53,6 +53,43 @@ final class KnoxEquipmentController {
         return "EQUIPPED " + invoke(best, "getFullType") + " score=" + bestScore;
     }
 
+    /**
+     * Equips one already-owned weapon chosen by the Lua action planner.
+     *
+     * Firearm readiness is intentionally decided on the Lua side because Build 42's
+     * native reload actions own magazines, chambers, and timed animation state.  This
+     * method only performs the safe, inventory-backed hand transition; it never creates
+     * ammunition or changes firearm fields directly.
+     */
+    static String equipOwnedWeapon(Object body, String fullType) throws ReflectiveOperationException {
+        if (fullType == null || fullType.isBlank()) {
+            return "EQUIP_FAILED INVALID_WEAPON";
+        }
+        Object inventory = invoke(body, "getInventory");
+        Object selected = null;
+        for (Object item : (Collection<?>) invoke(inventory, "getItems")) {
+            if (!inherits(item, "zombie.inventory.types.HandWeapon")
+                || (Boolean) invoke(item, "isBroken")
+                || !fullType.equals(String.valueOf(invoke(item, "getFullType")))) {
+                continue;
+            }
+            selected = item;
+            break;
+        }
+        if (selected == null) {
+            return "EQUIP_FAILED NOT_OWNED " + fullType;
+        }
+        invokeCompatible(body, "setPrimaryHandItem", selected);
+        invokeCompatible(
+            body,
+            "setSecondaryHandItem",
+            (Boolean) invoke(selected, "isTwoHandWeapon") ? selected : null
+        );
+        invoke(body, "resetModelNextFrame");
+        return "EQUIPPED_WEAPON " + fullType
+            + " ranged=" + invoke(selected, "isRanged");
+    }
+
     private static boolean inherits(Object value, String className) {
         Class<?> current = value.getClass();
         while (current != null) {

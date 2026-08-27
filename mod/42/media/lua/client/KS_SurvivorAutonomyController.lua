@@ -3,6 +3,7 @@ require "TimedActions/ISRestAction"
 require "TimedActions/ISSitOnGround"
 require "Util/AdjacentFreeTileFinder"
 require "KS_SurvivorNeeds"
+require "KS_FirearmSupport"
 require "KS_SurvivorInventoryActions"
 require "KS_Persistence"
 require "KS_ActivityFeed"
@@ -1880,6 +1881,24 @@ end
 function Controller:beginCombat(target)
     if target == nil or target:getCurrentSquare() == nil
         or not reserveThreat(self.reservations, target, self.id) then
+        return false
+    end
+    -- Firearms use the game's timed reload action.  Do this before clearing other
+    -- actions so an already-running reload is allowed to finish instead of being
+    -- cancelled and restarted every threat scan.
+    local firearmState, firearmResult = KnoxFirearmSupport.prepareForThreat(
+        self.id,
+        self.character,
+        self.bridge
+    )
+    if firearmState == "reloading" then
+        releaseThreat(self.reservations, target, self.id)
+        self.nextThreatScan = self.nextThreatScan + THREAT_SCAN_TICKS
+        print(
+            "[KnoxSurvivors][Autonomy] id=" .. self.id
+                .. " firearm=" .. tostring(firearmState)
+                .. " result=" .. tostring(firearmResult)
+        )
         return false
     end
     if not self.character:getCharacterActions():isEmpty() then

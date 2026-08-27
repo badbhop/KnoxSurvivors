@@ -50,6 +50,28 @@ local function weaponScore(item)
         + item:getBaseSpeed()
 end
 
+local function firearmScore(item)
+    if item == nil or not item:IsWeapon() or not item:isRanged() or item:isBroken() then
+        return nil
+    end
+    local condition = item:getConditionMax() > 0
+        and item:getCondition() / item:getConditionMax()
+        or 0
+    return item:getMaxRange() * 2
+        + item:getMaxDamage() * 10
+        + condition * 5
+end
+
+local function isMagazine(item)
+    if item == nil then
+        return false
+    end
+    local success, result = pcall(function()
+        return item:getAmmoType() ~= nil and item:getMaxAmmo() > 0 and not item:IsWeapon()
+    end)
+    return success and result == true
+end
+
 local function clothingScore(item)
     if item == nil or not item:IsClothing() or item:getBodyLocation() == nil then
         return nil
@@ -73,6 +95,9 @@ end
 local function inventoryFacts(character)
     local facts = {
         bestWeapon = -math.huge,
+        firearms = 0,
+        ammunition = 0,
+        magazines = 0,
         food = 0,
         water = 0,
         bandages = 0,
@@ -84,6 +109,15 @@ local function inventoryFacts(character)
         local score = weaponScore(item)
         if score ~= nil then
             facts.bestWeapon = math.max(facts.bestWeapon, score)
+        end
+        if firearmScore(item) ~= nil then
+            facts.firearms = facts.firearms + 1
+        end
+        if item:isAmmo() then
+            facts.ammunition = facts.ammunition + 1
+        end
+        if isMagazine(item) then
+            facts.magazines = facts.magazines + 1
         end
         if KnoxSurvivorNeeds.isSafeFood(item) then
             facts.food = facts.food + 1
@@ -102,6 +136,16 @@ local function inventoryFacts(character)
 end
 
 local function candidateScore(character, facts, item)
+    local firearm = firearmScore(item)
+    if firearm ~= nil and facts.firearms < 1 then
+        return 62 + firearm, "firearm"
+    end
+    if item:isAmmo() and facts.ammunition < 30 then
+        return 42, "ammunition"
+    end
+    if isMagazine(item) and facts.magazines < 2 then
+        return 44, "magazine"
+    end
     local weapon = weaponScore(item)
     if weapon ~= nil and weapon > facts.bestWeapon + 0.25 then
         return 100 + weapon - math.max(0, facts.bestWeapon), "weapon_upgrade"
@@ -145,6 +189,15 @@ local function applySelectedFacts(facts, item)
     local weapon = weaponScore(item)
     if weapon ~= nil then
         facts.bestWeapon = math.max(facts.bestWeapon, weapon)
+    end
+    if firearmScore(item) ~= nil then
+        facts.firearms = facts.firearms + 1
+    end
+    if item:isAmmo() then
+        facts.ammunition = facts.ammunition + 1
+    end
+    if isMagazine(item) then
+        facts.magazines = facts.magazines + 1
     end
     if KnoxSurvivorNeeds.isSafeFood(item) then
         facts.food = facts.food + 1

@@ -23,6 +23,7 @@ local COMBAT_SCENARIOS = {
     { "Travel Group vs Zombies", "group_horde" },
     { "Faction vs Zombies", "faction_horde" },
     { "Faction Combat Stress Test", "stress" },
+    { "Survivor Firearm Test", "firearm_duel" },
 }
 
 function DeveloperTools.spawn(playerNum, scenario)

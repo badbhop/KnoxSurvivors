@@ -16,7 +16,7 @@ Status meanings:
 Audited on 2026-08-26 through commit `fd61d84`, with the narrow standing-zombie
 visibility adapter described below awaiting its first live run.
 
-- all 26 standalone Lua tests pass;
+- all 27 standalone Lua tests pass, including the firearm-planner regression;
 - all mod Lua files parse with Lua 5.1;
 - `:java:build stageWorkshop` passes, including the three-call melee-transformer verifier
   and the two-call Build 42.20.3 zombie-visibility-transformer verifier;
@@ -42,10 +42,10 @@ Neither uncommitted fix is considered working until a new live run confirms it.
 | Goal area | Status | Current evidence and missing boundary |
 | --- | --- | --- |
 | 1. IsoPlayer foundation | **Partial / conflicting live behavior** | Stable Java records, contained shell, slot checks, reconstruction, health/inventory/appearance capture, teardown, durable death hooks, and multi-NPC registries exist. The latest live run contradicts completion: global instance ownership is wrong and several controllers remain `DETACHED`. Constructor ownership and universal detached cleanup are patched but not live-tested. Extended multi-survivor save/unload/death testing is still required. |
-| 2. Survivor autonomy | **Partial** | Roaming, supply-aware exploration, container searching, ranked looting, equipment, needs, melee, rest, medicine, and traversal states exist in `KS_SurvivorAutonomyController.lua`. Firearms are absent; purposeful long-range goals and several failure paths remain incomplete. Live logs show frozen/detached actors and high failure counts. |
+| 2. Survivor autonomy | **Partial** | Roaming, supply-aware exploration, container searching, ranked looting, equipment, needs, melee, rest, medicine, and traversal states exist in `KS_SurvivorAutonomyController.lua`. Survivors now recognize real carried firearms, collect limited firearm/ammunition/magazine supplies, and queue Build 42's native reload action before combat. Native firing, targeting, sound attraction, and reload completion remain awaiting the dedicated live firearm scenario. Purposeful long-range goals and several failure paths remain incomplete. |
 | 3. Priority/action ownership | **Partial, retry defect patched** | One Lua controller owns high-level state and Java owns movement/combat requests. Reservations, cancellation, deadlines, and task claims exist. Formation start/tick failures now cancel stale movement ownership and enter a bounded wait instead of immediately requesting another route; live verification is pending. |
 | 4. Navigation/human movement | **Partial, retry defect patched** | Walking, running pace, formation catch-up, doors, windows, smashing, climbing, fences, alternate entry, cooldowns, and route abandonment exist. Consecutive formation failures now retain an escalating bounded cooldown. Multi-floor and alternate-route behavior remain unproven in live play. |
-| 5. Full combat | **Partial / standing-zombie adapter unverified** | Native melee attack integration, moving-target refresh, target reservations, zombie awareness, endurance, condition, injury capture, and group threat selection exist. The latest live run isolates standing-zombie failure to the unavailable off-slot lighting bit; a Build 42.20.3-verified two-call transformer now adapts only `IsoZombie.isTargetVisible()` for the contained Knox shell. Crawler damage already reaches real BodyDamage, but a new live standing-zombie duel is still required. Firearms, reloads, ammo policy, and survivor PvP are missing. |
+| 5. Full combat | **Partial / standing-zombie adapter unverified** | Native melee attack integration, moving-target refresh, target reservations, zombie awareness, endurance, condition, injury capture, and group threat selection exist. The latest live run isolates standing-zombie failure to the unavailable off-slot lighting bit; a Build 42.20.3-verified two-call transformer now adapts only `IsoZombie.isTargetVisible()` for the contained Knox shell. Crawler damage already reaches real BodyDamage, but a new live standing-zombie duel is still required. The firearm foundation now uses real guns, magazines, bullets, and `ISReloadWeaponAction`; a developer-only pistol duel records weapon rounds/chamber state for the first native reload/fire live gate. Safe production aiming/range decisions, sound-attraction verification, weapon condition, and survivor PvP remain incomplete. |
 | 6. Needs, health, medical, inventory | **Partial** | Real hunger, thirst, fatigue, endurance, food/water consumption, BodyDamage, self-bandaging, improvised bandage sourcing, inventory ranking, and equipment exist. The player can give selected items to a nearby loaded companion through vanilla transfer, use a split-screen-safe companion inventory window to take carried items back, and open the native medical-check screen with the real player as doctor. Nested/container inventory management and live verification of off-slot treatment/transfer remain incomplete. |
 | 7. Skills, traits, occupations | **Implemented, unverified** | Deterministic Build 42 profession/trait generation, perk levels, XP capture/restore, and job requirement checks exist and pass standalone persistence checks. Long save/unload/reconstruction progression still needs a live pass. |
 | 8. Social system | **Partial** | First/last meetings, nearby time, encounter counts, shared activity, trust, greetings, joining, declining, persistent hostility, robbery, player conversations, and recruitment exist. Dialogue is still small and repetitive; survivor PvP and deeper faction diplomacy/favors are absent. |
@@ -87,8 +87,8 @@ parallel. The current order is:
 5. add persistent replacement-door/basic-defense construction through real Build 42
    recipes, skills, tools, materials, placement, and actions;
 6. finish player inventory/medical management and the Base Setup/Notebook management UIs;
-7. add firearms, then unloaded simulation and away teams because both are required for
-   production population and settlement supply loops;
+7. live-verify the native firearm reload/fire gate, then add away teams because both are
+   required for production population and settlement supply loops;
 8. add camps, vehicles, and raids only after ordinary survivor/faction life is stable.
 
 ## Acceptance status

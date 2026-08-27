@@ -1,5 +1,6 @@
 require "KS_SurvivorAutonomy"
 require "KS_ActivityFeed"
+require "KS_FirearmSupport"
 
 local CombatTests = rawget(_G, "KnoxCombatTestScenarios") or {}
 _G.KnoxCombatTestScenarios = CombatTests
@@ -20,6 +21,12 @@ local definitions = {
     group_horde = { population = "group", zombies = 5, label = "Travel Group vs Zombies" },
     faction_horde = { population = "faction", zombies = 8, label = "Faction vs Zombies" },
     stress = { population = "faction", zombies = 12, label = "Faction Combat Stress Test" },
+    firearm_duel = {
+        population = "single",
+        zombies = 1,
+        firearm = true,
+        label = "Survivor Firearm Test",
+    },
 }
 
 local active = nil
@@ -152,6 +159,22 @@ local function variableBoolean(character, name)
     return success and value == true
 end
 
+local function firearmAmmo(character)
+    if character == nil then
+        return "missing"
+    end
+    local success, result = pcall(function()
+        local weapon = character:getPrimaryHandItem()
+        if weapon == nil or not weapon:isRanged() then
+            return "not_ranged"
+        end
+        return tostring(weapon:getFullType())
+            .. " rounds=" .. tostring(weapon:getCurrentAmmoCount())
+            .. " chambered=" .. tostring(weapon:isRoundChambered())
+    end)
+    return success and result or "unavailable"
+end
+
 function CombatTests.writeSnapshot()
     if active == nil then
         print(TAG .. " snapshot active=false trackedZombies=" .. tostring(#trackedZombies))
@@ -168,6 +191,7 @@ function CombatTests.writeSnapshot()
         local character = controller ~= nil and controller.character or nil
         print(TAG .. " survivor id=" .. tostring(id)
             .. " health=" .. tostring(character ~= nil and characterHealth(character) or "missing")
+            .. " firearm=" .. tostring(firearmAmmo(character))
             .. " controller=" .. tostring(controller ~= nil and controller:status() or "missing"))
         if bridge ~= nil and bridge.getNpcCombatDiagnostics ~= nil then
             print(TAG .. " survivor-java id=" .. tostring(id)
@@ -234,6 +258,16 @@ function CombatTests.start(playerNum, scenario)
         if controller ~= nil and controller.character ~= nil then
             active.survivorHealth[id] = characterHealth(controller.character)
             controller.character:setZombiesDontAttack(false)
+        end
+        if definition.firearm == true and bridge ~= nil
+            and bridge.seedNpcFirearmTestKit ~= nil then
+            local kit = tostring(bridge:seedNpcFirearmTestKit(id))
+            print(TAG .. " firearm-kit id=" .. tostring(id) .. " result=" .. kit)
+            if string.find(kit, "FIREARM_KIT_ADDED", 1, true) ~= 1 then
+                CombatTests.cleanup(true)
+                KnoxActivityFeed.event("Firearm test kit failed: " .. kit)
+                return false
+            end
         end
     end
     for index = 1, definition.zombies do
