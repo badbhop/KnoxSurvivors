@@ -13,5 +13,10 @@ assert(string.find(source, 'setRenderThisPlayerOnly(playerNum)', 1, true),
     "companion inventory window must remain split-screen isolated")
 assert(string.find(source, '"Take Selected"', 1, true),
     "companion inventory window must expose a selected-item transfer")
+assert(string.find(source, 'function Window:onOpenSelected()', 1, true)
+    and string.find(source, 'item:getInventory()', 1, true),
+    "companion inventory window must support nested carried containers")
+assert(string.find(source, 'function Window:onBack()', 1, true),
+    "nested inventory navigation must allow returning to the parent container")
 
-print("Companion inventory window PASS native_transfer=true split_screen=true")
+print("Companion inventory window PASS native_transfer=true split_screen=true nested_containers=true")

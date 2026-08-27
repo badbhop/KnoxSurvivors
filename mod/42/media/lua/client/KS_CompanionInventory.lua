@@ -33,9 +33,25 @@ function Window:character()
     return KnoxSurvivorRuntime.getCharacter(self.survivorId)
 end
 
+function Window:currentContainer()
+    local entry = self.containerStack ~= nil
+        and self.containerStack[#self.containerStack] or nil
+    return entry ~= nil and entry.container or nil
+end
+
+function Window:currentContainerLabel()
+    local entry = self.containerStack ~= nil
+        and self.containerStack[#self.containerStack] or nil
+    return entry ~= nil and tostring(entry.label or "Inventory") or "Inventory"
+end
+
 function Window:refreshItems()
     local character = self:character()
-    local inventory = character ~= nil and character:getInventory() or nil
+    local inventory = self:currentContainer()
+    if inventory == nil and character ~= nil then
+        inventory = character:getInventory()
+        self.containerStack = { { container = inventory, label = "Inventory" } }
+    end
     self.list:clear()
     self.itemCount = 0
     if inventory == nil then
@@ -46,10 +62,39 @@ function Window:refreshItems()
         local item = items:get(index)
         if item ~= nil then
             self.itemCount = self.itemCount + 1
-            self.list:addItem(tostring(item:getName()), { item = item })
+            local nested = item.getInventory ~= nil and item:getInventory() or nil
+            local label = tostring(item:getName())
+            if nested ~= nil then
+                label = label .. "  [container]"
+            end
+            self.list:addItem(label, { item = item, nested = nested })
         end
     end
     self.nextRefresh = getTimestamp() + REFRESH_MS
+end
+
+function Window:onOpenSelected()
+    local entry = self.list.items[self.list.selected]
+    local data = entry ~= nil and entry.item or nil
+    if data == nil or data.nested == nil then
+        return
+    end
+    local source = data.item:getContainer()
+    if source == nil or source ~= self:currentContainer() or not source:contains(data.item) then
+        return
+    end
+    self.containerStack[#self.containerStack + 1] = {
+        container = data.nested,
+        label = tostring(data.item:getName()),
+    }
+    self:refreshItems()
+end
+
+function Window:onBack()
+    if self.containerStack ~= nil and #self.containerStack > 1 then
+        table.remove(self.containerStack)
+        self:refreshItems()
+    end
 end
 
 function Window:queueItem(item)
@@ -85,7 +130,7 @@ end
 
 function Window:onTakeAll()
     local character = self:character()
-    local inventory = character ~= nil and character:getInventory() or nil
+    local inventory = self:currentContainer()
     if inventory == nil then
         return
     end
@@ -121,7 +166,15 @@ function Window:createChildren()
     self.takeSelected:initialise()
     self.takeSelected:setAnchorBottom(true)
     self:addChild(self.takeSelected)
-    self.takeAll = ISButton:new(170, self.height - 34, 100, 24, "Take All", self, Window.onTakeAll)
+    self.openSelected = ISButton:new(166, self.height - 34, 72, 24, "Open", self, Window.onOpenSelected)
+    self.openSelected:initialise()
+    self.openSelected:setAnchorBottom(true)
+    self:addChild(self.openSelected)
+    self.backButton = ISButton:new(244, self.height - 34, 52, 24, "Back", self, Window.onBack)
+    self.backButton:initialise()
+    self.backButton:setAnchorBottom(true)
+    self:addChild(self.backButton)
+    self.takeAll = ISButton:new(302, self.height - 34, 80, 24, "Take All", self, Window.onTakeAll)
     self.takeAll:initialise()
     self.takeAll:setAnchorBottom(true)
     self:addChild(self.takeAll)
@@ -153,6 +206,7 @@ function Window:new(playerNum, survivorId)
     local o = ISCollapsableWindowJoypad.new(self, x, y, width, height)
     o.playerNum = playerNum
     o.survivorId = survivorId
+    o.containerStack = {}
     o.title = characterName(survivorId) .. " - Inventory"
     o.moveWithMouse = true
     o.resizable = false
