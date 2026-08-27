@@ -346,6 +346,30 @@ if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.transferIfNe
     end
 end
 
+if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.equipWeapon ~= nil then
+    if CompanionInventory._origEquipWeapon == nil then CompanionInventory._origEquipWeapon = ISInventoryPaneContextMenu.equipWeapon end
+    local origEquip = CompanionInventory._origEquipWeapon
+    ISInventoryPaneContextMenu.equipWeapon = function(weapon, primary, twoHands, player, alwaysTurnOn)
+        local ch, sid = getSurvivorForItem(weapon)
+        if ch ~= nil then
+            inventoryLog("equipWeapon", sid, weapon, player)
+            if weapon:getWorldItem() then
+                local action = ISInventoryTransferUtil.newInventoryTransferAction(ch, weapon, weapon:getContainer(), ch:getInventory())
+                action.maxTime = 20
+                ISTimedActionQueue.add(action)
+                ISTimedActionQueue.add(ISEquipWeaponAction:new(ch, weapon, 1, primary, twoHands, alwaysTurnOn))
+                return
+            end
+            ISInventoryPaneContextMenu.transferIfNeeded(ch, weapon)
+            ISTimedActionQueue.add(ISEquipWeaponAction:new(ch, weapon, 50, primary, twoHands, alwaysTurnOn))
+            return
+        end
+        return origEquip(weapon, primary, twoHands, player, alwaysTurnOn)
+    end
+end
+
+
+
 function CompanionInventory.show(playerNum, survivorId)
     local player = getSpecificPlayer(playerNum)
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
