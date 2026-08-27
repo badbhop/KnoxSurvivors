@@ -1,6 +1,9 @@
-require "ISUI/ISCollapsableWindow"
+require "ISUI/ISCollapsableWindowJoypad"
+require "ISUI/ISTabPanel"
 require "ISUI/ISButton"
-require "ISUI/ISRichTextPanel"
+require "ISUI/ISLabel"
+require "ISUI/ISScrollingListBox"
+require "ISUI/ISTickBox"
 require "KS_Persistence"
 require "KS_SurvivorViewModel"
 require "KS_BaseManager"
@@ -8,457 +11,261 @@ require "KS_SurvivorRuntime"
 require "KS_SurvivorCapabilities"
 require "KS_BaseHighlights"
 require "KS_BaseSetup"
+require "KS_SurvivorCard"
 
 local Notebook = rawget(_G, "KnoxSurvivorNotebook") or {}
 _G.KnoxSurvivorNotebook = Notebook
 
-local Window = ISCollapsableWindow:derive("KnoxSurvivorNotebookWindow")
-local TABS = { "Overview", "Survivors", "Base", "Work", "Missions" }
-local UI_PAD = 10
-local BUTTON_HGT = getTextManager():getFontHeight(UIFont.Small) + 6
+local Window = ISCollapsableWindowJoypad:derive("KnoxSurvivorNotebookWindow")
 
-local function line(value)
-    return tostring(value or "") .. " <LINE> "
+local FONT_HGT_SMALL = getTextManager():getFontHeight(UIFont.Small)
+local BUTTON_HGT = FONT_HGT_SMALL + 6
+local UI_BORDER_SPACING = 10
+
+local function clamp(v, mn, mx) return math.max(mn, math.min(mx, v)) end
+
+-- Base panel: territory, highlights, work areas overview
+local BaseView = ISPanelJoypad:derive("KnoxNotebookBaseView")
+function BaseView:initialise() ISPanelJoypad.initialise(self) end
+function BaseView:createChildren()
+    ISPanelJoypad.createChildren(self)
+    local y = UI_BORDER_SPACING
+    self.infoLabel = ISLabel:new(UI_BORDER_SPACING, y, BUTTON_HGT, "", 1,1,1,1, UIFont.Small)
+    self.infoLabel:initialise(); self:addChild(self.infoLabel)
+    y = y + FONT_HGT_SMALL + UI_BORDER_SPACING
+    self.boundaryLabel = ISLabel:new(UI_BORDER_SPACING, y, BUTTON_HGT, "", 0.6,0.6,0.8,1, UIFont.Small)
+    self.boundaryLabel:initialise(); self:addChild(self.boundaryLabel)
+    y = y + FONT_HGT_SMALL + UI_BORDER_SPACING
+    self.showHighlights = ISTickBox:new(UI_BORDER_SPACING, y, 200, BUTTON_HGT, "", self, BaseView.onToggleHighlights)
+    self.showHighlights:initialise(); self.showHighlights:addOption(getText("IGUI_Knox_Highlights") or "Show Highlights")
+    self:addChild(self.showHighlights)
+    y = y + BUTTON_HGT + UI_BORDER_SPACING
+    self.zoneList = ISScrollingListBox:new(UI_BORDER_SPACING, y, self.width - UI_BORDER_SPACING*2, BUTTON_HGT*6)
+    self.zoneList:initialise(); self.zoneList:instantiate()
+    self.zoneList.itemheight = BUTTON_HGT; self.zoneList.font = UIFont.NewSmall
+    self.zoneList.doDrawItem = BaseView.drawZone; self.zoneList.drawBorder = true
+    self:addChild(self.zoneList)
+    y = self.zoneList:getBottom() + UI_BORDER_SPACING
+    self.editBoundaryBtn = ISButton:new(UI_BORDER_SPACING, y, 110, BUTTON_HGT, getText("IGUI_Knox_EditBoundary") or "Edit Boundary", self, BaseView.onEditBoundary)
+    self.editBoundaryBtn:initialise(); self:addChild(self.editBoundaryBtn)
+    self.addAreaBtn = ISButton:new(self.editBoundaryBtn:getRight()+UI_BORDER_SPACING, y, 90, BUTTON_HGT, getText("IGUI_Knox_AddArea") or "Add Area", self, BaseView.onAddArea)
+    self.addAreaBtn:initialise(); self:addChild(self.addAreaBtn)
+    self.openSetupBtn = ISButton:new(self.addAreaBtn:getRight()+UI_BORDER_SPACING, y, 110, BUTTON_HGT, "Base Setup", self, BaseView.onOpenSetup)
+    self.openSetupBtn:initialise(); self:addChild(self.openSetupBtn)
 end
-
-local function tableLength(values)
-    local count = 0
-    for _ in pairs(values or {}) do
-        count = count + 1
-    end
-    return count
+function BaseView:drawZone(y, item, alt)
+    local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28)
+    if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end
+    self:drawText(item.text, 10, y+2, 1,1,1,a, self.font); return y+self.itemheight
 end
-
-local function trimText(font, text, maximumWidth)
-    local value = tostring(text or "")
-    if getTextManager():MeasureStringX(font, value) <= maximumWidth then
-        return value
+function BaseView:populate(playerNum)
+    self.playerNum = playerNum
+    local player = getSpecificPlayer(playerNum)
+    local pid = player and KnoxPersistence.ensurePlayerId(player) or nil
+    local base = pid and KnoxBaseManager.getForOwner("player", pid) or nil
+    if not base then
+        self.infoLabel.name = getText("IGUI_Knox_NoBase") or "No home base"
+        self.boundaryLabel.name = ""
+        self.zoneList:clear(); self.showHighlights:setSelected(1, false)
+        return
     end
-    local suffix = "..."
-    while #value > 1
-        and getTextManager():MeasureStringX(font, value .. suffix) > maximumWidth do
-        value = string.sub(value, 1, #value - 1)
-    end
-    return value .. suffix
-end
-
--- Overview: party count, base summary, quick stats
-function Window:overviewText()
-    local snapshots = KnoxSurvivorViewModel.getForPlayer(self.playerNum)
-    local player = getSpecificPlayer(self.playerNum)
-    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
-    local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
-    local awayTeams = KnoxPersistence.getAwayTeams ~= nil and KnoxPersistence.getAwayTeams() or {}
-    local teamCount = 0
-    for _ in pairs(awayTeams) do teamCount = teamCount + 1 end
-
-    local text = "<H1>Overview</H1>"
-        .. line("Companions: " .. tostring(#snapshots))
-
-    if base ~= nil then
-        local residents = KnoxPersistence.getBaseResidentIds(base.id)
-        local zones = 0
-        for _ in pairs(base.zones or {}) do zones = zones + 1 end
-        local queued, claimed = 0, 0
-        for _, task in pairs(base.tasks or {}) do
-            if task.state == "queued" then queued = queued + 1
-            elseif task.state == "claimed" then claimed = claimed + 1 end
-        end
-        text = text
-            .. line("Home Base: " .. tostring(base.name or "Home Base"))
-            .. line("  Residents: " .. tostring(#residents)
-                .. "  |  Work areas: " .. tostring(zones)
-                .. "  |  Tasks: " .. tostring(queued) .. " queued, " .. tostring(claimed) .. " active")
-    else
-        text = text .. line("Home Base: none established")
-    end
-
-    if teamCount > 0 then
-        text = text .. line("Active missions: " .. tostring(teamCount))
-    end
-
-    text = text .. line("")
-    text = text .. "<H2>Party</H2>"
-    if #snapshots == 0 then
-        text = text .. line("No companions recruited yet.")
-    else
-        for _, s in ipairs(snapshots) do
-            local dist = s.distanceTiles ~= nil and tostring(math.floor(s.distanceTiles + 0.5)) .. " tiles" or ""
-            text = text .. line("<RGB:0.72,0.78,0.58>" .. s.displayName
-                .. "<RGB:0.82,0.82,0.80>  " .. s.activity
-                .. (dist ~= "" and "  (" .. dist .. ")" or "")
-                .. "  -  " .. s.orderLabel)
-        end
-    end
-    return text
-end
-
--- Survivors: companions + base residents only (no random world NPCs)
-function Window:survivorsText()
-    local snapshots = KnoxSurvivorViewModel.getForPlayer(self.playerNum)
-    local player = getSpecificPlayer(self.playerNum)
-    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
-    local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
-
-    local text = "<H1>Survivors</H1>"
-        .. line("Companions: " .. tostring(#snapshots) .. "  |  Right-click a companion for full details.")
-        .. line("")
-
-    -- Companions
-    text = text .. "<H2>Companions</H2>"
-    if #snapshots == 0 then
-        text = text .. line("No companions recruited.")
-    else
-        for _, s in ipairs(snapshots) do
-            local health = ""
-            if s.vitals ~= nil and s.vitals.available then
-                local pct = math.floor((s.vitals.health or 0) * 100 + 0.5)
-                health = "  HP " .. tostring(pct) .. "%"
-            end
-            text = text .. line("<RGB:0.72,0.78,0.58>" .. s.displayName
-                .. "<RGB:0.82,0.82,0.80>  " .. s.professionLabel
-                .. "  -  " .. s.activity
-                .. "  -  " .. s.orderLabel
-                .. health)
-        end
-    end
-
-    -- Base residents
-    if base ~= nil then
-        local ids = KnoxPersistence.getBaseResidentIds(base.id)
-        if #ids > 0 then
-            text = text .. line("") .. "<H2>Base Residents</H2>"
-            for _, id in ipairs(ids) do
-                local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
-                local duty = KnoxPersistence.getSurvivorDuty(id) or {}
-                local profile = KnoxPersistence.getSurvivorCapabilities(id) or {}
-                local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
-                local profession = KnoxSurvivorCapabilities.professionLabel(profile) or "Survivor"
-                local loaded = KnoxSurvivorRuntime.getCharacter(id) ~= nil
-                local job = tostring(duty.jobPreference or "auto")
-                text = text .. line("<RGB:0.72,0.78,0.58>" .. name
-                    .. "<RGB:0.82,0.82,0.80>  " .. profession
-                    .. "  -  Job: " .. job
-                    .. "  -  " .. (loaded and "present" or "stored"))
-            end
-        end
-    end
-
-    return text
-end
-
--- Base: base info, setup controls, zones, storage
-function Window:baseText()
-    local player = getSpecificPlayer(self.playerNum)
-    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
-    local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
-    if base == nil then
-        return "<H1>Base</H1>" .. line("No home base established.")
-            .. line("Right-click inside a building to establish one.")
-    end
-    local area = base.territory or base.home or {}
     local residents = KnoxPersistence.getBaseResidentIds(base.id)
-    local hl = KnoxBaseHighlights.isEnabled(self.playerNum) and "ON" or "OFF"
-
-    local text = "<H1>" .. tostring(base.name or "Home Base") .. "</H1>"
-        .. line("Residents: " .. tostring(#residents)
-            .. "  |  Highlights: " .. hl)
-        .. line("Boundary: " .. tostring(area.minX or "?") .. "," .. tostring(area.minY or "?")
-            .. " to " .. tostring(area.maxX or "?") .. "," .. tostring(area.maxY or "?"))
-
-    -- Work areas
-    local zones = {}
-    for _, zone in pairs(base.zones or {}) do
-        if zone ~= nil and zone.enabled ~= false then
-            zones[#zones + 1] = zone
-        end
-    end
-    table.sort(zones, function(a, b)
-        return tostring(a.label or a.type) < tostring(b.label or b.type)
-    end)
-    text = text .. line("") .. "<H2>Work Areas</H2>"
-    if #zones == 0 then
-        text = text .. line("No work areas set. Use Add Area below.")
-    else
-        for _, zone in ipairs(zones) do
-            text = text .. line("  " .. tostring(zone.label or zone.type)
-                .. "  [" .. tostring(zone.type) .. "]")
-        end
-    end
-
-    -- Storage
-    local storageCount = tableLength(base.storage)
-    text = text .. line("") .. "<H2>Storage</H2>"
-        .. line("Storage policies: " .. tostring(storageCount)
-            .. "  |  Use Base Setup window for details.")
-
-    return text
+    local zones=0; for _ in pairs(base.zones or {}) do zones=zones+1 end
+    self.infoLabel.name = (base.name or "Home Base") .. "  |  Residents: " .. #residents .. "  |  Zones: " .. zones
+    local area = base.territory or base.home or {}
+    self.boundaryLabel.name = "Boundary: " .. tostring(area.minX or "?") .. "," .. tostring(area.minY or "?") .. " to " .. tostring(area.maxX or "?") .. "," .. tostring(area.maxY or "?")
+    self.showHighlights:setSelected(1, KnoxBaseHighlights.isEnabled(playerNum))
+    self.zoneList:clear()
+    local list={}
+    for _,z in pairs(base.zones or {}) do if z and z.enabled~=false then list[#list+1]=z end end
+    table.sort(list, function(a,b) return tostring(a.label or a.type) < tostring(b.label or b.type) end)
+    for _,z in ipairs(list) do self.zoneList:addItem(z.label or z.type, "  " .. tostring(z.label or z.type) .. "  [" .. tostring(z.type) .. "]") end
+    if #list==0 then self.zoneList:addItem("none", "No work areas — Add Area below") end
 end
-
--- Work: jobs, tasks, storage
-function Window:workText()
-    local player = getSpecificPlayer(self.playerNum)
-    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
-    local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
-    if base == nil then
-        return "<H1>Work</H1>" .. line("No home base established.")
-    end
-
-    local queued, claimed, done = 0, 0, 0
-    for _, task in pairs(base.tasks or {}) do
-        if task.state == "queued" then queued = queued + 1
-        elseif task.state == "claimed" then claimed = claimed + 1
-        else done = done + 1 end
-    end
-
-    local text = "<H1>Work Queue</H1>"
-        .. line("Queued: " .. tostring(queued) .. "  |  Active: " .. tostring(claimed)
-            .. "  |  Completed: " .. tostring(done))
-
-    -- Storage categories
-    local cats = {}
-    for _, policy in pairs(base.storage or {}) do
-        if policy ~= nil and policy.category ~= nil then
-            cats[policy.category] = (cats[policy.category] or 0) + 1
-        end
-    end
-    text = text .. line("") .. "<H2>Storage Categories</H2>"
-    local sorted = {}
-    for cat, count in pairs(cats) do
-        sorted[#sorted + 1] = { cat = cat, count = count }
-    end
-    table.sort(sorted, function(a, b) return a.cat < b.cat end)
-    if #sorted == 0 then
-        text = text .. line("No storage policies configured.")
-    else
-        for _, entry in ipairs(sorted) do
-            text = text .. line("  " .. entry.cat .. ": " .. tostring(entry.count) .. " containers")
-        end
-    end
-
-    -- Job summary
-    text = text .. line("") .. "<H2>Resident Jobs</H2>"
-    local ids = KnoxPersistence.getBaseResidentIds(base.id)
-    if #ids == 0 then
-        text = text .. line("No residents assigned.")
-    else
-        local jobs = {}
-        for _, id in ipairs(ids) do
-            local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
-            local duty = KnoxPersistence.getSurvivorDuty(id) or {}
-            local name = tostring(identity.forename or "Unknown")
-            local job = tostring(duty.jobPreference or "auto")
-            jobs[#jobs + 1] = name .. ": " .. job
-        end
-        table.sort(jobs)
-        for _, j in ipairs(jobs) do
-            text = text .. line("  " .. j)
-        end
-    end
-
-    return text
+function BaseView:onToggleHighlights(index, selected) KnoxBaseHighlights.toggle(self.parent:getParent().playerNum or self.playerNum or 0) end
+function BaseView:onEditBoundary()
+    local win=self:getParent():getParent(); local pn=win.playerNum
+    local p=getSpecificPlayer(pn); local pid=p and KnoxPersistence.ensurePlayerId(p) or nil
+    local base=pid and KnoxBaseManager.getForOwner("player", pid) or nil
+    if base and p then if KnoxBaseTerritorySelector then KnoxBaseTerritorySelector.start(p, base.id) end end
 end
+function BaseView:onAddArea() local win=self:getParent():getParent(); KnoxBaseSetup.show(win.playerNum) end
+function BaseView:onOpenSetup() local win=self:getParent():getParent(); KnoxBaseSetup.show(win.playerNum) end
+function BaseView:prerender() ISPanelJoypad.prerender(self) end
+function BaseView:new(x,y,w,h) local o=ISPanelJoypad.new(self,x,y,w,h); o:noBackground(); return o end
 
--- Missions: away teams + unloaded survivors
-function Window:missionsText()
-    local text = "<H1>Missions</H1>"
-    local teams = KnoxPersistence.getAwayTeams ~= nil and KnoxPersistence.getAwayTeams() or {}
-    local teamCount = 0
-    for _, team in pairs(teams) do
-        if team ~= nil then
-            teamCount = teamCount + 1
-            local members = #(team.memberIds or {})
-            local dest = team.destination ~= nil and team.destination.label or "unknown"
-            text = text .. line("<RGB:0.72,0.78,0.58>" .. tostring(team.id)
-                .. "<RGB:0.82,0.82,0.80>  " .. tostring(team.missionType)
-                .. "  -  " .. tostring(team.state)
-                .. "  -  " .. tostring(members) .. " survivors"
-                .. "  -  " .. tostring(dest))
-        end
+-- Residents panel: ISScrollingListBox like Safehouse
+local ResidentsView = ISPanelJoypad:derive("KnoxNotebookResidentsView")
+function ResidentsView:initialise() ISPanelJoypad.initialise(self) end
+function ResidentsView:createChildren()
+    ISPanelJoypad.createChildren(self)
+    self.list = ISScrollingListBox:new(UI_BORDER_SPACING, UI_BORDER_SPACING, self.width-UI_BORDER_SPACING*2, self.height-UI_BORDER_SPACING*2-BUTTON_HGT-UI_BORDER_SPACING)
+    self.list:initialise(); self.list:instantiate()
+    self.list.itemheight = BUTTON_HGT; self.list.font=UIFont.NewSmall; self.list.doDrawItem=self.drawEntry; self.list.drawBorder=true; self.list.joypadParent=self
+    self:addChild(self.list)
+    self.viewBtn = ISButton:new(UI_BORDER_SPACING, self.list:getBottom()+UI_BORDER_SPACING, 110, BUTTON_HGT, getText("IGUI_char_Info") or "View Card", self, ResidentsView.onView)
+    self.viewBtn:initialise(); self:addChild(self.viewBtn)
+end
+function ResidentsView:drawEntry(y,item,alt)
+    local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28)
+    if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end
+    self:drawText(item.text, 10, y+2, 1,1,1,a, self.font); return y+self.itemheight
+end
+function ResidentsView:populate(playerNum)
+    self.playerNum=playerNum; self.list:clear(); self.ids={}
+    local snapshots=KnoxSurvivorViewModel.getForPlayer(playerNum) or {}
+    local player=getSpecificPlayer(playerNum); local pid=player and KnoxPersistence.ensurePlayerId(player) or nil
+    local base=pid and KnoxBaseManager.getForOwner("player", pid) or nil
+    for _,s in ipairs(snapshots) do
+        local txt=s.displayName .. "  |  " .. (s.professionLabel or "Survivor") .. "  |  " .. (s.orderLabel or "") .. "  |  " .. (s.activity or "")
+        self.list:addItem(txt, txt); self.ids[#self.ids+1]=s.id
     end
-    if teamCount == 0 then
-        text = text .. line("No active missions.")
-    end
-
-    -- Unloaded companions/residents
-    local ids = KnoxPersistence.getSurvivorIds()
-    local unloaded = 0
-    for _, id in ipairs(ids) do
-        if KnoxPersistence.isSurvivorAlive(id)
-            and KnoxSurvivorRuntime.getCharacter(id) == nil then
-            local affiliation = KnoxPersistence.getSurvivorAffiliation(id) or {}
-            local duty = KnoxPersistence.getSurvivorDuty(id) or {}
-            if affiliation.kind == "player" or duty.mode == "base" then
-                unloaded = unloaded + 1
-                local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
-                local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
-                local role = duty.mode == "base" and "resident" or "companion"
-                text = text .. line("<RGB:0.72,0.78,0.58>" .. name
-                    .. "<RGB:0.82,0.82,0.80>  " .. role .. "  -  stored outside active area")
+    if base then
+        local rids=KnoxPersistence.getBaseResidentIds(base.id)
+        for _,id in ipairs(rids) do
+            local already=false; for _,eid in ipairs(self.ids) do if eid==id then already=true break end end
+            if not already then
+                local ident=KnoxPersistence.getSurvivorIdentity(id) or {}
+                local duty=KnoxPersistence.getSurvivorDuty(id) or {}
+                local name=tostring(ident.forename or "").." "..tostring(ident.surname or "")
+                local txt=name .. "  |  Base  |  Job: " .. tostring(duty.jobPreference or "auto")
+                self.list:addItem(txt, txt); self.ids[#self.ids+1]=id
             end
         end
     end
-    if unloaded > 0 then
-        text = text .. line("") .. "<H2>Unloaded</H2>"
-            .. line(tostring(unloaded) .. " companions/residents stored outside the active area.")
-    end
+    if #self.ids==0 then self.list:addItem("none","No residents — recruit companions"); self.ids[1]=nil end
+end
+function ResidentsView:onView()
+    if self.list.selected>0 and self.ids[self.list.selected] then KnoxSurvivorCard.show(self.playerNum, self.ids[self.list.selected]) end
+end
+function ResidentsView:prerender() ISPanelJoypad.prerender(self) if self.list.selected>0 and self.ids[self.list.selected] then self.viewBtn.enable=true else self.viewBtn.enable=false end end
+function ResidentsView:onJoypadDown(b, jd) if b==Joypad.AButton and self.list.selected>0 then self:onView() end; ISPanelJoypad.onJoypadDown(self,b,jd) end
+function ResidentsView:new(x,y,w,h) local o=ISPanelJoypad.new(self,x,y,w,h); o:noBackground(); return o end
 
-    return text
+-- Work panel: zones + tasks
+local WorkView = ISPanelJoypad:derive("KnoxNotebookWorkView")
+function WorkView:initialise() ISPanelJoypad.initialise(self) end
+function WorkView:createChildren()
+    ISPanelJoypad.createChildren(self)
+    self.zoneList = ISScrollingListBox:new(UI_BORDER_SPACING, UI_BORDER_SPACING, self.width-UI_BORDER_SPACING*2, BUTTON_HGT*5)
+    self.zoneList:initialise(); self.zoneList:instantiate(); self.zoneList.itemheight=BUTTON_HGT; self.zoneList.font=UIFont.NewSmall; self.zoneList.doDrawItem=self.drawZone; self.zoneList.drawBorder=true; self:addChild(self.zoneList)
+    self.taskList = ISScrollingListBox:new(UI_BORDER_SPACING, self.zoneList:getBottom()+UI_BORDER_SPACING, self.width-UI_BORDER_SPACING*2, BUTTON_HGT*5)
+    self.taskList:initialise(); self.taskList:instantiate(); self.taskList.itemheight=BUTTON_HGT; self.taskList.font=UIFont.NewSmall; self.taskList.doDrawItem=self.drawTask; self.taskList.drawBorder=true; self:addChild(self.taskList)
+    self.sendHomeBtn = ISButton:new(UI_BORDER_SPACING, self.taskList:getBottom()+UI_BORDER_SPACING, 120, BUTTON_HGT, getText("IGUI_Knox_SendHome") or "Send Party Home", self, WorkView.onSendHome)
+    self.sendHomeBtn:initialise(); self:addChild(self.sendHomeBtn)
+end
+function WorkView:drawZone(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text,10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function WorkView:drawTask(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text,10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function WorkView:populate(playerNum)
+    self.playerNum=playerNum
+    local p=getSpecificPlayer(playerNum); local pid=p and KnoxPersistence.ensurePlayerId(p) or nil; local base=pid and KnoxBaseManager.getForOwner("player", pid) or nil
+    self.zoneList:clear(); self.taskList:clear()
+    if not base then self.zoneList:addItem("none","No base"); self.taskList:addItem("none","No base"); return end
+    local zones={}; for _,z in pairs(base.zones or {}) do if z then zones[#zones+1]=z end end
+    table.sort(zones, function(a,b) return tostring(a.type)<tostring(b.type) end)
+    if #zones==0 then self.zoneList:addItem("none","No work areas") else for _,z in ipairs(zones) do self.zoneList:addItem(z.label or z.type, tostring(z.label or z.type).." ["..tostring(z.type).."]") end end
+    local queued,claimed=0,0; for _,t in pairs(base.tasks or {}) do if t.state=="queued" then queued=queued+1 elseif t.state=="claimed" then claimed=claimed+1 end end
+    self.taskList:addItem("header","Tasks: " .. queued .. " queued | " .. claimed .. " active")
+    for _,t in pairs(base.tasks or {}) do self.taskList:addItem(t.type or "task", tostring(t.type or "task").." — "..tostring(t.state)) end
+    if self.taskList:size()<=1 then self.taskList:addItem("none","No tasks — mark work areas") end
+end
+function WorkView:onSendHome()
+    local p=getSpecificPlayer(self.playerNum); if not p then return end
+    local base=KnoxBaseManager.getForOwner("player", KnoxPersistence.ensurePlayerId(p))
+    if not base then return end
+    local moved=0; for _,id in ipairs(KnoxSurvivorViewModel.getForPlayer(self.playerNum) or {}) do end
+    -- use companion service for actual send
+    if KnoxCompanionService and KnoxCompanionService.sendToBase then
+        for _,s in ipairs(KnoxSurvivorViewModel.getForPlayer(self.playerNum) or {}) do if KnoxCompanionService.sendToBase(p, s.id) then moved=moved+1 end end
+    end
+end
+function WorkView:new(x,y,w,h) local o=ISPanelJoypad.new(self,x,y,w,h); o:noBackground(); return o end
+
+-- Missions panel
+local MissionsView = ISPanelJoypad:derive("KnoxNotebookMissionsView")
+function MissionsView:initialise() ISPanelJoypad.initialise(self) end
+function MissionsView:createChildren()
+    ISPanelJoypad.createChildren(self)
+    self.list = ISScrollingListBox:new(UI_BORDER_SPACING, UI_BORDER_SPACING, self.width-UI_BORDER_SPACING*2, self.height-UI_BORDER_SPACING*2)
+    self.list:initialise(); self.list:instantiate(); self.list.itemheight=BUTTON_HGT; self.list.font=UIFont.NewSmall; self.list.doDrawItem=self.drawEntry; self.list.drawBorder=true; self:addChild(self.list)
+end
+function MissionsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text,10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function MissionsView:populate(playerNum)
+    self.playerNum=playerNum; self.list:clear()
+    local teams=KnoxPersistence.getAwayTeams and KnoxPersistence.getAwayTeams() or {}; local c=0
+    for _,t in pairs(teams) do if t then c=c+1; self.list:addItem(t.id, tostring(t.id) .. " | " .. tostring(t.missionType) .. " | " .. tostring(t.state) .. " | " .. tostring(#(t.memberIds or {})) .. " | " .. tostring(t.destination and t.destination.label or "unknown")) end end
+    if c==0 then self.list:addItem("none","No active missions") end
+    -- unloaded
+    for _,id in ipairs(KnoxPersistence.getSurvivorIds() or {}) do
+        if KnoxPersistence.isSurvivorAlive(id) and KnoxSurvivorRuntime.getCharacter(id)==nil then
+            local aff=KnoxPersistence.getSurvivorAffiliation(id) or {}; local duty=KnoxPersistence.getSurvivorDuty(id) or {}
+            if aff.kind=="player" or duty.mode=="base" then
+                local ident=KnoxPersistence.getSurvivorIdentity(id) or {}
+                local name=tostring(ident.forename or "").." "..tostring(ident.surname or "")
+                self.list:addItem(name, name .. " | " .. (duty.mode=="base" and "resident" or "companion") .. " | stored")
+            end
+        end
+    end
+end
+function MissionsView:new(x,y,w,h) local o=ISPanelJoypad.new(self,x,y,w,h); o:noBackground(); return o end
+
+function Window:createChildren()
+    ISCollapsableWindowJoypad.createChildren(self)
+    self.pinButton:setVisible(false); self.collapseButton:setVisible(false)
+    local th=self:titleBarHeight(); local rh=self:resizeWidgetHeight()
+    self.panel = ISTabPanel:new(0, th, self.width, self.height-th-rh)
+    self.panel:initialise(); self.panel.tabPadX=10; self.panel.equalTabWidth=false
+    self.panel:setAnchorRight(true); self.panel:setAnchorBottom(true); self:addChild(self.panel)
+    self.baseView = BaseView:new(0, 8, self.panel.width, self.panel.height-8); self.baseView:initialise(); self.panel:addView("Base", self.baseView)
+    self.residentsView = ResidentsView:new(0, 8, self.panel.width, self.panel.height-8); self.residentsView:initialise(); self.panel:addView("Residents", self.residentsView)
+    self.workView = WorkView:new(0, 8, self.panel.width, self.panel.height-8); self.workView:initialise(); self.panel:addView("Work", self.workView)
+    self.missionsView = MissionsView:new(0, 8, self.panel.width, self.panel.height-8); self.missionsView:initialise(); self.panel:addView("Missions", self.missionsView)
+    -- keep legacy content for fallback
+    self.content=nil
 end
 
 function Window:refreshContent()
-    local builders = {
-        Overview  = self.overviewText,
-        Survivors = self.survivorsText,
-        Base      = self.baseText,
-        Work      = self.workText,
-        Missions  = self.missionsText,
-    }
-    self.content.text = builders[self.activeTab](self)
-    self.content:paginate()
-    for _, button in ipairs(self.tabButtons) do
-        button.backgroundColor.a = button.title == self.activeTab and 0.45 or 0.18
-    end
-    local showSetup = self.activeTab == "Base"
-    if self.setupButtons ~= nil then
-        for _, b in ipairs(self.setupButtons) do b:setVisible(showSetup) end
-        if self.highlightButton ~= nil then
-            self.highlightButton:setTitle(KnoxBaseHighlights.isEnabled(self.playerNum) and "Highlights: ON" or "Highlights: OFF")
+    if self.baseView then self.baseView:populate(self.playerNum) end
+    if self.residentsView then self.residentsView:populate(self.playerNum) end
+    if self.workView then self.workView:populate(self.playerNum) end
+    if self.missionsView then self.missionsView:populate(self.playerNum) end
+end
+
+function Window:onJoypadDown(button, joypadData)
+    if button==Joypad.LBumper or button==Joypad.RBumper then
+        if self.panel and self.panel.viewList and #self.panel.viewList>1 then
+            local idx=self.panel:getActiveViewIndex()
+            if button==Joypad.LBumper then idx= idx==1 and #self.panel.viewList or idx-1 else idx= idx==#self.panel.viewList and 1 or idx+1 end
+            self.panel:activateView(self.panel.viewList[idx].name); setJoypadFocus(self.playerNum, self.panel:getActiveView()); return
         end
     end
-end
-
-function Window:onTab(button)
-    self.activeTab = button.title
-    self:refreshContent()
-end
-
-function Window:onToggleHighlights()
-    KnoxBaseHighlights.toggle(self.playerNum)
-    self:refreshContent()
-end
-
-function Window:onEditBoundaryNotebook()
-    local player = getSpecificPlayer(self.playerNum)
-    local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
-    local base = playerId ~= nil and KnoxBaseManager.getForOwner("player", playerId) or nil
-    if base ~= nil and player ~= nil then
-        KnoxBaseSetup.show(self.playerNum)
-        if KnoxBaseTerritorySelector ~= nil then
-            KnoxBaseTerritorySelector.start(player, base.id)
-        end
-    end
-end
-
-function Window:onAddZoneNotebook()
-    KnoxBaseSetup.show(self.playerNum)
-end
-
-function Window:createChildren()
-    ISCollapsableWindow.createChildren(self)
-    self.tabButtons = {}
-    local y = self:titleBarHeight() + UI_PAD
-    local x = UI_PAD
-    for _, title in ipairs(TABS) do
-        local w = 72
-        if title == "Survivors" then w = 80
-        elseif title == "Overview" then w = 76
-        elseif title == "Missions" then w = 78 end
-        local button = ISButton:new(x, y, w, BUTTON_HGT, title, self, self.onTab)
-        button:initialise()
-        button.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
-        self:addChild(button)
-        self.tabButtons[#self.tabButtons + 1] = button
-        x = x + w + 4
-    end
-    -- Base controls — same spacing as BaseSetup (10px pad, small+6 height), scrollable content.
-    self.setupButtons = {}
-    local by = y + BUTTON_HGT + 6
-    self.highlightButton = ISButton:new(UI_PAD, by, 118, BUTTON_HGT, "Highlights: OFF", self, self.onToggleHighlights)
-    self.highlightButton:initialise()
-    self.highlightButton.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
-    self:addChild(self.highlightButton)
-    self.setupButtons[#self.setupButtons + 1] = self.highlightButton
-    self.editBoundaryBtn = ISButton:new(UI_PAD + 122, by, 112, BUTTON_HGT, "Edit Boundary", self, self.onEditBoundaryNotebook)
-    self.editBoundaryBtn:initialise()
-    self.editBoundaryBtn.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
-    self:addChild(self.editBoundaryBtn)
-    self.setupButtons[#self.setupButtons + 1] = self.editBoundaryBtn
-    self.addAreaBtn = ISButton:new(UI_PAD + 238, by, 92, BUTTON_HGT, "Add Area", self, self.onAddZoneNotebook)
-    self.addAreaBtn:initialise()
-    self.addAreaBtn.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
-    self:addChild(self.addAreaBtn)
-    self.setupButtons[#self.setupButtons + 1] = self.addAreaBtn
-    self.openSetupBtn = ISButton:new(UI_PAD + 334, by, 118, BUTTON_HGT, "Open Base Setup", self, self.onAddZoneNotebook)
-    self.openSetupBtn:initialise()
-    self.openSetupBtn.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.9 }
-    self:addChild(self.openSetupBtn)
-    self.setupButtons[#self.setupButtons + 1] = self.openSetupBtn
-    for _, b in ipairs(self.setupButtons) do b:setVisible(false) end
-    self.content = ISRichTextPanel:new(UI_PAD, by + BUTTON_HGT + 6, self.width - UI_PAD * 2, self.height - by - BUTTON_HGT - 14)
-    self.content:initialise()
-    self.content.background = true
-    self.content.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.92 }
-    self.content:setAnchorRight(true)
-    self.content:setAnchorBottom(true)
-    self:addChild(self.content)
-    self:refreshContent()
+    ISCollapsableWindowJoypad.onJoypadDown(self,button,joypadData)
 end
 
 function Window:new(playerNum)
-    local rawW, rawH = 580, 460
-    local sw = getPlayerScreenWidth(playerNum)
-    local sh = getPlayerScreenHeight(playerNum)
-    local width = math.min(rawW, math.max(1, sw - 20))
-    local height = math.min(rawH, math.max(1, sh - 20))
-    local left = getPlayerScreenLeft(playerNum)
-    local top = getPlayerScreenTop(playerNum)
-    local window = ISCollapsableWindow:new(
-        left + (sw - width) / 2,
-        top + (sh - height) / 2,
-        width,
-        height
-    )
-    setmetatable(window, self)
-    self.__index = self
-    window.playerNum = playerNum
-    window.activeTab = "Overview"
-    window.backgroundColor = { r = 0.06, g = 0.06, b = 0.06, a = 0.94 }
-    window.borderColor = { r = 0.28, g = 0.28, b = 0.28, a = 0.95 }
-    window:setTitle("Knox Survivors")
-    window:setResizable(true)
-    return window
+    local rawW,rawH=620,520; local sw=getPlayerScreenWidth(playerNum); local sh=getPlayerScreenHeight(playerNum)
+    local width=math.min(rawW, math.max(1, sw-20)); local height=math.min(rawH, math.max(1, sh-20))
+    local left=getPlayerScreenLeft(playerNum); local top=getPlayerScreenTop(playerNum)
+    local window=ISCollapsableWindowJoypad:new(left+(sw-width)/2, top+(sh-height)/2, width, height)
+    setmetatable(window,self); self.__index=self
+    window.playerNum=playerNum; window.activeTab="Base"
+    window.backgroundColor={r=0.06,g=0.06,b=0.06,a=0.94}; window.borderColor={r=0.28,g=0.28,b=0.28,a=0.95}
+    window:setTitle("Knox Survivors"); window:setResizable(true); return window
 end
 
 function Notebook.show(playerNum)
-    playerNum = tonumber(playerNum) or 0
-    if Notebook.window == nil then
-        Notebook.window = Window:new(playerNum)
-        Notebook.window:initialise()
-        Notebook.window:setRenderThisPlayerOnly(playerNum)
-        Notebook.window:addToUIManager()
-    else
-        Notebook.window.playerNum = playerNum
-        Notebook.window:refreshContent()
-        Notebook.window:setVisible(true)
-        Notebook.window:bringToTop()
-    end
-    return Notebook.window
+    playerNum=tonumber(playerNum) or 0
+    if Notebook.window==nil then
+        Notebook.window=Window:new(playerNum); Notebook.window:initialise()
+        Notebook.window:setRenderThisPlayerOnly(playerNum); Notebook.window:addToUIManager()
+    else Notebook.window.playerNum=playerNum; Notebook.window:setVisible(true); Notebook.window:bringToTop() end
+    Notebook.window:refreshContent(); return Notebook.window
 end
 
 function Notebook.toggle(playerNum)
-    if Notebook.window ~= nil and Notebook.window:isVisible() then
-        Notebook.window:setVisible(false)
-    else
-        Notebook.show(playerNum)
-    end
+    if Notebook.window~=nil and Notebook.window:isVisible() then Notebook.window:setVisible(false) else Notebook.show(playerNum) end
 end
 
-Events.OnMainMenuEnter.Add(function()
-    if Notebook.window ~= nil then
-        Notebook.window:removeFromUIManager()
-        Notebook.window = nil
-    end
-end)
+Events.OnMainMenuEnter.Add(function() if Notebook.window~=nil then Notebook.window:removeFromUIManager(); Notebook.window=nil end end)
 
 return Notebook
