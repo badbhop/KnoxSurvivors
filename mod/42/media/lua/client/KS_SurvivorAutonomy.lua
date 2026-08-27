@@ -557,6 +557,8 @@ end
 local function reconcileWorldPopulation(bridge)
     local players = currentPlayers()
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local awayChanged = KnoxPersistence.advanceAwayTeams ~= nil
+        and KnoxPersistence.advanceAwayTeams(now) or 0
     local advanced, notable = KnoxUnloadedSurvival.advanceAll(activeIds, now)
     local summary = KnoxWorldPopulation.maintain(now)
     local remaining = math.max(0, KnoxSettings.maxActiveSurvivors() - #activeIds)
@@ -600,6 +602,9 @@ local function reconcileWorldPopulation(bridge)
     if notable > 0 then
         print(TAG .. " unloaded-simulation advanced=" .. tostring(advanced)
             .. " notable=" .. tostring(notable))
+    end
+    if awayChanged > 0 then
+        print(TAG .. " away-teams advanced=" .. tostring(awayChanged))
     end
 end
 

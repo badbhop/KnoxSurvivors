@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 8
+local SCHEMA_VERSION = 9
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local function root()
@@ -23,6 +23,10 @@ local function root()
         data.factions = {}
     end
     data.nextFactionId = data.nextFactionId or 1
+    if type(data.awayTeams) ~= "table" then
+        data.awayTeams = {}
+    end
+    data.nextAwayTeamId = tonumber(data.nextAwayTeamId) or 1
     if type(data.players) ~= "table" then
         data.players = {}
     end
@@ -135,6 +139,15 @@ local function root()
     data.schemaVersion = SCHEMA_VERSION
     return data
 end
+
+local AWAY_MISSION_TYPES = {
+    scout = true,
+    food = true,
+    medicine = true,
+    weapons = true,
+    tools = true,
+    building = true,
+}
 
 local function copyFlat(source)
     local copied = {}
@@ -533,6 +546,144 @@ end
 function KnoxPersistence.getSurvivorDuty(id)
     local survivor = ensureSurvivorState(id)
     return survivor ~= nil and copyFlat(survivor.duty) or nil
+end
+
+function KnoxPersistence.getAwayTeams()
+    local teams = {}
+    for id, team in pairs(root().awayTeams) do
+        if type(team) == "table" then
+            teams[id] = copySerializable(team)
+        end
+    end
+    return teams
+end
+
+function KnoxPersistence.getAwayTeam(id)
+    local team = type(id) == "string" and root().awayTeams[id] or nil
+    return type(team) == "table" and copySerializable(team) or nil
+end
+
+function KnoxPersistence.getAwayTeamForSurvivor(survivorId)
+    local survivor = ensureSurvivorState(survivorId)
+    local id = survivor ~= nil and survivor.duty ~= nil and survivor.duty.awayTeamId or nil
+    return id ~= nil and KnoxPersistence.getAwayTeam(id) or nil
+end
+
+-- Creates a durable mission assignment. The caller must first hibernate/remove any
+-- loaded bodies; this data operation deliberately does not fabricate a world result or
+-- mutate their inventories.
+function KnoxPersistence.createAwayTeam(ownerKind, ownerId, memberIds, missionType, destination, worldAgeHours, etaHours)
+    if (ownerKind ~= "player" and ownerKind ~= "faction")
+        or type(ownerId) ~= "string" or ownerId == ""
+        or not AWAY_MISSION_TYPES[missionType]
+        or type(destination) ~= "table"
+        or tonumber(destination.x) == nil or tonumber(destination.y) == nil then
+        return nil, "invalid_mission"
+    end
+    local members, seen = {}, {}
+    for _, id in ipairs(memberIds or {}) do
+        local survivor = ensureSurvivorState(id)
+        local affiliation = survivor ~= nil and survivor.affiliation or nil
+        if type(id) ~= "string" or seen[id] or survivor == nil or survivor.alive == false
+            or affiliation == nil or affiliation.kind ~= ownerKind
+            or (ownerKind == "player" and affiliation.ownerId ~= ownerId)
+            or (ownerKind == "faction" and affiliation.factionId ~= ownerId)
+            or survivor.duty.mode == "away" then
+            return nil, "invalid_member=" .. tostring(id)
+        end
+        seen[id] = true
+        members[#members + 1] = id
+    end
+    if #members == 0 then
+        return nil, "no_members"
+    end
+    local data = root()
+    local teamId = "away-" .. tostring(math.max(1, math.floor(data.nextAwayTeamId)))
+    while data.awayTeams[teamId] ~= nil do
+        data.nextAwayTeamId = data.nextAwayTeamId + 1
+        teamId = "away-" .. tostring(data.nextAwayTeamId)
+    end
+    data.nextAwayTeamId = data.nextAwayTeamId + 1
+    local departure = tonumber(worldAgeHours) or 0
+    local eta = math.max(departure + 0.25, tonumber(etaHours) or (departure + 2))
+    local team = {
+        id = teamId,
+        ownerKind = ownerKind,
+        ownerId = ownerId,
+        memberIds = members,
+        missionType = missionType,
+        destination = {
+            x = math.floor(tonumber(destination.x)),
+            y = math.floor(tonumber(destination.y)),
+            z = math.floor(tonumber(destination.z) or 0),
+            label = tostring(destination.label or "Unknown destination"),
+        },
+        state = "outbound",
+        departedAtHours = departure,
+        etaHours = eta,
+        result = nil,
+    }
+    data.awayTeams[teamId] = team
+    for _, id in ipairs(members) do
+        local survivor = ensureSurvivorState(id)
+        if survivor.duty.mode == "base" then
+            requeueClaimsForSurvivor(id, survivor.duty.baseId, "away_mission")
+        end
+        survivor.duty = {
+            mode = "away",
+            order = "mission",
+            awayTeamId = teamId,
+            ownerId = ownerId,
+            previousDuty = copySerializable(survivor.duty),
+            changedAtHours = departure,
+            revision = (tonumber(survivor.duty.revision) or 0) + 1,
+        }
+    end
+    return copySerializable(team), "created"
+end
+
+-- Scouting has an explicit non-resource result. Resource missions remain working until
+-- their live-world looting executor can transfer real items to the team record.
+function KnoxPersistence.advanceAwayTeams(worldAgeHours)
+    local now, changed = tonumber(worldAgeHours) or 0, 0
+    for _, team in pairs(root().awayTeams) do
+        if type(team) == "table" and team.state == "outbound"
+            and now >= (tonumber(team.etaHours) or math.huge) then
+            if team.missionType == "scout" then
+                team.state = "complete"
+                team.completedAtHours = now
+                team.result = {
+                    kind = "scouted",
+                    destination = copySerializable(team.destination),
+                    resources = {},
+                }
+                for _, id in ipairs(team.memberIds or {}) do
+                    local survivor = ensureSurvivorState(id)
+                    local previous = survivor.duty.previousDuty
+                    survivor.duty = type(previous) == "table" and previous or {
+                        mode = "autonomous", order = "survive", revision = 0,
+                    }
+                    survivor.duty.changedAtHours = now
+                    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+                end
+            else
+                team.state = "blocked"
+                team.completedAtHours = now
+                team.result = { kind = "blocked", reason = "live_resource_executor_required" }
+                for _, id in ipairs(team.memberIds or {}) do
+                    local survivor = ensureSurvivorState(id)
+                    local previous = survivor.duty.previousDuty
+                    survivor.duty = type(previous) == "table" and previous or {
+                        mode = "autonomous", order = "survive", revision = 0,
+                    }
+                    survivor.duty.changedAtHours = now
+                    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+                end
+            end
+            changed = changed + 1
+        end
+    end
+    return changed
 end
 
 function KnoxPersistence.isIndependentSurvivor(id)

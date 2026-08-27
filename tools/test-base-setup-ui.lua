@@ -34,7 +34,9 @@ assert(string.find(party, 'KnoxBaseSetup.show', 1, true),
 local notebook = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNotebook.lua")
 assert(string.find(notebook, '"Residents", "Away"', 1, true),
     "Notebook must distinguish residents and unloaded survivors")
-assert(string.find(notebook, 'Away-team simulation is not active yet.', 1, true),
-    "Notebook must not misrepresent unloaded survivors as missions")
+assert(string.find(notebook, 'KnoxPersistence.getAwayTeams', 1, true),
+    "Notebook must list real persisted teams separately from unloaded survivors")
+assert(string.find(notebook, 'Scout results do not create items.', 1, true),
+    "Notebook must not imply away missions generate free resources")
 
 print("Base setup UI PASS tabs=true selectors=true menu_wiring=true notebook=true")

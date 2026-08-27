@@ -67,6 +67,17 @@ function Window:awayText()
     local ids = KnoxPersistence.getSurvivorIds()
     local text = "<H1>Away / Unloaded</H1>"
     local count = 0
+    local teams = KnoxPersistence.getAwayTeams ~= nil and KnoxPersistence.getAwayTeams() or {}
+    for _, team in pairs(teams) do
+        if team ~= nil then
+            count = count + 1
+            text = text .. line("<RGB:0.78,0.84,0.62>" .. tostring(team.id)
+                .. "<RGB:0.85,0.85,0.82>  -  " .. tostring(team.missionType)
+                .. "  -  " .. tostring(team.state)
+                .. "  -  " .. tostring(#(team.memberIds or {})) .. " survivors"
+                .. "  -  " .. tostring(team.destination ~= nil and team.destination.label or "unknown"))
+        end
+    end
     for _, id in ipairs(ids) do
         if KnoxPersistence.isSurvivorAlive(id)
             and KnoxSurvivorRuntime.getCharacter(id) == nil then
@@ -87,7 +98,7 @@ function Window:awayText()
     if count == 0 then
         return text .. line("No known survivors are currently unloaded.")
     end
-    return text .. line("Unloaded survivors retain their identity and stored state. Away-team simulation is not active yet.")
+    return text .. line("Away teams preserve their previous duty and return it after a completed or blocked mission. Scout results do not create items.")
 end
 
 function Window:baseText()
