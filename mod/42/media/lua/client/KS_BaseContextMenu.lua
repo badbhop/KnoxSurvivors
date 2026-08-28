@@ -4,7 +4,6 @@ require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_BaseTerritorySelector"
 require "KS_BaseZoneSelector"
-require "KS_BaseSetup"
 require "KS_SurvivorAutonomy"
 
 local BaseContextMenu = rawget(_G, "KnoxBaseContextMenu") or {}
@@ -89,7 +88,9 @@ function BaseContextMenu.removeZone(_, baseId, zoneId)
 end
 
 function BaseContextMenu.openSetup(_, playerNum)
-    KnoxBaseSetup.show(playerNum)
+    if KnoxSurvivorNotebook and KnoxSurvivorNotebook.show then
+        KnoxSurvivorNotebook.show(playerNum)
+    end
 end
 
 function BaseContextMenu.dispatchScout(player, base, square)
@@ -218,15 +219,7 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
         menu:addOption("Establish Home Base", player, BaseContextMenu.establish, square)
     end
     if base ~= nil then
-        menu:addOption("Open Base Setup", BaseContextMenu, BaseContextMenu.openSetup, playerNum)
-        menu:addOption(
-            "Set Home Base Boundary",
-            player,
-            BaseContextMenu.selectTerritory,
-            base.id
-        )
-        addWorkZoneMenu(menu, player, base)
-        addManageZoneMenu(menu, base)
+        menu:addOption("Open Base Management", BaseContextMenu, BaseContextMenu.openSetup, playerNum)
         menu:addOption("Send Available Resident to Scout Here", player,
             BaseContextMenu.dispatchScout, base, square)
     end

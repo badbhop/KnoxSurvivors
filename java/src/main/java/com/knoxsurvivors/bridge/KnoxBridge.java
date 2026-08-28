@@ -1,6 +1,7 @@
 package com.knoxsurvivors.bridge;
 
 import com.knoxsurvivors.agent.KnoxAgent;
+import com.knoxsurvivors.engine.KnoxShellVisibility;
 import com.knoxsurvivors.npc.KnoxNpcRegistry;
 
 /**
@@ -96,6 +97,16 @@ public final class KnoxBridge {
 
     public boolean clearNpcProtectedArea(String id) {
         return npcRegistry.clearProtectedArea(id);
+    }
+
+    /** Keeps player-owned followers readable even when the fog-of-war briefly occludes them. */
+    public boolean setNpcPartyVisible(String id, boolean visible) {
+        Object character = npcRegistry.character(id);
+        if (character == null) {
+            return false;
+        }
+        KnoxShellVisibility.setPartyVisible(character, visible);
+        return true;
     }
 
     public String getTestNpcStatus() {
@@ -272,6 +283,10 @@ public final class KnoxBridge {
     /** Consumes one real stored item without reconstructing the survivor body. */
     public String consumeNpcRecordItem(String encoded, String fullType) {
         return npcRegistry.consumePersistentRecordItem(encoded, fullType);
+    }
+
+    public String relocateNpcRecord(String encoded, int x, int y, int z) {
+        return npcRegistry.relocatePersistentRecord(encoded, x, y, z);
     }
 
     public String beginNpcLiveCombat(String id, Object zombie, Object approachSquare) {

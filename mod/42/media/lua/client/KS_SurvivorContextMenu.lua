@@ -1,9 +1,9 @@
 require "ISUI/ISContextMenu"
 require "ISUI/ISModalDialog"
 require "ISUI/ISWorldObjectContextMenu"
-require "ISUI/ISHealthPanel"
+require "XpSystem/ISUI/ISHealthPanel"
 require "TimedActions/ISMedicalCheckAction"
-require "TimedActions/ISWalkToTimedAction"
+require "TimedActions/WalkToTimedAction"
 require "KS_CompanionService"
 require "KS_BaseManager"
 require "KS_Persistence"
@@ -74,7 +74,7 @@ local function onViewSurvivor(_, playerNum, survivorId)
     KnoxSurvivorCard.show(playerNum, survivorId)
 end
 
-local function onMedicalCheck(_, playerNum, survivorId)
+function SurvivorContextMenu.medicalCheck(playerNum, survivorId)
     local player = getSpecificPlayer(playerNum)
     local patient = KnoxSurvivorRuntime.getCharacter(survivorId)
     if player == nil or patient == nil then
@@ -99,6 +99,10 @@ local function onMedicalCheck(_, playerNum, survivorId)
         end
     end
     ISTimedActionQueue.add(ISMedicalCheckAction:new(player, patient))
+end
+
+local function onMedicalCheck(_, playerNum, survivorId)
+    SurvivorContextMenu.medicalCheck(playerNum, survivorId)
 end
 
 local function onManageInventory(_, playerNum, survivorId)
@@ -129,6 +133,14 @@ local function onCombatStance(_, playerNum, survivorId, stance)
     runService(playerNum, function(player, id)
         return KnoxCompanionService.setCombatStance(player, id, stance)
     end, survivorId)
+end
+
+local function onBoardPlayerVehicle(_, playerNum, survivorId)
+    runService(playerNum, KnoxCompanionService.boardPlayerVehicle, survivorId)
+end
+
+local function onExitVehicle(_, playerNum, survivorId)
+    runService(playerNum, KnoxCompanionService.exitVehicle, survivorId)
 end
 
 local function pointDirective(kind, square)
@@ -361,6 +373,14 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         ordersMenu:setOptionChecked(hold, duty.order == "hold")
         ordersMenu:addOption("Move to Me", SurvivorContextMenu, onMoveToPlayer, playerNum, survivorId)
         ordersMenu:addOption("Guard Here", SurvivorContextMenu, onGuardHere, playerNum, survivorId)
+        local companion = KnoxSurvivorRuntime.getCharacter(survivorId)
+        if companion ~= nil and companion:getVehicle() ~= nil then
+            ordersMenu:addOption("Exit Vehicle", SurvivorContextMenu,
+                onExitVehicle, playerNum, survivorId)
+        elseif player:getVehicle() ~= nil then
+            ordersMenu:addOption("Enter My Vehicle", SurvivorContextMenu,
+                onBoardPlayerVehicle, playerNum, survivorId)
+        end
         local stanceRoot = ordersMenu:addOption("Combat Stance", nil, nil)
         local stanceMenu = ISContextMenu:getNew(ordersMenu)
         ordersMenu:addSubMenu(stanceRoot, stanceMenu)

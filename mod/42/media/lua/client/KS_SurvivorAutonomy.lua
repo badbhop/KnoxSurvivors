@@ -447,6 +447,14 @@ local function hibernateDistantWorldSurvivors(bridge, players)
         local duty = KnoxPersistence.getSurvivorDuty(id) or {}
         if controller ~= nil then
             local character = controller.character
+            -- Passenger shells are owned by the live vehicle. Treating their
+            -- transient world square as a detached body would capture/remove a
+            -- companion while the player is driving it, losing the native seat
+            -- relationship. They remain live until a real vehicle lifecycle is
+            -- implemented.
+            if character ~= nil and character:getVehicle() ~= nil then
+                detachedGrace[id] = nil
+            else
             local square = character ~= nil and character:getCurrentSquare() or nil
             local distanceSquared = KnoxWorldPopulation.nearestPlayerDistanceSquared(square, players)
             local finiteDistanceSquared = finiteNearestPlayerDistanceSquared(character, players)
@@ -498,6 +506,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                         distanceSquared = distanceSquared,
                     }
                 end
+            end
             end
         end
     end
@@ -959,6 +968,44 @@ function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
         return false, "mission_create_failed=" .. tostring(result)
     end
     return true, team.id
+end
+
+-- CompanionService calls this only after the companion's duty was changed to
+-- a player-base assignment and the base destination is not currently loaded.
+-- It is the same capture/remove ownership boundary used by distance hibernation
+-- and away teams, followed by a persisted virtual route rather than a teleport.
+function Autonomy.beginVirtualBaseReturn(survivorId, baseId)
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    local controller = controllers[survivorId]
+    local base = KnoxPersistence.getBase(baseId)
+    local area = base ~= nil and (base.territory or base.home) or nil
+    if bridge == nil or controller == nil or area == nil then
+        return false, "return_handoff_unavailable"
+    end
+    local targetX = math.floor(tonumber(area.minX) or -1)
+    local targetY = math.floor(tonumber(area.minY) or -1)
+    local targetZ = math.floor(tonumber(area.z) or 0)
+    if getCell() ~= nil and getCell():getGridSquare(targetX, targetY, targetZ) ~= nil then
+        return false, "base_loaded"
+    end
+    local saved, evidence = controller:shutdown()
+    if not saved then return false, "capture_failed=" .. tostring(evidence) end
+    local removed = tostring(bridge:removeNpc(survivorId))
+    if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
+        return false, "remove_failed=" .. removed
+    end
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local started, result = KnoxUnloadedSurvival.beginBaseReturn(survivorId, base, now)
+    KnoxSurvivorRuntime.unregister(survivorId, controller)
+    controllers[survivorId] = nil
+    removeActiveId(survivorId)
+    if not started then
+        return false, "route_failed=" .. tostring(result)
+    end
+    print(TAG .. " id=" .. tostring(survivorId)
+        .. " state=VIRTUAL_BASE_RETURN base=" .. tostring(baseId)
+        .. " result=" .. tostring(result))
+    return true, result
 end
 
 function Autonomy.status()

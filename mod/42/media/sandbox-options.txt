@@ -5,11 +5,11 @@ option KnoxSurvivors.Enabled = {
 }
 
 option KnoxSurvivors.WorldPopulation = {
-    type = integer, min = 0, max = 64, default = 16, page = KnoxSurvivors_Main, translation = KnoxSurvivors_WorldPopulation,
+    type = integer, min = 0, max = 128, default = 16, page = KnoxSurvivors_Main, translation = KnoxSurvivors_WorldPopulation,
 }
 
 option KnoxSurvivors.MaxActiveSurvivors = {
-    type = integer, min = 1, max = 16, default = 8, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MaxActiveSurvivors,
+    type = integer, min = 1, max = 32, default = 8, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MaxActiveSurvivors,
 }
 
 option KnoxSurvivors.PopulationRefillDays = {

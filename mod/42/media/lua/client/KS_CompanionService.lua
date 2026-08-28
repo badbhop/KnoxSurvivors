@@ -2,6 +2,7 @@ require "KS_Persistence"
 require "KS_SurvivorRuntime"
 require "KS_ActivityFeed"
 require "KS_Settings"
+require "KS_CompanionVehicles"
 
 local CompanionService = rawget(_G, "KnoxCompanionService") or {}
 _G.KnoxCompanionService = CompanionService
@@ -234,6 +235,48 @@ function CompanionService.setCombatStance(player, survivorId, stance)
     return true, stance
 end
 
+function CompanionService.setCombatStanceAll(player, stance)
+    if stance ~= "passive" and stance ~= "defensive" and stance ~= "aggressive" then
+        return false, "invalid_stance"
+    end
+    local changed = 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.setCombatStance(player, survivorId, stance)
+        changed = changed + (success and 1 or 0)
+    end
+    if changed > 0 then
+        local labels = {
+            passive = "stay close",
+            defensive = "protect the party",
+            aggressive = "clear threats",
+        }
+        KnoxActivityFeed.event("Party combat stance: " .. (labels[stance] or stance) .. ".")
+    end
+    return changed > 0, changed
+end
+
+function CompanionService.boardPlayerVehicle(player, survivorId)
+    local character, reason = validateInteraction(player, survivorId)
+    if character == nil then return false, reason end
+    local vehicle = player:getVehicle()
+    if vehicle == nil then return false, "player_not_in_vehicle" end
+    local success, result = KnoxCompanionVehicles.board(character, vehicle)
+    if success then
+        KnoxActivityFeed.speak(character, "I'll take a seat.")
+    elseif result == "no_free_passenger_seat" then
+        KnoxActivityFeed.speak(character, "I'll wait here. No more seats.")
+    end
+    return success, result
+end
+
+function CompanionService.exitVehicle(player, survivorId)
+    local character, reason = validateInteraction(player, survivorId)
+    if character == nil then return false, reason end
+    local success, result = KnoxCompanionVehicles.exit(character)
+    if success then KnoxActivityFeed.speak(character, "Getting out.") end
+    return success, result
+end
+
 function CompanionService.setClimbing(player, survivorId, allowed)
     local playerId = CompanionService.getPlayerId(player)
     if playerId == nil or not KnoxPersistence.setCompanionClimbing(
@@ -316,6 +359,14 @@ function CompanionService.sendToBase(player, survivorId)
         if character ~= nil then
             KnoxActivityFeed.speak(character, "I'll head back and help out there.")
         end
+        local autonomy = rawget(_G, "KnoxSurvivorAutonomy")
+        if character ~= nil and autonomy ~= nil and autonomy.beginVirtualBaseReturn ~= nil then
+            local handedOff, handoffResult = autonomy.beginVirtualBaseReturn(survivorId, base.id)
+            if handedOff then
+                KnoxActivityFeed.event("A companion started the trip back to base.")
+                return true, handoffResult
+            end
+        end
     end
     return saved, result
 end
@@ -380,6 +431,10 @@ function CompanionService.syncController(survivorId, controller)
         return
     end
     local duty = KnoxPersistence.getSurvivorDuty(survivorId)
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge ~= nil and bridge.setNpcPartyVisible ~= nil then
+        bridge:setNpcPartyVisible(survivorId, duty ~= nil and duty.mode == "companion")
+    end
     if duty ~= nil and duty.mode == "companion" then
         if controller.clearBaseAssignment ~= nil then
             controller:clearBaseAssignment()

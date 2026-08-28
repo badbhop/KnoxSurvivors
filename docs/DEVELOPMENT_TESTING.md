@@ -98,6 +98,9 @@ For the next live pass:
    around a fence, and far enough to require running catch-up. A blocked formation route may
    log one `formation_movement:...` failure, but it must enter `GROUP_WAIT` or
    `COMPANION_WAIT` until the reported `retryAt` tick instead of issuing failures every frame.
+   Put that group under pressure with three zombies per nearby survivor, or let one member
+   fall to 25% health. The leader should choose one retreat direction and members should run
+   or sprint toward nearby separate tiles, rather than each selecting an unrelated escape.
 8. Change direction while a follower is catching up. The status line should show a bounded
    `formationFailures` streak; a successful catch-up must reset it to zero.
 9. Separate one travelling-group member by more than the retrieve leash. The leader should
@@ -119,6 +122,10 @@ the body when that survivor materializes again.
    consumed or an exceptional condition occurred. There should be no per-tick spam.
 4. Save, quit, and reload while the survivor is hibernated; returning to the area must restore
    the same stored ledger and must not duplicate the consumed item.
+5. Leave a faction resident at a settled base, travel away for at least one in-game day, then
+   return. The resident should restore at a safe valid point inside its own base territory,
+   not at the old hibernation tile or stacked with every other resident. This is ambient
+   off-screen base life, not an away mission.
 
 The focused `test-unloaded-survival.lua` check covers record-backed consumption, rest
 recovery, and durable starvation/dehydration death. It does not prove live engine behavior.
@@ -151,7 +158,10 @@ the following behavior is not yet called live-verified:
    a container inside it and set one storage category. Reload and confirm both remain.
 8. Choose `Return to Base` while the home area is loaded. The survivor should move back,
    then alternate between short patrols and idle time around the home. They are not eligible
-   for future jobs until physically inside the saved base bounds.
+   for future jobs until physically inside the saved base bounds. Repeat while the home area
+   is unloaded: the survivor should say they are heading back, disappear only after a normal
+   capture/removal handoff, and later restore near the base with a `VIRTUAL_BASE_RETURN` log
+   rather than reappearing at the old location. This unloaded route remains live-unverified.
 9. If possible, repeat recruitment/HUD ownership with a second split-screen player. Each
    viewport must show and command only its own companions.
 10. Right-click the `SQUAD` header. Test whole-party Follow, Hold, and traversal policy.
@@ -378,22 +388,47 @@ proves Build 42 actually follows it.
 - repeated autonomous roaming with independent completed movement requests.
 - three simultaneous persistent survivor runtimes across save/reload remain the active gate.
 
+For the firearm gate, use the developer **Survivor Firearm Test** once in a clear outdoor
+area. The survivor should equip the seeded real pistol, queue a native reload when needed,
+hold a visible stand-off distance, and fire through the normal aiming animation. Take a
+combat snapshot after the first shot and confirm `firearm=` reports a real weapon with its
+round count changing, while the Java status reports `ranged=true`. A reload or shot sound
+must be audible/attract nearby zombies; a gun must not close to melee range or use the
+floor-shove animation. This is a live gate: the standalone firearm test only proves that
+Knox selects owned weapons and delegates reload to `ISReloadWeaponAction`.
+
+For the passenger-vehicle gate, park a stopped vehicle with an empty installed passenger
+seat, sit in the driver seat, then right-click a nearby companion and choose
+**Orders → Enter My Vehicle**. The companion must path to an unlocked passenger door, use
+the normal enter animation, occupy a passenger seat, and leave seat zero to the player.
+Repeat with every passenger seat occupied: the companion must remain outside and say that
+there are no more seats. Then use **Orders → Exit Vehicle** while stopped and confirm the
+normal exit animation. Do not save/reload this slice as vehicle-seat restoration is not yet
+implemented; no error, detached-shell hibernation, or change to vehicle keys/engine state is
+acceptable while a companion is seated.
+
 ## Known limits
 
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
-- Firearms/ammunition, cooking, lethal survivor PvP, deliberate construction, and
+- Firearm sound-attraction/targeting, cooking, lethal survivor PvP, deliberate construction, and
   interactive Notebook management remain later gates.
   Guard/patrol work-zone drawing, one-item depot sorting, one-plank barricading, crop work,
   wood processing, corpse hauling, trough feeding/watering, and structure repair now have
   initial executors.
+  Passenger companions can use native entry/exit actions, but NPC driving, group vehicle travel,
+  and vehicle-seat restoration after save/load remain later gates.
   The current Notebook is the readable domain shell, not the finished base administration
   interface; newer jobs still require live in-game confirmation.
 - If a recorded square is not loaded, the survivor remains stored instead of being
   teleported to the player.
 - Room-wide alternate-entry planning, sleep furniture selection, death, and
-  zombification remain unverified in game. The alternate-entry implementation is present
-  in the active gate but still requires its first live end-to-end observation.
-- Return to Base currently needs the destination cell loaded; unloaded-world travel is not
-  implemented yet.
+  zombification remain unverified in game. For the death gate, kill one infected survivor
+  and one survivor who should not turn under the active sandbox rule. Both must leave a
+  normal lootable corpse after save/reload; only the eligible corpse should later reanimate.
+  The log must contain `CORPSE_CREATED` with `reanimationScheduled=true` for the former and
+  `false` for the latter. The alternate-entry implementation is present in the active gate
+  but still requires its first live end-to-end observation.
+- Unloaded Return to Base now has a persisted virtual-route handoff, but it still needs its
+  first live save/reload and rematerialization test.
 - The Java agent requires the development launcher.

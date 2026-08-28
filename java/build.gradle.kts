@@ -120,11 +120,47 @@ val verifyIsoPlayerShellPolicy by tasks.registering(JavaExec::class) {
     mainClass.set("com.knoxsurvivors.engine.KnoxIsoPlayerShellPolicyVerifier")
 }
 
+val verifyIsoPlayerShellRuntime by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "Defines the generated IsoPlayer NPC shell with Project Zomboid's Java runtime."
+    dependsOn(tasks.testClasses)
+    doFirst {
+        val gameHome = file(pzHome.get())
+        val gameJar = gameHome.resolve("projectzomboid.jar")
+        val javaRuntime = gameHome.resolve("jre64/bin/java.exe")
+        require(javaRuntime.isFile) {
+            "Project Zomboid Java runtime not found at ${javaRuntime.absolutePath}"
+        }
+        val classpath = listOf(
+            sourceSets.main.get().output.classesDirs.asPath,
+            sourceSets.test.get().output.classesDirs.asPath,
+            gameJar.absolutePath,
+        ).joinToString(System.getProperty("path.separator"))
+        commandLine(
+            javaRuntime.absolutePath,
+            "-Xverify:all",
+            "-cp",
+            classpath,
+            "com.knoxsurvivors.engine.KnoxIsoPlayerShellVerifier",
+        )
+    }
+}
+
+val verifyCorpseLifecycle by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies that Knox death handoff uses the native reanimation decision."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.npc.KnoxNpcRegistryVerifier")
+}
+
 tasks.check {
     dependsOn(
         verifyCombatTransformer,
         verifyZombieVisibilityTransformer,
         verifyZombieVisibilityRuntime,
         verifyIsoPlayerShellPolicy,
+        verifyIsoPlayerShellRuntime,
+        verifyCorpseLifecycle,
     )
 }

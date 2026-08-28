@@ -55,6 +55,140 @@ local function areaFromBuilding(building, square)
     }
 end
 
+local function hasZoneType(base, zoneType)
+    for _, zone in pairs(base ~= nil and base.zones or {}) do
+        if zone ~= nil and zone.enabled ~= false and zone.type == zoneType then
+            return true
+        end
+    end
+    return false
+end
+
+local function ensureFactionZone(base, zoneType, bounds, label)
+    if not hasZoneType(base, zoneType) and bounds ~= nil then
+        return KnoxPersistence.addBaseZone(base.id, zoneType, bounds, label)
+    end
+    return nil, "existing"
+end
+
+local function findOutdoorSquare(area, preferredDistance)
+    local cell = getCell ~= nil and getCell() or nil
+    if cell == nil or area == nil then return nil end
+    local centerX = math.floor((tonumber(area.minX) or 0)
+        + math.max(1, tonumber(area.width) or 1) / 2)
+    local centerY = math.floor((tonumber(area.minY) or 0)
+        + math.max(1, tonumber(area.height) or 1) / 2)
+    local z = tonumber(area.z) or 0
+    for radius = math.max(2, tonumber(preferredDistance) or 2), 18 do
+        for dx = -radius, radius do
+            for _, dy in ipairs({ -radius, radius }) do
+                local square = cell:getGridSquare(centerX + dx, centerY + dy, z)
+                if square ~= nil and square:canStand() and square:getRoom() == nil then
+                    return square
+                end
+            end
+        end
+        for dy = -radius + 1, radius - 1 do
+            for _, dx in ipairs({ -radius, radius }) do
+                local square = cell:getGridSquare(centerX + dx, centerY + dy, z)
+                if square ~= nil and square:canStand() and square:getRoom() == nil then
+                    return square
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function ensureFactionZones(base)
+    local area = base ~= nil and (base.territory or base.home) or nil
+    if area == nil then return end
+    local minX = tonumber(area.minX) or 0
+    local minY = tonumber(area.minY) or 0
+    local maxX = tonumber(area.maxX) or (minX + math.max(1, tonumber(area.width) or 1) - 1)
+    local maxY = tonumber(area.maxY) or (minY + math.max(1, tonumber(area.height) or 1) - 1)
+    local z = tonumber(area.z) or 0
+    ensureFactionZone(base, "patrol", {
+        x1 = minX, y1 = minY, x2 = maxX, y2 = maxY, z = z, priority = 72,
+    }, "Base Patrol")
+    local guardX = math.floor(tonumber(area.x) or ((minX + maxX) / 2))
+    local guardY = math.floor(tonumber(area.y) or ((minY + maxY) / 2))
+    ensureFactionZone(base, "guard", {
+        x1 = guardX - 1, y1 = guardY - 1,
+        x2 = guardX + 1, y2 = guardY + 1, z = z, priority = 84,
+    }, "Entry Watch")
+    ensureFactionZone(base, "repair", {
+        x1 = minX, y1 = minY, x2 = maxX, y2 = maxY, z = z, priority = 88,
+    }, "Home Maintenance")
+    local work = findOutdoorSquare(area, 3)
+    if work ~= nil then
+        ensureFactionZone(base, "farming", {
+            x1 = work:getX() - 2, y1 = work:getY() - 2,
+            x2 = work:getX() + 2, y2 = work:getY() + 2,
+            z = work:getZ(), priority = 82,
+        }, "Food Plot")
+    end
+    local outer = findOutdoorSquare(area, 8)
+    if outer ~= nil then
+        ensureFactionZone(base, "woodcutting", {
+            x1 = outer:getX() - 6, y1 = outer:getY() - 6,
+            x2 = outer:getX() + 6, y2 = outer:getY() + 6,
+            z = outer:getZ(), priority = 68,
+        }, "Wood Lot")
+        ensureFactionZone(base, "corpse", {
+            x1 = outer:getX() - 1, y1 = outer:getY() - 1,
+            x2 = outer:getX() + 1, y2 = outer:getY() + 1,
+            z = outer:getZ(), priority = 91,
+        }, "Corpse Drop")
+    end
+end
+
+local function ensureFactionStorage(base)
+    if base == nil or next(base.storage or {}) ~= nil then return end
+    local area = base.territory or base.home
+    local cell = getCell ~= nil and getCell() or nil
+    if area == nil or cell == nil then return end
+    local minX = tonumber(area.minX) or 0
+    local minY = tonumber(area.minY) or 0
+    local maxX = tonumber(area.maxX) or (minX + math.max(1, tonumber(area.width) or 1) - 1)
+    local maxY = tonumber(area.maxY) or (minY + math.max(1, tonumber(area.height) or 1) - 1)
+    local z = tonumber(area.z) or 0
+    local found = {}
+    for x = minX, maxX do
+        for y = minY, maxY do
+            local square = cell:getGridSquare(x, y, z)
+            local objects = square ~= nil and square:getObjects() or nil
+            if objects ~= nil then
+                for objectIndex = 0, objects:size() - 1 do
+                    local object = objects:get(objectIndex)
+                    local count = object ~= nil and object:getContainerCount() or 0
+                    for containerIndex = 0, count - 1 do
+                        local container = object:getContainerByIndex(containerIndex)
+                        local kind = container ~= nil and string.lower(tostring(container:getType() or "")) or ""
+                        if container ~= nil and kind ~= "corpse" then
+                            found[#found + 1] = {
+                                object = object,
+                                containerIndex = containerIndex,
+                                kind = kind,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local fallback = { "depot", "tools", "building", "weapons", "medical", "farming", "clothing" }
+    for index, entry in ipairs(found) do
+        local category = string.find(entry.kind, "fridge", 1, true) and "food"
+            or string.find(entry.kind, "freezer", 1, true) and "food"
+            or string.find(entry.kind, "medicine", 1, true) and "medical"
+            or string.find(entry.kind, "wardrobe", 1, true) and "clothing"
+            or fallback[math.min(index, #fallback)]
+        BaseManager.setStoragePolicy(base.id, entry.object, category, entry.containerIndex)
+        if index >= 9 then return end
+    end
+end
+
 function BaseManager.get(id)
     return KnoxPersistence.getBase(id)
 end
@@ -148,6 +282,8 @@ function BaseManager.ensureFactionBase(faction)
                 }, "Defense Perimeter")
             end
         end
+        ensureFactionZones(base)
+        ensureFactionStorage(base)
         for _, survivorId in ipairs(faction.memberIds or {}) do
             KnoxPersistence.setFactionBaseResident(
                 survivorId,
@@ -214,10 +350,10 @@ function BaseManager.canDamageStructure(survivorId, square)
     if base == nil then
         return true
     end
-    local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
-    -- Explicit hostile/raid diplomacy will opt in later. Until then, player-owned,
-    -- independent, and ordinary NPC-faction survivors are non-hostile to this base.
-    return affiliation.hostileToPlayer == true
+    return KnoxPersistence.isSurvivorHostileToPlayer(
+        survivorId,
+        base.ownerId
+    )
 end
 
 function BaseManager.syncStructureProtection()
@@ -226,15 +362,19 @@ function BaseManager.syncStructureProtection()
         return
     end
     local protected = nil
+    local protectedPlayerId = nil
     for _, base in pairs(KnoxPersistence.getBases()) do
         if base ~= nil and base.ownerKind == "player" then
             protected = base.territory or base.home
+            protectedPlayerId = base.ownerId
             break
         end
     end
     for _, survivorId in ipairs(KnoxSurvivorRuntime.activeIds()) do
-        local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
-        if protected == nil or affiliation.hostileToPlayer == true then
+        if protected == nil or KnoxPersistence.isSurvivorHostileToPlayer(
+                survivorId,
+                protectedPlayerId
+            ) then
             bridge:clearNpcProtectedArea(survivorId)
         else
             bridge:setNpcProtectedArea(

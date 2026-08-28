@@ -79,6 +79,21 @@ final class KnoxSurvivorRecord {
         ).encode();
     }
 
+    String relocated(int nextX, int nextY, int nextZ) {
+        return new KnoxSurvivorRecord(
+            id,
+            nextX,
+            nextY,
+            nextZ,
+            nextX + 0.5f,
+            nextY + 0.5f,
+            appearance,
+            inventory,
+            health,
+            physiology
+        ).encode();
+    }
+
     static KnoxSurvivorRecord decode(String encoded) {
         String[] fields = encoded.split("\\|", -1);
         int version = Integer.parseInt(fields[0]);

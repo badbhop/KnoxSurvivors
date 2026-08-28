@@ -4,6 +4,7 @@
 require "ISUI/ISInventoryPage"
 require "ISUI/ISInventoryPane"
 require "ISUI/ISInventoryPaneContextMenu"
+require "TimedActions/ISInventoryTransferUtil"
 require "KS_SurvivorRuntime"
 require "KS_Persistence"
 
@@ -27,6 +28,14 @@ local function nearby(player, character)
     end
     local dx, dy = player:getX() - character:getX(), player:getY() - character:getY()
     return dx * dx + dy * dy <= MAX_DISTANCE_SQUARED
+end
+
+-- Context-menu callbacks can outlive an inventory refresh. Do not queue a
+-- native transfer for an item that has already been moved or consumed.
+local function sourceHasItem(source, item)
+    if source == nil or item == nil then return false end
+    local ok, contains = pcall(function() return source:contains(item) end)
+    return ok and contains == true
 end
 
 local function displayName(survivorId)
@@ -366,8 +375,13 @@ if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.equipWeapon 
         local ch, sid = getSurvivorForItem(weapon)
         if ch ~= nil then
             inventoryLog("equipWeapon", sid, weapon, player)
+            local source = weapon:getContainer()
             if weapon:getWorldItem() then
-                local action = ISInventoryTransferUtil.newInventoryTransferAction(ch, weapon, weapon:getContainer(), ch:getInventory())
+                if not sourceHasItem(source, weapon) then
+                    inventoryLog("equipWeapon-stale-item", sid, weapon, player)
+                    return
+                end
+                local action = ISInventoryTransferUtil.newInventoryTransferAction(ch, weapon, source, ch:getInventory())
                 action.maxTime = 20
                 ISTimedActionQueue.add(action)
                 ISTimedActionQueue.add(ISEquipWeaponAction:new(ch, weapon, 1, primary, twoHands, alwaysTurnOn))

@@ -51,7 +51,7 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(61);
 
-            output.writeShort(42);
+            output.writeShort(56);
             writeUtf8(output, INTERNAL_NAME);                 // 1
             writeClass(output, 1);                            // 2
             writeUtf8(output, SUPER_INTERNAL_NAME);           // 3
@@ -99,6 +99,20 @@ public final class KnoxIsoPlayerShellDefinition {
             writeUtf8(output, "isGodMod");                     // 39
             writeUtf8(output, "isInvulnerable");               // 40
             writeUtf8(output, "isZombiesDontAttack");          // 41
+            writeUtf8(output, "com/knoxsurvivors/engine/KnoxShellVisibility"); // 42
+            writeClass(output, 42);                             // 43
+            writeUtf8(output, "isSpriteInvisible");            // 44
+            writeUtf8(output, "(Ljava/lang/Object;)Z");         // 45
+            writeNameAndType(output, 44, 45);                    // 46
+            writeMethodRef(output, 43, 46);                      // 47
+            writeUtf8(output, "getAlpha");                      // 48
+            writeUtf8(output, "(Ljava/lang/Object;I)F");        // 49
+            writeNameAndType(output, 48, 49);                    // 50
+            writeMethodRef(output, 43, 50);                      // 51
+            writeUtf8(output, "getAlpha");                      // 52
+            writeUtf8(output, "(Ljava/lang/Object;)F");         // 53
+            writeNameAndType(output, 52, 53);                    // 54
+            writeMethodRef(output, 43, 54);                      // 55
 
             output.writeShort(0x0021);
             output.writeShort(2);
@@ -239,7 +253,8 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(0);
             output.writeShort(0);
 
-            // Ensure zombie visibility: shell is never invisible and always fully opaque.
+            // Gameplay invisibility is not fog-of-war. Keep the shell targetable and
+            // handle player LOS only through the per-viewer render alpha overrides below.
             output.writeShort(0x0001);
             output.writeShort(33);
             output.writeShort(13);
@@ -271,11 +286,13 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(36);
             output.writeShort(1);
             output.writeShort(9);
-            output.writeInt(14);
-            output.writeShort(1);
+            output.writeInt(18);
             output.writeShort(2);
-            output.writeInt(2);
-            output.write(new byte[] { 0x0C, (byte) 0xAE });
+            output.writeShort(2);
+            output.writeInt(6);
+            output.write(new byte[] {
+                0x2A, 0x1B, (byte) 0xB8, 0x00, 0x33, (byte) 0xAE,
+            });
             output.writeShort(0);
             output.writeShort(0);
 
@@ -284,11 +301,11 @@ public final class KnoxIsoPlayerShellDefinition {
             output.writeShort(37);
             output.writeShort(1);
             output.writeShort(9);
-            output.writeInt(14);
+            output.writeInt(17);
             output.writeShort(1);
             output.writeShort(1);
-            output.writeInt(2);
-            output.write(new byte[] { 0x0C, (byte) 0xAE });
+            output.writeInt(5);
+            output.write(new byte[] { 0x2A, (byte) 0xB8, 0x00, 0x37, (byte) 0xAE });
             output.writeShort(0);
             output.writeShort(0);
 

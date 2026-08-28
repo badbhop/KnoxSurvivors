@@ -1,4 +1,6 @@
-require "BuildingObjects/ISBuildIsoEntity"
+-- ISBuildIsoEntity is an engine-provided class in Build 42.  Its old Lua
+-- source lives under the server tree, so requiring that path from a client
+-- mod only creates a harmless-looking but noisy startup failure.
 require "BuildingObjects/TimedActions/ISBuildAction"
 require "TimedActions/ISTimedActionQueue"
 require "Util/AdjacentFreeTileFinder"

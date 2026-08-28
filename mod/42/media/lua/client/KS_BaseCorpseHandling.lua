@@ -350,6 +350,26 @@ function CorpseHandling.queueGrab(character, target)
     return action, "queued"
 end
 
+-- IsoPlayer shells normally complete the same vanilla grab action as a player.
+-- If the action animation completes but the engine did not attach the corpse,
+-- retry the native pickup call once before abandoning the cleanup job. This is
+-- deliberately a fallback: the visible vanilla action remains the normal path.
+function CorpseHandling.retryGrab(character, target)
+    if character == nil or target == nil or target.body == nil then
+        return false, "missing_corpse"
+    end
+    if CorpseHandling.isDragging(character) then
+        return true, "already_dragging"
+    end
+    local success = pcall(function()
+        character:pickUpCorpse(target.body, "BwdDrag")
+    end)
+    if success and CorpseHandling.isDragging(character) then
+        return true, "native_retry"
+    end
+    return false, success and "native_pickup_not_attached" or "native_pickup_failed"
+end
+
 function CorpseHandling.queueDrop(character, target)
     if character == nil or target == nil or target.dropSquare == nil then
         return nil, "missing_drop_square"

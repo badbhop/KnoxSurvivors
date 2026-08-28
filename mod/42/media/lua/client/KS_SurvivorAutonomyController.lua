@@ -51,6 +51,7 @@ local RECOVERY_RECHECK_TICKS = 180
 local RECOVERY_TIMEOUT_TICKS = 900
 local RECOVERY_SEAT_SCAN_RADIUS = 8
 local RECOVERY_POSTURE_TIMEOUT_TICKS = 180
+local BASE_AMBIENT_REST_TICKS = 180
 local MOVEMENT_TIMEOUT_TICKS = 1500
 local ACTION_TIMEOUT_TICKS = 1200
 local GROUP_SOFT_LEASH_SQUARED = 100
@@ -60,6 +61,16 @@ local FORMATION_REFRESH_TICKS = 30
 local FORMATION_FAILURE_COOLDOWN_TICKS = 180
 local FORMATION_FAILURE_MAX_COOLDOWN_TICKS = 720
 local ENTRY_SCAN_RADIUS = 16
+local FLEE_SCAN_RADIUS = 12
+local FLEE_TARGET_DISTANCE = 12
+local FLEE_RECHECK_TICKS = 45
+local FLEE_PLAN_TICKS = 240
+
+-- Short-lived, loaded-world coordination only.  This is deliberately not
+-- persistence: a flee route is a reaction to the zombies visible right now,
+-- not a mission or a world-state change that should survive save/load.
+local fleePlans = rawget(_G, "KnoxFleePlans") or {}
+_G.KnoxFleePlans = fleePlans
 
 local function distanceSquared(first, second)
     local dx = first:getX() - second:getX()
@@ -384,11 +395,28 @@ local function nearbyZombieCount(self, radius)
     return count
 end
 
-local function shouldFlee(self)
-    local count = nearbyZombieCount(self, 12)
-    if count < 3 then
-        return false
+local function nearbyAllyCount(self, radius)
+    local square = self.character:getCurrentSquare()
+    if square == nil then return 1 end
+    local seen = { [self.character] = true }
+    local count = 1
+    local function include(character)
+        if character ~= nil and not seen[character]
+            and character:getCurrentSquare() ~= nil
+            and character:getCurrentSquare():getZ() == square:getZ()
+            and distanceSquared(square, character:getCurrentSquare()) <= radius * radius then
+            seen[character] = true
+            count = count + 1
+        end
     end
+    include(self.groupLeader)
+    include(self.companionTarget)
+    for _, member in ipairs(self.groupMembers or {}) do include(member) end
+    return count
+end
+
+local function fleeAssessment(self)
+    local count = nearbyZombieCount(self, FLEE_SCAN_RADIUS)
     local health = 100
     local okH, h = pcall(function()
         return self.character:getHealth()
@@ -406,13 +434,112 @@ local function shouldFlee(self)
     if okE and type(e) == "number" then
         endurance = e
     end
-    if count >= 5 then
-        return true
+    local allies = nearbyAllyCount(self, FLEE_SCAN_RADIUS)
+    local outnumbered = count >= math.max(3, allies * 3)
+    local critical = health <= 25 and count > 0
+    return critical or outnumbered, {
+        zombies = count,
+        allies = allies,
+        health = health,
+        endurance = endurance,
+        reason = critical and "critical_health" or (outnumbered and "outnumbered" or nil),
+    }
+end
+
+-- Kept as a controller method so the policy can be verified without starting a
+-- move or mutating combat state. Runtime decisions still use the same helper.
+function Controller:assessFlee()
+    return fleeAssessment(self)
+end
+
+local function findFleeTarget(self)
+    local origin = self.character:getCurrentSquare()
+    local cell = getCell()
+    if origin == nil or cell == nil then return nil end
+    local awayX, awayY = 0, 0
+    local zombies = cell:getZombieList()
+    for index = 0, zombies:size() - 1 do
+        local zombie = zombies:get(index)
+        local zs = zombie ~= nil and zombie:getCurrentSquare() or nil
+        if zombie ~= nil and not zombie:isDead() and zs ~= nil
+            and zs:getZ() == origin:getZ() then
+            local dx = origin:getX() - zs:getX()
+            local dy = origin:getY() - zs:getY()
+            local distance2 = dx * dx + dy * dy
+            if distance2 <= (FLEE_SCAN_RADIUS + 4) ^ 2 and distance2 > 0 then
+                local weight = 1 / math.sqrt(distance2)
+                awayX = awayX + dx * weight
+                awayY = awayY + dy * weight
+            end
+        end
     end
-    if count >= 3 and (health < 60 or endurance < 0.3) then
-        return ZombRand(100) < 60
+    local length = math.sqrt(awayX * awayX + awayY * awayY)
+    if length < 0.01 then
+        local angle = ZombRand(628) / 100
+        awayX, awayY, length = math.cos(angle), math.sin(angle), 1
     end
-    return false
+    awayX, awayY = awayX / length, awayY / length
+    local best, bestScore = nil, -math.huge
+    for distance = FLEE_TARGET_DISTANCE, 5, -1 do
+        for lateral = -3, 3 do
+            local x = math.floor(origin:getX() + awayX * distance - awayY * lateral + 0.5)
+            local y = math.floor(origin:getY() + awayY * distance + awayX * lateral + 0.5)
+            local square = cell:getGridSquare(x, y, origin:getZ())
+            if square ~= nil and square:canStand() then
+                local nearest = math.huge
+                for index = 0, zombies:size() - 1 do
+                    local zombie = zombies:get(index)
+                    local zs = zombie ~= nil and zombie:getCurrentSquare() or nil
+                    if zombie ~= nil and not zombie:isDead() and zs ~= nil
+                        and zs:getZ() == square:getZ() then
+                        nearest = math.min(nearest, distanceSquared(square, zs))
+                    end
+                end
+                local score = nearest - math.abs(lateral) * 2
+                if score > bestScore then best, bestScore = square, score end
+            end
+        end
+        if best ~= nil then return best end
+    end
+    return nil
+end
+
+local function groupFleeKey(self)
+    if self.groupLeaderId ~= nil then
+        return self.groupLeaderId
+    end
+    if #(self.groupMembers or {}) > 1 then
+        return self.id
+    end
+    return nil
+end
+
+local function groupFleeTarget(self, ticks)
+    local key = groupFleeKey(self)
+    if key == nil then return nil end
+    local plan = fleePlans[key]
+    if plan == nil or (tonumber(plan.expiresAt) or -1) < ticks then
+        fleePlans[key] = nil
+        return nil
+    end
+    local cell = getCell()
+    if cell == nil then return nil end
+    -- Members use small, deterministic offsets around their leader's safe
+    -- destination.  That keeps a fleeing group together without stacking every
+    -- body on one tile or forcing a second, contradictory threat calculation.
+    local slot = math.max(1, tonumber(self.groupFormationSlot) or 1)
+    local offsets = {
+        { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+    }
+    local offset = offsets[((slot - 1) % #offsets) + 1]
+    local square = cell:getGridSquare(
+        plan.x + offset[1], plan.y + offset[2], plan.z
+    )
+    if square ~= nil and square:canStand() then
+        return square
+    end
+    return cell:getGridSquare(plan.x, plan.y, plan.z)
 end
 
 local function itemMatchesGoal(item, goal, character)
@@ -944,7 +1071,7 @@ function Controller:interruptForDirective()
         or self.state == "COMPANION_GUARD"
         or self.state == "MOVING_TO_COMPANION_POINT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
-        or self.state == "BASE_IDLE"
+        or self.state == "BASE_IDLE" or self.state == "BASE_AMBIENT_REST"
         or self.state == "BASE_TASK_MOVE" or self.state == "BASE_TASK_WORK"
         or self.state == "BASE_TASK_ACTION"
         or self.state == "BASE_TASK_SUPPLY_MOVE"
@@ -1880,7 +2007,7 @@ function Controller:leaveRecoveryPosture()
     self:releaseRestSpot()
 end
 
-function Controller:startRecoveryPosture(ticks, useFurniture)
+function Controller:startRecoveryPosture(ticks, useFurniture, ambient)
     if not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
     end
@@ -1895,15 +2022,40 @@ function Controller:startRecoveryPosture(ticks, useFurniture)
         action = ISSitOnGround:new(self.character, nil)
     end
     ISTimedActionQueue.add(action)
-    self.state = "WAITING_TO_RECOVER"
+    self.state = ambient == true and "BASE_AMBIENT_REST" or "WAITING_TO_RECOVER"
     self.recoveryStarted = ticks
     self.recoveryPostureStarted = ticks
-    self.nextThink = ticks + RECOVERY_RECHECK_TICKS
+    self.nextThink = ticks + (ambient == true
+        and BASE_AMBIENT_REST_TICKS or RECOVERY_RECHECK_TICKS)
     print(
         "[KnoxSurvivors][Autonomy] id=" .. self.id
             .. " recovery-posture=" .. posture
             .. " endurance=" .. tostring(KnoxSurvivorNeeds.snapshot(self.character).endurance)
     )
+end
+
+-- Light base-life behavior is intentionally just the game's existing sit/rest
+-- actions. It makes an idle resident use the best available chair or bed
+-- without inventing a fake work/reading animation or changing needs.
+function Controller:beginAmbientBaseRest(ticks)
+    self.activeDecision = "base_ambient_rest"
+    self.ambientRest = true
+    local spot = findBestRestSpot(self)
+    if spot ~= nil and reserve(self.reservations, "restSpots", spot.object, self.id) then
+        self.pendingRest = spot
+        if spot.approach == self.character:getCurrentSquare() then
+            self:startRecoveryPosture(ticks, true, true)
+            return true
+        end
+        local result = tostring(self.bridge:moveNpc(self.id, spot.approach))
+        if string.find(result, "MOVE_STARTED", 1, true) == 1 then
+            self.state = "MOVING_TO_REST"
+            return true
+        end
+        self:releaseRestSpot()
+    end
+    self:startRecoveryPosture(ticks, false, true)
+    return true
 end
 
 function Controller:beginRecovery(decision, ticks)
@@ -1938,9 +2090,11 @@ function Controller:beginRecovery(decision, ticks)
 end
 
 function Controller:finishDecision(ticks)
-    if self.activeDecision == "rest" or self.activeDecision == "sleep" then
+    if self.activeDecision == "rest" or self.activeDecision == "sleep"
+        or self.activeDecision == "base_ambient_rest" then
         self:leaveRecoveryPosture()
     end
+    self.ambientRest = nil
     KnoxPersistence.captureActiveSurvivor(self.id)
     self.regroupMember = nil
     self.activeDecision = nil
@@ -2069,6 +2223,52 @@ function Controller:beginRoam(ticks)
     return true
 end
 
+function Controller:beginFlee(ticks, assessment)
+    local target = groupFleeTarget(self, ticks)
+    if target == nil then
+        target = findFleeTarget(self)
+        local key = groupFleeKey(self)
+        if target ~= nil and key ~= nil then
+            fleePlans[key] = {
+                x = target:getX(), y = target:getY(), z = target:getZ(),
+                expiresAt = ticks + FLEE_PLAN_TICKS,
+            }
+        end
+    end
+    if target == nil then
+        self.nextThink = ticks + FLEE_RECHECK_TICKS
+        return false
+    end
+    self.bridge:cancelNpcMove(self.id)
+    self.bridge:resetNpcCombat(self.id)
+    self:abandonBaseTask("survival_flee")
+    if not self.character:getCharacterActions():isEmpty() then
+        ISTimedActionQueue.clear(self.character)
+    end
+    self:releaseCombat()
+    self:releaseSupply()
+    self:leaveRecoveryPosture()
+    local pace = assessment ~= nil and assessment.endurance >= 0.48
+        and assessment.health > 25 and "sprint" or "run"
+    local result = tostring(self.bridge:moveNpcWithPace(self.id, target, pace))
+    if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
+        self:recordFailure("flee_move:" .. result, ticks, FLEE_RECHECK_TICKS)
+        return false
+    end
+    self.activeDecision = "flee"
+    self.state = "FLEEING"
+    self.stateStartedAt = ticks
+    self.nextThink = ticks + FLEE_RECHECK_TICKS
+    print("[KnoxSurvivors][Autonomy] id=" .. self.id
+        .. " state=FLEEING reason=" .. tostring(assessment and assessment.reason)
+        .. " zombies=" .. tostring(assessment and assessment.zombies or 0)
+        .. " allies=" .. tostring(assessment and assessment.allies or 1)
+        .. " health=" .. tostring(assessment and assessment.health or 100)
+        .. " pace=" .. pace
+        .. " target=" .. target:getX() .. "," .. target:getY())
+    return true
+end
+
 function Controller:beginFactionBaseScout(ticks)
     local candidate = self.factionBaseCandidate
     local target = KnoxFactionBaseScouting.resolveTarget(candidate)
@@ -2104,6 +2304,10 @@ function Controller:beginFactionBaseScout(ticks)
 end
 
 function Controller:think(ticks)
+    local flee, assessment = fleeAssessment(self)
+    if flee and self:beginFlee(ticks, assessment) then
+        return
+    end
     local threat = nearestThreat(self, ticks)
     if not self:allowsCompanionThreat(threat) then
         threat = nil
@@ -2203,8 +2407,10 @@ function Controller:think(ticks)
             self:beginBaseMovement(ticks, true)
         elseif self:beginBaseTask(ticks) then
             return
-        elseif ZombRand(100) < 55 then
+        elseif ZombRand(100) < 45 then
             self:beginBaseMovement(ticks, false)
+        elseif ZombRand(100) < 55 then
+            self:beginAmbientBaseRest(ticks)
         else
             self.activeDecision = "base_idle"
             self.state = "BASE_IDLE"
@@ -2287,6 +2493,7 @@ function Controller:tick(ticks)
         or self.state == "CROSSING_WINDOW_ENTRY"
         or self.state == "MOVING_TO_REST"
         or self.state == "MOVING_TO_BASE_CANDIDATE"
+        or self.state == "FLEEING"
     local actionState = self.state == "LOOTING"
         or self.state == "SEARCHING"
         or self.state == "TIMED_ACTION"
@@ -2312,20 +2519,22 @@ function Controller:tick(ticks)
         return
     end
 
-    if self.state ~= "COMBAT" and ticks >= self.nextThreatScan then
+    if ticks >= self.nextThreatScan then
         self.nextThreatScan = ticks + THREAT_SCAN_TICKS
-        if shouldFlee(self) then
-            print("[KnoxSurvivors][Autonomy] id=" .. self.id .. " flee-outnumbered count=" .. tostring(nearbyZombieCount(self, 12)) .. " health=" .. tostring(self.character:getHealth()))
-            if self:beginRoam(ticks) then
+        local flee, assessment = fleeAssessment(self)
+        if self.state ~= "FLEEING" and flee then
+            if self:beginFlee(ticks, assessment) then
                 return
             end
         end
-        local threat = nearestThreat(self, ticks)
-        if not self:allowsCompanionThreat(threat) then
-            threat = nil
-        end
-        if threat ~= nil and self:beginCombat(threat) then
-            return
+        if self.state ~= "COMBAT" and self.state ~= "FLEEING" then
+            local threat = nearestThreat(self, ticks)
+            if not self:allowsCompanionThreat(threat) then
+                threat = nil
+            end
+            if threat ~= nil and self:beginCombat(threat) then
+                return
+            end
         end
     end
 
@@ -2353,6 +2562,13 @@ function Controller:tick(ticks)
         if ticks >= self.nextThink then
             self.activeDecision = nil
             self.state = "IDLE"
+        end
+        return
+    end
+
+    if self.state == "BASE_AMBIENT_REST" then
+        if ticks >= self.nextThink then
+            self:finishDecision(ticks)
         end
         return
     end
@@ -2501,9 +2717,17 @@ function Controller:tick(ticks)
             end
             if self.baseTaskCorpsePhase == "grab" then
                 if not KnoxBaseCorpseHandling.isDragging(self.character) then
-                    self:finishBaseTask(false, "corpse_grab_not_completed")
-                    self:finishDecision(ticks)
-                    return
+                    local recovered, retryResult = KnoxBaseCorpseHandling.retryGrab(
+                        self.character,
+                        self.baseTaskCorpseTarget
+                    )
+                    if not recovered then
+                        self:finishBaseTask(false, "corpse_grab_not_completed:" .. tostring(retryResult))
+                        self:finishDecision(ticks)
+                        return
+                    end
+                    print("[KnoxSurvivors][BaseJobs] id=" .. tostring(self.id)
+                        .. " corpse-grab-fallback=" .. tostring(retryResult))
                 end
                 local target = self.baseTaskCorpseTarget
                 local moveResult = tostring(self.bridge:moveNpc(
@@ -2960,7 +3184,7 @@ function Controller:tick(ticks)
         local movement = tostring(self.bridge:tickNpc(self.id))
         if movement == "Succeeded" then
             if self.state == "MOVING_TO_REST" then
-                self:startRecoveryPosture(ticks, true)
+                self:startRecoveryPosture(ticks, true, self.ambientRest == true)
                 return
             end
             if self.state == "MOVING_TO_BASE_CANDIDATE" then
@@ -3039,6 +3263,12 @@ function Controller:tick(ticks)
                 self.activeDecision = "follow_player"
                 self.state = "COMPANION_WAIT"
                 self.nextThink = ticks + FORMATION_REFRESH_TICKS
+                return
+            end
+            if self.state == "FLEEING" then
+                self.activeDecision = nil
+                self.state = "IDLE"
+                self.nextThink = ticks + FLEE_RECHECK_TICKS
                 return
             end
             if self.state == "MOVING_TO_COMPANION_POINT" then
@@ -3342,7 +3572,7 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "MOVING_TO_REST" then
-                self:startRecoveryPosture(ticks, false)
+                self:startRecoveryPosture(ticks, false, self.ambientRest == true)
                 return
             end
             if self.state == "MOVING_TO_BASE_CANDIDATE" then

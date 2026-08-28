@@ -1,4 +1,5 @@
 require "ISUI/ISCollapsableWindowJoypad"
+require "ISUI/ISButton"
 require "ISUI/ISTabPanel"
 require "ISUI/ISUI3DModel"
 require "XpSystem/ISUI/ISCharacterScreen"
@@ -7,6 +8,7 @@ require "XpSystem/ISUI/ISHealthPanel"
 require "XpSystem/ISUI/ISCharacterProtection"
 require "XpSystem/ISUI/ISClothingInsPanel"
 require "KS_SurvivorViewModel"
+require "KS_CompanionInventory"
 
 local SurvivorCard = rawget(_G, "KnoxSurvivorCard") or {}
 _G.KnoxSurvivorCard = SurvivorCard
@@ -134,6 +136,11 @@ function KnoxPanel:prerender()
     ISPanelJoypad.prerender(self)
     local snapshot = self.snapshot
     if snapshot == nil then return end
+    -- These are shortcuts into the same survivor interaction paths exposed by
+    -- the world context menu. Keep the card informational; inventory transfer
+    -- and treatment stay wholly owned by the vanilla inventory/medical UI.
+    if self.inventoryButton ~= nil then self.inventoryButton:setEnable(snapshot.loaded == true) end
+    if self.medicalButton ~= nil then self.medicalButton:setEnable(snapshot.loaded == true) end
     local smallH = getTextManager():getFontHeight(UIFont.Small)
     local y = PADDING
     local w = self.width - PADDING * 2
@@ -189,6 +196,37 @@ function KnoxPanel:prerender()
     keyValue("Group", snapshot.affiliation and snapshot.affiliation.kind or "independent")
 end
 
+function KnoxPanel:onInventoryButton()
+    if self.window == nil or self.window.snapshot == nil then return end
+    CompanionInventory.show(self.window.playerNum, self.window.survivorId)
+end
+
+function KnoxPanel:onMedicalButton()
+    if self.window == nil or self.window.snapshot == nil then return end
+    -- KS_SurvivorContextMenu loads this card before it finishes defining its
+    -- callbacks, so resolve the public service at click time rather than form a
+    -- cyclic module dependency here.
+    local context = rawget(_G, "KnoxSurvivorContextMenu")
+    if context ~= nil and context.medicalCheck ~= nil then
+        context.medicalCheck(self.window.playerNum, self.window.survivorId)
+    end
+end
+
+function KnoxPanel:createChildren()
+    ISPanelJoypad.createChildren(self)
+    local buttonH = getTextManager():getFontHeight(UIFont.Small) + 10
+    self.inventoryButton = ISButton:new(PADDING, self.height - buttonH - PADDING, 122, buttonH,
+        "Inventory", self, KnoxPanel.onInventoryButton)
+    self.inventoryButton:initialise()
+    self.inventoryButton:setAnchorBottom(true)
+    self:addChild(self.inventoryButton)
+    self.medicalButton = ISButton:new(PADDING + 130, self.height - buttonH - PADDING, 122, buttonH,
+        "Medical Check", self, KnoxPanel.onMedicalButton)
+    self.medicalButton:initialise()
+    self.medicalButton:setAnchorBottom(true)
+    self:addChild(self.medicalButton)
+end
+
 function KnoxPanel:new(x, y, width, height)
     local o = ISPanelJoypad.new(self, x, y, width, height)
     o:noBackground()
@@ -196,6 +234,7 @@ function KnoxPanel:new(x, y, width, height)
     o:addScrollBars()
     o:setScrollWithParent(false)
     o.snapshot = nil
+    o.window = nil
     return o
 end
 
@@ -313,6 +352,12 @@ local function ensureViews(window)
         local localPlayer = getSpecificPlayer(window.playerNum)
         local view = ISHealthPanel:new(survivor, 0, 8, window.panel.width, window.panel.height - 8)
         view:initialise()
+        -- ISHealthPanel separates construction from initialise in Build 42.
+        -- Without this call its internal body-part list/health panel remain nil
+        -- and the first render or tab switch throws inside vanilla UI code.
+        local healthChildrenReady = pcall(function() view:createChildren() end)
+        if not healthChildrenReady then view = false end
+        if view ~= nil and view ~= false then
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
         if localPlayer ~= nil then
@@ -323,6 +368,7 @@ local function ensureViews(window)
         end
         window.healthView = view
         window.panel:addView(xpSystemText.health, view)
+        end
     end
     if window.protectionView == nil and survivor ~= nil then
         local view = ISCharacterProtection:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
@@ -356,6 +402,7 @@ local function ensureViews(window)
     if window.knoxView == nil then
         local view = KnoxPanel:new(0, 8, window.panel.width, window.panel.height - 8)
         view:initialise()
+        view.window = window
         window.knoxView = view
         window.panel:addView("Knox", view)
     end
@@ -383,7 +430,8 @@ local function ensureViews(window)
             window.skillsView.reloadSkillBar = true
         end
         window.skillsView.knoxSnapshot = window.snapshot
-        if window.healthView ~= nil and window.healthView.character ~= survivor then
+        if window.healthView ~= nil and window.healthView ~= false
+            and window.healthView.character ~= survivor then
             local localPlayer = getSpecificPlayer(window.playerNum)
             if localPlayer ~= nil then
                 window.healthView.otherPlayer = localPlayer

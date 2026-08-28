@@ -89,6 +89,18 @@ local recruited, recruitResult = KnoxPersistence.setPlayerCompanion(
 )
 assert(recruited and recruitResult == "companion", tostring(recruitResult))
 assert(KnoxPersistence.getSurvivorDuty("independent").mode == "companion")
+assert(KnoxPersistence.getSurvivorDuty("independent").combatStance == "defensive",
+    "new companions receive a defensive stance")
+assert(KnoxPersistence.setCompanionCombatStance(
+    "independent", playerId, "passive", 24
+), "companion combat stance persists")
+assert(KnoxPersistence.getSurvivorDuty("independent").combatStance == "passive")
+assert(not KnoxPersistence.setCompanionCombatStance(
+    "independent", playerId, "reckless", 24
+), "unknown combat stance rejected")
+assert(KnoxPersistence.setCompanionCombatStance(
+    "independent", playerId, "defensive", 24
+), "companion stance can return to defensive")
 assert(#KnoxPersistence.getCompanionIds(playerId) == 1)
 modData[key].travelGroups.stalePlayerGroup = {
     id = "stalePlayerGroup",
@@ -277,5 +289,25 @@ local reopenedTask, reopenedTaskResult = KnoxPersistence.requeueBaseTask(
 assert(reopenedTask == transferredTask and reopenedTaskResult == "requeued")
 assert(transferredTask.state == "queued" and transferredTask.runs == 1,
     "recurring base work should reopen the same persisted task")
+local cancelledTask, cancelledResult = KnoxPersistence.cancelBaseTask(
+    base.id, transferredTask.id, 26
+)
+assert(cancelledTask == transferredTask and cancelledResult == "cancelled")
+assert(transferredTask.state == "cancelled"
+    and KnoxPersistence.requeueBaseTask(base.id, transferredTask.id, 27) == nil,
+    "cancelled work remains stopped until a future explicit resume control")
+local resumedTask, resumedResult = KnoxPersistence.resumeBaseTask(
+    base.id, transferredTask.id, 27
+)
+assert(resumedTask == transferredTask and resumedResult == "resumed"
+    and transferredTask.state == "queued",
+    "player-cancelled work resumes on the same durable task record")
+local inProgressTask = assert(KnoxPersistence.queueBaseTask(base.id, "patrol", {
+    x = 16, y = 20, z = 0,
+}, {}, 50))
+assert(KnoxPersistence.claimBaseTask(base.id, inProgressTask.id, "resident-two", 27))
+assert(KnoxPersistence.cancelBaseTask(base.id, inProgressTask.id, 27) == nil
+    and inProgressTask.state == "claimed",
+    "cancelling never interrupts a resident-owned world action")
 
 print("Companion/base domain PASS migration=true recruitment=true base=true tasks=true")

@@ -42,6 +42,52 @@ local controllerPath = projectRoot
 assert(loadfile(controllerPath))()
 local Controller = assert(KnoxAutonomyController)
 
+local zombieCount = 0
+local zombieSquare = square(2, 0, 0)
+cell.getZombieList = function()
+    return {
+        size = function() return zombieCount end,
+        get = function()
+            return {
+                isDead = function() return false end,
+                getCurrentSquare = function() return zombieSquare end,
+            }
+        end,
+    }
+end
+local health = 100
+local threatCharacter = {
+    getCurrentSquare = function() return square(0, 0, 0) end,
+    getHealth = function() return health end,
+    getStats = function()
+        return { get = function() return 0.8 end }
+    end,
+}
+CharacterStat = { ENDURANCE = "endurance" }
+local fleeController = setmetatable({
+    character = threatCharacter,
+    groupMembers = {},
+}, Controller)
+zombieCount = 3
+local shouldFlee, assessment = fleeController:assessFlee()
+assert(shouldFlee and assessment.reason == "outnumbered"
+    and assessment.zombies == 3 and assessment.allies == 1,
+    "one survivor flees at the three-to-one threshold")
+local ally = { getCurrentSquare = function() return square(1, 0, 0) end }
+fleeController.groupMembers = { ally }
+zombieCount = 5
+shouldFlee = fleeController:assessFlee()
+assert(not shouldFlee, "two nearby allies hold against fewer than six zombies")
+zombieCount = 6
+shouldFlee, assessment = fleeController:assessFlee()
+assert(shouldFlee and assessment.allies == 2,
+    "group flee threshold scales with nearby members")
+zombieCount = 1
+health = 25
+shouldFlee, assessment = fleeController:assessFlee()
+assert(shouldFlee and assessment.reason == "critical_health",
+    "critical-health survivor flees any nearby zombie")
+
 local threat = {}
 local owners = { survivor = true }
 local combatController = setmetatable({
@@ -173,4 +219,4 @@ assert(corpseController:abandonBaseTask("combat_interrupt"),
 assert(clearedActions and droppedCorpse,
     "interruption should clear actions and release a dragged corpse")
 
-print("Autonomy formation PASS release=true slots=true refresh=true corpse_interrupt=true")
+print("Autonomy formation PASS release=true slots=true refresh=true corpse_interrupt=true flee_policy=true")

@@ -118,7 +118,7 @@ SandboxVars = { KnoxSurvivors = {
     PopulationRefillDays = 3,
     MinimumSpawnDistance = 2,
 } }
-assert(KnoxSettings.maxActiveSurvivors() == 16, "active population clamp")
+assert(KnoxSettings.maxActiveSurvivors() == 32, "active population clamp")
 assert(KnoxSettings.minimumSpawnDistance() == 25, "minimum distance clamp")
 
 require "KS_Persistence"
@@ -248,6 +248,55 @@ assert(restoreCandidate.mode == "restore" and restoreCandidate.exact,
 assert(restoreCandidate.square == exactSquare,
     "restoration preserves exact saved square despite visibility and minimum distance")
 
+local virtualId = "virtual-traveller"
+assert(KnoxPersistence.setRecord(virtualId, "virtual-record"),
+    "virtual traveller record stored")
+KnoxPersistence.setUnloadedSurvivalState(virtualId, {
+    status = "hibernated", activity = "surviving",
+    virtualX = 450, virtualY = 500, virtualZ = 0,
+})
+local virtualSquare = makeSquare(450, 500, 0)
+local relocatedRecord = nil
+bridge.relocateNpcRecord = function(_, record, x, y, z)
+    relocatedRecord = record .. "@" .. x .. "," .. y .. "," .. z
+    return relocatedRecord
+end
+local virtualCandidate = assert(KnoxWorldPopulation.activationCandidate(
+    virtualId,
+    bridge,
+    { players = { player }, maximumDistance = 150 }
+))
+assert(virtualCandidate.mode == "restore" and virtualCandidate.square == virtualSquare,
+    "virtual traveller materializes at its progressed loaded location")
+assert(virtualCandidate.record == relocatedRecord
+    and KnoxPersistence.getRecord(virtualId) == relocatedRecord,
+    "virtual location is transactionally written into the Java survivor record")
+
+local baseVirtualId = "virtual-base-resident"
+assert(KnoxPersistence.setRecord(baseVirtualId, "base-virtual-record"),
+    "base resident record stored")
+KnoxPersistence.setUnloadedSurvivalState(baseVirtualId, {
+    status = "hibernated", activity = "base_life",
+    virtualX = 475, virtualY = 500, virtualZ = 0,
+})
+local baseVirtualSquare = makeSquare(475, 500, 0)
+local nativeGetDuty = KnoxPersistence.getSurvivorDuty
+KnoxPersistence.getSurvivorDuty = function(id)
+    if id == baseVirtualId then return { mode = "base", baseId = "base-1" } end
+    return nativeGetDuty(id)
+end
+local baseVirtualCandidate = assert(KnoxWorldPopulation.activationCandidate(
+    baseVirtualId,
+    bridge,
+    { players = { player }, maximumDistance = 150 }
+))
+assert(baseVirtualCandidate.mode == "restore"
+    and baseVirtualCandidate.square == baseVirtualSquare,
+    "base life materializes at its progressed loaded location")
+assert(KnoxPersistence.getRecord(baseVirtualId) ~= "base-virtual-record",
+    "base-life location is transactionally written into the Java survivor record")
+KnoxPersistence.getSurvivorDuty = nativeGetDuty
+
 assert(KnoxPersistence.setRecord("ks-dev-1", "developer-record"),
     "developer survivor record stored")
 local durableCandidates = KnoxWorldPopulation.activationCandidates(
@@ -273,4 +322,4 @@ local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(
 assert(unloaded == nil and unloadedReason == "saved_square_not_loaded",
     "saved survivor waits instead of falling back to origin")
 
-print("World population PASS balanced=true refill=one exact_restore=true durable_restore=true hidden_spawn=true")
+print("World population PASS balanced=true refill=one exact_restore=true durable_restore=true hidden_spawn=true virtual_restore=true")

@@ -75,6 +75,9 @@ local function taskForTargetId(base, targetId)
 end
 
 local function reopenWhenReady(task, now)
+    if task ~= nil and task.state == "cancelled" then
+        return nil
+    end
     if task == nil or (task.state ~= "complete" and task.state ~= "blocked") then
         return task
     end

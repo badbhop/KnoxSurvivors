@@ -4,7 +4,7 @@
 > rebuild launcher package until the Workshop runtime has been replaced with a tested
 > IsoPlayer build and matching Java checksum.
 
-The player launcher is deliberately limited to one job: verify the subscribed Knox
+The cross-platform player launcher is deliberately limited to one job: verify the subscribed Knox
 Survivors files and start Project Zomboid with the required Java runtime enabled for that
 one game process.
 
@@ -12,8 +12,10 @@ one game process.
 
 1. Install Project Zomboid through Steam.
 2. Subscribe to Workshop item `3749727604` and wait for Steam to finish downloading it.
-3. Download `KnoxSurvivorsLauncher-win-x64.zip` from the official GitHub release.
-4. Extract and run `KnoxSurvivorsLauncher.exe`.
+3. Download the Windows or Linux/macOS archive from the official launcher release.
+4. Extract the entire archive, then open `Launch Knox Survivors.cmd` on Windows or
+   `Launch Knox Survivors.command` on macOS. Linux users run
+   `scripts/launch-knox-survivors.sh`.
 5. Enable Knox Survivors on the intended save the first time that save is used.
 
 After that, Steam updates the Lua mod and Java-agent file together through the Workshop.
@@ -26,14 +28,15 @@ Those are explicit Steam and Project Zomboid user choices.
 
 The launcher:
 
-- reads the Steam installation path from the normal Windows registry entry;
-- reads Steam's `libraryfolders.vdf` to support additional library drives;
+- uses normal Steam locations on Windows, Linux, Flatpak Linux, and macOS;
+- reads Steam's `libraryfolders.vdf` and permits the game and Workshop item to be in
+  different libraries;
 - requires Project Zomboid app `108600`, Workshop item `3749727604`, and Mod ID
   `KnoxSurvivors`;
 - verifies both Build 42 `mod.info` files;
 - verifies the Java-agent manifest and its published SHA-256 sidecar;
 - passes `-javaagent` through a child-process-only `JAVA_TOOL_OPTIONS` value;
-- starts the normal, unmodified `ProjectZomboid64.bat`.
+- starts the normal, unmodified platform game launcher.
 
 It does not copy files into the game, patch the game launcher, create services, request
 administrator access, edit the registry, or set permanent environment variables.
@@ -46,20 +49,23 @@ included in Workshop staging, or packaged with the launcher.
 
 ## Building a launcher release
 
-Run:
+The launcher has its own release repository. Its Windows and Unix build scripts compile
+the shared Java 17 source, run the standalone locator/validation verifier, and create both
+release archives. GitHub tagged builds use Linux so executable bits are retained in the
+macOS/Linux ZIP.
+
+The launcher runs on Project Zomboid's bundled Java runtime; players do not install a
+separate Java 17 package.
+
+For local development, run:
 
 ```powershell
-.\tools\build-launcher.ps1
+.\scripts\build.ps1
 ```
 
-The script builds the .NET Framework 4.8 Windows executable, runs the standalone locator
-and validation verifier, and writes the release ZIP plus its SHA-256 file under the
-ignored `launcher/artifacts` directory.
-
-The executable is framework-dependent on Windows' .NET Framework 4.8 and does not bundle
-a separate runtime. Code signing should be added before broad public distribution so
-Windows can identify the publisher; until then, an unsigned release may trigger a
-SmartScreen reputation warning.
+from the separate launcher checkout. Tagged builds publish Windows and Linux/macOS ZIPs
+with a `SHA256SUMS.txt` file. The public Workshop package must contain the matching
+`knox-runtime.properties`, agent JAR, and checksum before a launcher release is advertised.
 
 ## Publishing Workshop runtime updates
 

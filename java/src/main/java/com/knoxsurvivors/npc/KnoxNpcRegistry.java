@@ -165,12 +165,17 @@ public final class KnoxNpcRegistry {
             Class<?> corpseClass = Class.forName(
                 "zombie.iso.objects.IsoDeadBody", false, loader
             );
-            corpseClass.getConstructor(characterClass).newInstance(body);
+            Object corpse = corpseClass.getConstructor(characterClass).newInstance(body);
+            boolean reanimationScheduled = scheduleNativeReanimation(body, corpse);
             KnoxNpcFactory.remove(runtime.npc());
             runtime.reset();
             activeNpcs.remove(id);
-            KnoxAgent.writeLog("NPC lifecycle CORPSE_CREATED id=" + id);
-            return "CORPSE_CREATED id=" + id;
+            KnoxAgent.writeLog(
+                "NPC lifecycle CORPSE_CREATED id=" + id
+                    + " reanimationScheduled=" + reanimationScheduled
+            );
+            return "CORPSE_CREATED id=" + id
+                + " reanimationScheduled=" + reanimationScheduled;
         } catch (Throwable throwable) {
             Throwable cause = rootCause(throwable);
             KnoxAgent.writeLog(
@@ -179,6 +184,25 @@ public final class KnoxNpcRegistry {
             );
             return "CORPSE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
         }
+    }
+
+    /**
+     * {@code IsoGameCharacter.DoDeath()} normally decides zombification before the body
+     * becomes an {@code IsoDeadBody}. Knox intentionally does not call DoDeath on the
+     * contained off-slot shell because that path owns local-player teardown. The native
+     * predicate still applies the current transmission sandbox rule, infection state, and
+     * fake-infection check; {@code reanimateLater()} then registers the corpse with the
+     * engine's normal static updater. No Knox-specific infection or timer is invented.
+     */
+    static boolean scheduleNativeReanimation(Object body, Object corpse)
+        throws ReflectiveOperationException {
+        boolean shouldReanimate = (Boolean) body.getClass()
+            .getMethod("shouldBecomeZombieAfterDeath")
+            .invoke(body);
+        if (shouldReanimate) {
+            corpse.getClass().getMethod("reanimateLater").invoke(corpse);
+        }
+        return shouldReanimate;
     }
 
     public synchronized String beginCombatOne(Object zombie, Object approachSquare) {
@@ -656,6 +680,16 @@ public final class KnoxNpcRegistry {
      */
     public synchronized String consumePersistentRecordItem(String encoded, String fullType) {
         return KnoxSurvivorRecord.decode(encoded).consumeInventoryItem(fullType);
+    }
+
+    /** Moves only a stored record after unloaded simulation selects a loaded safe square. */
+    public synchronized String relocatePersistentRecord(
+        String encoded,
+        int x,
+        int y,
+        int z
+    ) {
+        return KnoxSurvivorRecord.decode(encoded).relocated(x, y, z);
     }
 
     public synchronized int activeCount() {

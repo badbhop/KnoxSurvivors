@@ -517,6 +517,59 @@ local function recordLocation(bridge, record)
     return math.floor(tonumber(x)), math.floor(tonumber(y)), math.floor(tonumber(z)), nil
 end
 
+local function materializeVirtualLocation(id, bridge, record, players)
+    local state = KnoxPersistence.getUnloadedSurvivalState ~= nil
+        and KnoxPersistence.getUnloadedSurvivalState(id) or nil
+    if state == nil or (state.activity ~= "surviving"
+        and state.activity ~= "group_travel"
+        and state.activity ~= "base_life"
+        and state.activity ~= "returning_to_base"
+        and state.activity ~= "away_mission") then
+        return record, nil, nil, nil, "no_virtual_travel"
+    end
+    local x = math.floor(tonumber(state.virtualX) or -1)
+    local y = math.floor(tonumber(state.virtualY) or -1)
+    local z = math.floor(tonumber(state.virtualZ) or 0)
+    if x < 0 or y < 0 or getCell() == nil then
+        return record, nil, nil, nil, "virtual_location_unavailable"
+    end
+    local selected = nil
+    local rotation = stableHash(id .. ":virtual:" .. tostring(x) .. ":" .. tostring(y))
+    for radius = 0, FIRST_SPAWN_SEARCH_RADIUS do
+        for _, offset in ipairs(ringOffsets(radius, rotation)) do
+            local square = getCell():getGridSquare(x + offset.x, y + offset.y, z)
+            if safeStandable(square) and not visibleToAnyPlayer(square, players) then
+                selected = square
+                break
+            end
+        end
+        if selected ~= nil then break end
+    end
+    if selected == nil then
+        return record, nil, nil, nil, "virtual_square_not_loaded_or_visible"
+    end
+    if bridge.relocateNpcRecord == nil then
+        return record, nil, nil, nil, "record_relocator_unavailable"
+    end
+    local ok, updated = pcall(
+        bridge.relocateNpcRecord,
+        bridge,
+        record,
+        selected:getX(),
+        selected:getY(),
+        selected:getZ()
+    )
+    if not ok or type(updated) ~= "string" or updated == "" then
+        return record, nil, nil, nil, "record_relocation_failed"
+    end
+    if not KnoxPersistence.setRecord(id, updated) then
+        return record, nil, nil, nil, "record_relocation_save_failed"
+    end
+    state.virtualX, state.virtualY, state.virtualZ = selected:getX(), selected:getY(), selected:getZ()
+    KnoxPersistence.setUnloadedSurvivalState(id, state)
+    return updated, selected:getX(), selected:getY(), selected:getZ(), nil
+end
+
 -- A saved record always wins over its origin. Restoration returns the exact
 -- recorded square or waits for that square to load; it never silently moves a
 -- persistent survivor back to their original spawn point.
@@ -537,7 +590,16 @@ function WorldPopulation.activationCandidate(id, bridge, options)
         or nil
     local record = KnoxPersistence.getRecord(id)
     if record ~= nil then
-        local x, y, z, locationError = recordLocation(bridge, record)
+        local virtualRecord, virtualX, virtualY, virtualZ, virtualResult =
+            materializeVirtualLocation(id, bridge, record, players)
+        if virtualResult ~= "no_virtual_travel" then
+            if virtualResult ~= nil then return nil, virtualResult end
+            record = virtualRecord
+        end
+        local x, y, z, locationError = virtualX, virtualY, virtualZ, nil
+        if x == nil then
+            x, y, z, locationError = recordLocation(bridge, record)
+        end
         if locationError ~= nil then
             return nil, locationError
         end

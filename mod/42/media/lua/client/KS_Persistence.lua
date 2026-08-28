@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 10
+local SCHEMA_VERSION = 11
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local function root()
@@ -21,6 +21,13 @@ local function root()
     data.nextTravelGroupId = data.nextTravelGroupId or 1
     if type(data.factions) ~= "table" then
         data.factions = {}
+    end
+    -- Faction disposition is deliberately a separate, symmetric domain.  A
+    -- survivor's affiliation answers "who owns this person"; this table
+    -- answers "how do those two owners relate".  Keeping that boundary avoids
+    -- turning a single encounter flag into permanent base-damage permission.
+    if type(data.factionRelationships) ~= "table" then
+        data.factionRelationships = {}
     end
     data.nextFactionId = data.nextFactionId or 1
     if type(data.camps) ~= "table" then
@@ -196,6 +203,16 @@ local function ensureSurvivorState(id)
         order = "survive",
         revision = 0,
     }
+    -- Older saves predate companion stances. Normalize the persisted value at
+    -- the identity boundary so every controller sync starts from a deliberate
+    -- defensive default instead of treating nil as an implicit attack order.
+    if survivor.duty.mode == "companion" then
+        local stance = survivor.duty.combatStance
+        if stance ~= "passive" and stance ~= "aggressive" and stance ~= "defensive" then
+            survivor.duty.combatStance = "defensive"
+        end
+        survivor.duty.order = survivor.duty.order == "hold" and "hold" or "follow"
+    end
     survivor.playerRelationships = survivor.playerRelationships or {}
     survivor.policies = survivor.policies or {
         allowClimbing = true,
@@ -567,6 +584,34 @@ function KnoxPersistence.getAwayTeam(id)
     return type(team) == "table" and copySerializable(team) or nil
 end
 
+-- Read-only progress snapshot for the Notebook/HUD.  Mission state remains
+-- authoritative in the persisted team record; this helper only derives timing
+-- fields and never advances or mutates a mission.
+function KnoxPersistence.getAwayTeamProgress(id, worldAgeHours)
+    local team = KnoxPersistence.getAwayTeam(id)
+    if team == nil then
+        return nil
+    end
+    local now = tonumber(worldAgeHours) or 0
+    local departure = tonumber(team.departedAtHours) or now
+    local eta = tonumber(team.etaHours) or departure
+    local duration = math.max(0.25, eta - departure)
+    local elapsed = math.max(0, now - departure)
+    local progress = math.max(0, math.min(1, elapsed / duration))
+    local remaining = team.state == "outbound" and math.max(0, eta - now) or 0
+    team.elapsedHours = elapsed
+    team.remainingHours = remaining
+    team.progress = progress
+    team.statusLabel = team.state == "outbound" and "En route"
+        or team.state == "awaiting_collection" and "At destination"
+        or team.state == "collecting" and "Collecting supplies"
+        or team.state == "returning" and "Returning"
+        or team.state == "complete" and "Returned"
+        or team.state == "blocked" and "Unable to complete"
+        or tostring(team.state or "Unknown")
+    return team
+end
+
 function KnoxPersistence.getAwayTeamForSurvivor(survivorId)
     local survivor = ensureSurvivorState(survivorId)
     local id = survivor ~= nil and survivor.duty ~= nil and survivor.duty.awayTeamId or nil
@@ -666,8 +711,106 @@ function KnoxPersistence.createAwayTeam(ownerKind, ownerId, memberIds, missionTy
     return copySerializable(team), "created"
 end
 
--- Scouting has an explicit non-resource result. Resource missions remain working until
--- their live-world looting executor can transfer real items to the team record.
+local function restoreAwayTeamDuties(team, worldAgeHours)
+    for _, id in ipairs(team.memberIds or {}) do
+        local survivor = ensureSurvivorState(id)
+        local previous = survivor.duty.previousDuty
+        survivor.duty = type(previous) == "table" and previous or {
+            mode = "autonomous", order = "survive", revision = 0,
+        }
+        survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+        survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    end
+end
+
+local function validAwayMember(team, survivorId)
+    if team == nil or type(survivorId) ~= "string" then
+        return false
+    end
+    for _, id in ipairs(team.memberIds or {}) do
+        if id == survivorId then return true end
+    end
+    return false
+end
+
+-- The live-world executor calls this only after an ordinary inventory transfer
+-- has succeeded.  The ledger deliberately accepts item *types*, never counts
+-- or creates an item by itself, so an away result can be audited back to real
+-- container movement rather than becoming a free-resource generator.
+function KnoxPersistence.recordAwayTeamCollection(teamId, survivorId, itemTypes, worldAgeHours)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    if not validAwayMember(team, survivorId) or team.state ~= "collecting"
+        or type(itemTypes) ~= "table" then
+        return nil, "invalid_collection"
+    end
+    team.collection = type(team.collection) == "table" and team.collection or {
+        resources = {}, byMember = {},
+    }
+    team.collection.resources = type(team.collection.resources) == "table"
+        and team.collection.resources or {}
+    team.collection.byMember = type(team.collection.byMember) == "table"
+        and team.collection.byMember or {}
+    local member = team.collection.byMember[survivorId] or {}
+    local accepted = 0
+    for _, itemType in ipairs(itemTypes) do
+        if type(itemType) == "string" and itemType ~= "" and #itemType <= 160 then
+            member[itemType] = (tonumber(member[itemType]) or 0) + 1
+            team.collection.resources[itemType] = (tonumber(team.collection.resources[itemType]) or 0) + 1
+            accepted = accepted + 1
+        end
+    end
+    team.collection.byMember[survivorId] = member
+    team.collection.lastCollectedAtHours = tonumber(worldAgeHours) or 0
+    return copySerializable(team.collection), accepted > 0 and "recorded" or "no_items"
+end
+
+function KnoxPersistence.beginAwayTeamCollection(teamId, worldAgeHours)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    if team == nil or team.state ~= "awaiting_collection" then
+        return nil, "not_awaiting_collection"
+    end
+    team.state = "collecting"
+    team.collectionStartedAtHours = tonumber(worldAgeHours) or 0
+    return copySerializable(team), "collecting"
+end
+
+-- Completion is intentionally a separate transition from collection.  A
+-- transfer at the destination is not enough: the live executor must return
+-- the team to its owner before this restores their ordinary duties.
+function KnoxPersistence.completeAwayTeamMember(teamId, survivorId, success, reason, worldAgeHours)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    if not validAwayMember(team, survivorId)
+        or (team.state ~= "collecting" and team.state ~= "returning") then
+        return nil, "invalid_completion"
+    end
+    team.memberResults = type(team.memberResults) == "table" and team.memberResults or {}
+    team.memberResults[survivorId] = {
+        success = success == true,
+        reason = tostring(reason or (success and "returned" or "failed")),
+        completedAtHours = tonumber(worldAgeHours) or 0,
+    }
+    local complete = true
+    for _, id in ipairs(team.memberIds or {}) do
+        if team.memberResults[id] == nil then complete = false; break end
+    end
+    if not complete then
+        return copySerializable(team), "member_recorded"
+    end
+    team.state = "complete"
+    team.completedAtHours = tonumber(worldAgeHours) or 0
+    team.result = {
+        kind = "resource_run",
+        destination = copySerializable(team.destination),
+        resources = copySerializable(team.collection ~= nil and team.collection.resources or {}),
+        members = copySerializable(team.memberResults),
+    }
+    restoreAwayTeamDuties(team, worldAgeHours)
+    return copySerializable(team), "complete"
+end
+
+-- Scouting has an explicit non-resource result. Resource missions advance only
+-- to an awaiting-collection state; no item is generated and duty ownership is
+-- retained until a live executor transfers real loot and returns the team.
 function KnoxPersistence.advanceAwayTeams(worldAgeHours)
     local now, changed = tonumber(worldAgeHours) or 0, 0
     for _, team in pairs(root().awayTeams) do
@@ -681,28 +824,15 @@ function KnoxPersistence.advanceAwayTeams(worldAgeHours)
                     destination = copySerializable(team.destination),
                     resources = {},
                 }
-                for _, id in ipairs(team.memberIds or {}) do
-                    local survivor = ensureSurvivorState(id)
-                    local previous = survivor.duty.previousDuty
-                    survivor.duty = type(previous) == "table" and previous or {
-                        mode = "autonomous", order = "survive", revision = 0,
-                    }
-                    survivor.duty.changedAtHours = now
-                    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
-                end
+                restoreAwayTeamDuties(team, now)
             else
-                team.state = "blocked"
-                team.completedAtHours = now
-                team.result = { kind = "blocked", reason = "live_resource_executor_required" }
-                for _, id in ipairs(team.memberIds or {}) do
-                    local survivor = ensureSurvivorState(id)
-                    local previous = survivor.duty.previousDuty
-                    survivor.duty = type(previous) == "table" and previous or {
-                        mode = "autonomous", order = "survive", revision = 0,
-                    }
-                    survivor.duty.changedAtHours = now
-                    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
-                end
+                team.state = "awaiting_collection"
+                team.arrivedAtHours = now
+                team.result = {
+                    kind = "awaiting_live_collection",
+                    destination = copySerializable(team.destination),
+                    resources = {},
+                }
             end
             changed = changed + 1
         end
@@ -1159,6 +1289,97 @@ end
 
 function KnoxPersistence.getFactions()
     return root().factions
+end
+
+local FACTION_DISPOSITIONS = {
+    allied = true,
+    neutral = true,
+    hostile = true,
+}
+
+local function factionRelationshipKey(firstFactionId, secondFactionId)
+    if type(firstFactionId) ~= "string" or firstFactionId == ""
+        or type(secondFactionId) ~= "string" or secondFactionId == ""
+        or firstFactionId == secondFactionId then
+        return nil
+    end
+    if firstFactionId < secondFactionId then
+        return firstFactionId .. "|" .. secondFactionId, firstFactionId, secondFactionId
+    end
+    return secondFactionId .. "|" .. firstFactionId, secondFactionId, firstFactionId
+end
+
+-- This returns a copy so callers cannot silently mutate saved diplomacy
+-- without recording the time and reason through the setter below.
+function KnoxPersistence.getFactionRelationship(firstFactionId, secondFactionId)
+    local key = factionRelationshipKey(firstFactionId, secondFactionId)
+    local relationship = key ~= nil and root().factionRelationships[key] or nil
+    return relationship ~= nil and copyFlat(relationship) or nil
+end
+
+function KnoxPersistence.setFactionRelationshipDisposition(
+    firstFactionId,
+    secondFactionId,
+    disposition,
+    worldAgeHours,
+    reason
+)
+    local key, lowId, highId = factionRelationshipKey(firstFactionId, secondFactionId)
+    if key == nil or FACTION_DISPOSITIONS[disposition] ~= true
+        or KnoxPersistence.getFaction(lowId) == nil
+        or KnoxPersistence.getFaction(highId) == nil then
+        return nil, "invalid_faction_relationship"
+    end
+    local relationships = root().factionRelationships
+    local relationship = relationships[key] or {
+        firstFactionId = lowId,
+        secondFactionId = highId,
+        disposition = "neutral",
+        createdAtHours = tonumber(worldAgeHours) or 0,
+    }
+    relationship.disposition = disposition
+    relationship.changedAtHours = tonumber(worldAgeHours) or 0
+    relationship.reason = type(reason) == "string" and reason or nil
+    relationships[key] = relationship
+    return copyFlat(relationship), "saved"
+end
+
+function KnoxPersistence.getPlayerFaction(playerId)
+    if type(playerId) ~= "string" or playerId == "" then
+        return nil
+    end
+    local player = root().players[playerId]
+    local factionId = player ~= nil and player.factionId or nil
+    local faction = factionId ~= nil and KnoxPersistence.getFaction(factionId) or nil
+    if faction ~= nil and faction.kind == "player" and faction.ownerPlayerId == playerId then
+        return faction
+    end
+    return nil
+end
+
+-- Base protection defaults to safety.  Only an explicit legacy hostile flag
+-- or durable hostility between the survivor's faction and the owning player's
+-- faction permits destructive base actions.
+function KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId)
+    local survivor = ensureSurvivorState(survivorId)
+    if survivor == nil or type(playerId) ~= "string" or playerId == "" then
+        return false
+    end
+    local affiliation = survivor.affiliation or {}
+    if affiliation.hostileToPlayer == true then
+        return true
+    end
+    local survivorFactionId = affiliation.factionId
+    local playerFaction = KnoxPersistence.getPlayerFaction(playerId)
+    if survivorFactionId == nil or playerFaction == nil
+        or survivorFactionId == playerFaction.id then
+        return false
+    end
+    local relationship = KnoxPersistence.getFactionRelationship(
+        survivorFactionId,
+        playerFaction.id
+    )
+    return relationship ~= nil and relationship.disposition == "hostile"
 end
 
 function KnoxPersistence.ensurePlayerFaction(playerId, worldAgeHours)
@@ -1929,6 +2150,51 @@ function KnoxPersistence.finishBaseTask(
     end
     task.retryAtHours = task.completedAtHours + repeatDelay
     return task, "finished"
+end
+
+-- A player may stop queued or finished automatic work, but never a task that a
+-- resident has already claimed.  Interrupting a native timed action here would
+-- leave the action controller and the persistent board disagreeing about who
+-- owns the job.  A cancelled record remains as the stable target signature so
+-- the automatic planner does not immediately recreate the same unwanted task.
+function KnoxPersistence.cancelBaseTask(baseId, taskId, worldAgeHours)
+    local base = KnoxPersistence.getBase(baseId)
+    local task = base ~= nil and base.tasks[taskId] or nil
+    if task == nil then
+        return nil, "unknown_task"
+    end
+    if task.state == "claimed" then
+        return nil, "task_in_progress"
+    end
+    if task.state == "cancelled" then
+        return task, "already_cancelled"
+    end
+    task.state = "cancelled"
+    task.claimedBy = nil
+    task.claimedAtHours = nil
+    task.completedAtHours = tonumber(worldAgeHours) or 0
+    task.cancelledAtHours = task.completedAtHours
+    task.result = "cancelled_by_player"
+    task.retryAtHours = nil
+    return task, "cancelled"
+end
+
+function KnoxPersistence.resumeBaseTask(baseId, taskId, worldAgeHours)
+    local base = KnoxPersistence.getBase(baseId)
+    local task = base ~= nil and base.tasks[taskId] or nil
+    if task == nil then
+        return nil, "unknown_task"
+    end
+    if task.state ~= "cancelled" then
+        return nil, "not_cancelled"
+    end
+    task.state = "queued"
+    task.cancelledAtHours = nil
+    task.completedAtHours = nil
+    task.result = nil
+    task.retryAtHours = nil
+    task.resumedAtHours = tonumber(worldAgeHours) or 0
+    return task, "resumed"
 end
 
 -- Reopen a completed or blocked recurring task without losing its history.

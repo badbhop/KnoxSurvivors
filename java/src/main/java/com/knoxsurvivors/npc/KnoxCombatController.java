@@ -24,6 +24,7 @@ final class KnoxCombatController {
     private int initialWeaponCondition;
     private float weaponMaxRange;
     private float desiredAttackRange;
+    private boolean rangedWeapon;
     private boolean damageObserved;
     private boolean attackAnimationObserved;
     private int aimTicks;
@@ -77,6 +78,7 @@ final class KnoxCombatController {
         }
         initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
             .invoke(weapon)).intValue();
+        rangedWeapon = (Boolean) weapon.getClass().getMethod("isRanged").invoke(weapon);
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
         phase = "AIMING";
@@ -134,10 +136,28 @@ final class KnoxCombatController {
         body.getClass().getMethod("setOnFloor", boolean.class).invoke(body, false);
         body.getClass().getMethod("setVariable", String.class, boolean.class)
             .invoke(body, "forceGetUp", true);
-        weaponMaxRange = ((Number) weapon.getClass().getMethod("getMaxRange").invoke(weapon))
-            .floatValue();
-        // For moving zombies, get much closer to ensure hits land even when target is chasing player.
-        desiredAttackRange = Math.max(0.50f, weaponMaxRange - 0.40f);
+        weaponMaxRange = rangedWeapon
+            ? ((Number) weapon.getClass().getMethod("getMaxRange", classFor(body,
+                "zombie.characters.IsoGameCharacter")).invoke(weapon, body)).floatValue()
+            : ((Number) weapon.getClass().getMethod("getMaxRange").invoke(weapon)).floatValue();
+        if (rangedWeapon) {
+            // Firearms should keep a player-like stand-off distance.  The native
+            // max range already includes the survivor's aiming modifiers; use a
+            // conservative middle distance so a moving zombie does not force a
+            // melee collision, while still leaving room for the normal shot path.
+            float minimum = 0.0f;
+            try {
+                minimum = ((Number) weapon.getClass().getMethod("getMinRangeRanged")
+                    .invoke(weapon)).floatValue();
+            } catch (ReflectiveOperationException ignored) {
+                // Older compatible weapon classes may not expose this accessor.
+            }
+            desiredAttackRange = Math.max(minimum + 1.0f,
+                Math.min(weaponMaxRange, Math.max(6.0f, weaponMaxRange * 0.65f)));
+        } else {
+            // For moving zombies, get much closer to ensure hits land even when target is chasing player.
+            desiredAttackRange = Math.max(0.50f, weaponMaxRange - 0.40f);
+        }
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
 
@@ -355,7 +375,8 @@ final class KnoxCombatController {
             return "COMBAT_REPOSITIONING distance=" + targetDistance
                 + " targetHealth=" + currentHealth;
         }
-        applyCombatStance(body, false, targetOnFloor);
+        boolean aimAtFloor = !rangedWeapon && targetOnFloor;
+        applyCombatStance(body, false, aimAtFloor, rangedWeapon);
 
         if ("AIMING".equals(phase)) {
             aimTicks++;
@@ -410,7 +431,7 @@ final class KnoxCombatController {
         boolean attackTypeClear = attackType.isEmpty() || "NONE".equalsIgnoreCase(attackType);
         if (!attackStarted && !attacking && weaponReady && attackTypeClear
             && ticks - lastAttackTick >= ATTACK_RETRY_TICKS) {
-            requestAttack(body, targetOnFloor);
+            requestAttack(body, aimAtFloor, rangedWeapon);
             attackRequests++;
             lastAttackTick = ticks;
             attackAnimationObserved = false;
@@ -447,6 +468,7 @@ final class KnoxCombatController {
                 - ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
             return "COMBAT_DIAGNOSTICS phase=" + phase
                 + " active=true ticks=" + ticks
+                + " ranged=" + rangedWeapon
                 + " distance=" + (float) Math.sqrt(dx * dx + dy * dy)
                 + " attacks=" + attackRequests
                 + " damageObserved=" + damageObserved
@@ -481,6 +503,7 @@ final class KnoxCombatController {
         initialWeaponCondition = -1;
         weaponMaxRange = 0.0f;
         desiredAttackRange = 0.0f;
+        rangedWeapon = false;
         damageObserved = false;
         attackAnimationObserved = false;
         aimTicks = 0;
@@ -526,24 +549,29 @@ final class KnoxCombatController {
         setAiAttackIntent(body, false, false);
     }
 
-    private static void applyCombatStance(Object body, boolean initiate, boolean aimAtFloor)
+    private static void applyCombatStance(
+        Object body,
+        boolean initiate,
+        boolean aimAtFloor,
+        boolean ranged
+    )
         throws ReflectiveOperationException {
         body.getClass().getMethod("setBannedAttacking", boolean.class).invoke(body, false);
-        body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
+        body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, !ranged);
         body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class)
-            .invoke(body, aimAtFloor);
+            .invoke(body, !ranged && aimAtFloor);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
         body.getClass().getField("isCharging").setBoolean(body, true);
         setAiAttackIntent(body, true, initiate);
     }
 
-    private static void requestAttack(Object body, boolean aimAtFloor)
+    private static void requestAttack(Object body, boolean aimAtFloor, boolean ranged)
         throws ReflectiveOperationException {
         body.getClass().getMethod("clearHandToHandAttack").invoke(body);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getField("useChargeDelta").setFloat(body, 36.0f);
-        applyCombatStance(body, false, aimAtFloor);
+        applyCombatStance(body, false, aimAtFloor, ranged);
         body.getClass().getMethod("pressedAttack").invoke(body);
         body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, true);
         body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);

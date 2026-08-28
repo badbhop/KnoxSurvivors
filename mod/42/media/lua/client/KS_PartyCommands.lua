@@ -4,7 +4,6 @@ require "KS_CompanionService"
 require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_SurvivorNotebook"
-require "KS_BaseSetup"
 
 local PartyCommands = rawget(_G, "KnoxPartyCommands") or {}
 _G.KnoxPartyCommands = PartyCommands
@@ -81,6 +80,10 @@ function PartyCommands.climbingAll(_, playerNum, allowed)
     KnoxCompanionService.setClimbingAll(player(playerNum), allowed)
 end
 
+function PartyCommands.combatStanceAll(_, playerNum, stance)
+    KnoxCompanionService.setCombatStanceAll(player(playerNum), stance)
+end
+
 function PartyCommands.directiveAll(_, playerNum, directive)
     KnoxCompanionService.issueDirectiveAll(player(playerNum), directive)
 end
@@ -94,7 +97,7 @@ function PartyCommands.openNotebook(_, playerNum)
 end
 
 function PartyCommands.openBaseSetup(_, playerNum)
-    KnoxBaseSetup.show(playerNum)
+    KnoxSurvivorNotebook.show(playerNum)
 end
 
 local function populate(menu, playerNum, square)
@@ -113,6 +116,15 @@ local function populate(menu, playerNum, square)
     menu:addSubMenu(traversal, traversalMenu)
     traversalMenu:addOption("Allow", PartyCommands, PartyCommands.climbingAll, playerNum, true)
     traversalMenu:addOption("Disallow", PartyCommands, PartyCommands.climbingAll, playerNum, false)
+    local combat = menu:addOption("Combat Stance", nil, nil)
+    local combatMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(combat, combatMenu)
+    combatMenu:addOption("Passive - stay close", PartyCommands,
+        PartyCommands.combatStanceAll, playerNum, "passive")
+    combatMenu:addOption("Defensive - protect us", PartyCommands,
+        PartyCommands.combatStanceAll, playerNum, "defensive")
+    combatMenu:addOption("Aggressive - clear threats", PartyCommands,
+        PartyCommands.combatStanceAll, playerNum, "aggressive")
     if square ~= nil then
         menu:addOption("Move Party Here", PartyCommands, PartyCommands.directiveAll,
             playerNum, pointDirective("go_to", square))
@@ -136,7 +148,7 @@ local function populate(menu, playerNum, square)
     menu:addOption("Open Survivor Notebook", PartyCommands,
         PartyCommands.openNotebook, playerNum)
     if base ~= nil then
-        menu:addOption("Open Base Setup", PartyCommands,
+        menu:addOption("Open Base Management", PartyCommands,
             PartyCommands.openBaseSetup, playerNum)
     end
     return menu

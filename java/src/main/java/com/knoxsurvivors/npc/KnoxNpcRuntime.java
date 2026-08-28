@@ -81,7 +81,13 @@ final class KnoxNpcRuntime {
             movementControllerState = "Working";
             String result = (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
                 + movementDescription();
-            KnoxAgent.writeLog("NPC probe " + result);
+            // Autonomous movement makes many short, normal route requests.  Those are
+            // expected gameplay, not diagnostic evidence, and previously drowned out
+            // the useful stuck/transition failures in KnoxIsoPlayer.log.  Edge crossings
+            // are still important enough to retain because they exercise doors/windows.
+            if (exactAdjacentCrossing) {
+                KnoxAgent.writeLog("NPC probe " + result);
+            }
             return result;
         } catch (Throwable throwable) {
             return failure("MOVE_FAILED", throwable);
@@ -133,7 +139,9 @@ final class KnoxNpcRuntime {
                 lastProgressX = currentX;
                 lastProgressY = currentY;
             }
-            if (!movementControllerState.equals(previousState)) {
+            if (!movementControllerState.equals(previousState)
+                && !"ManualRoute".equals(movementControllerState)
+                && !"Succeeded".equals(movementControllerState)) {
                 KnoxAgent.writeLog(
                     "NPC probe movement controller="
                         + movementControllerState

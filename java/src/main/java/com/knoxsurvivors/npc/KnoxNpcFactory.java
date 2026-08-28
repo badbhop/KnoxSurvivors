@@ -1,5 +1,7 @@
 package com.knoxsurvivors.npc;
 
+import com.knoxsurvivors.engine.KnoxShellVisibility;
+
 import com.knoxsurvivors.engine.KnoxIsoPlayerShellDefinition;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
@@ -871,20 +873,21 @@ final class KnoxNpcFactory {
         }
         String movementPace = pace == null ? "normal" : pace.toLowerCase(java.util.Locale.ROOT);
         boolean catchUp = "catchup".equals(movementPace);
-        boolean shouldRun = ("run".equals(movementPace)
-                || "sprint".equals(movementPace)
-                || (catchUp ? routeDistance > 3.0f : routeDistance > 7.0f))
-            && endurance > 0.35f && fatigue < 0.75f && health > 30.0f;
-        boolean shouldSprint = ("sprint".equals(movementPace)
-                || (catchUp && routeDistance > 10.0f))
-            && endurance > 0.65f && fatigue < 0.50f && health > 70.0f;
+        boolean explicitRun = "run".equals(movementPace) || "sprint".equals(movementPace);
+        boolean explicitSprint = "sprint".equals(movementPace);
+        boolean shouldRun = (explicitRun || (catchUp && routeDistance > 3.0f))
+            && endurance > 0.22f && fatigue < 0.88f && health > 15.0f;
+        boolean shouldSprint = (explicitSprint || (catchUp && routeDistance > 10.0f))
+            && endurance > 0.48f && fatigue < 0.72f && health > 25.0f;
         boolean shouldSneak = false;
         try {
             // If player is sneaking and survivor is near player, mirror sneak for stealth.
             Class<?> isoPlayerClass2 = Class.forName("zombie.characters.IsoPlayer", false, body.getClass().getClassLoader());
             Object players = isoPlayerClass2.getField("players").get(null);
             Object localPlayer = java.lang.reflect.Array.get(players, 0);
-            if (localPlayer != null && (Boolean) localPlayer.getClass().getMethod("isSneaking").invoke(localPlayer)) {
+            if (KnoxShellVisibility.isPartyVisible(body)
+                && localPlayer != null
+                && (Boolean) localPlayer.getClass().getMethod("isSneaking").invoke(localPlayer)) {
                 float px = ((Number) localPlayer.getClass().getMethod("getX").invoke(localPlayer)).floatValue();
                 float py = ((Number) localPlayer.getClass().getMethod("getY").invoke(localPlayer)).floatValue();
                 float pdx = x - px;

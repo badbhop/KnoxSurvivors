@@ -1,4 +1,6 @@
-require "BuildingObjects/ISSelectCursor"
+-- ISSelectCursor's Lua source is server-side in Build 42.  Do not require it
+-- from the client; when the engine exposes a selection cursor it is already
+-- available globally.  start() checks that capability before using it.
 require "KS_BaseManager"
 require "KS_ActivityFeed"
 require "KS_BaseHighlights"
@@ -230,7 +232,10 @@ function Selection:onSquareSelectedCancel()
 end
 
 function BaseZoneSelector.start(player, baseId, zoneType, label)
-    if player == nil or getCell() == nil then
+    if player == nil or getCell() == nil or ISSelectCursor == nil then
+        if KnoxActivityFeed ~= nil then
+            KnoxActivityFeed.event("Area selection is not available in this game build.")
+        end
         return false
     end
     local selection = setmetatable({

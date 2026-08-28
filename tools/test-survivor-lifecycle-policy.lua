@@ -24,7 +24,12 @@ local autonomyPath = rootPath .. "/mod/42/media/lua/client/KS_SurvivorAutonomy.l
 local autonomy = assert(io.open(autonomyPath, "r")):read("*a")
 assert(autonomy:find("DEAD_REMOVE_PENDING", 1, true),
     "dead bodies must remain registered until engine teardown succeeds")
+assert(autonomy:find("bridge:retireNpcAsCorpse(id)", 1, true),
+    "dead survivor lifecycle must create a world corpse before shell teardown")
 assert(autonomy:find("bridge:removeNpc(id)", 1, true),
     "dead survivor lifecycle must request engine-shell removal")
+assert(autonomy:find("character:getVehicle() ~= nil", 1, true)
+    and autonomy:find("Passenger shells are owned by the live vehicle", 1, true),
+    "occupied vehicle seats must not be hibernated as detached shells")
 
-print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true dead_teardown=true")
+print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true vehicle_safe=true dead_teardown=true corpse_handoff=true")

@@ -52,11 +52,11 @@ function Settings.enabled()
 end
 
 function Settings.worldPopulation()
-    return integer("WorldPopulation", 0, 64)
+    return integer("WorldPopulation", 0, 128)
 end
 
 function Settings.maxActiveSurvivors()
-    return integer("MaxActiveSurvivors", 1, 16)
+    return integer("MaxActiveSurvivors", 1, 32)
 end
 
 function Settings.populationRefillDays()

@@ -4,11 +4,17 @@ local file = assert(io.open(path, "r"))
 local source = file:read("*a")
 file:close()
 
-local attach = assert(string.find(source, "self:addChild%(self%.portrait%)"),
-    "portrait must be attached")
-local state = assert(string.find(source, 'self%.portrait:setState%("idle"%)'),
-    "portrait idle state must be configured")
-assert(attach < state,
-    "Build 42 UI3DModel must be attached before Java-backed methods are called")
+assert(string.find(source, 'require "XpSystem/ISUI/ISCharacterScreen"', 1, true),
+    "survivor card must use the vanilla Character Screen for the portrait")
+assert(string.find(source, 'ISCharacterScreen:new', 1, true),
+    "survivor card must create the vanilla Character Screen view")
+assert(not string.find(source, 'ISUI3DModel:new', 1, true),
+    "survivor card must not maintain a second custom portrait model")
+assert(string.find(source, 'require "KS_CompanionInventory"', 1, true),
+    "survivor card must reuse the companion inventory bridge")
+assert(string.find(source, 'CompanionInventory.show', 1, true),
+    "survivor card must expose the vanilla inventory shortcut")
+assert(string.find(source, 'context.medicalCheck', 1, true),
+    "survivor card must expose the shared medical-check shortcut")
 
-print("Survivor card UI PASS portrait_instantiated_before_state=true")
+print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true")

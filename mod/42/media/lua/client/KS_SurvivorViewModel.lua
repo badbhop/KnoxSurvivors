@@ -86,7 +86,7 @@ local function liveCharacter(id)
     return squareOk and square ~= nil and character or nil
 end
 
-local function physicalState(character)
+local function physicalState(character, id)
     local fallback = {
         hunger = 0,
         thirst = 0,
@@ -96,7 +96,9 @@ local function physicalState(character)
         health = 100,
     }
     if character == nil then
-        return fallback, false
+        local stored = KnoxPersistence.getUnloadedSurvivalState ~= nil
+            and KnoxPersistence.getUnloadedSurvivalState(id) or nil
+        return type(stored) == "table" and stored or fallback, type(stored) == "table"
     end
     local success, state = pcall(function()
         return KnoxSurvivorNeeds.snapshot(character)
@@ -234,7 +236,16 @@ local function runtimeActivity(id)
         return KnoxSurvivorRuntime.snapshot(id)
     end)
     if not success or type(snapshot) ~= "table" then
-        return nil
+        local stored = KnoxPersistence.getUnloadedSurvivalState ~= nil
+            and KnoxPersistence.getUnloadedSurvivalState(id) or nil
+        local labels = {
+            base_life = "Living at base",
+            group_travel = "Travelling with group",
+            surviving = "Surviving offscreen",
+            waiting_for_leader = "Waiting for leader",
+            away_mission = "On a mission",
+        }
+        return stored ~= nil and labels[stored.activity] or nil
     end
     return ACTIVITY_LABELS[tostring(snapshot.activity or "")]
 end
@@ -244,7 +255,7 @@ local function activityFor(duty, state, loaded, alive, currentActivity)
         return "Dead"
     end
     if not loaded then
-        return "Away"
+        return currentActivity or "Away"
     end
     if (tonumber(state.bleedingParts) or 0) > 0 or (tonumber(state.health) or 100) < 75 then
         return "Hurt"
@@ -315,7 +326,7 @@ function ViewModel.getSurvivor(id, playerNum)
         mode = "autonomous",
         order = "survive",
     }
-    local state, vitalsAvailable = physicalState(character)
+    local state, vitalsAvailable = physicalState(character, id)
     local forename, surname, displayName = identityFor(id, character)
     local distance, sameLevel = playerDistance(player, character)
     local currentActivity = runtimeActivity(id)

@@ -9,14 +9,14 @@ assert(string.find(source, 'MAX_DISTANCE_SQUARED', 1, true),
     "companion inventory window must be distance-gated")
 assert(string.find(source, 'source:contains(item)', 1, true),
     "transfers must validate the live source item")
-assert(string.find(source, 'setRenderThisPlayerOnly(playerNum)', 1, true),
-    "companion inventory window must remain split-screen isolated")
-assert(string.find(source, '"Take Selected"', 1, true),
-    "companion inventory window must expose a selected-item transfer")
-assert(string.find(source, 'function Window:onOpenSelected()', 1, true)
-    and string.find(source, 'item:getInventory()', 1, true),
-    "companion inventory window must support nested carried containers")
-assert(string.find(source, 'function Window:onBack()', 1, true),
-    "nested inventory navigation must allow returning to the parent container")
+assert(string.find(source, 'active[playerNum] = survivorId', 1, true),
+    "companion inventory must track the active survivor per local player")
+assert(string.find(source, 'getPlayerLoot(playerNum)', 1, true)
+    and string.find(source, 'getPlayerInventory(playerNum)', 1, true),
+    "companion inventory must use the matching player's vanilla inventory pages")
+assert(string.find(source, 'page:addContainerButton(itemInv', 1, true),
+    "companion inventory must expose survivor bags through vanilla container buttons")
+assert(string.find(source, 'function CompanionInventory.finish(playerNum)', 1, true),
+    "companion inventory must restore the vanilla loot page when finished")
 
-print("Companion inventory window PASS native_transfer=true split_screen=true nested_containers=true")
+print("Companion inventory UI PASS native_transfer=true split_screen=true nested_containers=true")
