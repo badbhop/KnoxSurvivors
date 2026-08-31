@@ -161,6 +161,87 @@ function Runtime.dispatch(event, controllers, hours)
     return event ~= nil, event ~= nil and "dispatched" or "event_changed"
 end
 
+local function objectiveValid(event)
+    return KnoxEvents.isValidRaidObjective(event)
+end
+
+function Runtime.reviewObjective(event, hours)
+    event = event ~= nil and KnoxEvents.get(event.id) or nil
+    if event == nil or event.phase ~= "objective" then return end
+    if not objectiveValid(event) then change(event, "withdrawing", hours, "objective_state_missing"); return end
+    local count, exhausted = KnoxEvents.objectiveCount(event), true
+    for _, id in ipairs(event.memberIds) do
+        if (tonumber(event.objective.misses[id]) or 0) < 3 then exhausted = false end
+    end
+    if count >= event.objective.requiredItems or exhausted or hours >= event.objective.deadlineHours then
+        local outcome = count >= event.objective.requiredItems and "supplies_taken"
+            or (count > 0 and "partial_supplies" or "no_supplies")
+        local result = KnoxEvents.finishRaidObjective(event.id, event.revision, hours, outcome)
+        if result ~= nil then
+            print("[KnoxSurvivors][Events] id=" .. event.id .. " phase=withdrawing reason=" .. outcome .. " items=" .. count)
+        end
+    end
+end
+
+function Runtime.beginObjectiveWork(controller, ticks)
+    local assignment = controller.eventAssignment
+    local event = assignment ~= nil and KnoxEvents.get(assignment.id) or nil
+    if event == nil or event.phase ~= "objective" or not objectiveValid(event) then
+        controller.state, controller.nextThink = "EVENT_WAIT", math.max(controller.nextThink or 0, ticks + 90)
+        return true
+    end
+    local base = KnoxPersistence.getBase(event.targetBaseId)
+    local area = base ~= nil and (base.territory or base.home) or nil
+    if area ~= nil and ticks >= (controller.nextExplorationSearch or 0)
+        and (tonumber(event.objective.misses[controller.id]) or 0) < 3 then
+        local directive = { kind = "loot_area", eventId = event.id, minX = area.minX, minY = area.minY,
+            maxX = area.maxX or (area.minX + area.width - 1), maxY = area.maxY or (area.minY + area.height - 1),
+            z = base.home.z or 0 }
+        if controller:beginExploration(ticks, directive) then return true end
+    end
+    controller.state = "EVENT_WAIT"
+    controller.nextThink = math.max(controller.nextThink or 0, ticks + 90)
+    return true
+end
+
+function Runtime.captureLootContext(character, source, destination)
+    if character == nil or source == nil or destination == nil then return nil end
+    local id = KnoxSurvivorRuntime.idForCharacter(character)
+    if id == nil or source == destination or destination ~= character:getInventory()
+        or source:isInCharacterInventory(character) then return nil end
+    local duty = KnoxPersistence.getSurvivorDuty(id)
+    local event = duty ~= nil and duty.eventId ~= nil and KnoxEvents.get(duty.eventId) or nil
+    if event == nil or event.phase ~= "objective" or not objectiveValid(event) then return nil end
+    local square, parent = source:getSourceGrid(), source:getParent()
+    if square == nil or parent == nil or instanceof(parent, "IsoGameCharacter")
+        or not KnoxBaseManager.containsSquare(KnoxPersistence.getBase(event.targetBaseId), square) then return nil end
+    return { eventId = event.id, memberId = id, x = square:getX(), y = square:getY(), z = square:getZ() }
+end
+
+function Runtime.lootTransferAllowed(context, character, source, destination)
+    if context == nil then return true end
+    if KnoxSurvivorRuntime.getCharacter(context.memberId) ~= character then return false end
+    local current = Runtime.captureLootContext(character, source, destination)
+    if current == nil or current.eventId ~= context.eventId or current.x ~= context.x
+        or current.y ~= context.y or current.z ~= context.z then return false end
+    local event = KnoxEvents.get(context.eventId)
+    local valid = KnoxEvents.validate(event)
+    return valid and KnoxEvents.objectiveCount(event) < event.objective.requiredItems
+        and getGameTime():getWorldAgeHours() < event.objective.deadlineHours
+end
+
+function Runtime.observeLootTransfer(context, character, source, destination, original, transferred, wasPresent)
+    if context == nil or not wasPresent or transferred == nil
+        or not Runtime.lootTransferAllowed(context, character, source, destination)
+        or source:contains(original) or not destination:contains(transferred)
+        or transferred:getContainer() ~= destination then return false end
+    local id, fullType = transferred:getID(), transferred:getFullType()
+    if id == nil or type(fullType) ~= "string" then return false end
+    return KnoxEvents.recordLoot(context.eventId, context.memberId,
+        { itemId = tostring(id), fullType = fullType, x = context.x, y = context.y, z = context.z },
+        getGameTime():getWorldAgeHours())
+end
+
 function Runtime.update(controllers, hours)
     local ids = KnoxEvents.activeIds()
     for _ = 1, math.min(8, #ids) do
@@ -194,7 +275,13 @@ function Runtime.update(controllers, hours)
                     end
                     arrived = nearDestination(controller ~= nil and controller.character or nil, Runtime.destination(event, id)) and arrived
                 end
-                if arrived and event.phase == "approaching" then change(event, "active", hours, "party_arrived") end
+                if arrived and event.phase == "approaching" then
+                    change(event, "active", hours, "party_arrived")
+                elseif event.phase == "active" then
+                    KnoxEvents.beginRaidObjective(event.id, event.revision, hours)
+                elseif event.phase == "objective" then
+                    Runtime.reviewObjective(event, hours)
+                end
             elseif event.phase == "withdrawing" then
                 local resolved, home = true, sourceHome(event)
                 for _, id in ipairs(event.memberIds or {}) do

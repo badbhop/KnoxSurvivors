@@ -115,6 +115,9 @@ for _, id in ipairs({ "a", "b" }) do
 end
 R.update(controllers, 11)
 assert(E.get(event.id).phase == "active", "actual positions, not a timer, establish arrival")
+R.update(controllers, 11)
+assert(E.get(event.id).phase == "objective" and E.get(event.id).objective.requiredItems == 4,
+    "arrived real party begins the bounded native-looting objective")
 P.setFactionRelationshipDisposition(faction.id, playerFaction.id, "neutral", 12, "peace")
 R.update(controllers, 12)
 assert(E.get(event.id).phase == "withdrawing")

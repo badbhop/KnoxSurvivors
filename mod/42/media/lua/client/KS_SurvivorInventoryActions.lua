@@ -67,6 +67,36 @@ function KnoxNpcInventoryTransferAction:start()
     self.knoxRummageSoundStarted = self.loopSound ~= nil
 end
 
+function KnoxNpcInventoryTransferAction:isValid()
+    local events = rawget(_G, "KnoxEventRuntime")
+    if self.knoxEventContext ~= nil and (events == nil or not events.lootTransferAllowed(
+        self.knoxEventContext, self.character, self.srcContainer, self.destContainer)) then return false end
+    return ISInventoryTransferAction.isValid(self)
+end
+
+function KnoxNpcInventoryTransferAction:canMergeAction(action)
+    if action == nil then return false end
+    local first, other = self.knoxEventContext, action.knoxEventContext
+    if (first == nil) ~= (other == nil) then return false end
+    if first ~= nil and (first.eventId ~= other.eventId or first.memberId ~= other.memberId
+        or first.x ~= other.x or first.y ~= other.y or first.z ~= other.z) then return false end
+    return ISInventoryTransferAction.canMergeAction(self, action)
+end
+
+function KnoxNpcInventoryTransferAction:transferItem(item)
+    local events, context = rawget(_G, "KnoxEventRuntime"), self.knoxEventContext
+    if context ~= nil and (events == nil or not events.lootTransferAllowed(
+        context, self.character, self.srcContainer, self.destContainer)) then return end
+    local wasPresent = context ~= nil and self.srcContainer:contains(item)
+    -- Exact 42.20.3 SP perform() calls this once per actual batched item. Native
+    -- transfer can replace self.item or put it on the floor when capacity changes.
+    ISInventoryTransferAction.transferItem(self, item)
+    if context ~= nil then
+        events.observeLootTransfer(context, self.character, self.srcContainer, self.destContainer,
+            item, self.item, wasPresent)
+    end
+end
+
 function KnoxNpcInventoryTransferAction:new(character, item, source, destination, duration)
     return ISInventoryTransferAction.new(
         self,
@@ -89,6 +119,8 @@ function InventoryActions.queueTransfer(character, item, source, destination, du
         destination,
         duration
     )
+    local events = rawget(_G, "KnoxEventRuntime")
+    if events ~= nil then action.knoxEventContext = events.captureLootContext(character, source, destination) end
     ISTimedActionQueue.add(action)
     return action, "queued"
 end

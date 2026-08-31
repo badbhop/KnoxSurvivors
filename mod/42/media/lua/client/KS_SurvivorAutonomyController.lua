@@ -2367,6 +2367,9 @@ end
 function Controller:beginEventTravel(ticks)
     local assignment = self.eventAssignment
     if assignment == nil then return false end
+    if assignment.phase == "objective" then
+        return KnoxEventRuntime.beginObjectiveWork(self, ticks)
+    end
     local goal, cell, current = assignment.destination, getCell(), self.character:getCurrentSquare()
     self.activeDecision = assignment.phase == "withdrawing" and "event_return" or "event_travel"
     if goal == nil or cell == nil or current == nil then
@@ -3249,7 +3252,9 @@ function Controller:beginExploration(ticks, directive)
     local target = findExploration(self, ticks, directive)
     if target == nil then
         self.nextExplorationSearch = ticks + EXPLORATION_RETRY_TICKS
-        if directive ~= nil then
+        if directive ~= nil and directive.eventId ~= nil then
+            KnoxEvents.recordEmptySearch(directive.eventId, self.id)
+        elseif directive ~= nil then
             self.directiveMisses = self.directiveMisses + 1
             if self.directiveMisses >= 3 then
                 KnoxPersistence.clearCompanionDirective(
@@ -3297,6 +3302,7 @@ function Controller:beginExploration(ticks, directive)
         return false
     end
     self.pendingSupply = target
+    target.eventId = directive ~= nil and directive.eventId or nil
     self.activeDecision = directive ~= nil and tostring(directive.kind)
         or (target.items ~= nil and #target.items > 0
             and "loot_useful_items_" .. tostring(#target.items)
@@ -5925,6 +5931,9 @@ function Controller:tick(ticks)
 
     if self.state == "SEARCHING" then
         if self.character:getCharacterActions():isEmpty() then
+            if self.pendingSupply ~= nil and self.pendingSupply.eventId ~= nil then
+                KnoxEvents.recordEmptySearch(self.pendingSupply.eventId, self.id)
+            end
             self.counts.search = self.counts.search + 1
             print(
                 "[KnoxSurvivors][Autonomy] id=" .. self.id

@@ -2423,3 +2423,61 @@ Next dependency: real raid objectives and their completion/failure evidence, rea
 for already-stored factions, safe automatic scheduling, and convenient live scenario
 tooling. Event factions/PMC contracts, other full-goal requirements, and previous live
 acceptance gates remain open. The overall goal is not complete.
+
+## 2026-08-31 — Native raid supply objective and evidence
+
+Status: implemented — live verification required. Explicitly scheduled real-roster
+raids now proceed from arrival into a bounded supply search, then withdraw through
+the existing return duty. Automatic raid triggers and event-faction rollout remain
+disabled/unimplemented; this is not a claim that full raids are release-tested.
+
+- The active phase previously had no objective owner. The dispatcher now starts one
+  persisted two-hour search with a small party quota (two useful items per member,
+  at most six). Existing ranked looting selects carried supplies/equipment; existing
+  movement, traversal, reservations, inventory capacity and timed actions perform it.
+  No new loot planner, abstract stockpile, actors or free raid equipment are created.
+- Event search misses have their own bounded counter and existing search cooldown.
+  They cannot clear an unrelated companion directive. Three unproductive searches
+  per member or the deadline cause withdrawal, not indefinite rummaging.
+- Objective success is not inferred from an empty action queue or animation ending.
+  Exact installed 42.20.3 `ISInventoryTransferAction:perform()` batches items and calls
+  `transferItem()` for each. The Knox-derived action observes the native transfer only
+  after the original item leaves the source and the returned native item actually
+  belongs to the destination inventory. No-op, floor fallback and duplicate callbacks
+  earn no receipt. Native replacement items use their returned identity.
+- Receipts persist only item ID/type, member, time and source coordinates. They never
+  recreate inventory. Malformed objectives/receipts withdraw without a success claim.
+  Quota completion, partial loot and no useful supplies have distinct outcomes.
+- The action validates event membership, current body, target base location, hostility,
+  deadline and quota before further transfers. Peace, death, changed duties, target
+  relocation or withdrawal prevent remaining event transfers. The native batching
+  predicate also preserves event context instead of merging unrelated ownership.
+  Ordinary transfers with no event context retain their native path.
+- Returning home, combat preemption, death, group cleanup and stored travel remain
+  owned by the preceding dispatch implementation. Objective completion does not
+  release a party at the enemy base or move goods into a fictional home stockpile.
+
+Verification: 62 standalone Lua tests and 74 mod Lua syntax checks pass. New behavioral
+coverage exercises real persistence/event services, the derived inventory action,
+source/destination membership, batched transfers, replacement items, quota, failed
+transfers, peace/death/duty/relocation cancellation, cooldowns, corrupt state, saved
+receipts and honest outcomes. A second run loads the installed 42.20.3 native Lua
+`perform`, `checkQueueList`, `canMergeAction` and `transferItem` functions over Java/UI
+fixtures. This checks actual Lua callback compatibility, not live engine animation,
+Java transfer correctness, navigation, damage or a complete encounter.
+
+Pending live: explicitly schedule a hostile five-member faction's two-person raid
+against a loaded stocked base. Observe travel, existing combat interruptions, real
+container/item changes, bounded search, withdrawal and return. Reload during search
+and return; confirm no duplicated supplies or changed defenders. Repeat with an empty
+base and peace during a queued transfer. Native human combat, automatic scheduling,
+already-stored dispatch readiness, convenient event scenarios, faction-specific events
+and the other full-goal deliverables remain open. Next work should close those common
+event dependencies before enabling event factions or random attacks.
+
+Packaging: backed up the previous staged payload, then ran `:java:jar stageWorkshop`
+successfully. Exact native Workshop validation (including existing item/preview) and
+the released launcher verifier pass. The agent SHA256 remains
+`15dea740a2f33b04b2c7a84c8b83e215b03904c67b8ecb31a874da6ebe870015`.
+No Java/protocol or launcher change is required. This updates staging only, not Steam
+or the already-installed local test copy; fully restart after deploying a new test build.

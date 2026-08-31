@@ -146,6 +146,106 @@ function KnoxEvents.saveUnloadedTravel(id, revision, travel)
     return true
 end
 
+function KnoxEvents.beginRaidObjective(id, revision, hours)
+    local event = records()[id]
+    if type(event) ~= "table" or event.phase ~= "active" or event.revision ~= revision then
+        return nil, "event_changed"
+    end
+    local changed, reason = KnoxEvents.transition(id, revision, "objective", hours, "searching_for_supplies")
+    if changed == nil then return nil, reason end
+    event.objective = { kind = "take_supplies", requiredItems = math.min(6, #event.memberIds * 2),
+        startedAtHours = hours, deadlineHours = hours + 2, receipts = {}, misses = {} }
+    return copy(event), "started"
+end
+
+function KnoxEvents.objectiveCount(event)
+    local objective = type(event) == "table" and event.objective or nil
+    local count = 0
+    for _ in pairs(type(objective) == "table" and type(objective.receipts) == "table" and objective.receipts or {}) do
+        count = count + 1
+    end
+    return count
+end
+
+function KnoxEvents.isValidRaidObjective(event)
+    local objective = type(event) == "table" and event.objective or nil
+    local valid = type(objective) == "table" and objective.kind == "take_supplies"
+        and type(objective.receipts) == "table" and type(objective.misses) == "table"
+        and serial(objective.requiredItems) and objective.requiredItems <= 6
+        and finite(objective.startedAtHours) and finite(objective.deadlineHours)
+        and objective.deadlineHours > objective.startedAtHours
+        and objective.deadlineHours <= objective.startedAtHours + 2
+    if not valid or not memberList(event.memberIds) then return false end
+    local members, count = {}, 0
+    for _, id in ipairs(event.memberIds) do members[id] = true end
+    for key, receipt in pairs(objective.receipts) do
+        count = count + 1
+        if count > objective.requiredItems or type(key) ~= "string" or key == ""
+            or type(receipt) ~= "table" or receipt.itemId ~= key or not members[receipt.memberId]
+            or type(receipt.fullType) ~= "string" or receipt.fullType == ""
+            or not finite(receipt.x) or not finite(receipt.y) or not finite(receipt.z)
+            or not finite(receipt.atHours) or receipt.atHours < objective.startedAtHours
+            or receipt.atHours >= objective.deadlineHours then return false end
+    end
+    for id, misses in pairs(objective.misses) do
+        if not members[id] or not finite(misses) or misses < 0 or misses > 3 or misses % 1 ~= 0 then return false end
+    end
+    return true
+end
+
+local function objectiveMember(id, memberId)
+    local event = records()[id]
+    if type(event) ~= "table" or event.phase ~= "objective"
+        or not KnoxEvents.isValidRaidObjective(event) then return nil end
+    if type(memberId) ~= "string" or not KnoxPersistence.isSurvivorAlive(memberId) then return nil end
+    local duty = KnoxPersistence.getSurvivorDuty(memberId)
+    if duty == nil or duty.eventId ~= id then return nil end
+    for _, member in ipairs(event.memberIds or {}) do if member == memberId then return event end end
+end
+
+-- The native-action observer supplies evidence after a real container transfer.
+-- These receipts describe that operation; they never create or restore an item.
+function KnoxEvents.recordLoot(id, memberId, receipt, hours)
+    local event = objectiveMember(id, memberId)
+    if event == nil or type(receipt) ~= "table" or type(receipt.itemId) ~= "string"
+        or receipt.itemId == "" or type(receipt.fullType) ~= "string" or receipt.fullType == ""
+        or not finite(receipt.x) or not finite(receipt.y) or not finite(receipt.z)
+        or not finite(hours) or hours < event.objective.startedAtHours
+        or hours >= event.objective.deadlineHours then return false end
+    if event.objective.receipts[receipt.itemId] ~= nil then return false end
+    if KnoxEvents.objectiveCount(event) >= event.objective.requiredItems then return false end
+    local value = { itemId = receipt.itemId, fullType = receipt.fullType,
+        x = receipt.x, y = receipt.y, z = receipt.z, memberId = memberId, atHours = hours }
+    event.objective.receipts[receipt.itemId] = value
+    event.objective.misses[memberId] = 0
+    return true
+end
+
+function KnoxEvents.recordEmptySearch(id, memberId)
+    local event = objectiveMember(id, memberId)
+    if event == nil then return false end
+    event.objective.misses[memberId] = math.min(3, (tonumber(event.objective.misses[memberId]) or 0) + 1)
+    return true
+end
+
+function KnoxEvents.finishRaidObjective(id, revision, hours, outcome)
+    local event = records()[id]
+    if type(event) ~= "table" or event.phase ~= "objective" or event.revision ~= revision
+        or not KnoxEvents.isValidRaidObjective(event) then return nil, "event_changed" end
+    if outcome ~= "supplies_taken" and outcome ~= "partial_supplies" and outcome ~= "no_supplies" then
+        return nil, "invalid_outcome"
+    end
+    local count = KnoxEvents.objectiveCount(event)
+    if (outcome == "supplies_taken" and count < event.objective.requiredItems)
+        or (outcome == "partial_supplies" and count == 0) or (outcome == "no_supplies" and count > 0) then
+        return nil, "missing_outcome_evidence"
+    end
+    local changed, reason = KnoxEvents.transition(id, revision, "withdrawing", hours, outcome)
+    if changed == nil then return nil, reason end
+    event.objective.outcome, event.objective.finishedAtHours = outcome, hours
+    return copy(event), "finished"
+end
+
 function KnoxEvents.memberEvent(id)
     for _, event in pairs(records()) do
         if type(event) == "table" and not terminal(event) then
