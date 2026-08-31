@@ -581,3 +581,22 @@ acceptable while a companion is seated.
 - Unloaded Return to Base now has a persisted virtual-route handoff, but it still needs its
   first live save/reload and rematerialization test.
 - The Java agent requires the development launcher.
+
+## Knox Events ledger / real-roster raid proposal checks
+
+Run `lua tools/test-knox-events.lua .` from the repository root. This loads the real
+persistence service over a fixture ModData store and checks additive schema migration,
+hostility gating, five-member/two-raider selection, claimed-work exclusion, one active
+party per faction, defensive snapshots, revision-checked phases, save-state reconstruction,
+death/relocation/peace invalidation, home-defender loss, malformed record recovery, bounded
+maintenance, history pruning, and cooldown retention across pruning/reload. It also checks
+that survivor count, native record strings, and base/affiliation intent are not rewritten.
+
+This is not an end-to-end raid scenario. No automatic scheduler or runtime raid dispatcher
+is enabled. Do not manually advance phases and describe that as a successful live raid.
+Before enabling dispatch, verify actual member readiness, transactional duty handoff,
+loaded/unloaded travel using the same survivors, real combat/loot outcomes, casualty
+handling, and return-home cleanup, including save/reload during withdrawal. No substitute
+NPCs or free raid equipment are permitted. Live framework smoke: an existing save loads,
+normal population maintenance remains error-free, and save/reload preserves ordinary
+survivor/group/base records after the additive schema migration.

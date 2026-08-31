@@ -758,3 +758,39 @@ health directly.
   the operand stack, exception tables and native impact body. Any shape mismatch fails closed.
   It does not grant local-player status to other combat, input, networking or rendering systems.
   The original three SwipeStatePlayer callback substitutions remain unchanged.
+
+## Knox Events: persisted lifecycle and raid roster boundary
+
+`KS_KnoxEvents` owns `KnoxPersistence.getKnoxEventState()` (additive Lua schema 14).
+Event records contain IDs, phase/revision/timestamps, source and target base identity,
+location fingerprints, and canonical survivor IDs. They never contain alternate actor,
+inventory, health, faction, or companion records. Existing native survivor snapshots
+remain authoritative. The event service does not write survivor duty or allocate actors.
+
+The shared phase graph is scheduled -> spawning -> approaching -> active -> objective
+-> withdrawing -> completed, with cancellation/failure edges. Callers supply the expected
+revision; stale callbacks cannot advance a newer phase, and repeated same-phase callbacks
+are idempotent. Timers may invalidate a plan or request withdrawal, but cannot manufacture
+an arrival, victory, loot transfer, or completed return. An interrupted/deployed party
+retains its roster until an actual dispatcher cleanup result. Malformed deployed metadata
+also retains that roster for recovery instead of silently releasing potentially live actors.
+
+The first policy is a raid proposal using an existing hostile faction relationship,
+existing source/target bases, and living canonical source-faction residents with native
+snapshots. No claimed job or away-team member is borrowed. At most 40% of the living
+roster is proposed, with at least two available residents left home; five residents can
+send two. Roster/ownership/location and remaining home strength are rechecked before
+departure. Proposals do not override existing work: a member becoming unavailable cancels
+an unstarted plan. The real dispatcher must subsequently check live health/loadout and
+atomically take/release existing duty, movement, and group ownership.
+
+Maintenance uses the existing population interval, handling up to 16 records per call
+(explicit maximum 32), with a persisted round-robin cursor. Finished history expires after
+seven game days and is pruned toward 128 entries in bounded batches. A separate expiring
+per-faction cooldown retains the 24-hour scheduling limit even when history is pruned.
+These are initial internal policies, not new player-facing sandbox settings.
+
+This boundary does not yet schedule random raids, materialize a raid party, send movement
+orders, execute combat objectives, or return members home. `spawning` is a reserved shared
+phase name, not permission to create replacement faction members. Other Knox Event faction
+policies must reuse this lifecycle and existing survivor systems; none are enabled yet.

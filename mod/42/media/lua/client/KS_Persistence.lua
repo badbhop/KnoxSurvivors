@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 13
+local SCHEMA_VERSION = 14
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local FACTION_NAME_STYLES = {
@@ -91,6 +91,10 @@ local function root()
         data.awayTeams = {}
     end
     data.nextAwayTeamId = tonumber(data.nextAwayTeamId) or 1
+    if type(data.knoxEvents) ~= "table" then data.knoxEvents = {} end
+    if type(data.knoxEvents.records) ~= "table" then data.knoxEvents.records = {} end
+    if type(data.knoxEvents.cooldowns) ~= "table" then data.knoxEvents.cooldowns = {} end
+    data.knoxEvents.nextId = tonumber(data.knoxEvents.nextId) or 1
     if type(data.players) ~= "table" then
         data.players = {}
     end
@@ -409,6 +413,12 @@ end
 
 function KnoxPersistence.getPopulationState()
     return root().population
+end
+
+-- Like population state, this domain is mutated by its one owning service.
+-- Event records reference canonical survivors/factions, never encoded actor copies.
+function KnoxPersistence.getKnoxEventState()
+    return root().knoxEvents
 end
 
 function KnoxPersistence.getSurvivorOrigin(id)

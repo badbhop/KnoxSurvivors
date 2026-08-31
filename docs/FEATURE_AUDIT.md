@@ -1129,7 +1129,7 @@ uses root inventory items already ready for vanilla equip/wear.
 | 21. Unloaded-world simulation | **Partial, focused checks pass** | Hibernated survivors carry a persisted survival ledger: needs advance, rest/endurance recover, real stored food/water is consumed, and deprivation can cause durable death. Autonomous survivors, travel groups, away teams, and unloaded returning base residents make deterministic low-cost virtual progress; a base return starts at the freshly captured origin, travels at the normal virtual rate, then changes to base life only on arrival. Group members share a heading, base residents take deterministic ambient positions inside their own saved territory, companions preserve their reunion point, and away-team travel/result ownership remains separate from physiology. A hidden loaded square transactionally updates the Java record before rematerialization. Detailed offscreen pathing, injury treatment, encounters, supply gathering, faction growth, and a multi-day live return remain incomplete. |
 | 22. Camps | **Partial / temporary living implemented, live pass pending** | Homeless NPC factions create one lightweight persistent shelter in an unclaimed loaded building. Durable faction membership restores camp linkage without duplication; loaded members take distinct reserved shelter positions, stagger bounded idle/rest/reposition behavior, use ordinary needs and real nearby containers, take short roaming/scavenging excursions, return through native movement, defend group members, and retain camp identity through interruption. Camp conversion clears stale ownership. Player camps, fortification, jobs, strategy management, and richer social behavior remain outside this slice. |
 | 23. Vehicles | **Partial / passenger slice unverified** | Companion Orders now expose Enter My Vehicle and Exit Vehicle. The passenger-only implementation uses Build 42's native path-to-seat, enter, exit, and door-close timed actions, refuses occupied/locked/uninstalled/blocked seats, and never takes driver seat zero or changes keys/engine ownership. A seated shell is excluded from detached hibernation so its native seat relationship is not destroyed while the player drives. NPC driving, autonomous/group vehicle travel, vehicle-specific persistence/reconstruction, and live verification remain incomplete. |
-| 24. Raids/faction conflict | **Foundation only, unverified** | Faction-to-faction relation records are now symmetric, persisted, and validated as allied/neutral/hostile. Player-base protection remains safe by default; only an explicit legacy hostile flag or a hostile relation to the owning player faction permits a survivor to damage that base. Causes, planning, travel, combat objectives, retreat, resource transfer, raid persistence, UI, and live verification are still absent. |
+| 24. Raids/faction conflict | **Foundation only, unverified** | Symmetric persisted faction relations and hostile base-protection rules exist. Knox Events now persists revision-checked phases and proposes minority parties from actual living faction residents, retaining defenders and cancelling stale plans. No automatic scheduling or runtime raid dispatch is enabled. Travel, combat objectives, resource transfer, real return cleanup, event factions, and live verification remain incomplete. |
 | 25. World population | **Implemented, unverified** | Region-balanced identities, persistent target, active-body limit, distant/hidden materialization, refill delay, origin reuse protection, hibernation candidates, and durable death records exist and pass standalone tests. Production-scale live streaming/refill is not proven. |
 | 26. Lifecycle/hibernation | **Partial / focused checks pass** | Capture, removal, stored records, activation candidates, reconstruction, grace checks, and durable death exist. A dead shell first becomes a real `IsoDeadBody`; Knox then uses the native `shouldBecomeZombieAfterDeath()` predicate and `IsoDeadBody.reanimateLater()` only when the current sandbox transmission/infection rule calls for it. Failed engine removal retains the runtime for bounded retry, preventing duplicate resurrection. Detached cleanup and native corpse/reanimation scheduling are covered by focused checks; a live infected and non-infected death/reload gate remains required. |
 | 27. Failure recovery | **Partial, movement boundary internally coherent** | Cooldowns, reservations, task requeue, target re-resolution, movement deadlines, and alternate-entry abandonment exist. Java ownership is released on every movement terminal/interruption path, ordinary and formation failures retain bounded cooldowns, dynamic details no longer fragment streaks, and success resets recovery state. A narrow live run must still prove the failure storm and stale idle are gone. |
@@ -2309,3 +2309,69 @@ native treatment window after the doctor's approach; a moving/unloaded patient c
 cleanly. Escape from a crowd must continue without immediate chase reversal and return
 to prior activity once safe. No new nil-hand Kahlua errors. Existing stair/path failures
 and unrelated map/recipe warnings are not claimed resolved by this patch.
+
+### Local test deployment follow-up
+
+The latest console session ended at 08:09 on 2026-08-31, before the 09:50
+medical/retreat fix commit. Its errors therefore do not establish a regression
+in that patch. The prepared Workshop files already matched the fixed source,
+but the installed local test copy of the three affected Lua files still matched
+the preceding commit. Backed up those local files and applied only the verified
+medical-menu, firearm-support, and retreat-controller patch; unrelated in-progress
+event work was not deployed.
+
+Verification: all three installed files now hash-match the fixed source and pass
+Lua syntax checks. Medical-menu, firearm-support, and combat-intelligence focused
+tests pass. The released launcher JAR passes validation against the prepared
+Workshop Contents; no launcher patch is needed. In-game medical completion and
+escape behavior remain live-unverified. Steam was not uploaded in this follow-up.
+
+## 2026-08-31 — Knox Events persistence and real-roster raid planning
+
+Status: framework/proposal boundary implemented and automatically checked; actual raids
+are not enabled or claimed complete. The full development goal remains active.
+
+The missing dependency was a durable event lifecycle tied to existing people and factions,
+not a new event NPC spawner. Added `KS_KnoxEvents` and an additive schema-14 domain with
+revision-checked phases, event IDs, timestamps, owner/location fingerprints, canonical
+member IDs, and expiring cooldowns. Scheduled proposals require existing hostility and
+bases, take no more than 40% of living members, leave at least two available residents,
+and exclude claimed workers and away-team members. Planning never creates survivors,
+weapons/ammunition, inventory snapshots, or replacement duties.
+
+Validation found and closed three edge cases in the initial foundation:
+
+- Losing a non-raiding defender could leave an oversized party even with two defenders
+  still present. Pre-departure validation now rechecks the minority proportion too.
+- Pruning completed history could erase a faction's cooldown. Expiring cooldown records
+  now survive history pruning and save-state reconstruction.
+- Malformed deployed bookkeeping could discard its roster. Recovery now requests
+  withdrawal and retains members/owners for real cleanup rather than pretending they
+  returned. Invalid serials/floor data/member lists fail safely; serial collisions do
+  not overwrite another event.
+
+Existing population maintenance processes the ledger at its normal interval; there is
+no extra per-frame listener or automatic raid trigger. Death, peace, relocation, and
+new job ownership cancel unstarted plans or request deployed withdrawal. A timer cannot
+report a raid victory, actor arrival, or completed return. Finished records have bounded
+retention; active withdrawals are never pruned to conceal incomplete cleanup.
+
+Verification: all 60 standalone Lua tests and 73 source syntax checks pass. The new test
+covers real-roster selection, no generated actors/gear, unchanged persistent duty, phase
+ordering/idempotency/stale callbacks, reload, death, strength loss, claimed work, relocation,
+peace, malformed data, bounded processing, and cooldown retention. `:java:jar stageWorkshop`
+passes; no Java sources changed. Exact installed 42.20.3 native Workshop payload validation
+and the actual released launcher JAR validation pass. Agent SHA-256 remains
+`15dea740a2f33b04b2c7a84c8b83e215b03904c67b8ecb31a874da6ebe870015`.
+
+The previous staged upload was backed up before replacement. This pass stages the verified
+foundation but does not upload Steam or publish a launcher update. No launcher patch is
+required; runtime protocol is unchanged. Local gameplay after schema migration remains
+unverified.
+
+Next dependency: runtime dispatch must verify actual member health/loadout, claim existing
+duty/movement ownership safely, preserve native resources across loaded/unloaded travel,
+execute real objectives, then reconcile casualties and return surviving members home.
+Only after those boundaries are verified should automatic triggers and incremental Police,
+Scientists, Military, Scavenger, PMC-contract, and Black Division event policies be enabled.
+Other outstanding full-goal requirements and earlier live gates are not closed by this pass.

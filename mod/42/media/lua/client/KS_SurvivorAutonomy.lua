@@ -14,6 +14,7 @@ require "KS_UnloadedSurvival"
 require "KS_FactionCamps"
 require "KS_SurvivorNameplates"
 require "KS_HumanCombatRelations"
+require "KS_KnoxEvents"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -744,6 +745,7 @@ update = function()
     end
     if ticks >= nextPopulationUpdate then
         nextPopulationUpdate = ticks + POPULATION_INTERVAL_TICKS
+        KnoxEvents.maintain(getGameTime():getWorldAgeHours())
         reconcileWorldPopulation(bridge)
     end
     KnoxZombieAwareness.update(controllers, activeIds, ticks)
