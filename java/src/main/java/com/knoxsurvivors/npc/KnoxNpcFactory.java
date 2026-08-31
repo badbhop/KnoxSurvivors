@@ -905,11 +905,7 @@ final class KnoxNpcFactory {
             fatigue = ((Number) stats.getClass().getMethod("get", statClass).invoke(stats, fatigueKey)).floatValue();
         } catch (ReflectiveOperationException ignored) {
         }
-        float health = 100.0f;
-        try {
-            health = ((Number) invoke(body, "getHealth")).floatValue();
-        } catch (ReflectiveOperationException ignored) {
-        }
+        float health = locomotionHealth(body);
         boolean nativeCanSprint = false;
         try {
             nativeCanSprint = (Boolean) invoke(body, "canSprint");
@@ -926,13 +922,14 @@ final class KnoxNpcFactory {
         boolean shouldRun = locomotion.running();
         boolean shouldSprint = locomotion.sprinting();
         boolean shouldSneak = false;
+        boolean urgentMovement = "run".equals(pace) || "sprint".equals(pace);
         try {
             boolean combatActive = npc.isCombatActive();
             // If player is sneaking and survivor is near player, mirror sneak for stealth.
             Class<?> isoPlayerClass2 = Class.forName("zombie.characters.IsoPlayer", false, body.getClass().getClassLoader());
             Object players = isoPlayerClass2.getField("players").get(null);
             Object localPlayer = java.lang.reflect.Array.get(players, 0);
-            if (!combatActive
+            if (!combatActive && !urgentMovement
                 && KnoxShellVisibility.isPartyVisible(body)
                 && localPlayer != null
                 && (Boolean) localPlayer.getClass().getMethod("isSneaking").invoke(localPlayer)) {
@@ -948,7 +945,7 @@ final class KnoxNpcFactory {
                 }
             }
             // Also sneak if very close to zombie and not in combat (cautious approach) - only when undetected.
-            if (!combatActive && !shouldSneak) {
+            if (!combatActive && !urgentMovement && !shouldSneak) {
                 // Don't sneak while aiming/fighting
                 boolean isAiming = false;
                 try {
@@ -1034,6 +1031,22 @@ final class KnoxNpcFactory {
                 controlVars.getClass().getField("strafeX").setFloat(controlVars, strafeX);
                 controlVars.getClass().getField("strafeY").setFloat(controlVars, strafeY);
             }
+        }
+    }
+
+    static float locomotionHealth(Object body) {
+        try {
+            Object damage = invoke(body, "getBodyDamage");
+            float health = ((Number) invoke(damage, "getOverallBodyHealth")).floatValue();
+            if (Float.isFinite(health)) return Math.max(0.0f, Math.min(100.0f, health));
+        } catch (ReflectiveOperationException | NullPointerException ignored) {
+        }
+        try {
+            // IsoGameCharacter.health starts at 1, unlike BodyDamage's 100-point scale.
+            float health = ((Number) invoke(body, "getHealth")).floatValue();
+            return Float.isFinite(health) ? Math.max(0.0f, Math.min(100.0f, health * 100.0f)) : 0.0f;
+        } catch (ReflectiveOperationException ignored) {
+            return 0.0f;
         }
     }
 

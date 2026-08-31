@@ -4,12 +4,15 @@ require = function()
     return true
 end
 
+local blockedEdge = function() return false end
 local function square(x, y, z)
     return {
         getX = function() return x end,
         getY = function() return y end,
         getZ = function() return z or 0 end,
         canStand = function() return true end,
+        isBlockedTo = function(self, other) return blockedEdge(self, other) end,
+        isHoppableTo = function() return false end,
     }
 end
 
@@ -384,6 +387,39 @@ assert(flee:retreatIsSafelyClear(false),
     "bounded clear confirmation exits retreat")
 assert(not flee:retreatIsSafelyClear(true) and flee.fleeSafeScans == 0,
     "renewed danger resets clear confirmation")
+assert(not flee:retreatIsSafelyClear(false, { targeting = 1 })
+    and not flee:retreatIsSafelyClear(false, { close = 1 }),
+    "falling below flee initiation threshold does not end an ongoing pursuit")
+assert(not flee:retreatIsSafelyClear(false, {}, 301)
+    and not flee:retreatIsSafelyClear(false, {}, 301)
+    and flee:retreatIsSafelyClear(false, {}, 302),
+    "arrival and threat scan in the same tick cannot count as two safe observations")
+
+local surrounding = zombies
+zombies = { zombieAt(2, 0, character) }
+blockedEdge = function(a, b)
+    return a:getX() >= -1 and b:getX() < -1
+        or a:getX() < -1 and b:getX() >= -1
+end
+local wallEscape = assert(controller("wall"):findFleeTarget(310))
+assert(wallEscape:getX() >= -1, "standable destination beyond a blocking wall is not an escape lane")
+blockedEdge = function(_, b)
+    return not (b:getY() == 0 and (b:getX() == 0 or b:getX() == 1))
+end
+zombies = { zombieAt(1, 0, character) }
+local trapped = controller("trapped")
+trapped.state, trapped.companionOrder = "FLEEING", "follow"
+trapped.bridge = {
+    beginNpcLiveCombat = function() return "COMBAT_STARTED" end,
+    resetNpcCombat = function() end,
+}
+assert(trapped:findFleeTarget(315) == nil, "enclosed fixture has no immediate two-tile escape")
+assert(not trapped:beginFlee(315, { health = 100, endurance = .8 })
+    and trapped.state == "COMBAT" and trapped.combatTarget == zombies[1],
+    "no escape lane hands an adjacent attacker to existing combat instead of waiting for a bite")
+assert(trapped.companionOrder == "follow", "trapped defense retains companion intent")
+blockedEdge = function() return false end
+zombies = surrounding
 
 local moveCalls, cancelCalls = 0, 0
 flee.bridge = {
@@ -416,8 +452,35 @@ end
 flee.observedState = "FLEEING"
 flee.nextThreatScan = 999
 flee:tick(410)
-assert(movementTicks == 1 and flee.state == "IDLE",
-    "flee movement is ticked and releases ownership on arrival")
+assert(movementTicks == 1 and flee.state == "FLEEING" and flee.fleeRecoveryUntil == 415,
+    "arrival releases native movement but does not resume looting while still surrounded")
+flee:tick(411)
+assert(moveCalls == 1 and movementTicks == 1, "escape continuation waits for its bounded retry")
+flee.fleeTarget = targetA
+flee:recoverFleeMovement("FailedStuck", 420)
+assert(flee.state == "FLEEING" and flee.fleeRecoveryUntil == 435
+    and flee.failedFleeTarget.untilTick > 435, "failure releases movement and retains short failed-lane memory")
+local recovered = assert(flee:findFleeTarget(435))
+assert((recovered:getX() - targetA:getX())^2 + (recovered:getY() - targetA:getY())^2 > 9,
+    "recovery does not immediately retry the same failed escape destination")
+local priorMoves = moveCalls
+flee:tick(434)
+assert(moveCalls == priorMoves, "controller refresh does not bypass flee recovery cooldown")
+flee:tick(435)
+assert(moveCalls == priorMoves + 1 and flee.fleeRecoveryUntil == nil,
+    "cooldown expiry requests one replacement escape")
+for index = 1, 5 do
+    flee:recoverFleeMovement("FailedStuck", 440 + index)
+    assert(flee.fleeRecoveryUntil - (440 + index) <= 60, "escape failure backoff remains bounded")
+end
+zombies = {}
+flee.nextThreatScan = 500
+flee:tick(500)
+flee.nextThreatScan = 510
+flee:tick(510)
+assert(flee.state == "IDLE" and flee.movementFailureCount == 0,
+    "confirmed safe retreat releases ownership and clears the failure streak")
+zombies = surrounding
 assert(flee.companionOrder == "follow",
     "completed retreat leaves the durable Follow order available to resume")
 

@@ -2194,3 +2194,63 @@ game launches remain pending. Source repository is private; launcher repository 
 - Normal subscribed-install testing remains pending. Two local Mod ID KnoxSurvivors
   copies must be moved aside with the game closed; neither has been moved during
   packaging while the game is running. See NORMAL_PLAYER_TEST.md.
+
+## 2026-08-31 — Flee speed and blocked escape recovery
+
+Status: implemented; focused/full automated checks pass. Actual escape gait and
+post-fence recovery still require live verification.
+
+Evidence from `dev-runs/20260831-043503`:
+
+- `ks-world-113` repeatedly switched from FLEEING to retreat-complete/exploration,
+  failed movement against static blockages around 10709,9964, and died. The run
+  also contains a fence climb followed by FailedStuck. Logs do not prove the exact
+  tall-fence animation failure reported visually, so no speculative animation or
+  off-slot engine patch was added.
+- Factory locomotion compared native `IsoGameCharacter.getHealth()` against
+  15/25-point run/sprint thresholds. Exact 42.20.3 bytecode initializes that raw
+  field to 1; real human BodyDamage exposes `getOverallBodyHealth()` on a 100-point
+  scale. Healthy characters could therefore be denied all running.
+- `KS_FirearmSupport.cancelPreparation` inspected `action.gun:IsWeapon()` when
+  an unrelated queued action had no gun. A pcall caught it but Kahlua still logged
+  the error every policy refresh.
+
+Changes:
+
+- Movement eligibility now reads real BodyDamage first, with a normalized native
+  raw-health fallback. Existing endurance/fatigue/native sprint restrictions stay
+  authoritative. Explicit run/sprint movement no longer becomes crowd/player sneaking.
+  Lua danger evaluation also prefers real BodyDamage health.
+- Escape candidates and shared group escape targets validate short loaded segments
+  with native `isBlockedTo` and `isHoppableTo`. A standable tile beyond a wall or
+  fence is no longer assumed to be an immediately clear escape lane. Tangential and
+  shorter alternatives are considered; native movement still owns actual coordinates.
+- Failed flee requests release movement and preserve escape intent with 15/30/60-tick
+  bounded backoff plus short failed-destination memory, rather than normal long travel
+  waiting/returning to loot. Arrival does not end retreat while close/targeting threats
+  remain. Two clear observations release retreat and reset movement recovery.
+- When no clear escape exists, an adjacent reachable attacker can pass to existing
+  native combat (respecting companion stance), instead of leaving FLEEING helpless.
+  This is not a guarantee of survival when trapped, exhausted, or badly injured.
+- Unrelated timed actions are no longer dereferenced as firearm preparation.
+
+Verification:
+
+- All 59 standalone Lua tests and 72 Lua syntax checks pass. Added blocked-lane,
+  failed-destination, bounded retry, ongoing pursuit, trapped defense, retained Follow,
+  successful recovery, and no-nil-gun-error regressions.
+- `:java:build prepareWorkshopUpload` passes, including native health-scale adapter
+  coverage, movement/traversal/combat/corpse checks, and Java 25 transformer verification.
+- Native complete Workshop upload validation passes. Staged agent and sidecar match
+  SHA-256 `15dea740a2f33b04b2c7a84c8b83e215b03904c67b8ecb31a874da6ebe870015`.
+- The actual v0.2.0-preview.1 Windows release JAR accepts the updated staged package;
+  launcher protocol/version did not change, so no launcher binary replacement is needed.
+- At the owner's request the launcher preview is now public under tag v0.2.0-preview.1;
+  anonymous downloads and checksums of all four release assets were verified. Source
+  stays private. Steam upload and subscribed-install gameplay were not performed here.
+
+Pending live: a healthy pursued survivor runs, chooses a clear route beside a blocking
+fence where possible, recovers after a failed route without a request storm, does not
+resume looting while still pursued, and resumes prior duty once safe. Severe exhaustion
+or injury can still legitimately limit speed. Verify the updated Steam payload, not a
+shadowing local copy. Linux/macOS real game launch remains unverified.

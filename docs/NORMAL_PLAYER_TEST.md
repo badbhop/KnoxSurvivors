@@ -31,10 +31,10 @@ the download we need to verify.
 
 ## Launch as a subscriber
 
-1. Download `KnoxSurvivorsLauncher-windows.zip` from the launcher GitHub release.
-   While the release is a draft, only the owner can access it; it contains the same
-   package intended for players. Publish the preview after this smoke test succeeds,
-   then check the public download without being signed in.
+1. Download `KnoxSurvivorsLauncher-windows.zip` from the public
+   [launcher preview](https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.0-preview.1).
+   Anonymous download/checksum verification is complete; this gameplay smoke test is
+   still needed after Steam supplies the updated mod.
 2. Extract the full ZIP into a new folder, for example Desktop/Knox Survivors Player Test.
 3. Open `Launch Knox Survivors.cmd`. Wait for READY, then press PLAY KNOX SURVIVORS.
 4. Enable Knox Survivors in Mods and for a **new** single-player test save on 42.20.3.
@@ -52,7 +52,7 @@ Support logs: `%USERPROFILE%\KnoxSurvivors\launcher.log` and
 
 ## Release boundary
 
-The draft launcher and upload files are prepared; preparation does not publish the
-Steam item or prove gameplay. Windows/Linux/macOS CI passes are build/startup-fixture
+The launcher preview is public and updated upload files are prepared; that does not
+publish the Steam item or prove gameplay. Windows/Linux/macOS CI passes are build/startup-fixture
 checks, not real Linux/macOS game runs. Keep the release marked early/preview and
 gather those live reports separately.

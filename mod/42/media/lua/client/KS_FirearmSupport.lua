@@ -196,9 +196,9 @@ function Firearms.cancelPreparation(character)
     -- A player inventory operation may have removed/swapped the primary while
     -- the old gun still owns a queued reload. Do not depend only on the hand slot.
     for _, action in ipairs(queue ~= nil and queue.queue or {}) do
-        if action.reloading == true or safe(function()
+        if action.reloading == true or (action.gun ~= nil and safe(function()
             return action.gun:IsWeapon() and action.gun:isRanged()
-        end, false) then active = true break end
+        end, false)) then active = true break end
     end
     if active then
         ISTimedActionQueue.clear(character)

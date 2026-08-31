@@ -852,6 +852,35 @@ local function approachSector(origin, square)
     return tostring(sx) .. ":" .. tostring(sy)
 end
 
+-- A standable destination behind a wall is not an immediately usable escape lane.
+-- This checks only a short loaded segment; native routing/traversal still own movement.
+local function fleeLaneClear(origin, target)
+    local cell = getCell()
+    if origin == nil or target == nil or cell == nil or origin:getZ() ~= target:getZ() then return false end
+    local dx, dy = target:getX() - origin:getX(), target:getY() - origin:getY()
+    local steps = math.max(math.abs(dx), math.abs(dy))
+    if steps > FLEE_TARGET_DISTANCE + 2 then return false end
+    local previous = origin
+    for step = 1, steps do
+        local nextSquare = cell:getGridSquare(
+            math.floor(origin:getX() + dx * step / steps + 0.5),
+            math.floor(origin:getY() + dy * step / steps + 0.5), origin:getZ())
+        if nextSquare == nil or not nextSquare:canStand()
+            or safeMethod(previous, "isBlockedTo", true, nextSquare)
+            or safeMethod(previous, "isHoppableTo", true, nextSquare) then return false end
+        previous = nextSquare
+    end
+    return true
+end
+
+local function fleeDestinationAvailable(self, square, ticks)
+    local failed = self.failedFleeTarget
+    if failed ~= nil and ticks < failed.untilTick and square ~= nil
+        and square:getZ() == failed.z
+        and (square:getX() - failed.x)^2 + (square:getY() - failed.y)^2 <= 9 then return false end
+    return fleeLaneClear(self.character:getCurrentSquare(), square)
+end
+
 local function openEscapeLaneCount(origin, threats)
     local cell = getCell()
     if origin == nil or cell == nil or #threats == 0 then return 0 end
@@ -870,7 +899,7 @@ local function openEscapeLaneCount(origin, threats)
             origin:getY() + direction[2] * 3,
             origin:getZ()
         )
-        if candidate ~= nil and candidate:canStand() then
+        if candidate ~= nil and candidate:canStand() and fleeLaneClear(origin, candidate) then
             local nearest = math.huge
             for _, zombie in ipairs(threats) do
                 nearest = math.min(nearest,
@@ -898,6 +927,9 @@ local function fleeAssessment(self)
             health = health * 100
         end
     end
+    local bodyHealth = safeMethod(safeMethod(self.character, "getBodyDamage", nil),
+        "getOverallBodyHealth", nil)
+    if type(bodyHealth) == "number" then health = bodyHealth end
     local endurance = 1
     local okE, e = pcall(function()
         return self.character:getStats():get(CharacterStat.ENDURANCE)
@@ -1012,17 +1044,22 @@ function Controller:assessFlee()
     return fleeAssessment(self)
 end
 
-local function retreatIsSafelyClear(self, stillUnsafe)
-    if stillUnsafe then
+local function retreatIsSafelyClear(self, stillUnsafe, assessment, ticks)
+    local pursued = assessment ~= nil and ((assessment.immediate or 0) > 0
+        or (assessment.close or 0) > 0 or (assessment.targeting or 0) > 0)
+    if stillUnsafe or pursued then
         self.fleeSafeScans = 0
+        self.fleeLastSafeScan = nil
         return false
     end
+    if ticks ~= nil and self.fleeLastSafeScan == ticks then return false end
+    self.fleeLastSafeScan = ticks
     self.fleeSafeScans = (self.fleeSafeScans or 0) + 1
     return self.fleeSafeScans >= FLEE_SAFE_CONFIRM_SCANS
 end
 
-function Controller:retreatIsSafelyClear(stillUnsafe)
-    return retreatIsSafelyClear(self, stillUnsafe)
+function Controller:retreatIsSafelyClear(stillUnsafe, assessment, ticks)
+    return retreatIsSafelyClear(self, stillUnsafe, assessment, ticks)
 end
 
 local function appendFleeDirection(directions, x, y)
@@ -1073,10 +1110,10 @@ local function findFleeTarget(self, ticks)
         appendFleeDirection(directions, awayX + awayY, awayY - awayX)
         appendFleeDirection(directions, -awayY, awayX)
         appendFleeDirection(directions, awayY, -awayX)
-    else
-        -- A symmetric surround has no unique vector. Fixed compass candidates
-        -- keep the result deterministic and debuggable rather than choosing a
-        -- fresh random direction on every recovery attempt.
+    end
+    do
+        -- Also consider tangents/backtracking when the away-vector hits a wall.
+        -- Fixed candidates keep recovery deterministic, not random pacing.
         for _, direction in ipairs({
             { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 },
             { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 },
@@ -1086,11 +1123,11 @@ local function findFleeTarget(self, ticks)
     end
     local best, bestScore = nil, -math.huge
     for _, direction in ipairs(directions) do
-        for distance = FLEE_TARGET_DISTANCE, 5, -1 do
+        for distance = FLEE_TARGET_DISTANCE, 2, -1 do
             local x = math.floor(origin:getX() + direction.x * distance + 0.5)
             local y = math.floor(origin:getY() + direction.y * distance + 0.5)
             local square = cell:getGridSquare(x, y, origin:getZ())
-            if square ~= nil and square:canStand() then
+            if square ~= nil and square:canStand() and fleeDestinationAvailable(self, square, ticks) then
                 local nearest = math.huge
                 for index = 0, zombies:size() - 1 do
                     local zombie = zombies:get(index)
@@ -1155,9 +1192,11 @@ local function groupFleeTarget(self, ticks)
         if current ~= nil and navigationDistanceSquared(current, square) <= 2.25 then
             return nil, true
         end
-        return square, true
+        if fleeDestinationAvailable(self, square, ticks) then return square, true end
     end
-    return cell:getGridSquare(plan.x, plan.y, plan.z), true
+    local center = cell:getGridSquare(plan.x, plan.y, plan.z)
+    return center ~= nil and center:canStand() and fleeDestinationAvailable(self, center, ticks)
+        and center or nil, true
 end
 
 local function itemMatchesGoal(item, goal, character)
@@ -3712,6 +3751,23 @@ function Controller:beginRoam(ticks)
     return true
 end
 
+function Controller:recoverFleeMovement(result, ticks)
+    self.bridge:cancelNpcMove(self.id)
+    if self.fleeTarget ~= nil then
+        self.failedFleeTarget = { x = self.fleeTarget:getX(), y = self.fleeTarget:getY(),
+            z = self.fleeTarget:getZ(), untilTick = ticks + FLEE_PLAN_TICKS }
+    end
+    self.fleeTarget = nil
+    self.fleeDirectionUntil = 0
+    -- Normal travel's long backoff is unsafe while being pursued. Still bounded,
+    -- but retry another clear escape lane rather than standing for many seconds.
+    local cooldown = self:recordMovementFailure("flee_move", result, ticks, 15, 60)
+    self.fleeRecoveryUntil = ticks + cooldown
+    self.activeDecision = "flee"
+    self.state = "FLEEING"
+    self.stateStartedAt = ticks
+end
+
 function Controller:beginFlee(ticks, assessment)
     self:cancelTrade("danger")
     local target, hadGroupPlan = groupFleeTarget(self, ticks)
@@ -3727,10 +3783,28 @@ function Controller:beginFlee(ticks, assessment)
     end
     if target == nil then
         self.nextThink = ticks + FLEE_RECHECK_TICKS
+        if self.state == "FLEEING" then self.fleeRecoveryUntil = self.nextThink end
         self.nextThreatScan = math.max(
             self.nextThreatScan or 0,
             ticks + FLEE_RECHECK_TICKS
         )
+        -- If every escape lane is blocked, do not wait helplessly for a bite.
+        -- Reuse native combat against an adjacent reachable threat only; this
+        -- is not permission to chase a target back into the crowd.
+        if self.state ~= "COMBAT" then
+            local threat = nearestThreat(self, ticks)
+            local origin = self.character:getCurrentSquare()
+            local threatSquare = threat ~= nil and threat:getCurrentSquare() or nil
+            if threatSquare ~= nil and origin ~= nil
+                and distanceSquared(origin, threatSquare) <= 3.0625
+                and fleeLaneClear(origin, threatSquare)
+                and self:allowsCompanionThreat(threat) then
+                if self:beginCombat(threat) then
+                    self.fleeRecoveryUntil = nil
+                    self.fleeTarget = nil
+                end
+            end
+        end
         return false
     end
     self.bridge:cancelNpcMove(self.id)
@@ -3755,19 +3829,13 @@ function Controller:beginFlee(ticks, assessment)
         end
     end
     self.fleeSafeScans = 0
+    self.fleeTarget = target
+    self.fleeRecoveryUntil = nil
     local pace = assessment ~= nil and assessment.endurance >= 0.48
         and assessment.health > 25 and "sprint" or "run"
     local result = tostring(self.bridge:moveNpcWithPace(self.id, target, pace))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
-        self:recordMovementFailure("flee_move", result, ticks, FLEE_RECHECK_TICKS)
-        -- Combat was already cancelled above. Do not leave a COMBAT state with
-        -- no reservation or native combat owner when the escape route fails.
-        self.activeDecision = nil
-        self.state = "IDLE"
-        self.nextThreatScan = math.max(
-            self.nextThreatScan or 0,
-            self.nextThink or (ticks + FLEE_RECHECK_TICKS)
-        )
+        self:recoverFleeMovement(result, ticks)
         return false
     end
     self.activeDecision = "flee"
@@ -4279,7 +4347,10 @@ function Controller:tick(ticks)
         or (actionState and stateAge > ACTION_TIMEOUT_TICKS)
         or (self.state == "BREAKING_LOCKED_DOOR"
             and stateAge > MOVEMENT_TIMEOUT_TICKS) then
-        if self.state == "COMPANION_FOLLOW" or self.state == "BASE_RETURN"
+        if self.state == "FLEEING" then
+            self:recoverFleeMovement("state_timeout", ticks)
+            return
+        elseif self.state == "COMPANION_FOLLOW" or self.state == "BASE_RETURN"
             or self.state == "BASE_PATROL" then
             self.bridge:cancelNpcMove(self.id)
             self.activeDecision = nil
@@ -4306,9 +4377,12 @@ function Controller:tick(ticks)
                 -- do not reacquire an attack in this same danger scan.
                 return
             end
-            if self.state == "FLEEING" and retreatIsSafelyClear(self, flee) then
+            if self.state == "FLEEING" and retreatIsSafelyClear(self, flee, assessment, ticks) then
                 self.bridge:cancelNpcMove(self.id)
                 self:resetMovementRecovery()
+                self.fleeRecoveryUntil = nil
+                self.fleeTarget = nil
+                self.failedFleeTarget = nil
                 self:finishDecision(ticks)
                 self.nextThink = ticks + 5
                 print(
@@ -5167,6 +5241,13 @@ function Controller:tick(ticks)
             and self:refreshFormationFollow(ticks) then
             return
         end
+        if self.state == "FLEEING" and self.fleeRecoveryUntil ~= nil then
+            if ticks >= self.fleeRecoveryUntil then
+                local _, assessment = fleeAssessment(self)
+                self:beginFlee(ticks, assessment)
+            end
+            return
+        end
         local movement = tostring(self.bridge:tickNpc(self.id))
         if movement == "Succeeded" then
             self:resetMovementRecovery()
@@ -5273,8 +5354,16 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "FLEEING" then
-                self:finishDecision(ticks)
-                self.nextThink = ticks + FLEE_RECHECK_TICKS
+                local unsafe, assessment = fleeAssessment(self)
+                if retreatIsSafelyClear(self, unsafe, assessment, ticks) then
+                    self.fleeTarget = nil
+                    self.failedFleeTarget = nil
+                    self:finishDecision(ticks)
+                    self.nextThink = ticks + 5
+                else
+                    self.fleeTarget = nil
+                    self.fleeRecoveryUntil = ticks + 5
+                end
                 return
             end
             if self.state == "MOVING_TO_COMPANION_POINT" then
@@ -5581,19 +5670,15 @@ function Controller:tick(ticks)
                 self:handleFormationMovementFailure(movement, ticks)
                 return
             end
+            if self.state == "FLEEING" then
+                self:recoverFleeMovement(movement, ticks)
+                return
+            end
             self:recordMovementFailure("movement", movement, ticks)
             if self.state == "MOVING_TO_DEPOSIT" then
                 self.bridge:cancelNpcMove(self.id)
                 self:deferDepositTrip(ticks)
                 self:finishDecision(ticks)
-                return
-            end
-            if self.state == "FLEEING" then
-                self:finishDecision(ticks)
-                self.nextThreatScan = math.max(
-                    self.nextThreatScan or 0,
-                    self.nextThink or (ticks + FLEE_RECHECK_TICKS)
-                )
                 return
             end
             if self.state == "MOVING_TO_COMPANION_POINT" then

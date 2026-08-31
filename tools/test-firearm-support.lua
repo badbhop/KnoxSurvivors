@@ -297,7 +297,15 @@ ISTimedActionQueue.add({ character = activeCharacter, gun = empty, reloading = t
 activeCharacter.primary = hammer
 assert(support.cancelPreparation(activeCharacter), "reload cancellation still finds the old gun after a hand-slot change")
 ISTimedActionQueue.add({ character = activeCharacter, kind = "bandage" })
+local nativePcall, caughtErrors = pcall, 0
+pcall = function(...)
+    local ok, value = nativePcall(...)
+    if not ok then caughtErrors = caughtErrors + 1 end
+    return ok, value
+end
 assert(not support.cancelPreparation(activeCharacter), "weapon preference does not cancel unrelated self-care")
+pcall = nativePcall
+assert(caughtErrors == 0, "unrelated action with no gun must not throw even inside pcall (Kahlua logs it)")
 ISTimedActionQueue.clear(activeCharacter)
 assert(support.prepareForThreat("preference", activeCharacter, bridge, target) == "melee")
 preference = "auto"

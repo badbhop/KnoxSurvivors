@@ -1,6 +1,13 @@
 # Workshop Preview Release
 
-The Workshop mod must be published before the matching launcher release. The launcher rejects the legacy Workshop package by design.
+Prefer publishing and verifying the Workshop mod before advertising a matching launcher
+release. The launcher rejects the legacy Workshop package by design.
+
+The owner requested public preview availability on 2026-08-31:
+[v0.2.0-preview.1](https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.0-preview.1)
+is now downloadable. Its real Windows package passes validation against the refreshed
+staging files; Steam upload/download and gameplay still need the steps below. Availability
+of the launcher alone does not confirm that Steam has delivered the rebuild.
 
 ## 1. Freeze and verify the mod build
 
@@ -23,7 +30,8 @@ Steam publication, or gameplay. The bundled runtime does not contain javac.
 
 From the launcher checkout, its built `LauncherVerifier` also accepts two optional
 arguments: the installed game directory and this staging folder's `Contents` directory.
-This verifies the actual published payload against launcher manifest/checksum rules.
+This verifies the supplied payload against launcher manifest/checksum rules; a staging
+path is not evidence of a successful Steam publication/download.
 
 ## 2. Prepare Project Zomboid's Workshop folder
 
