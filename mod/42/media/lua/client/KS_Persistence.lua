@@ -653,6 +653,66 @@ function KnoxPersistence.getSurvivorDuty(id)
     return survivor ~= nil and copyFlat(survivor.duty) or nil
 end
 
+-- Events borrow a base duty, never replace faction/home/job intent. Validate the
+-- entire party first: no partial assignment if one member changed jobs or died.
+function KnoxPersistence.claimEventDuty(eventId, worldAgeHours)
+    local data = root()
+    local event = type(eventId) == "string" and data.knoxEvents.records[eventId] or nil
+    if type(event) ~= "table" or event.kind ~= "faction_raid"
+        or (event.phase ~= "scheduled" and event.phase ~= "spawning")
+        or type(event.memberIds) ~= "table" or #event.memberIds == 0 then
+        return false, "invalid_event"
+    end
+    local base = data.bases[event.sourceBaseId]
+    if base == nil or base.ownerKind ~= "faction" or base.ownerId ~= event.sourceFactionId then
+        return false, "invalid_home"
+    end
+    local seen, pending = {}, {}
+    for _, id in ipairs(event.memberIds) do
+        local survivor = type(id) == "string" and data.survivors[id] or nil
+        local duty = survivor ~= nil and survivor.duty or nil
+        local affiliation = survivor ~= nil and survivor.affiliation or nil
+        if survivor == nil or survivor.alive == false or survivor.record == nil or seen[id]
+            or affiliation == nil or affiliation.factionId ~= event.sourceFactionId
+            or duty == nil or duty.mode ~= "base" or duty.baseId ~= event.sourceBaseId
+            or (duty.eventId ~= nil and duty.eventId ~= eventId) then
+            return false, "member_unavailable"
+        end
+        for _, task in pairs(base.tasks or {}) do
+            if type(task) == "table" and task.state == "claimed" and task.claimedBy == id then
+                return false, "member_working"
+            end
+        end
+        seen[id] = true
+        if duty.eventId == nil then pending[#pending + 1] = duty end
+    end
+    for _, duty in ipairs(pending) do
+        duty.eventId = eventId
+        duty.revision = (tonumber(duty.revision) or 0) + 1
+        duty.changedAtHours = tonumber(worldAgeHours) or 0
+    end
+    return true, #pending == 0 and "existing" or "claimed"
+end
+
+function KnoxPersistence.releaseEventDuty(id, eventId, worldAgeHours)
+    if type(eventId) ~= "string" or eventId == "" then return false, "invalid_event" end
+    local data = root()
+    local survivor = type(id) == "string" and data.survivors[id] or nil
+    local duty = survivor ~= nil and survivor.duty or nil
+    if duty == nil or duty.eventId ~= eventId then return false, "not_event_owner" end
+    duty.eventId = nil
+    duty.revision = (tonumber(duty.revision) or 0) + 1
+    duty.changedAtHours = tonumber(worldAgeHours) or 0
+    -- A removed home cannot remain an actionable base order. Keep affiliation;
+    -- surviving members can use the existing faction/autonomy recovery instead.
+    local base = data.bases[duty.baseId]
+    if duty.mode == "base" and (base == nil or base.ownerKind ~= "faction"
+        or base.ownerId ~= (survivor.affiliation or {}).factionId) then
+        duty.mode, duty.order, duty.baseId = "autonomous", "survive", nil
+    end
+    return true, "released"
+end
+
 function KnoxPersistence.getAwayTeams()
     local teams = {}
     for id, team in pairs(root().awayTeams) do
@@ -721,7 +781,7 @@ local function validateAwayTeamInput(ownerKind, ownerId, memberIds, missionType,
             or affiliation == nil or affiliation.kind ~= ownerKind
             or (ownerKind == "player" and affiliation.ownerId ~= ownerId)
             or (ownerKind == "faction" and affiliation.factionId ~= ownerId)
-            or survivor.duty.mode == "away" then
+            or survivor.duty.mode == "away" or survivor.duty.eventId ~= nil then
             return nil, "invalid_member=" .. tostring(id)
         end
         seen[id] = true
@@ -2776,7 +2836,7 @@ function KnoxPersistence.claimBaseTask(baseId, taskId, survivorId, worldAgeHours
         return nil, "unknown_survivor"
     end
     if survivor.duty == nil or survivor.duty.mode ~= "base"
-        or survivor.duty.baseId ~= baseId then
+        or survivor.duty.baseId ~= baseId or survivor.duty.eventId ~= nil then
         return nil, "not_base_resident"
     end
     if task == nil or task.state ~= "queued" then

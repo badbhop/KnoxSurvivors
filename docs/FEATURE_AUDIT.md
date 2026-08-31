@@ -1129,7 +1129,7 @@ uses root inventory items already ready for vanilla equip/wear.
 | 21. Unloaded-world simulation | **Partial, focused checks pass** | Hibernated survivors carry a persisted survival ledger: needs advance, rest/endurance recover, real stored food/water is consumed, and deprivation can cause durable death. Autonomous survivors, travel groups, away teams, and unloaded returning base residents make deterministic low-cost virtual progress; a base return starts at the freshly captured origin, travels at the normal virtual rate, then changes to base life only on arrival. Group members share a heading, base residents take deterministic ambient positions inside their own saved territory, companions preserve their reunion point, and away-team travel/result ownership remains separate from physiology. A hidden loaded square transactionally updates the Java record before rematerialization. Detailed offscreen pathing, injury treatment, encounters, supply gathering, faction growth, and a multi-day live return remain incomplete. |
 | 22. Camps | **Partial / temporary living implemented, live pass pending** | Homeless NPC factions create one lightweight persistent shelter in an unclaimed loaded building. Durable faction membership restores camp linkage without duplication; loaded members take distinct reserved shelter positions, stagger bounded idle/rest/reposition behavior, use ordinary needs and real nearby containers, take short roaming/scavenging excursions, return through native movement, defend group members, and retain camp identity through interruption. Camp conversion clears stale ownership. Player camps, fortification, jobs, strategy management, and richer social behavior remain outside this slice. |
 | 23. Vehicles | **Partial / passenger slice unverified** | Companion Orders now expose Enter My Vehicle and Exit Vehicle. The passenger-only implementation uses Build 42's native path-to-seat, enter, exit, and door-close timed actions, refuses occupied/locked/uninstalled/blocked seats, and never takes driver seat zero or changes keys/engine ownership. A seated shell is excluded from detached hibernation so its native seat relationship is not destroyed while the player drives. NPC driving, autonomous/group vehicle travel, vehicle-specific persistence/reconstruction, and live verification remain incomplete. |
-| 24. Raids/faction conflict | **Foundation only, unverified** | Symmetric persisted faction relations and hostile base-protection rules exist. Knox Events now persists revision-checked phases and proposes minority parties from actual living faction residents, retaining defenders and cancelling stale plans. No automatic scheduling or runtime raid dispatch is enabled. Travel, combat objectives, resource transfer, real return cleanup, event factions, and live verification remain incomplete. |
+| 24. Raids/faction conflict | **Experimental dispatch/travel, unverified** | Symmetric persisted faction relations and hostile base-protection rules exist. Knox Events proposes real minority parties and can dispatch ready loaded residents from explicitly scheduled plans. Temporary duty bindings, native travel, shared stored travel/rest, and return/casualty cleanup have focused checks. No random scheduler is enabled. Actual combat/loot objectives, dispatch of already-stored parties, event factions, and live verification remain incomplete. |
 | 25. World population | **Implemented, unverified** | Region-balanced identities, persistent target, active-body limit, distant/hidden materialization, refill delay, origin reuse protection, hibernation candidates, and durable death records exist and pass standalone tests. Production-scale live streaming/refill is not proven. |
 | 26. Lifecycle/hibernation | **Partial / focused checks pass** | Capture, removal, stored records, activation candidates, reconstruction, grace checks, and durable death exist. A dead shell first becomes a real `IsoDeadBody`; Knox then uses the native `shouldBecomeZombieAfterDeath()` predicate and `IsoDeadBody.reanimateLater()` only when the current sandbox transmission/infection rule calls for it. Failed engine removal retains the runtime for bounded retry, preventing duplicate resurrection. Detached cleanup and native corpse/reanimation scheduling are covered by focused checks; a live infected and non-infected death/reload gate remains required. |
 | 27. Failure recovery | **Partial, movement boundary internally coherent** | Cooldowns, reservations, task requeue, target re-resolution, movement deadlines, and alternate-entry abandonment exist. Java ownership is released on every movement terminal/interruption path, ordinary and formation failures retain bounded cooldowns, dynamic details no longer fragment streaks, and success resets recovery state. A narrow live run must still prove the failure storm and stale idle are gone. |
@@ -2375,3 +2375,51 @@ execute real objectives, then reconcile casualties and return surviving members 
 Only after those boundaries are verified should automatic triggers and incremental Police,
 Scientists, Military, Scavenger, PMC-contract, and Black Division event policies be enabled.
 Other outstanding full-goal requirements and earlier live gates are not closed by this pass.
+
+## 2026-08-31 — Real event dispatch, travel, and return ownership
+
+Status: implemented — live verification required. The dispatcher handles explicitly
+scheduled plans; random raids and complete raid objectives are not enabled.
+
+- Added a temporary event binding to the existing base duty. All members are validated
+  before any are claimed; home, affiliation, job preferences, native inventory and
+  equipment remain authoritative. Existing base jobs/Away Teams cannot take dispatched
+  members. A mismatched release cannot erase a newer duty.
+- Dispatch checks each selected loaded resident's actual needs, carried weapon, firearm
+  readiness, home location and busy state. Injured/exhausted/unarmed/busy members defer
+  the plan; a restored claim phase cannot bypass readiness for unclaimed members.
+- Event movement uses the existing Java movement request and Lua failure/recovery path,
+  contextual pace, and group follow/regroup structure. Destinations are distinct near
+  the target building's approach side. Projection refresh does not cancel a valid route
+  or reset backoff. Combat/self-care can preempt travel without deleting event/home intent.
+- Reused the stored group scheduler for wholly hibernated parties: shared progress,
+  preserved spacing, weakest-member rest, existing physiology/resource use, and persisted
+  route state. Mixed loaded/stored parties wait together; stored residents cannot jump
+  back to ambient base coordinates while dispatched. One surviving member can return.
+- Real loaded positions establish arrival. Withdrawal completes from loaded home arrival
+  or completed virtual travel home, not a timer. Death, peace, duty replacement, repeated
+  approach failure, fleeing, and lost homes have explicit cleanup paths. Native death and
+  corpse creation remain untouched. Malformed deployed rosters fail closed without
+  silently discarding living members.
+
+Focused tests caught and corrected two integration assumptions: territory uses inclusive
+maxX/maxY rather than the building's width/height shape, so readiness/return reuse the
+existing BaseManager containment function; absent controller expressions returned false
+instead of nil and broke stored-return checks. No engine workaround was needed.
+
+Verification: all 61 standalone Lua tests and 74 syntax checks pass. New runtime tests
+execute the canonical persistence service, native-move request entry point, and existing
+unloaded cohort scheduler with engine fixtures. They cover readiness, atomic claim,
+ownership exclusion, stable sync/backoff, combat resume, reload, loaded/stored travel,
+shared rest, mixed-loaded waiting, return, death, corrupt records, and lost-home release.
+These tests do not prove live navigation, firearm damage, or a complete raid objective.
+
+Packaging verification: `:java:jar stageWorkshop`, exact installed 42.20.3 native Workshop
+payload validation, and released-launcher validation pass. The staged payload was backed
+up first. Java source, agent checksum, and launcher protocol are unchanged, so no launcher
+patch is needed. Steam was not uploaded and the launcher release was not modified.
+
+Next dependency: real raid objectives and their completion/failure evidence, readiness
+for already-stored factions, safe automatic scheduling, and convenient live scenario
+tooling. Event factions/PMC contracts, other full-goal requirements, and previous live
+acceptance gates remain open. The overall goal is not complete.

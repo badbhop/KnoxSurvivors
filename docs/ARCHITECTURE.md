@@ -781,8 +781,10 @@ snapshots. No claimed job or away-team member is borrowed. At most 40% of the li
 roster is proposed, with at least two available residents left home; five residents can
 send two. Roster/ownership/location and remaining home strength are rechecked before
 departure. Proposals do not override existing work: a member becoming unavailable cancels
-an unstarted plan. The real dispatcher must subsequently check live health/loadout and
-atomically take/release existing duty, movement, and group ownership.
+an unstarted plan. `KS_EventRuntime` checks live health/loadout and takes a temporary
+`duty.eventId` binding through all-member persistence validation. The base duty itself
+retains home, faction, order, and job preferences. Base claims and Away Teams reject
+event-bound residents. Releases compare the event ID and never overwrite a newer owner.
 
 Maintenance uses the existing population interval, handling up to 16 records per call
 (explicit maximum 32), with a persisted round-robin cursor. Finished history expires after
@@ -790,7 +792,30 @@ seven game days and is pruned toward 128 entries in bounded batches. A separate 
 per-faction cooldown retains the 24-hour scheduling limit even when history is pruned.
 These are initial internal policies, not new player-facing sandbox settings.
 
-This boundary does not yet schedule random raids, materialize a raid party, send movement
-orders, execute combat objectives, or return members home. `spawning` is a reserved shared
-phase name, not permission to create replacement faction members. Other Knox Event faction
-policies must reuse this lifecycle and existing survivor systems; none are enabled yet.
+Explicitly scheduled raids now dispatch ready loaded residents; there is still no random
+raid scheduler. `spawning` is the shared claim phase, not permission to create replacement
+members. The runtime inspects up to eight events every 30 controller ticks. Controller
+projection is transient: EVENT_TRAVEL/EVENT_WAIT yield to existing combat and self-care,
+use normal native movement/pace requests, retain existing retry cooldowns, and reuse group
+follow/regroup logic. Arrival points are distinct and outside the target building on the
+approach side; short loaded segments lead toward an unloaded destination. Repeated route
+failures or a member fleeing request whole-party withdrawal. No coordinates are written
+on active actors, no local-player slot is claimed, and no combat state is forced.
+
+Wholly stored event parties use the existing `advanceStoredGroup` cohort scheduler, not
+parallel event physiology. It preserves relative positions, uses the weakest member's
+endurance/fatigue for shared rest, advances real stored food/water consumption, and commits
+route state back through the event's expected revision. A mixed loaded/stored party waits
+for regroup rather than moving its hidden half independently. Individual stored updates
+cannot snap event-bound base residents back to ambient home coordinates. A surviving
+single-member withdrawal is supported; released members no longer block its cohort.
+
+Loaded arrival at the target advances to active; offscreen arrival does not fabricate
+combat/objective completion. Withdrawals release members when their real loaded square or
+persisted virtual route reaches home. Death or a replaced duty resolves only that member;
+a removed/lost home fails the event and retains faction identity under autonomous duty.
+Malformed deployed records remain reserved for recovery rather than pretending to return.
+
+Actual raid combat/loot objectives, readiness-based dispatch of already-stored residents,
+automatic triggers, and the other Knox Event faction policies remain unfinished. Native
+human combat remains the existing authority and still needs its documented live evidence.

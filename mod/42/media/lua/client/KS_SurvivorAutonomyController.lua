@@ -2162,6 +2162,7 @@ end
 function Controller:interruptForDirective()
     self:cancelTrade("directive_changed")
     local safe = self.state == "IDLE" or self.state == "ROAMING"
+        or self.state == "EVENT_TRAVEL" or self.state == "EVENT_WAIT"
         or self.state == "MOVING_TO_SUPPLY"
         or self.state == "MOVING_TO_EXPLORE"
         or self.state == "GROUP_FOLLOW" or self.state == "GROUP_WAIT"
@@ -2346,6 +2347,78 @@ function Controller:clearBaseAssignment()
     end
     self.baseId = nil
     self.base = nil
+end
+
+function Controller:setEventAssignment(assignment)
+    local old = self.eventAssignment
+    local a, b = old ~= nil and old.destination or nil, assignment ~= nil and assignment.destination or nil
+    local changed = (old == nil) ~= (assignment == nil)
+        or (old ~= nil and assignment ~= nil and (old.id ~= assignment.id or old.phase ~= assignment.phase))
+        or (a == nil) ~= (b == nil)
+        or (a ~= nil and b ~= nil and (a.x ~= b.x or a.y ~= b.y or a.z ~= b.z))
+    self.eventAssignment = assignment
+    if changed then
+        self.eventMoveFailures = 0
+        self:interruptForDirective()
+        if assignment == nil then self:clearGroupLeader(); self:setGroupMembers({}) end
+    end
+end
+
+function Controller:beginEventTravel(ticks)
+    local assignment = self.eventAssignment
+    if assignment == nil then return false end
+    local goal, cell, current = assignment.destination, getCell(), self.character:getCurrentSquare()
+    self.activeDecision = assignment.phase == "withdrawing" and "event_return" or "event_travel"
+    if goal == nil or cell == nil or current == nil then
+        self.state, self.nextThink = "EVENT_WAIT", math.max(self.nextThink or 0, ticks + 120)
+        return true
+    end
+    local dx, dy = goal.x - current:getX(), goal.y - current:getY()
+    local distance = dx * dx + dy * dy
+    if current:getZ() == goal.z and distance <= 9 then
+        self:resetMovementRecovery()
+        self.eventMoveFailures = 0
+        self.state, self.nextThink = "EVENT_WAIT", ticks + 90
+        return true
+    end
+    if self.groupLeader ~= nil and distance > 36 then
+        self:beginGroupFollow(ticks)
+        return true
+    end
+    local distant, separation = self:findDistantGroupMember()
+    if distant ~= nil and separation > GROUP_RETRIEVE_LEASH_SQUARED then
+        self:beginGroupRegroup(distant, ticks)
+        return true
+    end
+    local target = cell:getGridSquare(math.floor(goal.x), math.floor(goal.y), goal.z)
+    local x, y, z = goal.x, goal.y, goal.z
+    if target == nil then
+        -- Native movement toward the next loaded segment; the population
+        -- lifecycle still owns capture and hibernation at the streaming edge.
+        local fraction = math.min(1, 12 / math.max(1, math.sqrt(distance)))
+        x, y, z = current:getX() + dx * fraction, current:getY() + dy * fraction, current:getZ()
+    end
+    target = nil
+    for radius = 0, 2 do
+        for ox = -radius, radius do
+            for oy = -radius, radius do
+                local square = cell:getGridSquare(math.floor(x) + ox, math.floor(y) + oy, z)
+                if square ~= nil and square:canStand() then target = square; break end
+            end
+            if target ~= nil then break end
+        end
+        if target ~= nil then break end
+    end
+    local result = target ~= nil and tostring((moveWithTravelPace(
+        self.bridge, self.id, self.character, target, "directed"))) or "event_route_unloaded"
+    if string.find(result, "MOVE_STARTED", 1, true) == 1 then
+        self.state = "EVENT_TRAVEL"
+    else
+        self.eventMoveFailures = (self.eventMoveFailures or 0) + 1
+        self:recordMovementFailure("event_travel", result, ticks, 120)
+        self.state = "EVENT_WAIT"
+    end
+    return true
 end
 
 function Controller:releaseCampPosition()
@@ -4160,6 +4233,7 @@ function Controller:think(ticks)
         return
     end
     if self:beginInventoryCleanup(ticks) then return end
+    if self:beginEventTravel(ticks) then return end
     if self.companionOrder ~= nil then
         if self.companionDirective ~= nil then
             local kind = self.companionDirective.kind
@@ -4359,6 +4433,7 @@ function Controller:tick(ticks)
 
     local stateAge = ticks - (self.stateStartedAt or ticks)
     local movementState = self.state == "MOVING_TO_SUPPLY"
+        or self.state == "EVENT_TRAVEL"
         or self.state == "MOVING_TO_DEPOSIT"
         or self.state == "MOVING_TO_EXPLORE"
         or self.state == "ROAMING"
@@ -4493,7 +4568,7 @@ function Controller:tick(ticks)
         return
     end
 
-    if self.state == "BASE_IDLE" then
+    if self.state == "BASE_IDLE" or self.state == "EVENT_WAIT" then
         if ticks >= self.nextThink then
             self.activeDecision = nil
             self.state = "IDLE"
@@ -5265,6 +5340,7 @@ function Controller:tick(ticks)
     end
 
     if self.state == "MOVING_TO_SUPPLY" or self.state == "MOVING_TO_EXPLORE"
+        or self.state == "EVENT_TRAVEL"
         or self.state == "MOVING_TO_DEPOSIT"
         or self.state == "ROAMING" or self.state == "GROUP_FOLLOW"
         or self.state == "GROUP_REGROUP"
@@ -5292,6 +5368,11 @@ function Controller:tick(ticks)
         local movement = tostring(self.bridge:tickNpc(self.id))
         if movement == "Succeeded" then
             self:resetMovementRecovery()
+            if self.state == "EVENT_TRAVEL" then
+                self.eventMoveFailures = 0
+                self:finishDecision(ticks)
+                return
+            end
             if self.state == "MOVING_TO_DEPOSIT" then
                 self:completeDepositTrip(ticks)
                 return
@@ -5717,6 +5798,12 @@ function Controller:tick(ticks)
                 return
             end
             self:recordMovementFailure("movement", movement, ticks)
+            if self.state == "EVENT_TRAVEL" then
+                self.eventMoveFailures = (self.eventMoveFailures or 0) + 1
+                self.bridge:cancelNpcMove(self.id)
+                self:finishDecision(ticks)
+                return
+            end
             if self.state == "MOVING_TO_DEPOSIT" then
                 self.bridge:cancelNpcMove(self.id)
                 self:deferDepositTrip(ticks)

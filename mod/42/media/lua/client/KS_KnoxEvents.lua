@@ -112,6 +112,7 @@ end
 local function availableMember(id, home)
     local duty = KnoxPersistence.getSurvivorDuty(id)
     if duty == nil or duty.mode ~= "base" or duty.baseId ~= home.id
+        or duty.eventId ~= nil
         or KnoxPersistence.getAwayTeamForSurvivor(id) ~= nil then return false end
     -- Do not silently steal a worker's in-progress task at the proposal boundary.
     for _, task in pairs(home.tasks or {}) do
@@ -124,6 +125,25 @@ end
 function KnoxEvents.get(id)
     local event = type(id) == "string" and records()[id] or nil
     return type(event) == "table" and copy(event) or nil
+end
+
+function KnoxEvents.activeIds()
+    local ids = {}
+    for id, event in pairs(records()) do
+        if type(id) == "string" and type(event) == "table" and not terminal(event) then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+function KnoxEvents.saveUnloadedTravel(id, revision, travel)
+    local event = records()[id]
+    if type(event) ~= "table" or terminal(event) or event.revision ~= revision
+        or type(travel) ~= "table" then return false end
+    event.unloadedTravel = copy(travel)
+    return true
 end
 
 function KnoxEvents.memberEvent(id)
@@ -191,13 +211,18 @@ function KnoxEvents.scheduleRaid(factionId, baseId, hours, delayHours)
     return copy(proposal), "scheduled"
 end
 
-function KnoxEvents.validate(event)
+function KnoxEvents.isValidRecord(event)
     if type(event) ~= "table" or event.kind ~= "faction_raid" or NEXT[event.phase] == nil
         or not memberList(event.memberIds) or not serial(event.revision)
         or not finite(event.dueAtHours) or not finite(event.lastChangedAtHours)
         or not finite(event.deadlineHours) or event.deadlineHours < event.dueAtHours then
-        return false, "invalid_event_record"
+        return false
     end
+    return true
+end
+
+function KnoxEvents.validate(event)
+    if not KnoxEvents.isValidRecord(event) then return false, "invalid_event_record" end
     local owners, reason = raidOwners(event.sourceFactionId, event.targetBaseId)
     if owners == nil then return false, reason end
     if owners.targetFactionId ~= event.targetFactionId or owners.home.id ~= event.sourceBaseId

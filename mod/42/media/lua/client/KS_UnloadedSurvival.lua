@@ -121,6 +121,14 @@ local function advanceWorldActivity(id, state, elapsed, hours)
     if persistence == nil then return 0 end
     local duty = persistence.getSurvivorDuty ~= nil
         and persistence.getSurvivorDuty(id) or {}
+    if duty.eventId ~= nil then
+        -- A borrowed resident must not be moved back into ambient home squares
+        -- while its event still owns travel. The cohort scheduler advances only
+        -- a wholly stored party; needs still advance here when a member is loaded.
+        state.baseReturn = nil
+        setActivity(state, "event_waiting_loaded", hours)
+        return 0
+    end
     if duty.mode == "away" then
         -- Away-team simulation owns travel, risk, ETA, and mission results.
         -- Keep the last known destination in the durable ledger so a member
@@ -447,6 +455,10 @@ end
 
 local function advanceStoredGroup(group, active, hours)
     local persistence = KnoxPersistence
+    local event = group.kind == "faction_raid"
+    local eventRuntime = rawget(_G, "KnoxEventRuntime")
+    if event and (eventRuntime == nil or (group.phase ~= "approaching"
+        and group.phase ~= "withdrawing" and group.phase ~= "active" and group.phase ~= "objective")) then return nil end
     local members, seen = {}, {}
     local start = 0
     -- Validate the whole cohort before changing anything. Companion/base/mission
@@ -455,22 +467,25 @@ local function advanceStoredGroup(group, active, hours)
         if not seen[id] and persistence.isSurvivorAlive(id) then
             seen[id] = true
             local duty = persistence.getSurvivorDuty(id)
-            local state = persistence.getUnloadedSurvivalState(id)
-            local canonical = persistence.getTravelGroupFor(id)
-            if active[id] or duty == nil or duty.mode ~= "autonomous"
-                or canonical == nil or canonical.id ~= group.id
-                or persistence.getRecord(id) == nil or state == nil
-                or state.pendingMaterialization or not finite(state.lastHours) then return nil end
-            if state.virtualX == nil then
-                state.virtualX, state.virtualY, state.virtualZ = recordLocation(id)
+            if not (event and group.phase == "withdrawing" and (duty == nil or duty.eventId ~= group.id)) then
+                local state = persistence.getUnloadedSurvivalState(id)
+                local canonical = persistence.getTravelGroupFor(id)
+                local ownsTravel = duty ~= nil and (event and duty.eventId == group.id
+                    or (not event and duty.mode == "autonomous" and canonical ~= nil and canonical.id == group.id))
+                if active[id] or not ownsTravel
+                    or persistence.getRecord(id) == nil or state == nil
+                    or state.pendingMaterialization or not finite(state.lastHours) then return nil end
+                if state.virtualX == nil then
+                    state.virtualX, state.virtualY, state.virtualZ = recordLocation(id)
+                end
+                if not finite(state.virtualX) or not finite(state.virtualY) or not finite(state.virtualZ)
+                    or not finite(state.fatigue) or not finite(state.endurance) then return nil end
+                start = math.max(start, state.lastHours)
+                members[#members + 1] = { id = id, state = state }
             end
-            if not finite(state.virtualX) or not finite(state.virtualY) or not finite(state.virtualZ)
-                or not finite(state.fatigue) or not finite(state.endurance) then return nil end
-            start = math.max(start, state.lastHours)
-            members[#members + 1] = { id = id, state = state }
         end
     end
-    if #members < 2 or start > hours then return nil end
+    if #members < (event and 1 or 2) or start > hours then return nil end
     table.sort(members, function(a, b) return a.id < b.id end)
     local anchor, ids = members[1], {}
     for _, member in ipairs(members) do
@@ -544,7 +559,19 @@ local function advanceStoredGroup(group, active, hours)
         local x, y = shared.virtualX, shared.virtualY
         local population = rawget(_G, "KnoxWorldPopulation")
         local movingHours = 0
-        if population ~= nil and population.advanceItinerary ~= nil then
+        if event then
+            local destination = eventRuntime.destination(group, anchor.id)
+            if destination ~= nil and (group.phase == "approaching" or group.phase == "withdrawing") then
+                local dx, dy = destination.x - x, destination.y - y
+                local distance = math.sqrt(dx * dx + dy * dy)
+                local travel = math.min(distance, RETURN_TILES_PER_HOUR * span)
+                if distance > 0 then
+                    shared.virtualX, shared.virtualY = x + dx / distance * travel, y + dy / distance * travel
+                end
+                if travel >= distance then shared.virtualZ = destination.z end
+                movingHours = travel / RETURN_TILES_PER_HOUR
+            end
+        elseif population ~= nil and population.advanceItinerary ~= nil then
             local advanced, _, travelHours = population.advanceItinerary(group.id, shared, atHours - span, atHours)
             if advanced then movingHours = clamp(travelHours, 0, span) end
         end
@@ -552,9 +579,11 @@ local function advanceStoredGroup(group, active, hours)
         for _, member in ipairs(members) do
             member.state.virtualX = member.state.virtualX + dx
             member.state.virtualY = member.state.virtualY + dy
+            if event then member.state.virtualZ = shared.virtualZ end
             moved[member.id] = movingHours
         end
-        setActivity(shared, movingHours > 0 and "group_travel" or "sheltering", atHours)
+        setActivity(shared, event and (movingHours > 0 and "event_travel" or "event_waiting")
+            or (movingHours > 0 and "group_travel" or "sheltering"), atHours)
         return movingHours
     end
     cohort.apply = function(span, restMode, sleepEnabled, activity, atHours)
@@ -621,8 +650,23 @@ function Simulation.advanceAll(activeIds, hours)
         end
     end
     table.sort(groupIds)
+    local events = rawget(_G, "KnoxEvents")
+    if events ~= nil then
+        for _, eventId in ipairs(events.activeIds()) do
+            local event = events.get(eventId)
+            local _, reason = events.validate(event)
+            if event ~= nil and reason ~= "invalid_event_record" then
+                local key = "event:" .. eventId
+                groups[key] = event
+                table.insert(groupIds, 1, key)
+            end
+        end
+    end
     for _, groupId in ipairs(groupIds) do
         local results = advanceStoredGroup(groups[groupId], active, hours or nowHours())
+        if results ~= nil and groups[groupId].kind == "faction_raid" then
+            events.saveUnloadedTravel(groups[groupId].id, groups[groupId].revision, groups[groupId].unloadedTravel)
+        end
         for id, result in pairs(results or {}) do
             handled[id] = true
             advanced = advanced + 1

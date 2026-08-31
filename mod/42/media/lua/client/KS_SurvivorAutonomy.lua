@@ -15,6 +15,7 @@ require "KS_FactionCamps"
 require "KS_SurvivorNameplates"
 require "KS_HumanCombatRelations"
 require "KS_KnoxEvents"
+require "KS_EventRuntime"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -760,6 +761,7 @@ update = function()
         end
     end
     KnoxSurvivorRelationships.coordinate(controllers, activeIds, ticks)
+    if ticks % 30 == 0 then KnoxEventRuntime.update(controllers, getGameTime():getWorldAgeHours()) end
     for _, id in ipairs(activeIds) do
         local controller = controllers[id]
         KnoxCompanionService.syncController(id, controller)

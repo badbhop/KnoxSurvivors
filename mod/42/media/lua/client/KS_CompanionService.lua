@@ -480,6 +480,11 @@ function CompanionService.syncController(survivorId, controller)
         return
     end
     local duty = KnoxPersistence.getSurvivorDuty(survivorId)
+    local eventRuntime = rawget(_G, "KnoxEventRuntime")
+    if eventRuntime ~= nil and controller.setEventAssignment ~= nil then
+        eventRuntime.syncController(survivorId, controller)
+        duty = KnoxPersistence.getSurvivorDuty(survivorId)
+    end
     if controller.setWeaponPreference ~= nil then
         local policies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
         controller:setWeaponPreference(policies.weaponPreference)

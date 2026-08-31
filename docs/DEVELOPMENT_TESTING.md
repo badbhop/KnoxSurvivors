@@ -592,11 +592,20 @@ death/relocation/peace invalidation, home-defender loss, malformed record recove
 maintenance, history pruning, and cooldown retention across pruning/reload. It also checks
 that survivor count, native record strings, and base/affiliation intent are not rewritten.
 
-This is not an end-to-end raid scenario. No automatic scheduler or runtime raid dispatcher
-is enabled. Do not manually advance phases and describe that as a successful live raid.
-Before enabling dispatch, verify actual member readiness, transactional duty handoff,
-loaded/unloaded travel using the same survivors, real combat/loot outcomes, casualty
-handling, and return-home cleanup, including save/reload during withdrawal. No substitute
-NPCs or free raid equipment are permitted. Live framework smoke: an existing save loads,
-normal population maintenance remains error-free, and save/reload preserves ordinary
-survivor/group/base records after the additive schema migration.
+This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
+plans, but no random scheduler is enabled. Do not manually advance phases and describe
+that as a successful live raid. `lua tools/test-event-runtime.lua .` additionally runs
+the real persistence, event runtime, controller travel entry point, and unloaded cohort
+scheduler over engine fixtures. It covers readiness rejection, all-member duty claims,
+base-job exclusion, native movement requests, stable projection, combat interruption,
+reload, actual-position arrival, loaded/stored return, cooldown retention, shared fatigue,
+mixed-loaded waiting, casualties, malformed roster recovery, and lost-home cleanup.
+
+Pending live dispatch gate: use five equipped residents of an established hostile faction
+and an existing target base. Explicitly schedule its proposal through `KnoxEvents.scheduleRaid`
+in development tooling. Verify only the selected party leaves, native movement/obstacles
+and group regrouping work, combat/self-care can interrupt it, the same IDs and gear persist
+across hibernation/reload, and withdrawal returns/releases survivors without duplication.
+Inspect `[KnoxSurvivors][Events]` transitions; timers must not claim combat victories.
+Combat/loot objectives and automatic triggers are still unfinished and must not be presented
+as a release-ready raid feature. No substitute NPCs or free equipment are permitted.
