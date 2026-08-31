@@ -15,6 +15,8 @@ Needs.thresholds = {
     fatigue = 0.72,
 }
 
+local NEED_CHANGE_EPSILON = 0.001
+
 local function walkInventory(container, visitor)
     local items = container:getItems()
     for index = 0, items:size() - 1 do
@@ -187,18 +189,28 @@ function Needs.execute(character, decision)
         return nil, "missing_decision"
     end
     if decision.kind == "bandage" then
-        return KnoxMedicalActions.queueBandage(
+        local action, result = KnoxMedicalActions.queueBandage(
             character,
             decision.item,
             decision.bodyPart
         )
+        return action, result, {
+            kind = "bandage",
+            before = decision.state,
+            item = decision.item,
+            bodyPart = decision.bodyPart,
+        }
     end
     if decision.kind == "drink" then
         local thirst = decision.state.thirst
         local uses = math.max(1, math.ceil(math.max(0, thirst - 0.15) / 0.1))
         local action = ISDrinkFromBottle:new(character, decision.item, uses)
         ISTimedActionQueue.add(action)
-        return action, "queued_drink"
+        return action, "queued_drink", {
+            kind = "drink",
+            before = decision.state,
+            item = decision.item,
+        }
     end
     if decision.kind == "eat" then
         local benefit = math.max(0.01, math.abs(decision.item:getHungerChange()))
@@ -208,10 +220,118 @@ function Needs.execute(character, decision)
         )
         local action = ISEatFoodAction:new(character, decision.item, percentage)
         ISTimedActionQueue.add(action)
-        return action, "queued_eat percentage=" .. tostring(percentage)
+        return action, "queued_eat percentage=" .. tostring(percentage), {
+            kind = "eat",
+            before = decision.state,
+            item = decision.item,
+        }
     end
     if decision.kind == "improvise_medical" then
-        return KnoxMedicalSupplies.queueImprovisation(character, decision.supplyPlan)
+        local action, result = KnoxMedicalSupplies.queueImprovisation(
+            character,
+            decision.supplyPlan
+        )
+        return action, result, {
+            kind = "improvise_medical",
+            before = decision.state,
+            item = decision.supplyPlan ~= nil and decision.supplyPlan.item or nil,
+        }
     end
     return nil, "decision_requires_world_action=" .. tostring(decision.kind)
+end
+
+-- An empty timed-action queue proves only that native ownership ended. These
+-- checks prove that the authoritative game state actually changed before the
+-- controller records self-care as successful.
+function Needs.verify(character, intent)
+    if character == nil or intent == nil or intent.before == nil then
+        return false, "missing_intent"
+    end
+    local after = Needs.snapshot(character)
+    if intent.kind == "eat" then
+        return after.hunger < intent.before.hunger - NEED_CHANGE_EPSILON,
+            "hunger=" .. tostring(intent.before.hunger) .. "->" .. tostring(after.hunger)
+    end
+    if intent.kind == "drink" then
+        return after.thirst < intent.before.thirst - NEED_CHANGE_EPSILON,
+            "thirst=" .. tostring(intent.before.thirst) .. "->" .. tostring(after.thirst)
+    end
+    if intent.kind == "bandage" then
+        local treated = intent.bodyPart ~= nil
+            and (intent.bodyPart:bandaged() or not intent.bodyPart:bleeding())
+        return treated,
+            "bleedingParts=" .. tostring(intent.before.bleedingParts)
+                .. "->" .. tostring(after.bleedingParts)
+    end
+    if intent.kind == "improvise_medical" then
+        local treatment = KnoxMedicalSupplies.findTreatment(character)
+        return treatment ~= nil, treatment ~= nil
+            and "treatment_created=" .. tostring(treatment:getFullType())
+            or "no_treatment_created"
+    end
+    return false, "unsupported_intent=" .. tostring(intent.kind)
+end
+
+function Needs.verifyRecovery(character, intent)
+    if character == nil or intent == nil or intent.before == nil then
+        return false, "missing_recovery_intent"
+    end
+    local after = Needs.snapshot(character)
+    if intent.kind == "rest" then
+        return after.endurance > intent.before.endurance + NEED_CHANGE_EPSILON,
+            "endurance=" .. tostring(intent.before.endurance)
+                .. "->" .. tostring(after.endurance)
+    end
+    if intent.kind == "sleep" then
+        return after.fatigue < intent.before.fatigue - NEED_CHANGE_EPSILON,
+            "fatigue=" .. tostring(intent.before.fatigue)
+                .. "->" .. tostring(after.fatigue)
+    end
+    return false, "unsupported_recovery=" .. tostring(intent.kind)
+end
+
+function Needs.sleepHours(character, fatigue)
+    local value = tonumber(fatigue) or 0
+    local hours = math.floor(value * 10) + 1
+    if character:hasTrait(CharacterTrait.INSOMNIAC) then
+        hours = math.floor(hours * 0.5)
+    end
+    if character:hasTrait(CharacterTrait.NEEDS_LESS_SLEEP) then
+        hours = math.floor(hours * 0.75)
+    end
+    if character:hasTrait(CharacterTrait.NEEDS_MORE_SLEEP) then
+        hours = math.ceil(hours * 1.18)
+    end
+    return math.max(3, math.min(16, hours))
+end
+
+-- This is the same native sleep transition used by Build 42's world context
+-- menu, without touching local-player UI or time controls for the off-slot NPC.
+function Needs.startSleep(character, bed, bedType)
+    if character == nil or character:isAsleep() then
+        return false, "sleep_unavailable"
+    end
+    local state = Needs.snapshot(character)
+    local hours = Needs.sleepHours(character, state.fatigue)
+    local wakeAt = GameTime.getInstance():getTimeOfDay() + hours
+    if wakeAt >= 24 then
+        wakeAt = wakeAt - 24
+    end
+    character:setVariable("ExerciseStarted", false)
+    character:setVariable("ExerciseEnded", true)
+    character:setBed(bed)
+    character:setBedType(bedType or (bed ~= nil and "averageBed" or "floor"))
+    character:setForceWakeUpTime(wakeAt)
+    character:setAsleepTime(0.0)
+    character:setAsleep(true)
+    getSleepingEvent():setPlayerFallAsleep(character, hours)
+    return true, "native_sleep hours=" .. tostring(hours)
+end
+
+function Needs.wakeForDanger(character)
+    if character == nil or not character:isAsleep() then
+        return false
+    end
+    getSleepingEvent():wakeUp(character)
+    return true
 end

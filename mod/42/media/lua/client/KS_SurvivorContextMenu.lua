@@ -12,6 +12,7 @@ require "KS_SurvivorViewModel"
 require "KS_SurvivorCard"
 require "KS_CompanionInventory"
 require "KS_Settings"
+require "KS_TradeUI"
 
 local SurvivorContextMenu = rawget(_G, "KnoxSurvivorContextMenu") or {}
 _G.KnoxSurvivorContextMenu = SurvivorContextMenu
@@ -68,6 +69,10 @@ end
 
 local function onTalk(_, playerNum, survivorId)
     runService(playerNum, KnoxCompanionService.talk, survivorId)
+end
+
+local function onTrade(_, playerNum, survivorId)
+    KnoxTradeUI.show(playerNum, survivorId)
 end
 
 local function onViewSurvivor(_, playerNum, survivorId)
@@ -132,6 +137,12 @@ end
 local function onCombatStance(_, playerNum, survivorId, stance)
     runService(playerNum, function(player, id)
         return KnoxCompanionService.setCombatStance(player, id, stance)
+    end, survivorId)
+end
+
+local function onWeaponPreference(_, playerNum, survivorId, preference)
+    runService(playerNum, function(player, id)
+        return KnoxCompanionService.setWeaponPreference(player, id, preference)
     end, survivorId)
 end
 
@@ -281,6 +292,8 @@ local function addRecruitOption(menu, player, survivorId, closeEnough)
     local label = "Recruit"
     if not closeEnough then
         label = "Recruit (too far away)"
+    elseif reason == "hostile" then
+        label = "Recruit (hostile)"
     elseif reason == "needs_trust" then
         label = "Recruit (not ready)"
     elseif reason == "already_with_group" then
@@ -313,13 +326,21 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
 
     local distance = distanceToPlayer(player, survivorId)
     local closeEnough = distance ~= nil and distance <= CONVERSATION_DISTANCE
-    local talkLabel = closeEnough and "Talk" or "Talk (too far away)"
+    local hostile = playerId ~= nil and KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId)
+    local talkLabel = hostile and "Talk (hostile)" or (closeEnough and "Talk" or "Talk (too far away)")
     local talk = menu:addOption(talkLabel, SurvivorContextMenu, onTalk, playerNum, survivorId)
-    if not closeEnough then
+    if not closeEnough or hostile then
         unavailable(talk)
     end
 
     if not owned then
+        if affiliation.kind ~= "player" then
+            local enabled = closeEnough and not hostile and not isClient() and not isServer()
+            local label = hostile and "Trade (hostile)" or (closeEnough and "Trade" or "Trade (too far away)")
+            if isClient() or isServer() then label = "Trade (single-player only)" end
+            local trade = menu:addOption(label, SurvivorContextMenu, onTrade, playerNum, survivorId)
+            if not enabled then unavailable(trade) end
+        end
         addRecruitOption(menu, player, survivorId, closeEnough)
         return true
     end
@@ -393,6 +414,16 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             local option = stanceMenu:addOption(choice[1], SurvivorContextMenu,
                 onCombatStance, playerNum, survivorId, choice[2])
             stanceMenu:setOptionChecked(option, stance == choice[2])
+        end
+        local weaponRoot = ordersMenu:addOption("Weapon Preference", nil, nil)
+        local weaponMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(weaponRoot, weaponMenu)
+        local weaponPolicies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
+        for _, choice in ipairs({ { "Prefer Melee", "melee" }, { "Prefer Ranged", "ranged" },
+            { "Survivor Choice", "auto" } }) do
+            local option = weaponMenu:addOption(choice[1], SurvivorContextMenu,
+                onWeaponPreference, playerNum, survivorId, choice[2])
+            weaponMenu:setOptionChecked(option, (weaponPolicies.weaponPreference or "auto") == choice[2])
         end
         local medicalLabel = closeEnough and "Medical Check" or "Medical Check (too far away)"
         local medical = ordersMenu:addOption(medicalLabel, SurvivorContextMenu, onMedicalCheck, playerNum, survivorId)

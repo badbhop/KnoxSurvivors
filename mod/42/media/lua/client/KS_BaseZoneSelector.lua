@@ -28,6 +28,15 @@ Selection.__index = Selection
 local activeSelection = nil
 local tickHooked = false
 
+local function newSelectionCursor(selection)
+    local cursor = ISSelectCursor:new(selection.player, selection, selection.onSquareSelected)
+    -- ISSelectCursor inherits ISBuildingObject:walkTo(). Build 42 calls that before
+    -- create() even when skipBuildAction is set, so a plain selection cursor queues
+    -- player movement toward the selected corner. skipWalk2 is the native opt-out.
+    cursor.skipWalk2 = true
+    return cursor
+end
+
 local function pickMouseSquare(player)
     if player == nil or getCell() == nil then return nil, nil, nil, nil end
     local z = player:getZ()
@@ -171,7 +180,7 @@ function Selection:confirmCreate(secondSquare)
 
     -- Keep highlight visible while modal is up — tick continues to draw.
     local prompt = "Create " .. tostring(self.label) .. "  " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(total) .. " tiles)?"
-    local modal = ISModalDialog:new(0, 0, 360, 150, prompt, true, nil, function(button)
+    local modal = ISModalDialog:new(0, 0, 360, 150, prompt, true, nil, function(_, button)
         self.pendingConfirm = false
         unhookTick(self)
         clearDraftHighlight(self)
@@ -213,7 +222,7 @@ function Selection:onSquareSelected(square)
         self.firstSquare = square
         KnoxActivityFeed.event("First corner set for " .. tostring(self.label) .. " at " .. tostring(square:getX()) .. "," .. tostring(square:getY()) .. ". Now click the opposite corner — highlighted area is preview. Right-click cancels.")
         hookTick(self)
-        self.cursor = ISSelectCursor:new(self.player, self, self.onSquareSelected)
+        self.cursor = newSelectionCursor(self)
         getCell():setDrag(self.cursor, self.player:getPlayerNum())
         return
     end
@@ -248,7 +257,7 @@ function BaseZoneSelector.start(player, baseId, zoneType, label)
         pendingConfirm = false,
         pendingSecond = nil,
     }, Selection)
-    selection.cursor = ISSelectCursor:new(player, selection, selection.onSquareSelected)
+    selection.cursor = newSelectionCursor(selection)
     getCell():setDrag(selection.cursor, player:getPlayerNum())
     KnoxActivityFeed.event("Add " .. tostring(selection.label) .. ": click first corner, then opposite corner. Highlighted rectangle is preview. Confirm size to save. Right-click cancels.")
     return true

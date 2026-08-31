@@ -5,11 +5,15 @@ option KnoxSurvivors.Enabled = {
 }
 
 option KnoxSurvivors.WorldPopulation = {
-    type = integer, min = 0, max = 128, default = 16, page = KnoxSurvivors_Main, translation = KnoxSurvivors_WorldPopulation,
+    type = integer, min = 0, max = 256, default = 32, page = KnoxSurvivors_Main, translation = KnoxSurvivors_WorldPopulation,
+}
+
+option KnoxSurvivors.DisableSurvivorCaps = {
+    type = boolean, default = false, page = KnoxSurvivors_Main, translation = KnoxSurvivors_DisableSurvivorCaps,
 }
 
 option KnoxSurvivors.MaxActiveSurvivors = {
-    type = integer, min = 1, max = 32, default = 8, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MaxActiveSurvivors,
+    type = integer, min = 1, max = 48, default = 12, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MaxActiveSurvivors,
 }
 
 option KnoxSurvivors.PopulationRefillDays = {
@@ -38,6 +42,22 @@ option KnoxSurvivors.ShowCompanionHUD = {
 
 option KnoxSurvivors.ShowActivityFeed = {
     type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ShowActivityFeed,
+}
+
+option KnoxSurvivors.ShowSurvivorSpeech = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ShowSurvivorSpeech,
+}
+
+option KnoxSurvivors.ShowSurvivorNameplates = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ShowSurvivorNameplates,
+}
+
+option KnoxSurvivors.SurvivorNameplateDistance = {
+    type = integer, min = 8, max = 40, default = 24, page = KnoxSurvivors_Main, translation = KnoxSurvivors_SurvivorNameplateDistance,
+}
+
+option KnoxSurvivors.AllowSurvivorPlayerCombat = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowSurvivorPlayerCombat,
 }
 
 option KnoxSurvivors.EnableDeveloperTools = {

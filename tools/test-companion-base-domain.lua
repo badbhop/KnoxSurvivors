@@ -81,6 +81,13 @@ assert(KnoxPersistence.setRecord("independent", "record-independent"))
 KnoxPersistence.ensureSurvivorIdentity("independent", "June", "Reed", 24)
 local relation = KnoxPersistence.getPlayerRelationship(playerId, "independent")
 relation.trust = 60
+local refusal = assert(KnoxPersistence.recordPlayerRecruitRefusal(
+    playerId, "independent", 24, 0.5
+))
+assert(refusal.nextRecruitHours == 24.5, "recruitment refusal keeps a bounded cooldown")
+assert(KnoxPersistence.getPlayerRelationship(playerId, "independent").nextRecruitHours == 24.5,
+    "recruitment refusal persists in the existing player relationship")
+refusal.nextRecruitHours = 0
 local recruited, recruitResult = KnoxPersistence.setPlayerCompanion(
     "independent",
     playerId,
@@ -310,4 +317,25 @@ assert(KnoxPersistence.cancelBaseTask(base.id, inProgressTask.id, 27) == nil
     and inProgressTask.state == "claimed",
     "cancelling never interrupts a resident-owned world action")
 
-print("Companion/base domain PASS migration=true recruitment=true base=true tasks=true")
+local blockedMove, blockedMoveResult = KnoxPersistence.relocateBase(base.id, {
+    buildingId = "new-player-home", x = 105, y = 205, z = 0,
+    minX = 100, minY = 200, width = 10, height = 8,
+}, { minX = 94, minY = 194, maxX = 115, maxY = 213 }, 28)
+assert(blockedMove == nil and blockedMoveResult == "task_in_progress",
+    "base relocation must not orphan a resident-owned action")
+assert(base.home.buildingId == "player-home", "failed relocation leaves the old base intact")
+assert(KnoxPersistence.finishBaseTask(base.id, inProgressTask.id, "resident-two", true, "done", 28))
+local moved, moveResult = KnoxPersistence.relocateBase(base.id, {
+    buildingId = "new-player-home", x = 105, y = 205, z = 0,
+    minX = 100, minY = 200, width = 10, height = 8,
+}, { minX = 94, minY = 194, maxX = 115, maxY = 213 }, 28)
+assert(moved == base and moveResult == "relocated", tostring(moveResult))
+assert(base.home.buildingId == "new-player-home"
+    and base.territory.minX == 94 and base.territory.maxY == 213,
+    "relocation updates home and padded territory transactionally")
+assert(next(base.zones) == nil and next(base.storage) == nil and next(base.tasks) == nil,
+    "old location metadata is cleared without replacing the base identity")
+assert(#KnoxPersistence.getBaseResidentIds(base.id) == 1,
+    "resident ownership survives relocation through the stable base ID")
+
+print("Companion/base domain PASS migration=true recruitment=true base=true tasks=true relocation=true")

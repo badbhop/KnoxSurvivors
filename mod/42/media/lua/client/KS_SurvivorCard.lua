@@ -338,8 +338,25 @@ local function ensureViews(window)
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
         view.char = survivor
-        view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
+        -- ISSkillProgressBar:new() resolves getSpecificPlayer(playerNum) inside
+        -- its constructor. Keep the real local UI owner here, then bind every
+        -- created vanilla bar to the selected off-slot survivor before child
+        -- rendering. The panel itself already reads skill data from view.char.
+        view.playerNum = window.playerNum
         view.knoxSnapshot = window.snapshot
+        local vanillaSkillsRender = view.render
+        view.render = function(self)
+            vanillaSkillsRender(self)
+            if self.char == nil then return end
+            for _, progressBar in ipairs(self.progressBars or {}) do
+                progressBar.char = self.char
+                progressBar.level = self.char:getPerkLevel(progressBar.perk:getType())
+                progressBar.xpForLvl = ISSkillProgressBar.getXpForLvl(
+                    progressBar.perk,
+                    progressBar.level
+                )
+            end
+        end
         if survivor ~= nil then
             view.perks = ISCharacterInfo.loadPerk(view)
             view.progressBarLoaded = false
@@ -352,12 +369,6 @@ local function ensureViews(window)
         local localPlayer = getSpecificPlayer(window.playerNum)
         local view = ISHealthPanel:new(survivor, 0, 8, window.panel.width, window.panel.height - 8)
         view:initialise()
-        -- ISHealthPanel separates construction from initialise in Build 42.
-        -- Without this call its internal body-part list/health panel remain nil
-        -- and the first render or tab switch throws inside vanilla UI code.
-        local healthChildrenReady = pcall(function() view:createChildren() end)
-        if not healthChildrenReady then view = false end
-        if view ~= nil and view ~= false then
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
         if localPlayer ~= nil then
@@ -367,8 +378,9 @@ local function ensureViews(window)
             view.doctorLevel = localPlayer:getPerkLevel(Perks.Doctor)
         end
         window.healthView = view
+        -- addView/addChild instantiates the panel and calls createChildren once.
+        -- Calling it manually here duplicated both vanilla body presentations.
         window.panel:addView(xpSystemText.health, view)
-        end
     end
     if window.protectionView == nil and survivor ~= nil then
         local view = ISCharacterProtection:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
@@ -424,7 +436,7 @@ local function ensureViews(window)
         window.infoView.knoxWindow = window
         if window.skillsView.char ~= survivor then
             window.skillsView.char = survivor
-            window.skillsView.playerNum = survivor:getPlayerNum()
+            window.skillsView.playerNum = window.playerNum
             window.skillsView.perks = ISCharacterInfo.loadPerk(window.skillsView)
             window.skillsView.progressBarLoaded = false
             window.skillsView.reloadSkillBar = true

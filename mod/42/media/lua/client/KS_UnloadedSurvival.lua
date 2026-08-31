@@ -16,7 +16,15 @@ local FATIGUE_RECOVERY_PER_HOUR = 0.055
 local ENDURANCE_RECOVERY_PER_HOUR = 0.090
 local STARVATION_DAMAGE_PER_HOUR = 1.20
 local DEHYDRATION_DAMAGE_PER_HOUR = 2.00
-local TRAVEL_TILES_PER_HOUR = 1.25
+local RETURN_TILES_PER_HOUR = 40
+local GROUP_REGROUP_DISTANCE = 20
+local GROUP_REJOIN_DISTANCE = 6
+local AWAKE_FATIGUE_PER_HOUR = 0.020
+local WALK_ENDURANCE_PER_HOUR = 0.025
+local REST_ENDURANCE = 0.30
+local RESUME_ENDURANCE = 0.80
+local SLEEP_FATIGUE = 0.72
+local WAKE_FATIGUE = 0.35
 
 local function clamp(value, low, high)
     return math.max(low, math.min(high, tonumber(value) or low))
@@ -27,59 +35,28 @@ local function nowHours()
         and tonumber(getGameTime():getWorldAgeHours()) or 0
 end
 
-local function summaryCounts(summary)
-    local counts = {}
-    for typeName, amount in string.gmatch(tostring(summary or ""), "([^;=]+)=([0-9]+)") do
-        counts[typeName] = math.max(0, math.floor(tonumber(amount) or 0))
-    end
-    return counts
-end
-
-local function classify(typeName)
-    if InventoryItemFactory == nil or InventoryItemFactory.CreateItem == nil then
-        return nil
-    end
-    local ok, item = pcall(InventoryItemFactory.CreateItem, typeName)
-    if not ok or item == nil then
-        return nil
-    end
-    local food = false
-    local water = false
-    pcall(function()
-        food = item:IsFood() and item:getHungerChange() < 0
-    end)
-    pcall(function()
-        local fluid = item:getFluidContainer()
-        water = fluid ~= nil and fluid:getAmount() > 0
-    end)
-    return { food = food, water = water }
-end
-
-local function chooseSupply(summary, wanted)
-    for typeName, amount in pairs(summaryCounts(summary)) do
-        if amount > 0 then
-            local item = classify(typeName)
-            if item ~= nil and item[wanted] then
-                return typeName
-            end
-        end
-    end
-    return nil
-end
-
-local function consumeStoredItem(id, typeName)
+local function consumeStoredSupply(id, kind, amount)
     local persistence = rawget(_G, "KnoxPersistence")
     local bridge = rawget(_G, "KnoxJavaBridge")
-    if persistence == nil or bridge == nil or bridge.consumeNpcRecordItem == nil then
+    if persistence == nil or bridge == nil or bridge.consumeNpcRecordSupply == nil then
         return false, "record_mutator_unavailable"
     end
     local record = persistence.getRecord(id)
     if record == nil then
         return false, "record_unavailable"
     end
-    local ok, updated = pcall(bridge.consumeNpcRecordItem, bridge, record, typeName)
-    if not ok or type(updated) ~= "string" or updated == "" then
+    local ok, result = pcall(bridge.consumeNpcRecordSupply, bridge, record, kind, amount)
+    if not ok or result == nil then
         return false, "item_not_present"
+    end
+    local readOk, updated, hunger, thirst, itemType = pcall(function()
+        return result:get("record"), tonumber(result:get("hungerRelief")),
+            tonumber(result:get("thirstRelief")), tostring(result:get("itemType"))
+    end)
+    if not readOk or type(updated) ~= "string" or updated == "" or updated == record
+        or hunger == nil or thirst == nil or hunger ~= hunger or thirst ~= thirst
+        or hunger < 0 or hunger > 1 or math.abs(thirst) > 1 then
+        return false, "invalid_supply_result"
     end
     if not persistence.setRecord(id, updated) then
         return false, "record_save_failed"
@@ -88,7 +65,7 @@ local function consumeStoredItem(id, typeName)
     if summaryOk and type(summary) == "string" then
         persistence.setInventorySummary(id, summary, nowHours())
     end
-    return true, typeName
+    return true, itemType, hunger, thirst
 end
 
 local function ensureState(id, snapshot, hours)
@@ -141,7 +118,7 @@ end
 
 local function advanceWorldActivity(id, state, elapsed, hours)
     local persistence = rawget(_G, "KnoxPersistence")
-    if persistence == nil then return end
+    if persistence == nil then return 0 end
     local duty = persistence.getSurvivorDuty ~= nil
         and persistence.getSurvivorDuty(id) or {}
     if duty.mode == "away" then
@@ -160,14 +137,32 @@ local function advanceWorldActivity(id, state, elapsed, hours)
             state.virtualAtHours = hours
         end
         setActivity(state, "away_mission", hours)
-        return
+        return 0
     end
     local x, y, z = tonumber(state.virtualX), tonumber(state.virtualY), tonumber(state.virtualZ)
     if x == nil or y == nil or z == nil then
         x, y, z = recordLocation(id)
     end
-    if x == nil then return end
+    if x == nil or y == nil or z == nil then return 0 end
     local returning = type(state.baseReturn) == "table" and state.baseReturn or nil
+    if returning ~= nil then
+        local base = duty.mode == "base" and duty.baseId ~= nil
+            and persistence.getBase(duty.baseId) or nil
+        local area = base ~= nil and (base.territory or base.home) or nil
+        if area == nil or tonumber(area.minX) == nil or tonumber(area.minY) == nil then
+            -- Dismiss/recruit/base removal must not leave a trip owning this person.
+            state.baseReturn, returning = nil, nil
+        else
+            -- A relocated/reassigned base supersedes the old destination from the
+            -- current virtual position, never from the original departure point.
+            returning.baseId = duty.baseId
+            returning.targetX = math.floor(tonumber(area.minX))
+                + math.floor((math.max(1, tonumber(area.width) or 1) - 1) / 2)
+            returning.targetY = math.floor(tonumber(area.minY))
+                + math.floor((math.max(1, tonumber(area.height) or 1) - 1) / 2)
+            returning.targetZ = tonumber(area.z) or z
+        end
+    end
     if returning ~= nil and tonumber(returning.targetX) ~= nil
         and tonumber(returning.targetY) ~= nil then
         local targetX = tonumber(returning.targetX)
@@ -175,7 +170,7 @@ local function advanceWorldActivity(id, state, elapsed, hours)
         local targetZ = tonumber(returning.targetZ) or z
         local dx, dy = targetX - x, targetY - y
         local distance = math.sqrt(dx * dx + dy * dy)
-        local travel = math.max(0, elapsed) * TRAVEL_TILES_PER_HOUR
+        local travel = math.max(0, elapsed) * RETURN_TILES_PER_HOUR
         if distance <= math.max(0.01, travel) then
             x, y, z = targetX, targetY, targetZ
             state.baseReturn = nil
@@ -183,12 +178,11 @@ local function advanceWorldActivity(id, state, elapsed, hours)
         else
             x = x + dx / distance * travel
             y = y + dy / distance * travel
-            z = targetZ
             setActivity(state, "returning_to_base", hours)
         end
         state.virtualX, state.virtualY, state.virtualZ = x, y, z
         state.virtualAtHours = hours
-        return
+        return math.min(elapsed, distance / RETURN_TILES_PER_HOUR)
     end
     if duty.mode == "base" and duty.baseId ~= nil then
         local base = persistence.getBase ~= nil and persistence.getBase(duty.baseId) or nil
@@ -218,20 +212,88 @@ local function advanceWorldActivity(id, state, elapsed, hours)
     else
         local group = persistence.getTravelGroupFor ~= nil
             and persistence.getTravelGroupFor(id) or nil
-        local affiliation = persistence.getSurvivorAffiliation ~= nil
-            and persistence.getSurvivorAffiliation(id) or {}
-        local travelKey = group ~= nil and group.id
-            or affiliation.factionId or id
-        local phase = math.floor((tonumber(state.lastHours) or hours) / MAX_STEP_HOURS)
-        local angle = (stableHash(tostring(travelKey) .. ":" .. tostring(phase)) % 628) / 100
-        local distance = math.max(0, elapsed) * TRAVEL_TILES_PER_HOUR
-        x = x + math.cos(angle) * distance
-        y = y + math.sin(angle) * distance
-        setActivity(state, group ~= nil and "group_travel" or "surviving", hours)
+        local population = rawget(_G, "KnoxWorldPopulation")
+        if group == nil then
+            state.virtualX, state.virtualY, state.virtualZ = x, y, z
+            local moving = 0
+            if population ~= nil and population.advanceItinerary ~= nil then
+                local advanced, _, travelHours = population.advanceItinerary(id, state, hours - elapsed, hours)
+                if advanced then moving = tonumber(travelHours) or 0 end
+            end
+            setActivity(state, moving > 0 and "surviving" or "sheltering", hours)
+            state.virtualAtHours = hours
+            return moving
+        end
+        -- Only the batch scheduler can move a whole stored group. A single
+        -- member update must not drift away from a still-loaded group member.
+        setActivity(state, "group_waiting", hours)
     end
     state.virtualX = x
     state.virtualY = y
     state.virtualZ = z
+    state.virtualAtHours = hours
+    return 0
+end
+
+local function advanceRestAndTravel(id, state, elapsed, hours, cohort)
+    local persistence = rawget(_G, "KnoxPersistence")
+    local duty = persistence.getSurvivorDuty(id) or {}
+    if duty.mode == "away" then
+        -- Away teams retain their existing mission travel/recovery owner.
+        advanceWorldActivity(id, state, elapsed, hours)
+        state.fatigue = clamp(state.fatigue - FATIGUE_RECOVERY_PER_HOUR * elapsed, 0, 1)
+        state.endurance = clamp(state.endurance + ENDURANCE_RECOVERY_PER_HOUR * elapsed, 0, 1)
+        return
+    end
+    if state.virtualX == nil then
+        state.virtualX, state.virtualY, state.virtualZ = recordLocation(id)
+    end
+    local needs = rawget(_G, "KnoxSurvivorNeeds")
+    local sleepEnabled = needs ~= nil and needs.sleepRequired ~= nil and needs.sleepRequired() == true
+    local cursor = hours - elapsed
+    -- Split at rest/travel transitions rather than granting sleep while walking.
+    -- All clocks and intent stay in the existing serializable survival ledger.
+    for _ = 1, 8 do
+        if cursor >= hours - 0.000001 then break end
+        if state.restMode == "sleep" and (not sleepEnabled or state.fatigue <= WAKE_FATIGUE + 0.000001) then
+            state.restMode = nil
+        elseif state.restMode == "rest" and state.endurance >= RESUME_ENDURANCE - 0.000001 then
+            state.restMode = nil
+        end
+        if state.restMode ~= "sleep" and state.restMode ~= "rest" then state.restMode = nil end
+        if state.restMode == nil then
+            if sleepEnabled and state.fatigue >= SLEEP_FATIGUE - 0.000001 then state.restMode = "sleep"
+            elseif state.endurance <= REST_ENDURANCE + 0.000001 then state.restMode = "rest" end
+        end
+        local span = hours - cursor
+        if state.restMode ~= nil then
+            local sleeping = state.restMode == "sleep"
+            local recoveryHours = sleeping and (state.fatigue - WAKE_FATIGUE) / FATIGUE_RECOVERY_PER_HOUR
+                or (RESUME_ENDURANCE - state.endurance) / ENDURANCE_RECOVERY_PER_HOUR
+            span = math.min(span, math.max(0.000001, recoveryHours))
+            state.fatigue = clamp(state.fatigue + (sleeping and -FATIGUE_RECOVERY_PER_HOUR
+                or (sleepEnabled and AWAKE_FATIGUE_PER_HOUR or 0)) * span, 0, 1)
+            state.endurance = clamp(state.endurance + ENDURANCE_RECOVERY_PER_HOUR * span, 0, 1)
+            setActivity(state, sleeping and "sleeping" or "resting", cursor)
+        else
+            span = math.min(span, math.max(0.000001,
+                (state.endurance - REST_ENDURANCE) / WALK_ENDURANCE_PER_HOUR))
+            if sleepEnabled then
+                span = math.min(span, math.max(0.000001,
+                    (SLEEP_FATIGUE - state.fatigue) / AWAKE_FATIGUE_PER_HOUR))
+            end
+            local moving = clamp(cohort ~= nil and cohort.move(span, cursor + span)
+                or advanceWorldActivity(id, state, span, cursor + span), 0, span)
+            state.endurance = clamp(state.endurance - WALK_ENDURANCE_PER_HOUR * moving
+                + ENDURANCE_RECOVERY_PER_HOUR * (span - moving), 0, 1)
+            if sleepEnabled then state.fatigue = clamp(state.fatigue + AWAKE_FATIGUE_PER_HOUR * span, 0, 1) end
+        end
+        if cohort ~= nil then
+            state.fatigue, state.endurance = cohort.apply(span, state.restMode, sleepEnabled,
+                state.activity, cursor + span)
+        end
+        cursor = cursor + span
+    end
     state.virtualAtHours = hours
 end
 
@@ -249,6 +311,15 @@ function Simulation.captureLoaded(id, snapshot, hours)
     state.bleedingParts = math.max(0, math.floor(tonumber(snapshot.bleedingParts) or 0))
     state.lastHours = tonumber(hours) or nowHours()
     state.status = "loaded"
+    state.pendingMaterialization = nil
+    state.travelTarget, state.departAtHours = nil, nil
+    state.currentTravelKey, state.previousTravelKey, state.travelSequence = nil, nil, nil
+    state.travelPhase, state.restMode = nil, nil
+    -- captureActiveSurvivor has already saved the real current body. Old virtual
+    -- coordinates must not win over movement performed since its last activation.
+    local x, y, z = recordLocation(id)
+    state.virtualX, state.virtualY, state.virtualZ = x, y, z
+    state.virtualAtHours = state.lastHours
     return persistence.setUnloadedSurvivalState(id, state)
 end
 
@@ -263,7 +334,10 @@ function Simulation.beginBaseReturn(id, base, hours)
         return false, "base_destination_unavailable"
     end
     local now = tonumber(hours) or nowHours()
-    local state = ensureState(id, nil, now)
+    local state = persistence.getUnloadedSurvivalState(id)
+    if state == nil or state.pendingMaterialization == true then
+        return false, "real_survival_snapshot_required"
+    end
     -- captureActiveSurvivor has just written the current engine position into
     -- the record. Prefer that fresh location over any old virtual route.
     local x, y, z = recordLocation(id)
@@ -289,38 +363,35 @@ function Simulation.beginBaseReturn(id, base, hours)
     return true, "base_return_started"
 end
 
-local function advanceOne(id, state, hours)
+local function advanceOne(id, state, hours, activityAdvanced)
     local elapsed = math.max(0, hours - (tonumber(state.lastHours) or hours))
     if elapsed <= 0 then
         return state, nil
     end
     state.hunger = clamp(state.hunger + HUNGER_PER_HOUR * elapsed, 0, 1)
     state.thirst = clamp(state.thirst + THIRST_PER_HOUR * elapsed, 0, 1)
-    state.fatigue = clamp(state.fatigue - FATIGUE_RECOVERY_PER_HOUR * elapsed, 0, 1)
-    state.endurance = clamp(state.endurance + ENDURANCE_RECOVERY_PER_HOUR * elapsed, 0, 1)
-    advanceWorldActivity(id, state, elapsed, hours)
-    local persistence = rawget(_G, "KnoxPersistence")
-    local summary = persistence ~= nil and persistence.getInventorySummary(id) or ""
+    if not activityAdvanced then advanceRestAndTravel(id, state, elapsed, hours) end
     local events = {}
     if state.thirst >= WATER_TRIGGER then
-        local water = chooseSupply(summary, "water")
-        if water ~= nil then
-            local consumed, evidence = consumeStoredItem(id, water)
-            if consumed then
-                state.thirst = WATER_AFTER_DRINK
-                events[#events + 1] = "drank=" .. evidence
-                summary = persistence.getInventorySummary(id)
-            end
+        for _ = 1, 4 do
+            if state.thirst <= WATER_AFTER_DRINK + 0.00001 then break end
+            local consumed, evidence, hunger, thirst = consumeStoredSupply(id, "water", state.thirst - WATER_AFTER_DRINK)
+            if not consumed then break end
+            state.hunger = clamp(state.hunger - hunger, 0, 1)
+            state.thirst = clamp(state.thirst - thirst, 0, 1)
+            events[#events + 1] = "drank=" .. evidence
+            if thirst <= 0 then break end
         end
     end
     if state.hunger >= FOOD_TRIGGER then
-        local food = chooseSupply(summary, "food")
-        if food ~= nil then
-            local consumed, evidence = consumeStoredItem(id, food)
-            if consumed then
-                state.hunger = FOOD_AFTER_MEAL
-                events[#events + 1] = "ate=" .. evidence
-            end
+        for _ = 1, 4 do
+            if state.hunger <= FOOD_AFTER_MEAL + 0.00001 then break end
+            local consumed, evidence, hunger, thirst = consumeStoredSupply(id, "food", state.hunger - FOOD_AFTER_MEAL)
+            if not consumed then break end
+            state.hunger = clamp(state.hunger - hunger, 0, 1)
+            state.thirst = clamp(state.thirst - thirst, 0, 1)
+            events[#events + 1] = "ate=" .. evidence
+            if hunger <= 0 then break end
         end
     end
     if state.hunger >= 0.95 then
@@ -342,7 +413,10 @@ function Simulation.advanceHibernated(id, hours)
         return false, "not_hibernated"
     end
     local targetHours = tonumber(hours) or nowHours()
-    local state = ensureState(id, nil, targetHours)
+    local state = persistence.getUnloadedSurvivalState(id)
+    if state == nil or state.pendingMaterialization == true then
+        return false, "real_survival_snapshot_required"
+    end
     local events = {}
     while (tonumber(state.lastHours) or targetHours) < targetHours do
         local stepHours = math.min(
@@ -366,6 +440,167 @@ function Simulation.advanceHibernated(id, hours)
     return true, #events > 0 and table.concat(events, ",") or "advanced"
 end
 
+local function finite(value)
+    value = tonumber(value)
+    return value ~= nil and value == value and value > -math.huge and value < math.huge
+end
+
+local function advanceStoredGroup(group, active, hours)
+    local persistence = KnoxPersistence
+    local members, seen = {}, {}
+    local start = 0
+    -- Validate the whole cohort before changing anything. Companion/base/mission
+    -- duties and active bodies remain owned by their existing controllers.
+    for _, id in ipairs(group.memberIds or {}) do
+        if not seen[id] and persistence.isSurvivorAlive(id) then
+            seen[id] = true
+            local duty = persistence.getSurvivorDuty(id)
+            local state = persistence.getUnloadedSurvivalState(id)
+            local canonical = persistence.getTravelGroupFor(id)
+            if active[id] or duty == nil or duty.mode ~= "autonomous"
+                or canonical == nil or canonical.id ~= group.id
+                or persistence.getRecord(id) == nil or state == nil
+                or state.pendingMaterialization or not finite(state.lastHours) then return nil end
+            if state.virtualX == nil then
+                state.virtualX, state.virtualY, state.virtualZ = recordLocation(id)
+            end
+            if not finite(state.virtualX) or not finite(state.virtualY) or not finite(state.virtualZ)
+                or not finite(state.fatigue) or not finite(state.endurance) then return nil end
+            start = math.max(start, state.lastHours)
+            members[#members + 1] = { id = id, state = state }
+        end
+    end
+    if #members < 2 or start > hours then return nil end
+    table.sort(members, function(a, b) return a.id < b.id end)
+    local anchor, ids = members[1], {}
+    for _, member in ipairs(members) do
+        ids[#ids + 1] = member.id
+        if member.id == group.leaderId then anchor = member end
+    end
+    for _, member in ipairs(members) do
+        if member.state.virtualZ ~= anchor.state.virtualZ then return nil end
+    end
+    local results = {}
+    -- Different capture times cannot grant earlier movement to the later member.
+    -- Catch up physiology in place before starting the shared interval.
+    for _, member in ipairs(members) do
+        if member.state.lastHours < start then
+            local ok, result = Simulation.advanceHibernated(member.id, start)
+            if ok then results[member.id] = result end
+            member.state = persistence.getUnloadedSurvivalState(member.id)
+            if not persistence.isSurvivorAlive(member.id) then return results end
+        end
+    end
+    local signature = table.concat(ids, ":") .. ":leader:" .. anchor.id
+    local shared = group.unloadedTravel
+    if type(shared) ~= "table" or shared.members ~= signature or shared.lastHours ~= start
+        or shared.virtualX ~= anchor.state.virtualX or shared.virtualY ~= anchor.state.virtualY
+        or shared.virtualZ ~= anchor.state.virtualZ then
+        shared = { members = signature, lastHours = start, virtualX = anchor.state.virtualX,
+            virtualY = anchor.state.virtualY, virtualZ = anchor.state.virtualZ }
+        -- Membership/capture changes discard stale routing, not existing rest.
+        for _, member in ipairs(members) do
+            if member.state.restMode == "sleep" then shared.restMode = "sleep" break end
+            if member.state.restMode == "rest" then shared.restMode = "rest" end
+        end
+    end
+    local function condition()
+        local fatigue, endurance = 0, 1
+        for _, member in ipairs(members) do
+            fatigue = math.max(fatigue, member.state.fatigue)
+            endurance = math.min(endurance, member.state.endurance)
+        end
+        return fatigue, endurance
+    end
+    local moved = {}
+    local cohort = {}
+    cohort.move = function(span, atHours)
+        moved = {}
+        local regroup = shared.regrouping == true
+        for _, member in ipairs(members) do
+            local dx = member.state.virtualX - anchor.state.virtualX
+            local dy = member.state.virtualY - anchor.state.virtualY
+            if dx * dx + dy * dy > GROUP_REGROUP_DISTANCE * GROUP_REGROUP_DISTANCE then regroup = true end
+        end
+        if regroup then
+            local stillSeparated, movingHours = false, 0
+            for _, member in ipairs(members) do
+                local state = member.state
+                local dx, dy = anchor.state.virtualX - state.virtualX, anchor.state.virtualY - state.virtualY
+                local distance = math.sqrt(dx * dx + dy * dy)
+                local travel = math.min(math.max(0, distance - GROUP_REJOIN_DISTANCE), RETURN_TILES_PER_HOUR * span)
+                if travel > 0 then
+                    state.virtualX = state.virtualX + dx / distance * travel
+                    state.virtualY = state.virtualY + dy / distance * travel
+                end
+                moved[member.id] = travel / RETURN_TILES_PER_HOUR
+                movingHours = math.max(movingHours, moved[member.id])
+                if distance - travel > GROUP_REJOIN_DISTANCE + .000001 then stillSeparated = true end
+            end
+            shared.regrouping = stillSeparated or nil
+            setActivity(shared, "group_regrouping", atHours)
+            return movingHours
+        end
+        local x, y = shared.virtualX, shared.virtualY
+        local population = rawget(_G, "KnoxWorldPopulation")
+        local movingHours = 0
+        if population ~= nil and population.advanceItinerary ~= nil then
+            local advanced, _, travelHours = population.advanceItinerary(group.id, shared, atHours - span, atHours)
+            if advanced then movingHours = clamp(travelHours, 0, span) end
+        end
+        local dx, dy = shared.virtualX - x, shared.virtualY - y
+        for _, member in ipairs(members) do
+            member.state.virtualX = member.state.virtualX + dx
+            member.state.virtualY = member.state.virtualY + dy
+            moved[member.id] = movingHours
+        end
+        setActivity(shared, movingHours > 0 and "group_travel" or "sheltering", atHours)
+        return movingHours
+    end
+    cohort.apply = function(span, restMode, sleepEnabled, activity, atHours)
+        for _, member in ipairs(members) do
+            local state = member.state
+            local moving = restMode == nil and (moved[member.id] or 0) or 0
+            state.endurance = clamp(state.endurance - WALK_ENDURANCE_PER_HOUR * moving
+                + ENDURANCE_RECOVERY_PER_HOUR * (span - moving), 0, 1)
+            local fatigueRate = restMode == "sleep" and -FATIGUE_RECOVERY_PER_HOUR
+                or (sleepEnabled and AWAKE_FATIGUE_PER_HOUR or 0)
+            state.fatigue = clamp(state.fatigue + fatigueRate * span, 0, 1)
+            state.restMode = restMode
+            state.virtualAtHours = atHours
+            setActivity(state, activity, atHours)
+        end
+        return condition()
+    end
+    while start < hours do
+        local step = math.min(hours, start + MAX_STEP_HOURS)
+        shared.fatigue, shared.endurance = condition()
+        advanceRestAndTravel(anchor.id, shared, step - start, step, cohort)
+        -- Condition is derived from real member ledgers, not a parallel group stat.
+        shared.fatigue, shared.endurance = nil, nil
+        local died = false
+        for _, member in ipairs(members) do
+            local state, event = advanceOne(member.id, member.state, step, true)
+            persistence.setUnloadedSurvivalState(member.id, state)
+            if state.status == "dead" then
+                persistence.markSurvivorDead(member.id, step, "unloaded_survival")
+                results[member.id], died = "died", true
+            elseif event ~= nil then
+                results[member.id] = results[member.id] ~= nil and results[member.id] ~= "advanced"
+                    and (results[member.id] .. "," .. event) or event
+            else results[member.id] = results[member.id] or "advanced" end
+        end
+        shared.lastHours = step
+        group.unloadedTravel = shared
+        start = step
+        -- Death may replace the leader or dissolve the group. Rebuild the cohort
+        -- from canonical membership on the next reconciliation, never resurrect it.
+        if died then break end
+    end
+    for _, member in ipairs(members) do results[member.id] = results[member.id] or "advanced" end
+    return results
+end
+
 function Simulation.advanceAll(activeIds, hours)
     local active = {}
     for _, id in ipairs(activeIds or {}) do
@@ -376,8 +611,35 @@ function Simulation.advanceAll(activeIds, hours)
         return 0, 0
     end
     local advanced, notable = 0, 0
-    for _, id in ipairs(persistence.getActivatableSurvivorIds()) do
-        if not active[id] and persistence.getRecord(id) ~= nil then
+    local ids = persistence.getActivatableSurvivorIds()
+    local groups, groupIds, handled = {}, {}, {}
+    for _, id in ipairs(ids) do
+        local group = persistence.getTravelGroupFor ~= nil and persistence.getTravelGroupFor(id) or nil
+        if group ~= nil and not groups[group.id] then
+            groups[group.id] = group
+            groupIds[#groupIds + 1] = group.id
+        end
+    end
+    table.sort(groupIds)
+    for _, groupId in ipairs(groupIds) do
+        local results = advanceStoredGroup(groups[groupId], active, hours or nowHours())
+        for id, result in pairs(results or {}) do
+            handled[id] = true
+            advanced = advanced + 1
+            if result ~= "advanced" then
+                notable = notable + 1
+                print("[KnoxSurvivors][Unloaded] id=" .. id .. " event=" .. tostring(result))
+            end
+        end
+    end
+    for _, id in ipairs(ids) do
+        if not active[id] and persistence.getRecord(id) == nil then
+            local population = rawget(_G, "KnoxWorldPopulation")
+            if population ~= nil and population.advanceOriginTravel ~= nil then
+                local ok = population.advanceOriginTravel(id, hours or nowHours())
+                if ok then advanced = advanced + 1 end
+            end
+        elseif not active[id] and not handled[id] and persistence.getRecord(id) ~= nil then
             -- Away teams own travel, risk, and mission results, but they do
             -- not suspend physiology.  Their durable ledger still advances
             -- hunger, thirst, fatigue, endurance, inventory consumption, and
@@ -400,6 +662,9 @@ function Simulation.applyToLoaded(id, character)
     local state = persistence ~= nil and persistence.getUnloadedSurvivalState(id) or nil
     if state == nil or character == nil then
         return false, "no_stored_state"
+    end
+    if state.pendingMaterialization == true then
+        return false, "no_real_survival_snapshot"
     end
     local ok, evidence = pcall(function()
         local stats = character:getStats()

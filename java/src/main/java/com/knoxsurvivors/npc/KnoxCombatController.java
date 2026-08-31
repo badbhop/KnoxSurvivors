@@ -10,8 +10,12 @@ final class KnoxCombatController {
     private static final int AIM_SETTLE_TICKS = 18;
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
     private static final int ATTACK_RECOVERY_TICKS = 24;
+    private static final int MELEE_RECOVERY_TICKS = 30;
     private static final int MISSED_SWINGS_BEFORE_REPOSITION = 3;
+    private static final float ATTACK_ENTRY_BUFFER = 0.05f;
     private static final float REAPPROACH_BUFFER = 0.20f;
+    private static final int RANGED_REPOSITION_COOLDOWN_TICKS = 60;
+    private static final int APPROACH_REFRESH_TICKS = 30;
 
     private KnoxNpc npc;
     private Object target;
@@ -25,6 +29,7 @@ final class KnoxCombatController {
     private float weaponMaxRange;
     private float desiredAttackRange;
     private boolean rangedWeapon;
+    private Object combatWeapon;
     private boolean damageObserved;
     private boolean attackAnimationObserved;
     private int aimTicks;
@@ -35,15 +40,20 @@ final class KnoxCombatController {
     private int defenseWindowUntil;
     private Object approachSquare;
     private int attacksAtLastDamage;
+    private int lastRangedRepositionTick = -RANGED_REPOSITION_COOLDOWN_TICKS;
+    private int lastApproachTick;
+    private float approachTargetX;
+    private float approachTargetY;
+    private int stationaryApproachRetries;
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
         return begin(activeNpc, zombie, approachSquare, true);
     }
 
-    String beginLive(KnoxNpc activeNpc, Object zombie, Object approachSquare)
+    String beginLive(KnoxNpc activeNpc, Object target, Object approachSquare)
         throws ReflectiveOperationException {
-        return begin(activeNpc, zombie, approachSquare, false);
+        return begin(activeNpc, target, approachSquare, false);
     }
 
     String beginLockedDoor(KnoxNpc activeNpc, Object door)
@@ -78,9 +88,14 @@ final class KnoxCombatController {
         }
         initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
             .invoke(weapon)).intValue();
+        combatWeapon = weapon;
         rangedWeapon = (Boolean) weapon.getClass().getMethod("isRanged").invoke(weapon);
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
+
+        // An interrupted prior action must not leak attack input into door combat.
+        clearAttackIntent();
+        npc.setCombatActive(true);
         phase = "AIMING";
         clearMovementIntent();
         String result = "COMBAT_STARTED mode=locked-door targetHealth="
@@ -93,20 +108,25 @@ final class KnoxCombatController {
 
     private String begin(
         KnoxNpc activeNpc,
-        Object zombie,
+        Object combatTarget,
         Object approachSquare,
         boolean controlledGate
     ) throws ReflectiveOperationException {
         if (activeNpc == null) {
             return "COMBAT_FAILED NONE_ACTIVE";
         }
-        if (zombie == null || !inherits(zombie, "zombie.characters.IsoZombie")) {
+        boolean zombieTarget = combatTarget != null
+            && inherits(combatTarget, "zombie.characters.IsoZombie");
+        boolean humanTarget = combatTarget != null
+            && inherits(combatTarget, "zombie.characters.IsoPlayer");
+        if (combatTarget == null || (!zombieTarget && (!liveTargetMode(controlledGate)
+            || !humanTarget))) {
             return "COMBAT_FAILED INVALID_TARGET";
         }
 
         reset();
         npc = activeNpc;
-        target = zombie;
+        target = combatTarget;
         this.approachSquare = approachSquare;
         liveCombat = !controlledGate;
         Object body = npc.getBody();
@@ -120,6 +140,11 @@ final class KnoxCombatController {
             return "COMBAT_FAILED CALLBACK_PATCH_NOT_READY calls="
                 + KnoxCombatGate.getPatchedCallCount();
         }
+        if (!controlledGate && zombieTarget && !KnoxCombatGate.isVisibilityPatchReady()) {
+            reset();
+            return "COMBAT_FAILED ZOMBIE_VISIBILITY_PATCH_NOT_READY calls="
+                + KnoxCombatGate.getVisibilityPatchedCallCount();
+        }
         Object weapon = body.getClass().getMethod("getPrimaryHandItem").invoke(body);
         if (weapon == null || !inherits(weapon, "zombie.inventory.types.HandWeapon")) {
             reset();
@@ -128,6 +153,8 @@ final class KnoxCombatController {
 
         initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
             .invoke(weapon)).intValue();
+        combatWeapon = weapon;
+        rangedWeapon = (Boolean) weapon.getClass().getMethod("isRanged").invoke(weapon);
         // Combat always interrupts rest. Clear posture flags that can remain set for a
         // frame after a timed sit/rest action and make both zombie eligibility and melee
         // movement treat the visibly standing shell as prone.
@@ -136,10 +163,10 @@ final class KnoxCombatController {
         body.getClass().getMethod("setOnFloor", boolean.class).invoke(body, false);
         body.getClass().getMethod("setVariable", String.class, boolean.class)
             .invoke(body, "forceGetUp", true);
-        weaponMaxRange = rangedWeapon
-            ? ((Number) weapon.getClass().getMethod("getMaxRange", classFor(body,
-                "zombie.characters.IsoGameCharacter")).invoke(weapon, body)).floatValue()
-            : ((Number) weapon.getClass().getMethod("getMaxRange").invoke(weapon)).floatValue();
+        weaponMaxRange = ((Number) weapon.getClass().getMethod(
+            "getMaxRange",
+            classFor(body, "zombie.characters.IsoGameCharacter")
+        ).invoke(weapon, body)).floatValue();
         if (rangedWeapon) {
             // Firearms should keep a player-like stand-off distance.  The native
             // max range already includes the survivor's aiming modifiers; use a
@@ -152,14 +179,27 @@ final class KnoxCombatController {
             } catch (ReflectiveOperationException ignored) {
                 // Older compatible weapon classes may not expose this accessor.
             }
-            desiredAttackRange = Math.max(minimum + 1.0f,
-                Math.min(weaponMaxRange, Math.max(6.0f, weaponMaxRange * 0.65f)));
+            desiredAttackRange = desiredRange(true, weaponMaxRange, minimum);
         } else {
-            // For moving zombies, get much closer to ensure hits land even when target is chasing player.
-            desiredAttackRange = Math.max(0.50f, weaponMaxRange - 0.40f);
+            // Build 42's IsoGameCharacter.isMeleeAttackRange() multiplies the
+            // character-adjusted maximum by the weapon's range modifier. Mirror
+            // that native gate when choosing the approach point; raw script range
+            // can otherwise disagree with the collision calculation.
+            float rangeModifier = ((Number) weapon.getClass().getMethod(
+                "getRangeMod",
+                classFor(body, "zombie.characters.IsoGameCharacter")
+            ).invoke(weapon, body)).floatValue();
+            weaponMaxRange *= rangeModifier;
+            desiredAttackRange = desiredRange(false, weaponMaxRange, 0.0f);
         }
         initialTargetHealth = health(target);
         lastTargetHealth = initialTargetHealth;
+
+        // Build 42's standing-zombie collision callback rejects a frontal bite while
+        // the target still advertises an AttackType. A previous interrupted swing can
+        // leave that animation variable behind even after the boolean attack flags are
+        // clear, so every new combat owner begins from one clean native input state.
+        clearAttackIntent();
 
         if (controlledGate) {
             // The development gate isolates outgoing combat. Live autonomy leaves both
@@ -169,12 +209,17 @@ final class KnoxCombatController {
             target.getClass().getMethod("setUseless", boolean.class).invoke(target, true);
             target.getClass().getMethod("setTarget", classFor(target, "zombie.iso.IsoMovingObject"))
                 .invoke(target, (Object) null);
-        } else {
+        } else if (zombieTarget) {
             body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
             target.getClass().getMethod("setCanWalk", boolean.class).invoke(target, true);
             target.getClass().getMethod("setUseless", boolean.class).invoke(target, false);
+        } else {
+            body.getClass().getMethod("setFactionPvp", boolean.class).invoke(body, true);
+            target.getClass().getMethod("setFactionPvp", boolean.class).invoke(target, true);
         }
 
+        npc.setCombatActive(true);
+        body.getClass().getMethod("setSneaking", boolean.class).invoke(body, false);
         beginLiveApproach();
         phase = "APPROACHING";
         String result = "COMBAT_STARTED mode=" + (controlledGate ? "gate" : "live")
@@ -205,25 +250,35 @@ final class KnoxCombatController {
         if (targetFinished(target)) {
             if (attackRequests == 0 || !damageObserved) {
                 phase = "FAILED";
-                clearAttackIntent();
-                return "COMBAT_FAILED TARGET_DIED_WITHOUT_NPC_DAMAGE attacks="
-                    + attackRequests + " damageObserved=" + damageObserved;
+                return finish("COMBAT_FAILED TARGET_DIED_WITHOUT_NPC_DAMAGE attacks="
+                    + attackRequests + " damageObserved=" + damageObserved);
             }
             phase = "SUCCEEDED";
-            clearAttackIntent();
             Object weapon = npc.getBody().getClass().getMethod("getPrimaryHandItem")
                 .invoke(npc.getBody());
             int condition = weapon == null
                 ? -1
                 : ((Number) weapon.getClass().getMethod("getCondition").invoke(weapon)).intValue();
-            return "COMBAT_SUCCEEDED target=" + (obstacleTarget ? "locked-door" : "zombie")
+            return finish("COMBAT_SUCCEEDED target="
+                + (obstacleTarget ? "locked-door"
+                    : inherits(target, "zombie.characters.IsoPlayer") ? "human" : "zombie")
                 + " attacks=" + attackRequests
                 + " damageObserved=" + damageObserved
                 + " targetHealth=" + currentHealth
-                + " weaponCondition=" + initialWeaponCondition + "->" + condition;
+                + " weaponCondition=" + initialWeaponCondition + "->" + condition);
+        }
+
+        if (combatantUnavailable(npc.getBody()) || targetUnavailable(target)) {
+            phase = "FAILED";
+            return finish("COMBAT_FAILED INVALID_OR_UNLOADED_COMBATANT");
         }
 
         Object body = npc.getBody();
+        Object equippedWeapon = body.getClass().getMethod("getPrimaryHandItem").invoke(body);
+        if (equippedWeapon != combatWeapon) {
+            phase = "FAILED";
+            return finish("COMBAT_FAILED WEAPON_CHANGED");
+        }
         float targetX = ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue();
         float targetY = ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue();
         float bodyX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
@@ -231,7 +286,8 @@ final class KnoxCombatController {
         float dx = targetX - bodyX;
         float dy = targetY - bodyY;
         float targetDistance = (float) Math.sqrt(dx * dx + dy * dy);
-        float reapproachThreshold = desiredAttackRange + REAPPROACH_BUFFER;
+        float attackEntryThreshold = attackEntryThreshold(desiredAttackRange);
+        float reapproachThreshold = reapproachThreshold(desiredAttackRange);
 
         String bodyAction = String.valueOf(
             body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
@@ -254,8 +310,56 @@ final class KnoxCombatController {
                 + " targetHealth=" + currentHealth;
         }
 
-        if ("APPROACHING".equals(phase) && !obstacleTarget) {
-            if (targetDistance > reapproachThreshold) {
+        boolean attackInProgress = (Boolean) body.getClass().getMethod("isAttacking").invoke(body)
+            || (Boolean) body.getClass().getMethod("isPerformingAttackAnimation").invoke(body);
+        float minimumRangedDistance = minimumRangedDistance(desiredAttackRange);
+        if (shouldRepositionRanged(
+            rangedWeapon,
+            targetDistance,
+            minimumRangedDistance,
+            ticks,
+            lastRangedRepositionTick,
+            attackInProgress
+        )) {
+            clearAttackIntent();
+            KnoxNpcFactory.moveToRangeFromCurrentSide(
+                npc,
+                target,
+                approachSquare,
+                desiredAttackRange
+            );
+            body.getClass().getMethod("setRunning", boolean.class).invoke(body, true);
+            phase = "RANGED_REPOSITIONING";
+            aimTicks = 0;
+            attackCycleActive = false;
+            lastRangedRepositionTick = ticks;
+            KnoxAgent.writeLog(
+                "NPC combat RANGED_REPOSITION distance=" + targetDistance
+                    + " minimum=" + minimumRangedDistance
+                    + " desiredRange=" + desiredAttackRange
+            );
+            return "COMBAT_RANGED_REPOSITIONING distance=" + targetDistance
+                + " targetHealth=" + currentHealth;
+        }
+
+        if ("RANGED_REPOSITIONING".equals(phase)) {
+            String movement = KnoxNpcFactory.tickMovement(npc, targetDistance, "run");
+            if (movement.startsWith("Failed")) {
+                phase = "FAILED";
+                return finish("COMBAT_FIREARM_FALLBACK CLOSE_REPOSITION " + movement);
+            }
+            float resumeDistance = Math.max(minimumRangedDistance, desiredAttackRange * 0.65f);
+            if (!"Succeeded".equals(movement) && targetDistance < resumeDistance) {
+                return "COMBAT_RANGED_REPOSITIONING movement=" + movement
+                    + " distance=" + targetDistance
+                    + " resumeDistance=" + resumeDistance
+                    + " targetHealth=" + currentHealth;
+            }
+            clearMovementIntent();
+            phase = "AIMING";
+            aimTicks = 0;
+        } else if ("APPROACHING".equals(phase) && !obstacleTarget) {
+            if (targetDistance > attackEntryThreshold) {
                 // Keep one range-based destination under the captured-route adapter.
                 // Replacing it with pathToCharacter() every few ticks sends the shell
                 // into the target's occupied space, then repeatedly invalidates its
@@ -263,8 +367,24 @@ final class KnoxCombatController {
                 String movement = KnoxNpcFactory.tickMovement(npc, targetDistance, "run");
                 if (movement.startsWith("Failed")) {
                     phase = "FAILED";
-                    clearAttackIntent();
-                    return "COMBAT_FAILED LIVE_PURSUIT " + movement;
+                    return finish("COMBAT_FAILED LIVE_PURSUIT " + movement);
+                }
+                boolean targetMoved = targetMovedSinceApproach(
+                    targetX, targetY, approachTargetX, approachTargetY
+                );
+                if (shouldRefreshApproach(movement, targetMoved, ticks - lastApproachTick)) {
+                    stationaryApproachRetries = targetMoved ? 0 : stationaryApproachRetries + 1;
+                    if (stationaryApproachRetries > 2) {
+                        return finish("COMBAT_FAILED APPROACH_OUT_OF_RANGE distance="
+                            + targetDistance + " entryRange=" + attackEntryThreshold);
+                    }
+                    clearMovementIntent();
+                    KnoxNpcFactory.moveToRangeFromCurrentSide(
+                        npc, target, approachSquare, desiredAttackRange
+                    );
+                    rememberApproachTarget(targetX, targetY);
+                    return "COMBAT_APPROACH_REFRESH targetMoved=" + targetMoved
+                        + " distance=" + targetDistance;
                 }
                 return "COMBAT_APPROACHING movement=" + movement
                     + " liveDistance=" + targetDistance
@@ -274,12 +394,12 @@ final class KnoxCombatController {
             phase = "AIMING";
             aimTicks = 0;
             clearMovementIntent();
+            stationaryApproachRetries = 0;
         } else if ("APPROACHING".equals(phase)) {
             String movement = KnoxNpcFactory.tickMovement(npc);
             if (movement.startsWith("Failed")) {
                 phase = "FAILED";
-                clearAttackIntent();
-                return "COMBAT_FAILED APPROACH " + movement;
+                return finish("COMBAT_FAILED APPROACH " + movement);
             }
             if (!"Succeeded".equals(movement)) {
                 return "COMBAT_APPROACHING movement=" + movement + " targetHealth=" + currentHealth;
@@ -293,8 +413,6 @@ final class KnoxCombatController {
         }
 
         if (!obstacleTarget && targetDistance > reapproachThreshold) {
-            boolean attackInProgress = (Boolean) body.getClass().getMethod("isAttacking").invoke(body)
-                || (Boolean) body.getClass().getMethod("isPerformingAttackAnimation").invoke(body);
             if (!attackInProgress) {
                 clearAttackIntent();
                 beginLiveApproach();
@@ -331,8 +449,8 @@ final class KnoxCombatController {
                 clearAttackIntent();
                 body.getClass().getMethod("clearVariable", String.class)
                     .invoke(body, "AttackType");
-                defenseWindowUntil = ticks + ATTACK_RECOVERY_TICKS;
-                return "COMBAT_RECOVERING ticks=" + ATTACK_RECOVERY_TICKS
+                defenseWindowUntil = ticks + recoveryTicks(rangedWeapon);
+                return "COMBAT_RECOVERING ticks=" + recoveryTicks(rangedWeapon)
                     + " targetHealth=" + currentHealth;
             }
         } else {
@@ -340,6 +458,9 @@ final class KnoxCombatController {
         }
 
         if (liveCombat && ticks < defenseWindowUntil) {
+            // Aiming is not attacking: keep the native ready posture, but leave
+            // AttackType and attack triggers cleared for normal bite/reaction gates.
+            applyReadyPosture(body);
             return "COMBAT_RECOVERING ticks=" + (defenseWindowUntil - ticks)
                 + " targetHealth=" + currentHealth;
         }
@@ -363,6 +484,7 @@ final class KnoxCombatController {
                 desiredAttackRange
             );
             npc.getBody().getClass().getMethod("setRunning", boolean.class).invoke(npc.getBody(), true);
+            rememberApproachTarget(targetX, targetY);
             phase = "APPROACHING";
             aimTicks = 0;
             attackCycleActive = false;
@@ -375,7 +497,7 @@ final class KnoxCombatController {
             return "COMBAT_REPOSITIONING distance=" + targetDistance
                 + " targetHealth=" + currentHealth;
         }
-        boolean aimAtFloor = !rangedWeapon && targetOnFloor;
+        boolean aimAtFloor = targetOnFloor;
         applyCombatStance(body, false, aimAtFloor, rangedWeapon);
 
         if ("AIMING".equals(phase)) {
@@ -390,15 +512,16 @@ final class KnoxCombatController {
         boolean weaponReady = (Boolean) body.getClass().getMethod("isWeaponReady").invoke(body);
         boolean initiateAttack = (Boolean) body.getClass().getMethod("isInitiateAttack").invoke(body);
         attackAnimationObserved = attackAnimationObserved || attackAnimation;
-        if (attackAnimation) {
+        if (attackAnimation && !rangedWeapon) {
             body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
             setAiAttackIntent(body, true, false);
         }
-        if (attackRequests > 0 && !attackAnimationObserved && !damageObserved) {
+        if (!rangedWeapon && attackRequests > 0 && !attackAnimationObserved && !damageObserved) {
             setAiAttackIntent(body, true, true);
             body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
         }
-        if (attackRequests > 0
+        if (allowsDirectSwipeFallback(rangedWeapon)
+            && attackRequests > 0
             && !directStateFallbackUsed
             && !attackAnimationObserved
             && ticks - lastAttackTick >= DIRECT_STATE_FALLBACK_TICKS
@@ -415,15 +538,14 @@ final class KnoxCombatController {
             && !attackAnimationObserved
             && !damageObserved) {
             phase = "FAILED";
-            clearAttackIntent();
-            return "COMBAT_FAILED ATTACK_STALLED state="
+            return finish("COMBAT_FAILED ATTACK_STALLED state="
                 + body.getClass().getMethod("getCurrentStateName").invoke(body)
                 + " action="
                 + body.getClass().getMethod("getCurrentActionContextStateName").invoke(body)
                 + " initiateAttack="
                 + initiateAttack
                 + " attackType="
-                + body.getClass().getMethod("getAttackType").invoke(body);
+                + body.getClass().getMethod("getAttackType").invoke(body));
         }
         String attackType = String.valueOf(
             body.getClass().getMethod("getAttackType").invoke(body)
@@ -439,6 +561,10 @@ final class KnoxCombatController {
             KnoxAgent.writeLog(
                 "NPC combat ATTACK_REQUEST count=" + attackRequests + " targetHealth=" + currentHealth
             );
+            if (rangedWeapon) {
+                return "COMBAT_FIREARM_REQUEST attacks=" + attackRequests
+                    + " targetHealth=" + currentHealth;
+            }
         }
 
         return "COMBAT_ATTACKING attacks=" + attackRequests
@@ -486,10 +612,16 @@ final class KnoxCombatController {
 
     void reset() {
         if (npc != null) {
+            npc.setCombatActive(false);
             try {
                 clearAttackIntent();
             } catch (ReflectiveOperationException ignored) {
                 // World teardown may invalidate the body before the bridge is notified.
+            }
+            try {
+                clearMovementIntent();
+            } catch (ReflectiveOperationException ignored) {
+                // Attempt both cleanup halves independently during world teardown.
             }
         }
         npc = null;
@@ -504,6 +636,7 @@ final class KnoxCombatController {
         weaponMaxRange = 0.0f;
         desiredAttackRange = 0.0f;
         rangedWeapon = false;
+        combatWeapon = null;
         damageObserved = false;
         attackAnimationObserved = false;
         aimTicks = 0;
@@ -513,7 +646,12 @@ final class KnoxCombatController {
         liveCombat = false;
         defenseWindowUntil = 0;
         approachSquare = null;
+        lastApproachTick = 0;
+        approachTargetX = 0.0f;
+        approachTargetY = 0.0f;
+        stationaryApproachRetries = 0;
         attacksAtLastDamage = 0;
+        lastRangedRepositionTick = -RANGED_REPOSITION_COOLDOWN_TICKS;
     }
 
     private void beginLiveApproach() throws ReflectiveOperationException {
@@ -524,7 +662,29 @@ final class KnoxCombatController {
         // engage. The final point remains at weapon range from the zombie, not on
         // the zombie's current coordinate.
         KnoxNpcFactory.moveToRangeFrom(npc, target, approachSquare, desiredAttackRange);
+        rememberApproachTarget(
+            ((Number) target.getClass().getMethod("getX").invoke(target)).floatValue(),
+            ((Number) target.getClass().getMethod("getY").invoke(target)).floatValue()
+        );
         npc.getBody().getClass().getMethod("setRunning", boolean.class).invoke(npc.getBody(), true);
+    }
+
+    private void rememberApproachTarget(float x, float y) {
+        approachTargetX = x;
+        approachTargetY = y;
+        lastApproachTick = ticks;
+    }
+
+    static boolean targetMovedSinceApproach(float x, float y, float oldX, float oldY) {
+        float dx = x - oldX;
+        float dy = y - oldY;
+        return dx * dx + dy * dy >= 0.75f * 0.75f;
+    }
+
+    static boolean shouldRefreshApproach(String movement, boolean targetMoved, int elapsedTicks) {
+        return elapsedTicks >= APPROACH_REFRESH_TICKS
+            && ("Succeeded".equals(movement)
+                || (targetMoved && "ManualRoute".equals(movement)));
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {
@@ -546,7 +706,90 @@ final class KnoxCombatController {
         body.getClass().getField("isCharging").setBoolean(body, false);
         body.getClass().getField("useChargeDelta").setFloat(body, 0.0f);
         body.getClass().getMethod("clearHandToHandAttack").invoke(body);
+        body.getClass().getMethod("clearVariable", String.class).invoke(body, "AttackType");
+        body.getClass().getMethod(
+            "setAttackTargetSquare",
+            classFor(body, "zombie.iso.IsoGridSquare")
+        ).invoke(body, (Object) null);
         setAiAttackIntent(body, false, false);
+    }
+
+    private String finish(String result) {
+        reset();
+        return result;
+    }
+
+    private static boolean combatantUnavailable(Object body)
+        throws ReflectiveOperationException {
+        return unavailable(
+            (Boolean) body.getClass().getMethod("isDead").invoke(body),
+            body.getClass().getMethod("getCurrentSquare").invoke(body) == null
+        );
+    }
+
+    private static boolean targetUnavailable(Object combatTarget)
+        throws ReflectiveOperationException {
+        return !inherits(combatTarget, "zombie.iso.objects.IsoDoor")
+            && unavailable(
+                false,
+                combatTarget.getClass().getMethod("getCurrentSquare").invoke(combatTarget) == null
+            );
+    }
+
+    static int recoveryTicks(boolean ranged) {
+        return ranged ? ATTACK_RECOVERY_TICKS : MELEE_RECOVERY_TICKS;
+    }
+
+    static boolean unavailable(boolean dead, boolean missingSquare) {
+        return dead || missingSquare;
+    }
+
+    static float desiredRange(boolean ranged, float maximumRange, float minimumRange) {
+        if (!ranged) {
+            return Math.max(0.50f, maximumRange - 0.40f);
+        }
+        float cappedMaximum = Math.max(1.0f, maximumRange);
+        float preferred = Math.max(6.0f, cappedMaximum * 0.65f);
+        return Math.min(cappedMaximum, Math.max(minimumRange + 1.0f, preferred));
+    }
+
+    static float attackEntryThreshold(float desiredRange) {
+        return desiredRange + ATTACK_ENTRY_BUFFER;
+    }
+
+    static float reapproachThreshold(float desiredRange) {
+        return desiredRange + REAPPROACH_BUFFER;
+    }
+
+    static float minimumRangedDistance(float desiredRange) {
+        return Math.max(2.25f, Math.min(3.50f, desiredRange * 0.45f));
+    }
+
+    static boolean shouldRepositionRanged(
+        boolean ranged,
+        float distance,
+        float minimumDistance,
+        int ticks,
+        int lastRepositionTick,
+        boolean attackInProgress
+    ) {
+        return ranged
+            && !attackInProgress
+            && distance < minimumDistance
+            && ticks - lastRepositionTick >= RANGED_REPOSITION_COOLDOWN_TICKS;
+    }
+
+    static boolean allowsDirectSwipeFallback(boolean ranged) {
+        return !ranged;
+    }
+
+    static boolean liveTargetMode(boolean controlledGate) {
+        return !controlledGate;
+    }
+
+    private static void applyReadyPosture(Object body) throws ReflectiveOperationException {
+        body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
+        setAiAttackIntent(body, true, false);
     }
 
     private static void applyCombatStance(
@@ -557,7 +800,9 @@ final class KnoxCombatController {
     )
         throws ReflectiveOperationException {
         body.getClass().getMethod("setBannedAttacking", boolean.class).invoke(body, false);
-        body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, !ranged);
+        // Despite its legacy name this is Build 42's general player attack gate.
+        // ISReloadWeaponAction.attackHook rejects ranged fire when it is false.
+        body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
         body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class)
             .invoke(body, !ranged && aimAtFloor);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
@@ -572,10 +817,12 @@ final class KnoxCombatController {
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getField("useChargeDelta").setFloat(body, 36.0f);
         applyCombatStance(body, false, aimAtFloor, ranged);
-        body.getClass().getMethod("pressedAttack").invoke(body);
-        body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, true);
-        body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
-        setAiAttackIntent(body, true, true);
+        if (!ranged) {
+            body.getClass().getMethod("pressedAttack").invoke(body);
+            body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, true);
+            body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, true);
+            setAiAttackIntent(body, true, true);
+        }
     }
 
     private static boolean isHitReactionAction(String action) {

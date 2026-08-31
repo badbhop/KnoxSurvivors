@@ -38,7 +38,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $workshopProjectPath = Join-Path $configuration.workshopRoot $configuration.workshopModFolder
-$agentJarPath = Join-Path $workshopProjectPath 'java\build\libs\knox-agent-0.0.1-dev.jar'
+$agentJarPath = Join-Path $workshopProjectPath 'Contents\mods\KnoxSurvivors\java\knox-agent-0.0.1-dev.jar'
 $localModPath = Join-Path $configuration.localModsRoot 'KnoxSurvivors'
 $gameLauncherPath = Join-Path $configuration.pzHome 'ProjectZomboid64.bat'
 

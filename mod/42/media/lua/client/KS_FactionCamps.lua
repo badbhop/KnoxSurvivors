@@ -25,7 +25,89 @@ local function locationFor(character)
     return {
         x = square:getX(), y = square:getY(), z = square:getZ(),
         buildingId = tostring(definition:getID()), name = "Temporary Shelter",
+        minX = definition:getX(), minY = definition:getY(),
+        maxX = definition:getX2(), maxY = definition:getY2(),
     }
+end
+
+local function buildingIdForSquare(square)
+    local building = square ~= nil and square:getBuilding() or nil
+    local definition = building ~= nil and building:getDef() or nil
+    return definition ~= nil and tostring(definition:getID()) or nil
+end
+
+function Camps.contains(camp, square)
+    if type(camp) ~= "table" or square == nil
+        or square:getZ() ~= (tonumber(camp.z) or 0) then
+        return false
+    end
+    if camp.buildingId ~= nil then
+        return buildingIdForSquare(square) == tostring(camp.buildingId)
+    end
+    return math.abs(square:getX() - (tonumber(camp.x) or 0)) <= 5
+        and math.abs(square:getY() - (tonumber(camp.y) or 0)) <= 5
+end
+
+function Camps.memberSlot(camp, survivorId)
+    for index, id in ipairs(type(camp) == "table" and camp.memberIds or {}) do
+        if id == survivorId then
+            return index
+        end
+    end
+    return 1
+end
+
+-- Camp positions are ordinary standable world squares. The slot merely rotates
+-- the deterministic candidate order; native movement/traversal still owns the
+-- route, and the controller's short-lived reservation prevents active stacking.
+function Camps.positionFor(camp, slot, unavailable)
+    if type(camp) ~= "table" or getCell() == nil then
+        return nil
+    end
+    local centerX = tonumber(camp.x)
+    local centerY = tonumber(camp.y)
+    local z = tonumber(camp.z) or 0
+    if centerX == nil or centerY == nil then
+        return nil
+    end
+    local minX = tonumber(camp.minX) or (centerX - 4)
+    local minY = tonumber(camp.minY) or (centerY - 4)
+    local maxX = tonumber(camp.maxX) or (centerX + 4)
+    local maxY = tonumber(camp.maxY) or (centerY + 4)
+    local candidates = {}
+    for x = minX, maxX do
+        for y = minY, maxY do
+            local square = getCell():getGridSquare(x, y, z)
+            if square ~= nil and square:canStand() and Camps.contains(camp, square) then
+                candidates[#candidates + 1] = {
+                    square = square,
+                    distance = (x - centerX) ^ 2 + (y - centerY) ^ 2,
+                    x = x,
+                    y = y,
+                }
+            end
+        end
+    end
+    table.sort(candidates, function(first, second)
+        if first.distance ~= second.distance then
+            return first.distance < second.distance
+        end
+        if first.y ~= second.y then
+            return first.y < second.y
+        end
+        return first.x < second.x
+    end)
+    if #candidates == 0 then
+        return nil
+    end
+    local start = ((math.max(1, tonumber(slot) or 1) - 1) % #candidates) + 1
+    for offset = 0, #candidates - 1 do
+        local candidate = candidates[((start + offset - 1) % #candidates) + 1]
+        if unavailable == nil or not unavailable(candidate.square) then
+            return candidate.square
+        end
+    end
+    return nil
 end
 
 -- Called at the low-frequency population reconciliation boundary.  A camp is
@@ -50,6 +132,23 @@ function Camps.reconcile(controllers, activeIds, worldAgeHours)
                 elseif camp ~= nil then
                     KnoxPersistence.touchFactionCamp(faction.id, worldAgeHours)
                 end
+            end
+        end
+    end
+    for _, id in ipairs(activeIds or {}) do
+        local controller = controllers ~= nil and controllers[id] or nil
+        if controller ~= nil then
+            local faction = KnoxPersistence.getFactionForSurvivor(id)
+            local camp = faction ~= nil
+                and KnoxPersistence.syncFactionCampMembers(faction.id) or nil
+            if camp ~= nil and controller.setCampAssignment ~= nil then
+                controller:setCampAssignment(
+                    camp.id,
+                    camp,
+                    Camps.memberSlot(camp, id)
+                )
+            elseif controller.clearCampAssignment ~= nil then
+                controller:clearCampAssignment()
             end
         end
     end

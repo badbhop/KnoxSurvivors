@@ -8,12 +8,13 @@ import java.security.ProtectionDomain;
 import java.util.Set;
 
 /**
- * Redirects three local-player checks inside melee animation callbacks to a predicate
- * that also recognizes the Knox shell. The callback bodies remain the game's own code.
+ * Redirects three animation callback checks plus the exact standing-target impact-audio
+ * check to a predicate that recognizes the Knox shell. Native callback/audio bodies remain intact.
  */
 public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
     static final int EXPECTED_PATCH_COUNT = 3;
     private static final String TARGET_CLASS = "zombie/ai/states/SwipeStatePlayer";
+    private static final String IMPACT_CLASS = "zombie/CombatManager";
     private static final String ORIGINAL_OWNER = "zombie/characters/IsoPlayer";
     private static final String ORIGINAL_NAME = "isLocalPlayer";
     private static final String ORIGINAL_DESCRIPTOR =
@@ -37,8 +38,18 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
         ProtectionDomain protectionDomain,
         byte[] classfileBuffer
     ) {
-        if (!TARGET_CLASS.equals(className)) {
+        if (!TARGET_CLASS.equals(className) && !IMPACT_CLASS.equals(className)) {
             return null;
+        }
+        if (IMPACT_CLASS.equals(className)) {
+            try {
+                byte[] patched = patchImpactForVerification(classfileBuffer);
+                KnoxAgent.writeLog("combat impact sound patch PASS calls=1");
+                return patched;
+            } catch (IOException exception) {
+                KnoxAgent.writeLog("ERROR combat impact sound patch " + exception.getMessage());
+                return null;
+            }
         }
         try {
             PatchResult result = patch(classfileBuffer);
@@ -78,11 +89,21 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
     }
 
     private static PatchResult patch(byte[] original) throws IOException {
+        return patch(original, false);
+    }
+
+    static byte[] patchImpactForVerification(byte[] original) throws IOException {
+        PatchResult result = patch(original, true);
+        if (result.count != 1) throw new IOException("Expected one Build 42.20.3 impact audio gate, got " + result.count);
+        return result.bytes;
+    }
+
+    private static PatchResult patch(byte[] original, boolean impact) throws IOException {
         ConstantPool pool = ConstantPool.read(original);
         int originalMethodRef = pool.findMethodRef(
             ORIGINAL_OWNER,
             ORIGINAL_NAME,
-            ORIGINAL_DESCRIPTOR
+            impact ? "()Z" : ORIGINAL_DESCRIPTOR
         );
         if (originalMethodRef < 0) {
             throw new IOException("IsoPlayer.isLocalPlayer combat gate was not found");
@@ -128,7 +149,8 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             pool,
             pool.endOffset + appended.length,
             originalMethodRef,
-            helperMethodRef
+            helperMethodRef,
+            impact
         );
         return new PatchResult(expanded, count);
     }
@@ -138,7 +160,8 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
         ConstantPool pool,
         int classBodyOffset,
         int originalMethodRef,
-        int helperMethodRef
+        int helperMethodRef,
+        boolean impact
     ) throws IOException {
         int cursor = classBodyOffset + 6;
         int interfaceCount = readU2(bytes, cursor);
@@ -164,11 +187,31 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
                 int attributeNameIndex = readU2(bytes, cursor);
                 long attributeLength = readU4(bytes, cursor + 2);
                 int content = cursor + 6;
-                if (PATCHED_METHODS.contains(methodName)
+                if ((impact ? "attackCollisionCheck".equals(methodName) : PATCHED_METHODS.contains(methodName))
                     && "Code".equals(pool.utf8(attributeNameIndex))) {
                     int codeLength = (int) readU4(bytes, content + 4);
                     int codeStart = content + 8;
                     int codeEnd = codeStart + codeLength;
+                    if (impact) {
+                        // Exact 42.20.3 audio-only branch: aload 6; isLocalPlayer;
+                        // ifeq end-of-impact-sound; aload_2; HandWeapon.isRanged.
+                        // Same stack shape/byte length; no combat or network gate
+                        // elsewhere in attackCollisionCheck is relaxed.
+                        int offset = codeStart + 1628;
+                        int rangedRef = pool.findMethodRef("zombie/inventory/types/HandWeapon", "isRanged", "()Z");
+                        if (codeLength > 1822 && rangedRef > 0
+                            && (bytes[offset - 2] & 0xff) == 0x19 && bytes[offset - 1] == 6
+                            && (bytes[offset] & 0xff) == 0xb6 && readU2(bytes, offset + 1) == originalMethodRef
+                            && (bytes[offset + 3] & 0xff) == 0x99 && readU2(bytes, offset + 4) == 191
+                            && (bytes[offset + 6] & 0xff) == 0x2c
+                            && (bytes[offset + 7] & 0xff) == 0xb6 && readU2(bytes, offset + 8) == rangedRef) {
+                            bytes[offset] = (byte) 0xb8;
+                            writeU2(bytes, offset + 1, helperMethodRef);
+                            patched++;
+                        }
+                        cursor = content + Math.toIntExact(attributeLength);
+                        continue;
+                    }
                     for (int offset = codeStart; offset + 2 < codeEnd; offset++) {
                         if ((bytes[offset] & 0xFF) == 0xB8
                             && readU2(bytes, offset + 1) == originalMethodRef) {

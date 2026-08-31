@@ -12,6 +12,8 @@ require "KS_SurvivorStartingGear"
 require "KS_SurvivorLifecyclePolicy"
 require "KS_UnloadedSurvival"
 require "KS_FactionCamps"
+require "KS_SurvivorNameplates"
+require "KS_HumanCombatRelations"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -31,7 +33,9 @@ local GATE_KEY = "multi_survival_autonomy_v1"
 local FACTION_BASE_GATE_KEY = "faction_base_scouting_v1"
 
 local controllers = {}
-local reservations = { threats = {}, items = {}, containers = {}, restSpots = {} }
+local reservations = {
+    threats = {}, items = {}, containers = {}, restSpots = {}, campPositions = {},
+}
 local ticks = 0
 local populationReady = false
 local passReported = false
@@ -194,6 +198,9 @@ local function createDeveloperSurvivor(bridge, id, origin)
 end
 
 local function restoreSurvivor(bridge, id, record)
+    if not KnoxPersistence.isSurvivorAlive(id) then
+        return nil, "dead_identity"
+    end
     local square, location = squareForRecord(bridge, record)
     if square == nil then
         return nil, "saved_square_not_loaded=" .. tostring(location)
@@ -249,6 +256,15 @@ local function registerController(bridge, id, character, result)
         reservations,
         ticks
     )
+    local camp = KnoxPersistence.getCampForSurvivor ~= nil
+        and KnoxPersistence.getCampForSurvivor(id) or nil
+    if camp ~= nil and controllers[id].setCampAssignment ~= nil then
+        controllers[id]:setCampAssignment(
+            camp.id,
+            camp,
+            KnoxFactionCamps.memberSlot(camp, id)
+        )
+    end
     addActiveId(id)
     KnoxSurvivorRuntime.register(id, controllers[id])
     if KnoxBaseManager ~= nil and KnoxBaseManager.syncStructureProtection ~= nil then
@@ -330,7 +346,9 @@ local function retireDeadSurvivor(bridge, id, controller)
         controller:shutdown()
     end)
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
-    KnoxPersistence.markSurvivorDead(id, now, "world_death")
+    if KnoxPersistence.isSurvivorAlive(id) then
+        KnoxPersistence.markSurvivorDead(id, now, "world_death")
+    end
     -- Convert the dead shell through Build 42's own IsoDeadBody constructor before
     -- removing its contained runtime shell. This retains the corpse, clothing and
     -- inventory for normal world cleanup/reanimation instead of deleting the body.
@@ -577,7 +595,7 @@ local function reconcileWorldPopulation(bridge)
     local advanced, notable = KnoxUnloadedSurvival.advanceAll(activeIds, now)
     local summary = KnoxWorldPopulation.maintain(now)
     KnoxFactionCamps.reconcile(controllers, activeIds, now)
-    local remaining = math.max(0, KnoxSettings.maxActiveSurvivors() - #activeIds)
+    local remaining = KnoxSettings.activationBudget(#activeIds)
     local candidates, rejected = KnoxWorldPopulation.activationCandidates(
         bridge,
         activeIds,
@@ -611,9 +629,14 @@ local function reconcileWorldPopulation(bridge)
         print(TAG .. " population status=" .. tostring(summary.status)
             .. " living=" .. tostring(summary.living)
             .. "/" .. tostring(summary.target)
+            .. " capsDisabled=" .. tostring(summary.capsDisabled == true)
             .. " active=" .. tostring(#activeIds)
             .. " activated=" .. tostring(activated)
-            .. " waitingSquares=" .. tostring(rejected.saved_square_not_loaded or 0))
+            .. " waitingSquares=" .. tostring(rejected.saved_square_not_loaded or 0)
+            .. " waitingOrigins=" .. tostring(rejected.no_safe_hidden_loaded_square or 0)
+            .. " waitingVirtual=" .. tostring(rejected.virtual_square_not_loaded_or_visible or 0)
+            .. " outsideBand=" .. tostring(rejected.outside_activation_distance or 0)
+            .. " inactiveAdvanced=" .. tostring(advanced))
     end
     if notable > 0 then
         print(TAG .. " unloaded-simulation advanced=" .. tostring(advanced)
@@ -724,6 +747,7 @@ update = function()
         reconcileWorldPopulation(bridge)
     end
     KnoxZombieAwareness.update(controllers, activeIds, ticks)
+    KnoxSurvivorNameplates.update(ticks)
     if not scenarioConfigured and #scenarioIds > 0 then
         local configured, evidence = configureScenario(player, currentScenario, scenarioIds)
         scenarioConfigured = configured == true
@@ -768,7 +792,9 @@ local function onGameStart()
     ticks = 0
     controllers = {}
     KnoxSurvivorRuntime.clear()
-    reservations = { threats = {}, items = {}, containers = {}, restSpots = {} }
+    reservations = {
+        threats = {}, items = {}, containers = {}, restSpots = {}, campPositions = {},
+    }
     KnoxSurvivorRelationships.resetRuntime()
     populationReady = false
     passReported = false
@@ -796,6 +822,13 @@ local function onGameStart()
 end
 
 local function onMainMenuEnter()
+    -- A quit can occur between the native death flag and the next normal autonomy
+    -- tick. Retire those shells first so capture only serializes living survivors.
+    KnoxSurvivorNameplates.clear()
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge ~= nil then
+        retireDeadControllers(bridge)
+    end
     for id, controller in pairs(controllers) do
         controller:shutdown()
         KnoxSurvivorRuntime.unregister(id, controller)

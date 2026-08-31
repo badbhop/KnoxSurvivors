@@ -8,8 +8,8 @@ local function read(path)
 end
 
 local vehicles = read(rootPath .. "/mod/42/media/lua/client/KS_CompanionVehicles.lua")
-assert(vehicles:find('require "TimedActions/ISEnterVehicle"', 1, true)
-    and vehicles:find('require "TimedActions/ISExitVehicle"', 1, true),
+assert(vehicles:find('require "Vehicles/TimedActions/ISEnterVehicle"', 1, true)
+    and vehicles:find('require "Vehicles/TimedActions/ISExitVehicle"', 1, true),
     "companion vehicle support must use vanilla enter and exit actions")
 assert(vehicles:find('ISPathFindAction:pathToVehicleSeat', 1, true)
     and vehicles:find('ISEnterVehicle:new', 1, true),

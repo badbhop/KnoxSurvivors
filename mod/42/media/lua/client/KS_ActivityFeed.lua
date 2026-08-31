@@ -123,7 +123,9 @@ local function speakerContext(character)
         return "YOUR PARTY", "<RGB:0.68,0.84,0.43>"
     end
     if affiliation ~= nil and affiliation.factionId ~= nil then
-        local label = string.upper(tostring(affiliation.factionId):gsub("%-", " "))
+        local faction = KnoxPersistence.getFaction(affiliation.factionId)
+        local label = string.upper(tostring(faction ~= nil and faction.name
+            or affiliation.factionId):gsub("%-", " "))
         return label, stableColour(affiliation.factionId)
     end
     local group = id ~= nil and KnoxPersistence.getTravelGroupFor(id) or nil
@@ -146,6 +148,7 @@ local function characterName(character)
 end
 
 function ActivityFeed.speak(character, text)
+    if not KnoxSettings.showSurvivorSpeech() then return end
     if character ~= nil then
         pcall(function()
             character:Say(text)
@@ -158,6 +161,14 @@ end
 
 function ActivityFeed.event(text)
     addLine(tostring(text), "<RGB:0.68,0.82,0.52>")
+end
+
+function ActivityFeed.reputation(character, change)
+    change = tonumber(change) or 0
+    if change == 0 then return end
+    local amount = (change > 0 and "+" or "") .. tostring(change)
+    addLine(amount .. " reputation with " .. characterName(character),
+        change > 0 and "<RGB:0.68,0.82,0.52>" or "<RGB:0.92,0.40,0.35>")
 end
 
 function ActivityFeed.show()

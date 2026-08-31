@@ -98,8 +98,8 @@ val verifyZombieVisibilityRuntime by tasks.registering(Exec::class) {
         }
         val classpath = listOf(
             sourceSets.main.get().output.classesDirs.asPath,
-            sourceSets.test.get().output.classesDirs.asPath,
             gameJar.absolutePath,
+            sourceSets.test.get().output.classesDirs.asPath,
         ).joinToString(System.getProperty("path.separator"))
         commandLine(
             javaRuntime.absolutePath,
@@ -133,8 +133,8 @@ val verifyIsoPlayerShellRuntime by tasks.registering(Exec::class) {
         }
         val classpath = listOf(
             sourceSets.main.get().output.classesDirs.asPath,
-            sourceSets.test.get().output.classesDirs.asPath,
             gameJar.absolutePath,
+            sourceSets.test.get().output.classesDirs.asPath,
         ).joinToString(System.getProperty("path.separator"))
         commandLine(
             javaRuntime.absolutePath,
@@ -154,6 +154,46 @@ val verifyCorpseLifecycle by tasks.registering(JavaExec::class) {
     mainClass.set("com.knoxsurvivors.npc.KnoxNpcRegistryVerifier")
 }
 
+val verifyMovementOwnership by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies movement ownership, replacement, release, and recovery state."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.npc.KnoxMovementRequestVerifier")
+}
+
+val verifyTraversalPolicy by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies native-first obstacle policy, edge suppression, and route continuation."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.npc.KnoxTraversalVerifier")
+}
+
+val verifyCompanionLocomotion by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies companion walk, run, sprint, downgrade, and condition policy."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.npc.KnoxLocomotionVerifier")
+}
+
+val verifyMeleeCombatLifecycle by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies terminal melee input, route, and ownership cleanup."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.npc.KnoxCombatControllerVerifier")
+}
+
+val verifyInventorySnapshot by tasks.registering(JavaExec::class) {
+    group = "verification"
+    description = "Verifies native item payload handoff, bag contents, equipment and legacy inventory migration."
+    dependsOn(tasks.testClasses)
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.knoxsurvivors.npc.KnoxInventorySnapshotVerifier")
+}
+
 tasks.check {
     dependsOn(
         verifyCombatTransformer,
@@ -162,5 +202,10 @@ tasks.check {
         verifyIsoPlayerShellPolicy,
         verifyIsoPlayerShellRuntime,
         verifyCorpseLifecycle,
+        verifyMovementOwnership,
+        verifyTraversalPolicy,
+        verifyCompanionLocomotion,
+        verifyMeleeCombatLifecycle,
+        verifyInventorySnapshot,
     )
 }

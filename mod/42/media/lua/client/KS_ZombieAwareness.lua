@@ -39,6 +39,13 @@ local function distanceSquared(first, second)
     return dx * dx + dy * dy
 end
 
+local function canSeeTarget(observer, target)
+    local success, visible = pcall(function()
+        return observer:CanSee(target)
+    end)
+    return success and visible == true
+end
+
 local function playerTarget(target)
     if target == nil or getSpecificPlayer == nil then
         return false
@@ -77,28 +84,32 @@ local function directZombie(bridge, zombie, id, ticks)
     return success, result
 end
 
-local function rememberTarget(zombie, id, ticks, directed)
+local function rememberTarget(zombie, id, ticks, perceived, directed)
     local memory = targetMemory[zombie]
     if memory == nil then
         memory = {}
         targetMemory[zombie] = memory
     end
     memory.id = id
-    memory.lastSeen = ticks
+    if perceived then
+        memory.lastSeen = ticks
+    end
     if directed then
         memory.lastDirected = ticks
     end
     return memory
 end
 
-local function rememberedNpc(controllers, memory, ticks)
+local function rememberedNpc(controllers, memory, ticks, zombieSquare)
     if memory == nil or memory.id == nil
         or ticks - (memory.lastSeen or -TARGET_MEMORY_TICKS - 1) > TARGET_MEMORY_TICKS then
         return nil
     end
     local controller = controllers ~= nil and controllers[memory.id] or nil
     local npc = controller ~= nil and controller.character or nil
-    return validNpc(npc) and npc or nil
+    local npcSquare = validNpc(npc) and npc:getCurrentSquare() or nil
+    return npcSquare ~= nil and zombieSquare ~= nil
+        and npcSquare:getZ() == zombieSquare:getZ() and npc or nil
 end
 
 function ZombieAwareness.update(controllers, orderedIds, ticks)
@@ -123,7 +134,8 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
             or zombieSquare == nil or npcSquare == nil
             or zombie:getTarget() ~= npc
             or zombieSquare:getZ() ~= npcSquare:getZ()
-            or distanceSquared(zombieSquare, npcSquare) > CLOSE_ATTACK_REFRESH_RADIUS_SQUARED then
+            or distanceSquared(zombieSquare, npcSquare) > CLOSE_ATTACK_REFRESH_RADIUS_SQUARED
+            or not canSeeTarget(zombie, npc) then
             closeCombatTargets[zombie] = nil
         elseif ticks >= (type(entry) == "table" and entry.nextRefresh or 0) then
             directZombie(bridge, zombie, id, ticks)
@@ -131,7 +143,7 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                 id = id,
                 nextRefresh = ticks + CLOSE_ATTACK_REFRESH_TICKS,
             }
-            rememberTarget(zombie, id, ticks, true)
+            rememberTarget(zombie, id, ticks, true, true)
         end
     end
 
@@ -149,6 +161,7 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
         if zombie ~= nil and not zombie:isDead() and zombieSquare ~= nil then
             local currentTarget = zombie:getTarget()
             local currentNpcId = nil
+            local currentNpcVisible = false
             local nearestId = nil
             local nearestDistance = AWARENESS_RADIUS_SQUARED + 1
 
@@ -163,7 +176,12 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                     local npcSquare = npc:getCurrentSquare()
                     if npcSquare:getZ() == zombieSquare:getZ() then
                         local distance = distanceSquared(zombieSquare, npcSquare)
-                        if distance <= AWARENESS_RADIUS_SQUARED and distance < nearestDistance then
+                        local visible = distance <= AWARENESS_RADIUS_SQUARED
+                            and canSeeTarget(zombie, npc)
+                        if currentTarget == npc then
+                            currentNpcVisible = visible
+                        end
+                        if visible and distance < nearestDistance then
                             nearestId = id
                             nearestDistance = distance
                         end
@@ -172,21 +190,38 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
             end
 
             local memory = targetMemory[zombie]
-            local memoryNpc = rememberedNpc(controllers, memory, ticks)
+            local hadMemory = memory ~= nil
+            local memoryNpc = rememberedNpc(controllers, memory, ticks, zombieSquare)
             local memoryId = memoryNpc ~= nil and memory.id or nil
+            if memory ~= nil and memoryId == nil then
+                targetMemory[zombie] = nil
+                memory = nil
+            end
+            -- A native target assignment can represent engine hearing even before
+            -- geometry LOS succeeds. Admit it once into the same bounded memory;
+            -- never refresh that memory merely because the target field remains set.
+            if currentNpcId ~= nil and not hadMemory and memory == nil then
+                memory = rememberTarget(zombie, currentNpcId, ticks, true, false)
+                memoryId = currentNpcId
+            end
 
             local preferredId = rawget(_G, "KnoxCombatTestScenarios") ~= nil
                 and KnoxCombatTestScenarios.preferredNpcId ~= nil
                 and KnoxCombatTestScenarios.preferredNpcId(zombie) or nil
             local preferredController = preferredId ~= nil and controllers[preferredId] or nil
-            if preferredController == nil or not validNpc(preferredController.character) then
+            local preferredSquare = preferredController ~= nil
+                and validNpc(preferredController.character)
+                and preferredController.character:getCurrentSquare() or nil
+            if preferredSquare == nil or preferredSquare:getZ() ~= zombieSquare:getZ() then
                 preferredId = nil
             end
 
             -- Keep a native zombie target stable. Memory is only a fallback when the
             -- engine has temporarily dropped the target; it never overrides a live
             -- player target merely because an NPC is nearby.
-            local selectedId = preferredId or currentNpcId
+            local selectedId = preferredId
+                or (currentNpcVisible and currentNpcId or nil)
+                or (currentNpcId == memoryId and currentNpcId or nil)
             if selectedId == nil and currentTarget == nil then
                 selectedId = memoryId
             end
@@ -210,20 +245,24 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                 local controller = controllers[selectedId]
                 local npc = controller ~= nil and controller.character or nil
                 local sameNativeTarget = validNpc(npc) and zombie:getTarget() == npc
+                local perceived = preferredId == selectedId or canSeeTarget(zombie, npc)
                 local shouldRefresh = not sameNativeTarget
                 if sameNativeTarget then
-                    memory = memory or rememberTarget(zombie, selectedId, ticks, false)
-                    memory.lastSeen = ticks
-                    shouldRefresh = ticks - (memory.lastDirected or -ACTIVE_TARGET_REFRESH_TICKS)
-                        >= ACTIVE_TARGET_REFRESH_TICKS
+                    memory = memory or rememberTarget(
+                        zombie, selectedId, ticks, perceived, false
+                    )
+                    shouldRefresh = perceived
+                        and ticks - (memory.lastDirected or -ACTIVE_TARGET_REFRESH_TICKS)
+                            >= ACTIVE_TARGET_REFRESH_TICKS
                 end
                 if shouldRefresh then
                     directZombie(bridge, zombie, selectedId, ticks)
-                    rememberTarget(zombie, selectedId, ticks, true)
+                    rememberTarget(zombie, selectedId, ticks, perceived, true)
                 else
-                    rememberTarget(zombie, selectedId, ticks, false)
+                    rememberTarget(zombie, selectedId, ticks, perceived, false)
                 end
                 if validNpc(npc) and zombie:getTarget() == npc
+                    and perceived
                     and distanceSquared(zombieSquare, npc:getCurrentSquare())
                         <= CLOSE_ATTACK_REFRESH_RADIUS_SQUARED then
                     closeCombatTargets[zombie] = {
@@ -231,6 +270,15 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                         nextRefresh = ticks + CLOSE_ATTACK_REFRESH_TICKS,
                     }
                 end
+            elseif currentNpcId ~= nil and memoryId == nil then
+                -- The off-slot visibility adapter cannot let the engine expire this
+                -- target through a local-player lighting slot. Release only the NPC
+                -- target whose bounded Knox perception memory has actually expired.
+                pcall(function()
+                    zombie:setTarget(nil)
+                end)
+                targetMemory[zombie] = nil
+                closeCombatTargets[zombie] = nil
             elseif currentTarget == nil then
                 targetMemory[zombie] = nil
                 closeCombatTargets[zombie] = nil

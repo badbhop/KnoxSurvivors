@@ -279,4 +279,16 @@ assert(constructionTask ~= nil and constructionTask.type == "construct_defense"
 assert(constructionTask.requirements.skills.Woodwork == 2,
     "construction task preserves entity recipe skill requirements")
 
-print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true repairs=true construction=true target_resolution=true")
+-- Reproduce Kahlua's missing select() with optional nils before real requirements.
+base.tasks = {}
+constructionTarget, repairTarget, animalTarget = nil, nil, nil
+KnoxBaseFarming.findTask = function() return {
+    id = "seed-test", action = "farm_seed", seedItemType = "Base.CarrotSeed",
+} end
+local savedSelect = select
+select = nil
+local farmTask = jobs.ensureAutomaticTask(base, nil, nil, "farming")
+select = savedSelect
+assert(farmTask and farmTask.requirements.items["Base.CarrotSeed"] == 1,
+    "base farming works in Kahlua and does not lose requirements after nil arguments")
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true repairs=true construction=true target_resolution=true kahlua_requirements=true")

@@ -6,6 +6,8 @@ require "KS_BaseStorage"
 local BaseManager = rawget(_G, "KnoxBaseManager") or {}
 _G.KnoxBaseManager = BaseManager
 
+local PLAYER_BASE_YARD_PADDING = 6
+
 BaseManager.ZONE_TYPES = {
     farming = true,
     woodcutting = true,
@@ -53,6 +55,28 @@ local function areaFromBuilding(building, square)
         width = definition:getW(),
         height = definition:getH(),
     }
+end
+
+local function territoryAround(area, padding)
+    local pad = math.max(0, tonumber(padding) or 0)
+    return {
+        minX = area.minX - pad,
+        minY = area.minY - pad,
+        maxX = area.minX + area.width - 1 + pad,
+        maxY = area.minY + area.height - 1 + pad,
+    }
+end
+
+local function blockedBySurvivorSafehouse(area)
+    local overlapping = SafeHouse ~= nil and SafeHouse.getSafehouseOverlapping(
+        area.minX,
+        area.minY,
+        area.maxX + 1,
+        area.maxY + 1
+    ) or nil
+    if overlapping == nil then return false end
+    local owner = tostring(overlapping:getOwner() or "")
+    return string.find(owner, "KnoxSurvivors:", 1, true) == 1
 end
 
 local function hasZoneType(base, zoneType)
@@ -202,31 +226,25 @@ function BaseManager.establishPlayerBase(player, square)
         return nil, "invalid_location"
     end
     local playerId = KnoxPersistence.ensurePlayerId(player)
-    local existing = BaseManager.getForOwner("player", playerId)
-    if existing ~= nil then
-        return existing, "existing"
-    end
     local area = areaFromBuilding(square:getBuilding(), square)
     if area == nil then
         return nil, "must_be_inside_building"
     end
-    local overlapping = SafeHouse ~= nil and SafeHouse.getSafehouseOverlapping(
-        area.minX,
-        area.minY,
-        area.minX + area.width,
-        area.minY + area.height
-    ) or nil
-    if overlapping ~= nil then
-        local owner = tostring(overlapping:getOwner() or "")
-        if string.find(owner, "KnoxSurvivors:", 1, true) == 1 then
-            return nil, "claimed_by_survivor_faction"
-        end
+    local existing = BaseManager.getForOwner("player", playerId)
+    if existing ~= nil then
+        return existing, existing.home ~= nil and existing.home.buildingId == area.buildingId
+            and "existing" or "move_confirmation_required"
+    end
+    local territory = territoryAround(area, PLAYER_BASE_YARD_PADDING)
+    if blockedBySurvivorSafehouse(territory) then
+        return nil, "claimed_by_survivor_faction"
     end
     local base, result = KnoxPersistence.createBase(
         "player",
         playerId,
         area,
-        worldAge()
+        worldAge(),
+        territory
     )
     if base ~= nil then
         local faction = KnoxPersistence.ensurePlayerFaction(playerId, worldAge())
@@ -234,6 +252,25 @@ function BaseManager.establishPlayerBase(player, square)
         BaseManager.syncStructureProtection()
     end
     return base, result
+end
+
+function BaseManager.movePlayerBase(player, square)
+    if player == nil or square == nil then return nil, "invalid_location" end
+    local playerId = KnoxPersistence.ensurePlayerId(player)
+    local base = BaseManager.getForOwner("player", playerId)
+    if base == nil then return BaseManager.establishPlayerBase(player, square) end
+    local area = areaFromBuilding(square:getBuilding(), square)
+    if area == nil then return nil, "must_be_inside_building" end
+    if base.home ~= nil and base.home.buildingId == area.buildingId then
+        return base, "existing"
+    end
+    local territory = territoryAround(area, PLAYER_BASE_YARD_PADDING)
+    if blockedBySurvivorSafehouse(territory) then
+        return nil, "claimed_by_survivor_faction"
+    end
+    local moved, result = KnoxPersistence.relocateBase(base.id, area, territory, worldAge())
+    if moved ~= nil then BaseManager.syncStructureProtection() end
+    return moved, result
 end
 
 function BaseManager.ensureFactionBase(faction)

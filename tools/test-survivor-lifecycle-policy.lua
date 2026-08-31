@@ -26,10 +26,23 @@ assert(autonomy:find("DEAD_REMOVE_PENDING", 1, true),
     "dead bodies must remain registered until engine teardown succeeds")
 assert(autonomy:find("bridge:retireNpcAsCorpse(id)", 1, true),
     "dead survivor lifecycle must create a world corpse before shell teardown")
-assert(autonomy:find("bridge:removeNpc(id)", 1, true),
-    "dead survivor lifecycle must request engine-shell removal")
+local mainMenuStart = assert(autonomy:find("local function onMainMenuEnter()", 1, true))
+local mainMenu = autonomy:sub(mainMenuStart)
+assert(mainMenu:find("retireDeadControllers(bridge)", 1, true),
+    "save/quit must retire dead shells before capture")
+assert(autonomy:find("KnoxPersistence.isSurvivorAlive(id)", 1, true),
+    "dead identity persistence must be marked once before cleanup retries")
+assert(autonomy:find("return nil, \"dead_identity\"", 1, true),
+    "dead identities must not be restored into a living runtime shell")
 assert(autonomy:find("character:getVehicle() ~= nil", 1, true)
     and autonomy:find("Passenger shells are owned by the live vehicle", 1, true),
     "occupied vehicle seats must not be hibernated as detached shells")
 
-print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true vehicle_safe=true dead_teardown=true corpse_handoff=true")
+local registryPath = rootPath .. "/java/src/main/java/com/knoxsurvivors/npc/KnoxNpcRegistry.java"
+local registry = assert(io.open(registryPath, "r")):read("*a")
+assert(registry:find("CORPSE_PENDING_CLEANUP", 1, true),
+    "a corpse created before shell cleanup must retain a bounded cleanup retry")
+assert(registry:find("runtime.corpseRetirement().corpseCreated()", 1, true),
+    "cleanup retry must not construct a second native corpse")
+
+print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true vehicle_safe=true dead_teardown=true corpse_handoff=true cleanup_retry=true save_boundary=true")

@@ -8,20 +8,31 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
+import java.util.IdentityHashMap;
 
 /** Portable Knox-owned inventory state for rebuilding a temporary engine body. */
 final class KnoxInventorySnapshot {
-    static final int SCHEMA_VERSION = 2;
+    static final int SCHEMA_VERSION = 3;
     private static final int VISUAL_BUFFER_BYTES = 64 * 1024;
+    private static final int MAX_ITEM_BYTES = 16 * 1024 * 1024;
 
     private final List<ItemState> items;
+    private final int worldVersion;
 
-    private KnoxInventorySnapshot(List<ItemState> items) {
+    private KnoxInventorySnapshot(List<ItemState> items, int worldVersion) {
         this.items = List.copyOf(items);
+        this.worldVersion = worldVersion;
     }
 
     static KnoxInventorySnapshot capture(Object body) throws ReflectiveOperationException {
+        Class<?> world = Class.forName("zombie.iso.IsoWorld", false, body.getClass().getClassLoader());
+        return capture(body, world.getField("WorldVersion").getInt(null));
+    }
+
+    static KnoxInventorySnapshot capture(Object body, int worldVersion) throws ReflectiveOperationException {
         Object inventory = invoke(body, "getInventory");
         Object wornItems = invoke(body, "getWornItems");
         Object primary = invoke(body, "getPrimaryHandItem");
@@ -36,30 +47,57 @@ final class KnoxInventorySnapshot {
                 (Boolean) invokeCompatible(wornItems, "contains", item),
                 item == primary,
                 item == secondary,
-                captureItemVisual(item)
+                "",
+                countItemTree(item, new IdentityHashMap<>(), 0),
+                captureNativeItem(item)
             ));
         }
-        return new KnoxInventorySnapshot(states);
+        return new KnoxInventorySnapshot(states, worldVersion);
     }
 
     void restore(Object body) throws ReflectiveOperationException {
+        restore(body, Class.forName("zombie.inventory.InventoryItem", false, body.getClass().getClassLoader()));
+    }
+
+    void restore(Object body, Class<?> itemClass) throws ReflectiveOperationException {
         Object inventory = invoke(body, "getInventory");
         Object wornItems = invoke(body, "getWornItems");
+        // Decode every native root before touching the destination inventory.
+        // Native loadItem may silently skip a removed mod item; reject that loss
+        // (including missing nested items) and retain the original saved record.
+        List<Object> prepared = new ArrayList<>(items.size());
+        for (ItemState state : items) {
+            Object item = null;
+            if (!state.nativeBytes.isEmpty()) {
+                item = loadNativeItem(state, itemClass);
+            }
+            prepared.add(item);
+        }
         invokeCompatible(body, "setPrimaryHandItem", (Object) null);
         invokeCompatible(body, "setSecondaryHandItem", (Object) null);
         invoke(wornItems, "clear");
         invoke(inventory, "clear");
 
-        for (ItemState state : items) {
-            Object item = inventory.getClass().getMethod("AddItem", String.class)
-                .invoke(inventory, state.fullType);
+        for (int index = 0; index < items.size(); index++) {
+            ItemState state = items.get(index);
+            Object item = prepared.get(index);
+            if (item != null) {
+                invokeCompatible(inventory, "AddItem", item);
+            } else {
+                // Schema 2 did not store native contents. Keep its old restore
+                // semantics; data that was never captured cannot be recovered.
+                item = inventory.getClass().getMethod("AddItem", String.class)
+                    .invoke(inventory, state.fullType);
+                if (item != null) {
+                    item.getClass().getMethod("setCondition", int.class).invoke(item, state.condition);
+                    item.getClass().getMethod("setUses", int.class).invoke(item, state.uses);
+                    item.getClass().getMethod("setFavorite", boolean.class).invoke(item, state.favorite);
+                    restoreItemVisual(item, state.visual);
+                }
+            }
             if (item == null) {
                 throw new IllegalStateException("Unable to restore inventory item " + state.fullType);
             }
-            item.getClass().getMethod("setCondition", int.class).invoke(item, state.condition);
-            item.getClass().getMethod("setUses", int.class).invoke(item, state.uses);
-            item.getClass().getMethod("setFavorite", boolean.class).invoke(item, state.favorite);
-            restoreItemVisual(item, state.visual);
             Object bodyLocation = invoke(item, "getBodyLocation");
             if (bodyLocation == null) {
                 bodyLocation = invoke(item, "canBeEquipped");
@@ -130,11 +168,116 @@ final class KnoxInventorySnapshot {
             }
             remaining.add(item);
         }
-        return removed ? new KnoxInventorySnapshot(remaining) : null;
+        return removed ? new KnoxInventorySnapshot(remaining, worldVersion) : null;
+    }
+
+    record Consumption(KnoxInventorySnapshot inventory, double hungerRelief, double thirstRelief, String type) { }
+    private record Supply(Object item, Object parent, double benefit) { }
+
+    Consumption consumeSupply(String kind, double requested, Class<?> itemClass)
+        throws ReflectiveOperationException {
+        if ((!"food".equals(kind) && !"water".equals(kind))
+            || !Double.isFinite(requested) || requested <= 0 || requested > 1) return null;
+        for (int index = 0; index < items.size(); index++) {
+            ItemState state = items.get(index);
+            // Legacy snapshots do not know real food/fluid contents. Never infer
+            // safe food or a full water bottle from a newly-created default item.
+            if (state.nativeBytes.isEmpty()) continue;
+            Object root = loadNativeItem(state, itemClass);
+            Supply supply = findSupply(root, null, kind);
+            if (supply == null) continue;
+            double hunger = 0, thirst = 0;
+            boolean remove = false;
+            if ("water".equals(kind)) {
+                Object fluid = invoke(supply.item, "getFluidContainer");
+                double amount = ((Number) invoke(fluid, "getAmount")).doubleValue();
+                double consumed = Math.min(amount, requested * 1.2);
+                // Build 42 ISDrinkFromBottle uses 0.12 fluid for 0.1 thirst.
+                fluid.getClass().getMethod("adjustAmount", float.class)
+                    .invoke(fluid, (float) Math.max(0, amount - consumed));
+                thirst = consumed / 1.2;
+            } else {
+                double fraction = Math.min(1, requested / supply.benefit);
+                hunger = supply.benefit * fraction;
+                thirst = -((Number) invoke(supply.item, "getThirstChange")).doubleValue() * fraction;
+                supply.item.getClass().getMethod("multiplyFoodValues", float.class)
+                    .invoke(supply.item, (float) (1 - fraction));
+                remove = fraction >= 1;
+                if (remove && supply.parent != null) invokeCompatible(supply.parent, "Remove", supply.item);
+            }
+            List<ItemState> updated = new ArrayList<>(items);
+            if (remove && supply.item == root) {
+                updated.remove(index);
+            } else {
+                updated.set(index, new ItemState(state.fullType, state.condition, state.uses,
+                    state.favorite, state.worn, state.primary, state.secondary, state.visual,
+                    countItemTree(root, new IdentityHashMap<>(), 0), captureNativeItem(root)));
+            }
+            return new Consumption(new KnoxInventorySnapshot(updated, worldVersion), hunger, thirst,
+                (String) invoke(supply.item, "getFullType"));
+        }
+        return null;
+    }
+
+    private static Supply findSupply(Object item, Object parent, String kind) throws ReflectiveOperationException {
+        if ("water".equals(kind)) {
+            Object fluid = invoke(item, "getFluidContainer");
+            if (fluid != null) {
+                double amount = ((Number) invoke(fluid, "getAmount")).doubleValue();
+                Object primary = Double.isFinite(amount) && amount > 0 ? invoke(fluid, "getPrimaryFluid") : null;
+                if (Double.isFinite(amount) && amount > 0 && primary != null
+                    && "Water".equals(invoke(primary, "getFluidTypeString"))
+                    && (Boolean) invokeCompatible(fluid, "isPureFluid", primary)) {
+                    return new Supply(item, parent, amount / 1.2);
+                }
+            }
+        } else if ((Boolean) invoke(item, "IsFood")) {
+            double benefit = -((Number) invoke(item, "getHungerChange")).doubleValue();
+            if (Double.isFinite(benefit) && benefit > .001
+                && Double.isFinite(((Number) invoke(item, "getThirstChange")).doubleValue())
+                && !((Boolean) invoke(item, "isRotten")) && !((Boolean) invoke(item, "isPoison"))
+                && ((Number) invoke(item, "getPoisonPower")).intValue() == 0
+                && (!((Boolean) invoke(item, "isbDangerousUncooked")) || (Boolean) invoke(item, "isCooked"))
+                && ((Number) invoke(item, "getUses")).intValue() == 1
+                && empty(invoke(item, "getOnEat")) && empty(invoke(item, "getUseOnConsume"))
+                && empty(invoke(item, "getReplaceOnUse"))) {
+                // Scripted consumption/byproducts need an actual character/action;
+                // leave these for loaded self-care rather than silently losing them.
+                return new Supply(item, parent, benefit);
+            }
+        }
+        Method getter;
+        try { getter = item.getClass().getMethod("getInventory"); }
+        catch (NoSuchMethodException leaf) { return null; }
+        Object container = getter.invoke(item);
+        if (container != null) {
+            for (Object child : (Collection<?>) invoke(container, "getItems")) {
+                Supply supply = findSupply(child, container, kind);
+                if (supply != null) return supply;
+            }
+        }
+        return null;
+    }
+
+    private static boolean empty(Object value) {
+        return value == null || value.toString().isEmpty();
+    }
+
+    private Object loadNativeItem(ItemState state, Class<?> itemClass) throws ReflectiveOperationException {
+        if (worldVersion <= 0 || state.nativeBytes.length() > (MAX_ITEM_BYTES * 4L / 3L + 4)) {
+            throw new IllegalArgumentException("Invalid native inventory payload");
+        }
+        ByteBuffer bytes = ByteBuffer.wrap(Base64.getUrlDecoder().decode(state.nativeBytes));
+        Object item = itemClass.getMethod("loadItem", ByteBuffer.class, int.class).invoke(null, bytes, worldVersion);
+        if (item == null || bytes.hasRemaining() || !state.fullType.equals(invoke(item, "getFullType"))
+            || state.treeCount != countItemTree(item, new IdentityHashMap<>(), 0)) {
+            throw new IllegalStateException("Incomplete native inventory restore: " + state.fullType);
+        }
+        return item;
     }
 
     String encode() {
-        StringBuilder encoded = new StringBuilder(Integer.toString(SCHEMA_VERSION));
+        StringBuilder encoded = new StringBuilder(SCHEMA_VERSION + "|" + worldVersion);
         for (ItemState item : items) {
             encoded.append('\n')
                 .append(text(item.fullType)).append('|')
@@ -144,20 +287,27 @@ final class KnoxInventorySnapshot {
                 .append(item.worn ? 1 : 0).append('|')
                 .append(item.primary ? 1 : 0).append('|')
                 .append(item.secondary ? 1 : 0).append('|')
-                .append(item.visual);
+                .append(item.visual).append('|')
+                .append(item.treeCount).append('|')
+                .append(item.nativeBytes);
         }
         return encoded.toString();
     }
 
     static KnoxInventorySnapshot decode(String encoded) {
         String[] lines = encoded.split("\\n", -1);
-        if (lines.length == 0 || Integer.parseInt(lines[0]) != SCHEMA_VERSION) {
+        String[] header = lines[0].split("\\|", -1);
+        int version = Integer.parseInt(header[0]);
+        if ((version != 2 && version != SCHEMA_VERSION)
+            || (version == 2 && header.length != 1)
+            || (version == SCHEMA_VERSION && header.length != 2)) {
             throw new IllegalArgumentException("Unsupported inventory snapshot schema");
         }
+        int worldVersion = version == 2 ? 0 : Integer.parseInt(header[1]);
         List<ItemState> states = new ArrayList<>();
         for (int index = 1; index < lines.length; index++) {
             String[] fields = lines[index].split("\\|", -1);
-            if (fields.length != 8) {
+            if (fields.length != (version == 2 ? 8 : 10)) {
                 throw new IllegalArgumentException("Invalid inventory item record at " + index);
             }
             states.add(new ItemState(
@@ -168,10 +318,52 @@ final class KnoxInventorySnapshot {
                 "1".equals(fields[4]),
                 "1".equals(fields[5]),
                 "1".equals(fields[6]),
-                fields[7]
+                fields[7],
+                version == 2 ? 1 : Integer.parseInt(fields[8]),
+                version == 2 ? "" : fields[9]
             ));
         }
-        return new KnoxInventorySnapshot(states);
+        return new KnoxInventorySnapshot(states, worldVersion);
+    }
+
+    private static String captureNativeItem(Object item) throws ReflectiveOperationException {
+        for (int capacity = VISUAL_BUFFER_BYTES; capacity <= MAX_ITEM_BYTES; capacity *= 2) {
+            ByteBuffer buffer = ByteBuffer.allocate(capacity);
+            try {
+                item.getClass().getMethod("saveWithSize", ByteBuffer.class, boolean.class)
+                    .invoke(item, buffer, false);
+                byte[] bytes = new byte[buffer.position()];
+                buffer.flip();
+                buffer.get(bytes);
+                return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+            } catch (InvocationTargetException failure) {
+                if (!(failure.getCause() instanceof BufferOverflowException) || capacity == MAX_ITEM_BYTES) {
+                    throw failure;
+                }
+            }
+        }
+        throw new IllegalStateException("Native inventory item exceeds serialization budget");
+    }
+
+    private static int countItemTree(Object item, IdentityHashMap<Object, Boolean> seen, int depth)
+        throws ReflectiveOperationException {
+        if (depth > 32 || seen.put(item, Boolean.TRUE) != null) {
+            throw new IllegalStateException("Cyclic or excessively nested inventory");
+        }
+        Method getter;
+        try {
+            getter = item.getClass().getMethod("getInventory");
+        } catch (NoSuchMethodException leafItem) {
+            return 1;
+        }
+        Object container = getter.invoke(item);
+        int count = 1;
+        if (container != null) {
+            for (Object child : (Collection<?>) invoke(container, "getItems")) {
+                count += countItemTree(child, seen, depth + 1);
+            }
+        }
+        return count;
     }
 
     private static String text(String value) {
@@ -208,19 +400,6 @@ final class KnoxInventorySnapshot {
         throw new NoSuchMethodException(target.getClass().getName() + "." + name);
     }
 
-    private static String captureItemVisual(Object item) throws ReflectiveOperationException {
-        Object visual = invoke(item, "getVisual");
-        if (visual == null) {
-            return "";
-        }
-        ByteBuffer buffer = ByteBuffer.allocate(VISUAL_BUFFER_BYTES);
-        visual.getClass().getMethod("save", ByteBuffer.class).invoke(visual, buffer);
-        byte[] bytes = new byte[buffer.position()];
-        buffer.flip();
-        buffer.get(bytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-    }
-
     private static void restoreItemVisual(Object item, String encoded)
         throws ReflectiveOperationException {
         if (encoded.isEmpty()) {
@@ -249,7 +428,9 @@ final class KnoxInventorySnapshot {
         boolean worn,
         boolean primary,
         boolean secondary,
-        String visual
+        String visual,
+        int treeCount,
+        String nativeBytes
     ) {
     }
 }

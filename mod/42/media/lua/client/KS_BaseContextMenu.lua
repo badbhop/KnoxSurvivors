@@ -56,6 +56,28 @@ function BaseContextMenu.establish(player, square)
     end
 end
 
+function BaseContextMenu.confirmMove(_, button, player, square)
+    if button == nil or button.internal ~= "YES" then
+        KnoxActivityFeed.event("Home base move cancelled.")
+        return
+    end
+    local base, result = KnoxBaseManager.movePlayerBase(player, square)
+    if base ~= nil then
+        KnoxActivityFeed.event("Home base moved. Items at the previous location were left untouched.")
+    else
+        KnoxActivityFeed.event("Could not move the base here: " .. tostring(result) .. ".")
+    end
+end
+
+function BaseContextMenu.requestMove(player, square)
+    local prompt = "Move your home base here? Existing items will stay at the old location, while old work areas, storage assignments, and queued jobs will be cleared."
+    local modal = ISModalDialog:new(0, 0, 430, 170, prompt, true,
+        BaseContextMenu, BaseContextMenu.confirmMove, player:getPlayerNum(), player, square)
+    modal:initialise()
+    modal:addToUIManager()
+    modal.moveWithMouse = true
+end
+
 function BaseContextMenu.setStorage(baseId, object, containerIndex, category)
     local policy, result = KnoxBaseManager.setStoragePolicy(
         baseId,
@@ -81,6 +103,7 @@ end
 function BaseContextMenu.removeZone(_, baseId, zoneId)
     local removed, result = KnoxPersistence.removeBaseZone(baseId, zoneId)
     if removed then
+        if KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
         KnoxActivityFeed.event("Work area removed.")
     else
         KnoxActivityFeed.event("Could not remove work area: " .. tostring(result) .. ".")
@@ -188,6 +211,12 @@ local function addManageZoneMenu(parent, base)
     end
 end
 
+local function buildingId(square)
+    local building = square ~= nil and square:getBuilding() or nil
+    local definition = building ~= nil and building:getDef() or nil
+    return definition ~= nil and tostring(definition:getID()) or nil
+end
+
 function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     if not KnoxSettings.enabled() then
         return
@@ -200,7 +229,10 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     local playerId = KnoxPersistence.ensurePlayerId(player)
     local base = KnoxBaseManager.getForOwner("player", playerId)
     local containers = base ~= nil and containerObjects(worldobjects, base) or {}
-    local canEstablish = base == nil and square:getBuilding() ~= nil
+    local clickedBuildingId = buildingId(square)
+    local canEstablish = base == nil and clickedBuildingId ~= nil
+    local canMove = base ~= nil and clickedBuildingId ~= nil
+        and (base.home == nil or base.home.buildingId ~= clickedBuildingId)
     -- A resident may mark a work area on open ground, so a base menu must not
     -- depend on the clicked object being a container.
     if base == nil and not canEstablish and #containers == 0 then
@@ -217,6 +249,8 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     context:addSubMenu(rootOption, menu)
     if canEstablish then
         menu:addOption("Establish Home Base", player, BaseContextMenu.establish, square)
+    elseif canMove then
+        menu:addOption("Move Home Base Here", player, BaseContextMenu.requestMove, square)
     end
     if base ~= nil then
         menu:addOption("Open Base Management", BaseContextMenu, BaseContextMenu.openSetup, playerNum)

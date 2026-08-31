@@ -35,22 +35,37 @@ public final class KnoxZombieVisibilityClassVerifier {
         if (defined.getClassLoader() != verifierLoader) {
             throw new AssertionError("Patched IsoZombie was not defined by the verifier loader");
         }
+        try (ZipFile gameJar = new ZipFile(Path.of(arguments[0]).toFile())) {
+            byte[] impact = gameJar.getInputStream(gameJar.getEntry("zombie/CombatManager.class")).readAllBytes();
+            ClassLoader impactLoader = new PatchedIsoZombieLoader(
+                KnoxZombieVisibilityClassVerifier.class.getClassLoader(), "zombie.CombatManager",
+                KnoxSwipeStateTransformer.patchImpactForVerification(impact));
+            Class<?> impactClass = Class.forName("zombie.CombatManager", false, impactLoader);
+            if (impactClass.getClassLoader() != impactLoader) throw new AssertionError("Impact patch not defined");
+            System.out.println("combat impact transformed class verified runtime=" + Runtime.version().feature());
+        }
         System.out.println("zombie visibility transformed class verified runtime="
             + Runtime.version().feature());
     }
 
     private static final class PatchedIsoZombieLoader extends ClassLoader {
         private final byte[] patched;
+        private final String targetName;
 
         private PatchedIsoZombieLoader(ClassLoader parent, byte[] patched) {
+            this(parent, TARGET_NAME, patched);
+        }
+
+        private PatchedIsoZombieLoader(ClassLoader parent, String targetName, byte[] patched) {
             super(parent);
             this.patched = patched;
+            this.targetName = targetName;
         }
 
         @Override
         protected synchronized Class<?> loadClass(String name, boolean resolve)
             throws ClassNotFoundException {
-            if (!TARGET_NAME.equals(name)) {
+            if (!targetName.equals(name)) {
                 return super.loadClass(name, resolve);
             }
             Class<?> alreadyLoaded = findLoadedClass(name);

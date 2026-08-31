@@ -189,11 +189,18 @@ function CombatTests.writeSnapshot()
     for _, id in ipairs(active.ids) do
         local controller = status.controllers ~= nil and status.controllers[id] or nil
         local character = controller ~= nil and controller.character or nil
-        print(TAG .. " survivor id=" .. tostring(id)
-            .. " health=" .. tostring(character ~= nil and characterHealth(character) or "missing")
-            .. " firearm=" .. tostring(firearmAmmo(character))
-            .. " controller=" .. tostring(controller ~= nil and controller:status() or "missing"))
-        if bridge ~= nil and bridge.getNpcCombatDiagnostics ~= nil then
+        if character == nil then
+            -- A dead test shell is intentionally removed by the native corpse
+            -- lifecycle. Report that plainly rather than repeatedly asking the
+            -- Java bridge for a controller that cannot exist anymore.
+            print(TAG .. " survivor id=" .. tostring(id) .. " status=eliminated")
+        else
+            print(TAG .. " survivor id=" .. tostring(id)
+                .. " health=" .. tostring(characterHealth(character))
+                .. " firearm=" .. tostring(firearmAmmo(character))
+                .. " controller=" .. tostring(controller:status()))
+        end
+        if character ~= nil and bridge ~= nil and bridge.getNpcCombatDiagnostics ~= nil then
             print(TAG .. " survivor-java id=" .. tostring(id)
                 .. " " .. tostring(bridge:getNpcCombatDiagnostics(id)))
         end
@@ -268,6 +275,16 @@ function CombatTests.start(playerNum, scenario)
                 KnoxActivityFeed.event("Firearm test kit failed: " .. kit)
                 return false
             end
+            -- The firearm scenario must exercise reload/fire even when the
+            -- randomized test survivor is a novice carrying a good bat.
+            if not KnoxPersistence.setSurvivorWeaponPreference(id, "ranged") then
+                CombatTests.cleanup(true)
+                KnoxActivityFeed.event("Firearm test preference could not be saved.")
+                return false
+            end
+            if controller ~= nil and controller.setWeaponPreference ~= nil then
+                controller:setWeaponPreference("ranged")
+            end
         end
     end
     for index = 1, definition.zombies do
@@ -320,10 +337,12 @@ local function update()
     end
     active.elapsed = active.elapsed + 1
     local status = KnoxSurvivorAutonomy.status()
+    local activeSurvivors = 0
     for _, id in ipairs(active.ids) do
         local controller = status.controllers ~= nil and status.controllers[id] or nil
         local character = controller ~= nil and controller.character or nil
         if character ~= nil then
+            activeSurvivors = activeSurvivors + 1
             local previous = active.survivorHealth[id] or characterHealth(character)
             local current = characterHealth(character)
             if current < previous - 0.01 then
@@ -331,6 +350,11 @@ local function update()
             end
             active.survivorHealth[id] = current
         end
+    end
+    if activeSurvivors == 0 then
+        report("FAIL", "all_test_survivors_eliminated")
+        CombatTests.writeSnapshot()
+        return
     end
     active.zombiesKilled = 0
     for _, zombie in ipairs(active.zombies) do

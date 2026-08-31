@@ -5,6 +5,8 @@ import java.util.Collection;
 
 /** Chooses equipment from items the survivor actually carries. */
 final class KnoxEquipmentController {
+    private static final float MELEE_SWITCH_MARGIN = 1.25f;
+
     private KnoxEquipmentController() {
     }
 
@@ -37,6 +39,16 @@ final class KnoxEquipmentController {
             }
         }
 
+        Object current = invoke(body, "getPrimaryHandItem");
+        float currentScore = meleeScore(current);
+        if (best != null && current == best) {
+            return "EQUIPMENT_STABLE " + invoke(best, "getFullType") + " score=" + bestScore;
+        }
+        if (best != null && currentScore > Float.NEGATIVE_INFINITY
+            && bestScore < currentScore + MELEE_SWITCH_MARGIN) {
+            return "EQUIPMENT_STABLE " + invoke(current, "getFullType")
+                + " score=" + currentScore;
+        }
         if (best == null) {
             invokeCompatible(body, "setPrimaryHandItem", (Object) null);
             invokeCompatible(body, "setSecondaryHandItem", (Object) null);
@@ -51,6 +63,36 @@ final class KnoxEquipmentController {
         );
         invoke(body, "resetModelNextFrame");
         return "EQUIPPED " + invoke(best, "getFullType") + " score=" + bestScore;
+    }
+
+    /** Wears an existing carried clothing/container item without creating or deleting gear. */
+    static String wearOwnedItem(Object body, String fullType) throws ReflectiveOperationException {
+        if (fullType == null || fullType.isBlank()) {
+            return "WEAR_FAILED INVALID_ITEM";
+        }
+        Object inventory = invoke(body, "getInventory");
+        Object selected = null;
+        Object location = null;
+        for (Object item : (Collection<?>) invoke(inventory, "getItems")) {
+            if (!fullType.equals(String.valueOf(invoke(item, "getFullType")))) {
+                continue;
+            }
+            location = wearableLocation(item);
+            if (location != null) {
+                selected = item;
+                break;
+            }
+        }
+        if (selected == null || location == null) {
+            return "WEAR_FAILED NOT_OWNED_OR_WEARABLE " + fullType;
+        }
+        Object current = invokeCompatible(body, "getWornItem", location);
+        if (current == selected) {
+            return "EQUIPMENT_STABLE_WORN " + fullType + " location=" + location;
+        }
+        invokeCompatibleTwo(body, "setWornItem", location, selected);
+        invoke(body, "resetModelNextFrame");
+        return "WORN_OWNED " + fullType + " location=" + location;
     }
 
     /**
@@ -90,6 +132,44 @@ final class KnoxEquipmentController {
             + " ranged=" + invoke(selected, "isRanged");
     }
 
+    private static float meleeScore(Object weapon) {
+        try {
+            if (weapon == null || !inherits(weapon, "zombie.inventory.types.HandWeapon")
+                || (Boolean) invoke(weapon, "isRanged")
+                || (Boolean) invoke(weapon, "isBroken")) {
+                return Float.NEGATIVE_INFINITY;
+            }
+            int conditionMax = ((Number) invoke(weapon, "getConditionMax")).intValue();
+            float condition = conditionMax <= 0
+                ? 0.0f
+                : ((Number) invoke(weapon, "getCondition")).floatValue() / conditionMax;
+            float averageDamage = (((Number) invoke(weapon, "getMinDamage")).floatValue()
+                + ((Number) invoke(weapon, "getMaxDamage")).floatValue()) * 0.5f;
+            return averageDamage * 10.0f + condition * 5.0f
+                + ((Number) invoke(weapon, "getMaxRange")).floatValue()
+                + ((Number) invoke(weapon, "getBaseSpeed")).floatValue()
+                + ((Number) invoke(weapon, "getCriticalChance")).floatValue() * 0.02f;
+        } catch (ReflectiveOperationException exception) {
+            return Float.NEGATIVE_INFINITY;
+        }
+    }
+
+    private static Object wearableLocation(Object item) {
+        try {
+            Object location = invoke(item, "getBodyLocation");
+            if (location != null) {
+                return location;
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // Some carried container classes expose only canBeEquipped().
+        }
+        try {
+            return invoke(item, "canBeEquipped");
+        } catch (ReflectiveOperationException ignored) {
+            return null;
+        }
+    }
+
     private static boolean inherits(Object value, String className) {
         Class<?> current = value.getClass();
         while (current != null) {
@@ -113,6 +193,21 @@ final class KnoxEquipmentController {
                 if (argument == null || parameterType.isInstance(argument)) {
                     return method.invoke(target, argument);
                 }
+            }
+        }
+        throw new NoSuchMethodException(target.getClass().getName() + "." + name);
+    }
+
+    private static Object invokeCompatibleTwo(Object target, String name, Object first, Object second)
+        throws ReflectiveOperationException {
+        for (Method method : target.getClass().getMethods()) {
+            if (!method.getName().equals(name) || method.getParameterCount() != 2) {
+                continue;
+            }
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            if ((first == null || parameterTypes[0].isInstance(first))
+                && (second == null || parameterTypes[1].isInstance(second))) {
+                return method.invoke(target, first, second);
             }
         }
         throw new NoSuchMethodException(target.getClass().getName() + "." + name);

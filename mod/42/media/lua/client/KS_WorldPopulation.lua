@@ -12,6 +12,14 @@ _G.KnoxWorldPopulation = WorldPopulation
 local catalogCache = nil
 local catalogCacheKey = nil
 local FIRST_SPAWN_SEARCH_RADIUS = 4
+local TRAVEL_BUCKET_SIZE = 300
+local ORIGIN_TRAVEL_SPEED = 40 -- net tiles/game-hour, with separate shelter stops
+local ORIGIN_TRAVEL_RADIUS = 600
+
+local function finite(value)
+    value = tonumber(value)
+    return value ~= nil and value == value and value > -math.huge and value < math.huge
+end
 
 local function coordinateKey(x, y, z)
     return tostring(math.floor(tonumber(x) or 0))
@@ -46,6 +54,69 @@ local function currentMapKey()
     return success and tostring(map or "unknown") or "unknown"
 end
 
+-- Meta buildings exist before their squares stream in. Choose a real ground-floor
+-- room rectangle, never the building bounding-box center (which may be a courtyard).
+-- This supplements player starts without consulting the player's current position.
+local function addBuildingOrigins(catalog)
+    local ok, buildings = pcall(function() return getWorld():getMetaGrid():getBuildings() end)
+    if not ok or buildings == nil then return end
+    local occupiedBuckets = {}
+    local countOk, count = pcall(function() return buildings:size() end)
+    if not countOk then return end
+    for index = 0, count - 1 do
+        local valid, x, y = pcall(function()
+            local rooms = buildings:get(index):getRooms()
+            for roomIndex = 0, rooms:size() - 1 do
+                local room = rooms:get(roomIndex)
+                if room:getZ() == 0 then
+                    local rects = room:getRects()
+                    for rectIndex = 0, rects:size() - 1 do
+                        local rect = rects:get(rectIndex)
+                        if rect:getW() >= 2 and rect:getH() >= 2 then
+                            return rect:getX() + math.floor(rect:getW() / 2),
+                                rect:getY() + math.floor(rect:getH() / 2)
+                        end
+                    end
+                end
+            end
+        end)
+        if valid and finite(x) and finite(y) then
+            x, y = math.floor(x), math.floor(y)
+            local bucket = math.floor(x / 100) .. ":" .. math.floor(y / 100)
+            local key = coordinateKey(x, y, 0)
+            if not occupiedBuckets[bucket] and not catalog.byKey[key] then
+                local nearest, nearestDistance = nil, math.huge
+                -- Regions have fixed anchors from player starts, so adding metadata
+                -- never pulls the next region's allocation toward earlier additions.
+                for _, region in ipairs(catalog.regions) do
+                    local distance = (x - region.anchorX)^2 + (y - region.anchorY)^2
+                    if distance < nearestDistance then nearest, nearestDistance = region, distance end
+                end
+                if nearest ~= nil then
+                    local origin = { x = x, y = y, z = 0, key = key,
+                        region = nearest.name, regionKey = nearest.key, source = "world_building" }
+                    nearest.origins[#nearest.origins + 1] = origin
+                    catalog.origins[#catalog.origins + 1] = origin
+                    catalog.byKey[key] = origin
+                    occupiedBuckets[bucket] = true
+                    catalog.buildingOrigins = catalog.buildingOrigins + 1
+                end
+            end
+        end
+    end
+end
+
+local function indexTravelOrigins(catalog)
+    catalog.travelBuckets = {}
+    for _, origin in ipairs(catalog.origins) do
+        local key = math.floor(origin.x / TRAVEL_BUCKET_SIZE) .. ":"
+            .. math.floor(origin.y / TRAVEL_BUCKET_SIZE)
+        local bucket = catalog.travelBuckets[key] or {}
+        bucket[#bucket + 1] = origin
+        catalog.travelBuckets[key] = bucket
+    end
+end
+
 local function buildSpawnCatalog()
     if SpawnRegionMgr == nil or SpawnRegionMgr.getSpawnRegions == nil then
         return nil, "spawn_region_manager_unavailable"
@@ -72,7 +143,7 @@ local function buildSpawnCatalog()
         return first.name < second.name
     end)
 
-    local catalog = { regions = {}, origins = {}, byKey = {} }
+    local catalog = { regions = {}, origins = {}, byKey = {}, buildingOrigins = 0 }
     local nameOccurrences = {}
     for _, rawRegion in ipairs(rawRegions) do
         nameOccurrences[rawRegion.name] = (nameOccurrences[rawRegion.name] or 0) + 1
@@ -117,8 +188,15 @@ local function buildSpawnCatalog()
             return first.key < second.key
         end)
         if #region.origins > 0 then
+            local x, y = 0, 0
+            for _, origin in ipairs(region.origins) do x, y = x + origin.x, y + origin.y end
+            region.anchorX, region.anchorY = x / #region.origins, y / #region.origins
             catalog.regions[#catalog.regions + 1] = region
         end
+    end
+    addBuildingOrigins(catalog)
+    for _, region in ipairs(catalog.regions) do
+        table.sort(region.origins, function(first, second) return first.key < second.key end)
     end
     table.sort(catalog.origins, function(first, second)
         return first.key < second.key
@@ -126,6 +204,7 @@ local function buildSpawnCatalog()
     if #catalog.origins == 0 then
         return nil, "no_player_spawn_origins"
     end
+    indexTravelOrigins(catalog)
     return catalog, "loaded"
 end
 
@@ -143,6 +222,10 @@ function WorldPopulation.spawnCatalog()
     if catalog ~= nil then
         catalogCache = catalog
         catalogCacheKey = key
+        print("[KnoxSurvivors][WorldPopulation] catalog playerStarts="
+            .. tostring(#catalog.origins - catalog.buildingOrigins)
+            .. " buildingOrigins=" .. tostring(catalog.buildingOrigins)
+            .. " regions=" .. tostring(#catalog.regions))
     end
     return catalog, result
 end
@@ -165,14 +248,129 @@ local function firstUnusedOrigin(region, used, cursor)
         return nil
     end
     local start = (stableHash(region.key) + cursor * 37) % count
-    for offset = 0, count - 1 do
-        local index = ((start + offset) % count) + 1
-        local origin = region.origins[index]
-        if not used[origin.key] then
-            return origin
+    local preferredSource = cursor % 3 == 2 and "world_building" or "player_spawn"
+    for pass = 1, 2 do
+        for offset = 0, count - 1 do
+            local index = ((start + offset) % count) + 1
+            local origin = region.origins[index]
+            if not used[origin.key] and (pass == 2 or origin.source == preferredSource) then
+                return origin
+            end
         end
     end
     return nil
+end
+
+local function chooseTravelOrigin(catalog, id, state)
+    local x, y = state.virtualX, state.virtualY
+    local choices = {}
+    local minX, maxX = math.floor((x - ORIGIN_TRAVEL_RADIUS) / TRAVEL_BUCKET_SIZE),
+        math.floor((x + ORIGIN_TRAVEL_RADIUS) / TRAVEL_BUCKET_SIZE)
+    local minY, maxY = math.floor((y - ORIGIN_TRAVEL_RADIUS) / TRAVEL_BUCKET_SIZE),
+        math.floor((y + ORIGIN_TRAVEL_RADIUS) / TRAVEL_BUCKET_SIZE)
+    for bx = minX, maxX do
+        for by = minY, maxY do
+            for _, origin in ipairs(catalog.travelBuckets[bx .. ":" .. by] or {}) do
+                local distance = (origin.x - x)^2 + (origin.y - y)^2
+                if origin.z == state.virtualZ and distance >= 16^2
+                    and distance <= ORIGIN_TRAVEL_RADIUS^2 and origin.key ~= state.previousTravelKey then
+                    choices[#choices + 1] = origin
+                end
+            end
+        end
+    end
+    if #choices == 0 then return nil end
+    table.sort(choices, function(a, b) return a.key < b.key end)
+    return choices[(stableHash(id .. ":" .. tostring(state.travelSequence or 0)) % #choices) + 1]
+end
+
+-- Shared coarse itinerary for a durable position. The caller owns physiology,
+-- duties and persistence. Return moving time so travel is not mistaken for rest.
+function WorldPopulation.advanceItinerary(id, state, startHours, endHours)
+    if type(state) ~= "table" or not finite(startHours) or not finite(endHours) then
+        return false, "invalid_travel_clock", 0
+    end
+    local now = math.max(0, tonumber(endHours))
+    if not finite(state.virtualX) or not finite(state.virtualY) or not finite(state.virtualZ) then
+        return false, "invalid_virtual_location", 0
+    end
+    local cursor = math.max(tonumber(startHours), now - 48)
+    if now <= cursor then return false, "up_to_date", 0 end
+    local catalog = WorldPopulation.spawnCatalog()
+    if catalog == nil then return false, "catalog_unavailable", 0 end
+    local movingHours = 0
+    for _ = 1, 8 do
+        if cursor >= now then break end
+        if state.travelTarget == nil then
+            cursor = math.max(cursor, tonumber(state.departAtHours) or cursor)
+            if cursor >= now then break end
+            local target = chooseTravelOrigin(catalog, id, state)
+            if target == nil then
+                state.departAtHours = now + 3
+                state.travelPhase = "shelter"
+                break
+            end
+            state.travelTarget = { x = target.x, y = target.y, z = target.z, key = target.key }
+            state.travelSequence = (tonumber(state.travelSequence) or 0) + 1
+        end
+        local target = state.travelTarget
+        if not finite(target.x) or not finite(target.y) or not finite(target.z)
+            or target.z ~= state.virtualZ then
+            state.travelTarget = nil
+            state.departAtHours = now + 3
+            state.travelPhase = "shelter"
+            break
+        end
+        local dx, dy = target.x - state.virtualX, target.y - state.virtualY
+        local distance = math.sqrt(dx * dx + dy * dy)
+        local available = (now - cursor) * ORIGIN_TRAVEL_SPEED
+        if distance > available then
+            state.virtualX = state.virtualX + dx / distance * available
+            state.virtualY = state.virtualY + dy / distance * available
+            state.travelPhase = "moving"
+            movingHours = movingHours + now - cursor
+            cursor = now
+        else
+            movingHours = movingHours + distance / ORIGIN_TRAVEL_SPEED
+            cursor = cursor + distance / ORIGIN_TRAVEL_SPEED
+            state.virtualX, state.virtualY, state.virtualZ = target.x, target.y, target.z
+            state.previousTravelKey = state.currentTravelKey
+            state.currentTravelKey = target.key
+            state.travelTarget = nil
+            state.travelPhase = "shelter"
+            state.departAtHours = cursor + 2 + stableHash(id .. ":rest:" .. state.travelSequence) % 4
+        end
+    end
+    state.virtualAtHours = now
+    return true, "travel_advanced", movingHours
+end
+
+-- Before first body creation only location is known. This never invents health
+-- or inventory. After capture the stored-survival controller owns the identity.
+function WorldPopulation.advanceOriginTravel(id, hours)
+    if not KnoxPersistence.isSurvivorAlive(id) or KnoxPersistence.getRecord(id) ~= nil then
+        return false, "not_unmaterialized"
+    end
+    local origin = KnoxPersistence.getSurvivorOrigin(id)
+    if origin == nil or not finite(hours) then return false, "origin_unavailable" end
+    local duty = KnoxPersistence.getSurvivorDuty(id)
+    if duty ~= nil and duty.mode ~= nil and duty.mode ~= "autonomous" then
+        return false, "duty_owns_travel"
+    end
+    local now = math.max(0, tonumber(hours))
+    local state = KnoxPersistence.getUnloadedSurvivalState(id)
+    if state == nil then
+        state = { pendingMaterialization = true, virtualX = origin.x, virtualY = origin.y,
+            virtualZ = origin.z, lastHours = now, currentTravelKey = origin.key,
+            activity = "origin_shelter", status = "unmaterialized" }
+        KnoxPersistence.setUnloadedSurvivalState(id, state)
+    end
+    if state.pendingMaterialization ~= true then return false, "survival_ledger_owns_travel" end
+    local advanced, result = WorldPopulation.advanceItinerary(id, state, tonumber(state.lastHours) or now, now)
+    if not advanced then return false, result end
+    state.activity = state.travelPhase == "moving" and "origin_travel" or "origin_shelter"
+    state.lastHours, state.virtualAtHours = now, now
+    return KnoxPersistence.setUnloadedSurvivalState(id, state), "origin_advanced"
 end
 
 local function chooseBalancedOrigin(catalog, used, counts, cursor)
@@ -225,6 +423,7 @@ end
 function WorldPopulation.maintain(worldAgeHours)
     local now = math.max(0, tonumber(worldAgeHours) or 0)
     local target = KnoxSettings.worldPopulation()
+    local uncapped = KnoxSettings.capsDisabled()
     local refillHours = KnoxSettings.populationRefillDays() * 24
     local state = KnoxPersistence.getPopulationState()
     local living = #KnoxPersistence.getLivingWorldSurvivorIds()
@@ -233,6 +432,7 @@ function WorldPopulation.maintain(worldAgeHours)
         addedIds = {},
         living = living,
         target = target,
+        capsDisabled = uncapped,
         nextRefillHours = tonumber(state.nextRefillHours) or 0,
     }
 
@@ -263,7 +463,7 @@ function WorldPopulation.maintain(worldAgeHours)
         end
         state.initialized = true
         state.lastTarget = target
-        if living < target then
+        if living < target or uncapped then
             state.belowTargetSinceHours = now
             state.nextRefillHours = now + refillHours
         else
@@ -277,7 +477,7 @@ function WorldPopulation.maintain(worldAgeHours)
     end
 
     state.lastTarget = target
-    if living >= target then
+    if living >= target and not uncapped then
         state.belowTargetSinceHours = nil
         state.nextRefillHours = 0
         result.status = "at_target"
@@ -314,10 +514,10 @@ function WorldPopulation.maintain(worldAgeHours)
     state.nextRefillHours = now + refillHours
     result.nextRefillHours = state.nextRefillHours
     if id ~= nil then
-        result.status = "refilled"
+        result.status = uncapped and "arrived" or "refilled"
         result.addedIds[1] = id
         result.living = living + 1
-        if result.living >= target then
+        if result.living >= target and not uncapped then
             state.belowTargetSinceHours = nil
             state.nextRefillHours = 0
             result.nextRefillHours = 0
@@ -464,6 +664,18 @@ local function withinMaximumDistance(square, players, maximumDistance)
     return nearest ~= nil and nearest <= maximumDistance * maximumDistance, nearest
 end
 
+local function locationOutsideBand(x, y, players, maximumDistance)
+    if maximumDistance == nil then return false end
+    local maximum = maximumDistance + FIRST_SPAWN_SEARCH_RADIUS * math.sqrt(2)
+    for _, player in ipairs(players) do
+        local square = playerSquare(player)
+        if square ~= nil and (square:getX() - x)^2 + (square:getY() - y)^2 <= maximum^2 then
+            return false
+        end
+    end
+    return true
+end
+
 -- First materialization may move at most four tiles from its original player
 -- spawn point to find a valid square. It never occurs in sight of, or inside
 -- the configured exclusion radius around, any local player.
@@ -478,6 +690,9 @@ function WorldPopulation.findFirstMaterializationSquare(origin, options)
     local maximumDistance = type(options) == "table"
         and tonumber(options.maximumDistance)
         or nil
+    if locationOutsideBand(origin.x, origin.y, players, maximumDistance) then
+        return nil, "outside_activation_distance"
+    end
     local rotation = stableHash(origin.key or coordinateKey(origin.x, origin.y, origin.z))
 
     for radius = 0, FIRST_SPAWN_SEARCH_RADIUS do
@@ -517,12 +732,17 @@ local function recordLocation(bridge, record)
     return math.floor(tonumber(x)), math.floor(tonumber(y)), math.floor(tonumber(z)), nil
 end
 
-local function materializeVirtualLocation(id, bridge, record, players)
+local function materializeVirtualLocation(id, bridge, record, players, maximumDistance)
     local state = KnoxPersistence.getUnloadedSurvivalState ~= nil
         and KnoxPersistence.getUnloadedSurvivalState(id) or nil
     if state == nil or (state.activity ~= "surviving"
         and state.activity ~= "group_travel"
+        and state.activity ~= "group_waiting"
+        and state.activity ~= "group_regrouping"
         and state.activity ~= "base_life"
+        and state.activity ~= "sleeping"
+        and state.activity ~= "resting"
+        and state.activity ~= "sheltering"
         and state.activity ~= "returning_to_base"
         and state.activity ~= "away_mission") then
         return record, nil, nil, nil, "no_virtual_travel"
@@ -532,6 +752,9 @@ local function materializeVirtualLocation(id, bridge, record, players)
     local z = math.floor(tonumber(state.virtualZ) or 0)
     if x < 0 or y < 0 or getCell() == nil then
         return record, nil, nil, nil, "virtual_location_unavailable"
+    end
+    if locationOutsideBand(x, y, players, maximumDistance) then
+        return record, nil, nil, nil, "outside_activation_distance"
     end
     local selected = nil
     local rotation = stableHash(id .. ":virtual:" .. tostring(x) .. ":" .. tostring(y))
@@ -591,7 +814,7 @@ function WorldPopulation.activationCandidate(id, bridge, options)
     local record = KnoxPersistence.getRecord(id)
     if record ~= nil then
         local virtualRecord, virtualX, virtualY, virtualZ, virtualResult =
-            materializeVirtualLocation(id, bridge, record, players)
+            materializeVirtualLocation(id, bridge, record, players, maximumDistance)
         if virtualResult ~= "no_virtual_travel" then
             if virtualResult ~= nil then return nil, virtualResult end
             record = virtualRecord
@@ -629,7 +852,15 @@ function WorldPopulation.activationCandidate(id, bridge, options)
     if origin == nil then
         return nil, "origin_unavailable"
     end
-    local square, squareResult = WorldPopulation.findFirstMaterializationSquare(origin, options)
+    local location = origin
+    local state = KnoxPersistence.getUnloadedSurvivalState(id)
+    if state ~= nil and state.pendingMaterialization == true then
+        if not finite(state.virtualX) or not finite(state.virtualY) or not finite(state.virtualZ) then
+            return nil, "virtual_location_unavailable"
+        end
+        location = { x = state.virtualX, y = state.virtualY, z = state.virtualZ, key = id }
+    end
+    local square, squareResult = WorldPopulation.findFirstMaterializationSquare(location, options)
     if square == nil then
         return nil, squareResult
     end
@@ -666,6 +897,7 @@ function WorldPopulation.activationCandidates(bridge, activeIds, limit, options)
     local rejected = {}
     local active = activeLookup(activeIds)
     local maximum = math.max(0, math.floor(tonumber(limit) or KnoxSettings.maxActiveSurvivors()))
+    if maximum == 0 then return candidates, { activation_budget_full = 1 } end
     for _, id in ipairs(KnoxPersistence.getActivatableSurvivorIds()) do
         if not active[id] then
             local candidate, result = WorldPopulation.activationCandidate(id, bridge, options)

@@ -27,6 +27,22 @@ local FONT_HGT_SMALL = getTextManager():getFontHeight(UIFont.Small)
 local BUTTON_HGT = FONT_HGT_SMALL + 6
 local UI_BORDER_SPACING = 10
 
+local function trimText(font, value, availableWidth)
+    local text = tostring(value or "")
+    local width = math.max(8, tonumber(availableWidth) or 8)
+    if getTextManager():MeasureStringX(font, text) <= width then return text end
+    local suffix = "..."
+    while #text > 0 and getTextManager():MeasureStringX(font, text .. suffix) > width do
+        text = string.sub(text, 1, #text - 1)
+    end
+    return text .. suffix
+end
+
+local function drawListText(list, y, item, alpha)
+    list:drawText(trimText(list.font, item.text or "", list:getWidth() - 20),
+        10, y + 2, 1, 1, 1, alpha, list.font)
+end
+
 local ZONE_TYPES = {
     { label = "Guard Area", kind = "guard" },
     { label = "Patrol Area", kind = "patrol" },
@@ -90,7 +106,7 @@ function BaseView:drawZone(y,item,alt)
     if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.28,0.45,0.42,0.36) end
     local color=ZONE_COLORS[item.item and item.item.type] or ZONE_COLORS.general
     self:drawRect(0,y,4,self.itemheight-1,0.9,color.r,color.g,color.b)
-    self:drawText(item.text or "", 10, y+2, 1,1,1,a, self.font); return y+self.itemheight
+    drawListText(self, y, item, a); return y+self.itemheight
 end
 function BaseView:populate(playerNum)
     self.playerNum=playerNum
@@ -99,7 +115,9 @@ function BaseView:populate(playerNum)
         self.infoLabel.name="No home base — right-click inside a building to establish one."
         self.boundaryLabel.name=""; self.helpLabel.name="Once established, set its boundary and work areas here."
         self.zoneList:clear(); self.zoneList:addItem("none","No base established"); self.showHighlights:setSelected(1,false)
-        self.showHighlights:setEnable(false); self.editBoundaryBtn:setEnable(false); self.addAreaBtn:setEnable(false); self.removeBtn:setEnable(false); return
+        -- ISTickBox exposes `enable` directly in Build 42; setEnable belongs
+        -- to ISButton only.
+        self.showHighlights.enable=false; self.editBoundaryBtn:setEnable(false); self.addAreaBtn:setEnable(false); self.removeBtn:setEnable(false); return
     end
     local residents=KnoxPersistence.getBaseResidentIds(base.id)
     local zones=0; for _ in pairs(base.zones or {}) do zones=zones+1 end
@@ -109,7 +127,7 @@ function BaseView:populate(playerNum)
     self.boundaryLabel.name="Boundary: " .. tostring(area.minX or "?") .. "," .. tostring(area.minY or "?") .. " to " .. tostring(area.maxX or "?") .. "," .. tostring(area.maxY or "?") .. "  (all floors)"
     self.showHighlights:setSelected(1, KnoxBaseHighlights.isEnabled(playerNum))
     self.helpLabel.name="Storage is assigned by right-clicking a container inside the base."
-    self.showHighlights:setEnable(true); self.editBoundaryBtn:setEnable(true); self.addAreaBtn:setEnable(true); self.removeBtn:setEnable(self.zoneList.selected and self.zoneList.selected > 0)
+    self.showHighlights.enable=true; self.editBoundaryBtn:setEnable(true); self.addAreaBtn:setEnable(true); self.removeBtn:setEnable(self.zoneList.selected and self.zoneList.selected > 0)
     self.zoneList:clear()
     local list={}; for _,z in pairs(base.zones or {}) do if z and z.enabled~=false then list[#list+1]=z end end
     table.sort(list, function(a,b) if tostring(a.type)==tostring(b.type) then return tostring(a.label or a.type) < tostring(b.label or b.type) end return tostring(a.type) < tostring(b.type) end)
@@ -131,7 +149,7 @@ function BaseView:onRemove()
     local index=self.zoneList.selected or 0; local it=index>0 and self.zoneList.items[index] or nil
     if not it or not it.item or not it.item.id then return end
     local win=self:getWindow(); local pl=getSpecificPlayer(win.playerNum); local pid=pl and KnoxPersistence.ensurePlayerId(pl) or nil; local base=pid and KnoxBaseManager.getForOwner("player", pid) or nil
-    if base then local removed=KnoxPersistence.removeBaseZone(base.id, it.item.id); if removed then KnoxActivityFeed.event("Work area removed."); self:populate(win.playerNum) end end
+    if base then local removed=KnoxPersistence.removeBaseZone(base.id, it.item.id); if removed then KnoxBaseHighlights.refresh(win.playerNum); KnoxActivityFeed.event("Work area removed."); self:populate(win.playerNum) end end
 end
 function BaseView:prerender()
     ISPanelJoypad.prerender(self)
@@ -154,7 +172,7 @@ function ResidentsView:createChildren()
     self.jobPicker=ISComboBox:new(self.sendHomeBtn:getRight()+UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,125,BUTTON_HGT,self,nil); self.jobPicker:initialise(); for _,choice in ipairs(BASE_JOB_CHOICES) do self.jobPicker:addOption(choice.label) end; self.jobPicker.selected=1; self:addChild(self.jobPicker)
     self.setJobBtn=ISButton:new(self.jobPicker:getRight()+6,self.list:getBottom()+UI_BORDER_SPACING,95,BUTTON_HGT,"Set Job",self,ResidentsView.onSetJob); self.setJobBtn:initialise(); self.setJobBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.setJobBtn)
 end
-function ResidentsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text,10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function ResidentsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; drawListText(self,y,item,a); return y+self.itemheight end
 function ResidentsView:populate(playerNum)
     self.playerNum=playerNum; self.list:clear(); self.ids={}
     local snaps=KnoxSurvivorViewModel.getForPlayer(playerNum) or {}
@@ -181,7 +199,7 @@ function ResidentsView:onSetJob()
 end
 function ResidentsView:prerender()
     ISPanelJoypad.prerender(self); local id=self.ids and self.ids[self.list.selected or 0] or nil; local duty=id and KnoxPersistence.getSurvivorDuty(id) or nil
-    self.viewBtn:setEnable(id~=nil); local resident=duty ~= nil and duty.mode == "base"; self.jobPicker:setEnable(resident); self.setJobBtn:setEnable(resident)
+    self.viewBtn:setEnable(id~=nil); local resident=duty ~= nil and duty.mode == "base"; self.jobPicker:setEnabled(resident); self.setJobBtn:setEnable(resident)
 end
 function ResidentsView:onJoypadDown(b,jd) if b==Joypad.AButton and self.list.selected>0 then self:onView() end; ISPanelJoypad.onJoypadDown(self,b,jd) end
 function ResidentsView:new(x,y,w,h) local o=ISPanelJoypad.new(self,x,y,w,h); o:noBackground(); return o end
@@ -207,8 +225,8 @@ function WorkView:createChildren()
     self.storageList=ISScrollingListBox:new(UI_BORDER_SPACING,y,self.width-UI_BORDER_SPACING*2,BUTTON_HGT*5)
     self.storageList:initialise(); self.storageList:instantiate(); self.storageList.itemheight=BUTTON_HGT; self.storageList.font=UIFont.NewSmall; self.storageList.doDrawItem=self.drawStorage; self.storageList.drawBorder=true; self:addChild(self.storageList)
 end
-function WorkView:drawTask(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text or "",10,y+2,1,1,1,a,self.font); return y+self.itemheight end
-function WorkView:drawStorage(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text or "",10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function WorkView:drawTask(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; drawListText(self,y,item,a); return y+self.itemheight end
+function WorkView:drawStorage(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; drawListText(self,y,item,a); return y+self.itemheight end
 function WorkView:populate(playerNum)
     self.playerNum=playerNum; self.taskList:clear(); self.storageList:clear()
     local p=getSpecificPlayer(playerNum); local pid=p and KnoxPersistence.ensurePlayerId(p) or nil; local base=pid and KnoxBaseManager.getForOwner("player", pid) or nil
@@ -272,7 +290,7 @@ function MissionsView:createChildren()
     self.list=ISScrollingListBox:new(UI_BORDER_SPACING,UI_BORDER_SPACING,self.width-UI_BORDER_SPACING*2,self.height-UI_BORDER_SPACING*2)
     self.list:initialise(); self.list:instantiate(); self.list.itemheight=BUTTON_HGT; self.list.font=UIFont.NewSmall; self.list.doDrawItem=self.drawEntry; self.list.drawBorder=true; self:addChild(self.list)
 end
-function MissionsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text or "",10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function MissionsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; drawListText(self,y,item,a); return y+self.itemheight end
 function MissionsView:populate(playerNum)
     self.playerNum = playerNum
     self.list:clear()
@@ -328,7 +346,7 @@ function SurvivorsView:createChildren()
     self.viewBtn=ISButton:new(UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,110,BUTTON_HGT,"View Card",self,SurvivorsView.onView)
     self.viewBtn:initialise(); self.viewBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.viewBtn)
 end
-function SurvivorsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text or "",10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function SurvivorsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; drawListText(self,y,item,a); return y+self.itemheight end
 function SurvivorsView:populate(playerNum)
     self.playerNum=playerNum; self.list:clear(); self.ids={}
     for _,id in ipairs(KnoxPersistence.getSurvivorIds() or {}) do
@@ -353,7 +371,7 @@ function FactionsView:createChildren()
     self.list=ISScrollingListBox:new(UI_BORDER_SPACING,UI_BORDER_SPACING,self.width-UI_BORDER_SPACING*2,self.height-UI_BORDER_SPACING*2)
     self.list:initialise(); self.list:instantiate(); self.list.itemheight=BUTTON_HGT; self.list.font=UIFont.NewSmall; self.list.doDrawItem=self.drawEntry; self.list.drawBorder=true; self:addChild(self.list)
 end
-function FactionsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; self:drawText(item.text or "",10,y+2,1,1,1,a,self.font); return y+self.itemheight end
+function FactionsView:drawEntry(y,item,alt) local a=0.9; self:drawRectBorder(0,y,self:getWidth(),self.itemheight-1,a,0.28,0.28,0.28); if self.selected==item.index then self:drawRect(0,y,self:getWidth(),self.itemheight-1,0.3,0.7,0.35,0.15) end; drawListText(self,y,item,a); return y+self.itemheight end
 function FactionsView:populate(playerNum)
     self.playerNum=playerNum; self.list:clear()
     local player=getSpecificPlayer(playerNum); local playerId=player and KnoxPersistence.ensurePlayerId(player) or nil
@@ -383,12 +401,14 @@ function Window:createChildren()
     self.panel=ISTabPanel:new(0, th, self.width, self.height-th-rh)
     self.panel:initialise(); self.panel.tabPadX=10; self.panel.equalTabWidth=false
     self.panel:setAnchorRight(true); self.panel:setAnchorBottom(true); self:addChild(self.panel)
-    self.baseView=BaseView:new(0, 8, self.panel.width, self.panel.height-8); self.baseView:initialise(); self.baseView:createChildren(); self.panel:addView("Base", self.baseView)
-    self.residentsView=ResidentsView:new(0, 8, self.panel.width, self.panel.height-8); self.residentsView:initialise(); self.residentsView:createChildren(); self.panel:addView("Residents", self.residentsView)
-    self.workView=WorkView:new(0, 8, self.panel.width, self.panel.height-8); self.workView:initialise(); self.workView:createChildren(); self.panel:addView("Work", self.workView)
-    self.missionsView=MissionsView:new(0, 8, self.panel.width, self.panel.height-8); self.missionsView:initialise(); self.missionsView:createChildren(); self.panel:addView("Missions", self.missionsView)
-    self.survivorsView=SurvivorsView:new(0, 8, self.panel.width, self.panel.height-8); self.survivorsView:initialise(); self.survivorsView:createChildren(); self.panel:addView("Survivors", self.survivorsView)
-    self.factionsView=FactionsView:new(0, 8, self.panel.width, self.panel.height-8); self.factionsView:initialise(); self.factionsView:createChildren(); self.panel:addView("Factions", self.factionsView)
+    -- ISTabPanel:addView adds the child and invokes createChildren once. Calling
+    -- it here as well duplicates every label/list/button and breaks page layout.
+    self.baseView=BaseView:new(0, 8, self.panel.width, self.panel.height-8); self.baseView:initialise(); self.panel:addView("Base", self.baseView)
+    self.residentsView=ResidentsView:new(0, 8, self.panel.width, self.panel.height-8); self.residentsView:initialise(); self.panel:addView("Residents", self.residentsView)
+    self.workView=WorkView:new(0, 8, self.panel.width, self.panel.height-8); self.workView:initialise(); self.panel:addView("Work", self.workView)
+    self.missionsView=MissionsView:new(0, 8, self.panel.width, self.panel.height-8); self.missionsView:initialise(); self.panel:addView("Missions", self.missionsView)
+    self.survivorsView=SurvivorsView:new(0, 8, self.panel.width, self.panel.height-8); self.survivorsView:initialise(); self.panel:addView("Survivors", self.survivorsView)
+    self.factionsView=FactionsView:new(0, 8, self.panel.width, self.panel.height-8); self.factionsView:initialise(); self.panel:addView("Factions", self.factionsView)
 end
 
 function Window:refreshContent()
@@ -412,8 +432,8 @@ function Window:onJoypadDown(button, joypadData)
 end
 
 function Window:new(playerNum)
-    local rawW,rawH=640,520; local sw=getPlayerScreenWidth(playerNum); local sh=getPlayerScreenHeight(playerNum)
-    local width=math.min(rawW, math.max(1, sw-20)); local height=math.min(rawH, math.max(1, sh-20))
+    local rawW,rawH=760,600; local sw=getPlayerScreenWidth(playerNum); local sh=getPlayerScreenHeight(playerNum)
+    local width=math.min(rawW, math.max(1, sw-40)); local height=math.min(rawH, math.max(1, sh-40))
     local left=getPlayerScreenLeft(playerNum); local top=getPlayerScreenTop(playerNum)
     local window=ISCollapsableWindowJoypad:new(left+(sw-width)/2, top+(sh-height)/2, width, height)
     setmetatable(window,self); self.__index=self

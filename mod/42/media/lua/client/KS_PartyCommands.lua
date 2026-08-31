@@ -84,6 +84,10 @@ function PartyCommands.combatStanceAll(_, playerNum, stance)
     KnoxCompanionService.setCombatStanceAll(player(playerNum), stance)
 end
 
+function PartyCommands.weaponPreferenceAll(_, playerNum, preference)
+    KnoxCompanionService.setWeaponPreferenceAll(player(playerNum), preference)
+end
+
 function PartyCommands.directiveAll(_, playerNum, directive)
     KnoxCompanionService.issueDirectiveAll(player(playerNum), directive)
 end
@@ -101,9 +105,22 @@ function PartyCommands.openBaseSetup(_, playerNum)
 end
 
 local function populate(menu, playerNum, square)
-    menu:addOption("Regroup and Follow", PartyCommands, PartyCommands.followAll, playerNum)
-    menu:addOption("Hold Position", PartyCommands, PartyCommands.holdAll, playerNum)
+    local follow = menu:addOption("Regroup and Follow", PartyCommands, PartyCommands.followAll, playerNum)
+    local hold = menu:addOption("Hold Position", PartyCommands, PartyCommands.holdAll, playerNum)
     local actor = player(playerNum)
+    local common = {}
+    for index, id in ipairs(KnoxCompanionService.getCompanionIds(actor)) do
+        local duty = KnoxPersistence.getSurvivorDuty(id) or {}
+        local policies = KnoxPersistence.getSurvivorPolicies(id) or {}
+        local values = { order = duty.order or "follow", stance = duty.combatStance or "defensive",
+            climbing = policies.allowClimbing ~= false, weapon = policies.weaponPreference or "auto" }
+        for key, value in pairs(values) do
+            if index == 1 then common[key] = value
+            elseif common[key] ~= value then common[key] = nil end
+        end
+    end
+    menu:setOptionChecked(follow, common.order == "follow")
+    menu:setOptionChecked(hold, common.order == "hold")
     local playerId = actor ~= nil and KnoxCompanionService.getPlayerId(actor) or nil
     local baseManager = rawget(_G, "KnoxBaseManager")
     local base = baseManager ~= nil and playerId ~= nil
@@ -114,17 +131,28 @@ local function populate(menu, playerNum, square)
     local traversal = menu:addOption("Vaulting and Climbing", nil, nil)
     local traversalMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(traversal, traversalMenu)
-    traversalMenu:addOption("Allow", PartyCommands, PartyCommands.climbingAll, playerNum, true)
-    traversalMenu:addOption("Disallow", PartyCommands, PartyCommands.climbingAll, playerNum, false)
+    local allow = traversalMenu:addOption("Allow", PartyCommands, PartyCommands.climbingAll, playerNum, true)
+    local disallow = traversalMenu:addOption("Disallow", PartyCommands, PartyCommands.climbingAll, playerNum, false)
+    traversalMenu:setOptionChecked(allow, common.climbing == true)
+    traversalMenu:setOptionChecked(disallow, common.climbing == false)
     local combat = menu:addOption("Combat Stance", nil, nil)
     local combatMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(combat, combatMenu)
-    combatMenu:addOption("Passive - stay close", PartyCommands,
-        PartyCommands.combatStanceAll, playerNum, "passive")
-    combatMenu:addOption("Defensive - protect us", PartyCommands,
-        PartyCommands.combatStanceAll, playerNum, "defensive")
-    combatMenu:addOption("Aggressive - clear threats", PartyCommands,
-        PartyCommands.combatStanceAll, playerNum, "aggressive")
+    for _, choice in ipairs({ { "Passive - stay close", "passive" },
+        { "Defensive - protect us", "defensive" }, { "Aggressive - clear threats", "aggressive" } }) do
+        local option = combatMenu:addOption(choice[1], PartyCommands,
+            PartyCommands.combatStanceAll, playerNum, choice[2])
+        combatMenu:setOptionChecked(option, common.stance == choice[2])
+    end
+    local weapon = menu:addOption("Weapon Preference", nil, nil)
+    local weaponMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(weapon, weaponMenu)
+    for _, choice in ipairs({ { "Prefer Melee", "melee" }, { "Prefer Ranged", "ranged" },
+        { "Survivor Choice", "auto" } }) do
+        local option = weaponMenu:addOption(choice[1], PartyCommands,
+            PartyCommands.weaponPreferenceAll, playerNum, choice[2])
+        weaponMenu:setOptionChecked(option, common.weapon == choice[2])
+    end
     if square ~= nil then
         menu:addOption("Move Party Here", PartyCommands, PartyCommands.directiveAll,
             playerNum, pointDirective("go_to", square))

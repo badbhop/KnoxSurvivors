@@ -53,6 +53,11 @@ public final class KnoxNpcRegistry {
         return beginMove(id, square, false, pace);
     }
 
+    public synchronized boolean updateMovementPace(String id, String pace) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        return runtime != null && runtime.updateMovementPace(pace);
+    }
+
     public synchronized String cross(String id, Object square) {
         return beginMove(id, square, true, "walk");
     }
@@ -157,6 +162,11 @@ public final class KnoxNpcRegistry {
             return "NONE_ACTIVE";
         }
         try {
+            // The corpse constructor is a one-way native world mutation.  A prior
+            // cleanup failure must only retry detaching the contained shell.
+            if (runtime.corpseRetirement().corpseCreated()) {
+                return finishCorpseRetirement(id, runtime, true);
+            }
             Object body = runtime.npc().getBody();
             ClassLoader loader = body.getClass().getClassLoader();
             Class<?> characterClass = Class.forName(
@@ -165,24 +175,49 @@ public final class KnoxNpcRegistry {
             Class<?> corpseClass = Class.forName(
                 "zombie.iso.objects.IsoDeadBody", false, loader
             );
+            boolean shouldReanimate = shouldBecomeZombieAfterDeath(body);
             Object corpse = corpseClass.getConstructor(characterClass).newInstance(body);
-            boolean reanimationScheduled = scheduleNativeReanimation(body, corpse);
+            runtime.corpseRetirement().markCorpseCreated(shouldReanimate);
+            if (shouldReanimate) {
+                scheduleNativeReanimation(corpse);
+                runtime.corpseRetirement().markReanimationScheduled();
+            }
+            return finishCorpseRetirement(id, runtime, false);
+        } catch (Throwable throwable) {
+            Throwable cause = rootCause(throwable);
+            String state = runtime.corpseRetirement().corpseCreated()
+                ? "CORPSE_PENDING_CLEANUP"
+                : "CORPSE_FAILED";
+            KnoxAgent.writeLog(
+                "ERROR NPC corpse conversion " + state + " " + cause.getClass().getName()
+                    + ": " + cause.getMessage()
+            );
+            return state + " " + cause.getClass().getName() + ": " + cause.getMessage();
+        }
+    }
+
+    private String finishCorpseRetirement(String id, KnoxNpcRuntime runtime, boolean cleanupRetry) {
+        try {
             KnoxNpcFactory.remove(runtime.npc());
+            boolean reanimationScheduled = runtime.corpseRetirement().reanimationScheduled();
             runtime.reset();
             activeNpcs.remove(id);
             KnoxAgent.writeLog(
                 "NPC lifecycle CORPSE_CREATED id=" + id
                     + " reanimationScheduled=" + reanimationScheduled
+                    + " cleanupRetry=" + cleanupRetry
             );
             return "CORPSE_CREATED id=" + id
-                + " reanimationScheduled=" + reanimationScheduled;
+                + " reanimationScheduled=" + reanimationScheduled
+                + " cleanupRetry=" + cleanupRetry;
         } catch (Throwable throwable) {
             Throwable cause = rootCause(throwable);
             KnoxAgent.writeLog(
-                "ERROR NPC corpse conversion failed " + cause.getClass().getName()
+                "ERROR NPC corpse cleanup pending " + cause.getClass().getName()
                     + ": " + cause.getMessage()
             );
-            return "CORPSE_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
+            return "CORPSE_PENDING_CLEANUP " + cause.getClass().getName()
+                + ": " + cause.getMessage();
         }
     }
 
@@ -196,13 +231,23 @@ public final class KnoxNpcRegistry {
      */
     static boolean scheduleNativeReanimation(Object body, Object corpse)
         throws ReflectiveOperationException {
-        boolean shouldReanimate = (Boolean) body.getClass()
-            .getMethod("shouldBecomeZombieAfterDeath")
-            .invoke(body);
+        boolean shouldReanimate = shouldBecomeZombieAfterDeath(body);
         if (shouldReanimate) {
-            corpse.getClass().getMethod("reanimateLater").invoke(corpse);
+            scheduleNativeReanimation(corpse);
         }
         return shouldReanimate;
+    }
+
+    private static boolean shouldBecomeZombieAfterDeath(Object body)
+        throws ReflectiveOperationException {
+        return (Boolean) body.getClass()
+            .getMethod("shouldBecomeZombieAfterDeath")
+            .invoke(body);
+    }
+
+    private static void scheduleNativeReanimation(Object corpse)
+        throws ReflectiveOperationException {
+        corpse.getClass().getMethod("reanimateLater").invoke(corpse);
     }
 
     public synchronized String beginCombatOne(Object zombie, Object approachSquare) {
@@ -277,6 +322,7 @@ public final class KnoxNpcRegistry {
         try {
             return runtime.combat().tick();
         } catch (Throwable throwable) {
+            runtime.combat().reset();
             return failure("COMBAT_FAILED", throwable);
         }
     }
@@ -430,7 +476,7 @@ public final class KnoxNpcRegistry {
         try {
             String equipped = KnoxEquipmentController.equipBestMelee(runtime.npc().getBody());
             runtime.setLastRecord(captureRecord(runtime.npc()));
-            KnoxAgent.writeLog("NPC equipment id=" + id + " " + equipped);
+            logEquipmentResult(id, equipped);
             return equipped;
         } catch (Throwable throwable) {
             return failure("EQUIP_FAILED", throwable);
@@ -451,10 +497,31 @@ public final class KnoxNpcRegistry {
             if (equipped.startsWith("EQUIPPED_WEAPON")) {
                 runtime.setLastRecord(captureRecord(runtime.npc()));
             }
-            KnoxAgent.writeLog("NPC equipment id=" + id + " " + equipped);
+            logEquipmentResult(id, equipped);
             return equipped;
         } catch (Throwable throwable) {
             return failure("EQUIP_FAILED", throwable);
+        }
+    }
+
+    /** Wears one existing carried item chosen by the Lua equipment policy. */
+    public synchronized String wearOwnedItem(String id, String fullType) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "WEAR_FAILED NONE_ACTIVE";
+        }
+        try {
+            String result = KnoxEquipmentController.wearOwnedItem(
+                runtime.npc().getBody(),
+                fullType
+            );
+            if (result.startsWith("WORN_OWNED")) {
+                runtime.setLastRecord(captureRecord(runtime.npc()));
+            }
+            logEquipmentResult(id, result);
+            return result;
+        } catch (Throwable throwable) {
+            return failure("WEAR_FAILED", throwable);
         }
     }
 
@@ -476,7 +543,7 @@ public final class KnoxNpcRegistry {
             }
             runtime.setLastRecord(captureRecord(runtime.npc()));
             String result = "FIREARM_KIT_ADDED pistol=true magazine=true rounds=24";
-            KnoxAgent.writeLog("NPC equipment id=" + id + " " + result);
+            logEquipmentResult(id, result);
             return result;
         } catch (Throwable throwable) {
             return failure("FIREARM_KIT_FAILED", throwable);
@@ -682,6 +749,26 @@ public final class KnoxNpcRegistry {
         return KnoxSurvivorRecord.decode(encoded).consumeInventoryItem(fullType);
     }
 
+    public synchronized Map<String, Object> consumePersistentRecordSupply(String encoded, String kind, double amount) {
+        try {
+            KnoxSurvivorRecord record = KnoxSurvivorRecord.decode(encoded);
+            if (activeNpcs.containsKey(record.id)) return null;
+            KnoxInventorySnapshot.Consumption used = record.inventory.consumeSupply(
+                kind, amount, Class.forName("zombie.inventory.InventoryItem"));
+            if (used == null) return null;
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("record", record.withInventory(used.inventory()));
+            result.put("hungerRelief", used.hungerRelief());
+            result.put("thirstRelief", used.thirstRelief());
+            result.put("itemType", used.type());
+            return result;
+        } catch (ReflectiveOperationException | RuntimeException invalidStoredSupply) {
+            // The original encoded inventory remains untouched. Missing mod types
+            // and unsupported item callbacks must not grant food/water relief.
+            return null;
+        }
+    }
+
     /** Moves only a stored record after unloaded simulation selects a loaded safe square. */
     public synchronized String relocatePersistentRecord(
         String encoded,
@@ -857,6 +944,17 @@ public final class KnoxNpcRegistry {
         }
         KnoxAgent.writeLog("ERROR NPC probe " + result);
         return result;
+    }
+
+    /**
+     * An unarmed survivor is a normal gameplay state, not an equipment failure.
+     * Keep meaningful equipment transitions in the diagnostic log without producing
+     * repeated long-session noise while autonomy asks an unarmed survivor to fight.
+     */
+    private static void logEquipmentResult(String id, String result) {
+        if (!"NO_MELEE_WEAPON".equals(result)) {
+            KnoxAgent.writeLog("NPC equipment id=" + id + " " + result);
+        }
     }
 
     private KnoxNpc npc(String id) {

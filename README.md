@@ -85,7 +85,8 @@ Discord: https://discord.gg/cTfd2WWD4s
 
 ## Permission
 
-Knox Survivors is publicly visible, but it is not open source. No permission is granted
+This is the private development repository. The [player launcher](https://github.com/exe-create/KnoxSurvivorsLauncher)
+remains public; players do not need access to this repository. No permission is granted
 to copy, modify, redistribute, repackage, publish, or reuse the project without asking
 first. Authorized testers may use it only for the testing permission they were given.
 See [LICENSE.md](LICENSE.md).

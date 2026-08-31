@@ -69,7 +69,7 @@ tasks.register<Copy>("deployLocal") {
     from(layout.projectDirectory.dir("mod"))
 }
 
-tasks.register<Copy>("stageWorkshop") {
+tasks.register<Sync>("stageWorkshop") {
     group = "knox survivors"
     description = "Builds the Steam Workshop staging layout without publishing it."
     dependsOn(writeAgentChecksum)
@@ -78,15 +78,20 @@ tasks.register<Copy>("stageWorkshop") {
         require(workshopRoot.get().isNotBlank()) {
             "Set workshopRoot in local.properties before staging."
         }
+        require(workshopModFolder.get().matches(Regex("[A-Za-z0-9][A-Za-z0-9._ -]*"))) {
+            "workshopModFolder must be a single folder name, not a path."
+        }
     }
 
-    into(workshopRoot.zip(workshopModFolder) { root, folder -> file(root).resolve(folder) })
-    from(layout.projectDirectory.dir("mod")) {
-        into("Contents/mods/KnoxSurvivors")
-    }
+    // Synchronize only the generated mod payload, never Workshop metadata or previews.
+    into(workshopRoot.zip(workshopModFolder) { root, folder ->
+        file(root).resolve(folder).resolve("Contents/mods/KnoxSurvivors")
+    })
+    from(layout.projectDirectory.dir("mod"))
     from(project(":java").layout.buildDirectory.dir("libs")) {
-        include("knox-agent-*.jar", "knox-agent-*.jar.sha256")
-        into("java/build/libs")
+        include("knox-agent-${project.version}.jar", "knox-agent-${project.version}.jar.sha256")
+        // Steam uploads Contents, not its parent Workshop staging folder.
+        into("java")
     }
 }
 

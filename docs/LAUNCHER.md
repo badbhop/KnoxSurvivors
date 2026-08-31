@@ -12,7 +12,7 @@ one game process.
 
 1. Install Project Zomboid through Steam.
 2. Subscribe to Workshop item `3749727604` and wait for Steam to finish downloading it.
-3. Download the Windows or Linux/macOS archive from the official launcher release.
+3. Download the Windows, Linux, or macOS archive from the official launcher release.
 4. Extract the entire archive, then open `Launch Knox Survivors.cmd` on Windows or
    `Launch Knox Survivors.command` on macOS. Linux users run
    `scripts/launch-knox-survivors.sh`.
@@ -49,10 +49,10 @@ included in Workshop staging, or packaged with the launcher.
 
 ## Building a launcher release
 
-The launcher has its own release repository. Its Windows and Unix build scripts compile
-the shared Java 17 source, run the standalone locator/validation verifier, and create both
-release archives. GitHub tagged builds use Linux so executable bits are retained in the
-macOS/Linux ZIP.
+The launcher has its own public release repository. Its Windows and Unix build scripts compile
+the shared Java 17 source, run the standalone locator/validation verifier, and create separate
+Windows, Linux, and macOS archives. GitHub verifies the source on all three operating systems;
+tagged packaging runs on Linux so executable bits are retained in the macOS/Linux ZIP files.
 
 The launcher runs on Project Zomboid's bundled Java runtime; players do not install a
 separate Java 17 package.
@@ -63,13 +63,23 @@ For local development, run:
 .\scripts\build.ps1
 ```
 
-from the separate launcher checkout. Tagged builds publish Windows and Linux/macOS ZIPs
+from the separate launcher checkout. Tagged builds prepare draft Windows, Linux, and macOS ZIPs
 with a `SHA256SUMS.txt` file. The public Workshop package must contain the matching
 `knox-runtime.properties`, agent JAR, and checksum before a launcher release is advertised.
 
 ## Publishing Workshop runtime updates
 
-`gradlew.bat clean build stageWorkshop` creates the Workshop layout. The staged Java JAR
-and its generated `.sha256` sidecar must be uploaded together with `Contents/mods`.
+`gradlew.bat clean build stageWorkshop` synchronizes the generated Workshop mod payload.
+The Java JAR and its generated `.sha256` sidecar live inside
+`Contents/mods/KnoxSurvivors/java/`. Steam uploads only `Contents/`, so placing them
+beside that folder does not deliver them to subscribers. Upload metadata and preview
+are not generated or overwritten by this task.
 Steam then keeps Lua and Java runtime versions in the same subscribed item. The launcher
 itself only needs a new GitHub release when launcher discovery or validation code changes.
+
+The mod source repository can remain private: neither discovery nor launch downloads
+anything from it. Linux/macOS builds and command fixtures are automated checks, not
+proof that a real game installation has launched on those platforms.
+
+See [WORKSHOP_RELEASE.md](WORKSHOP_RELEASE.md) for the ordered Workshop and launcher
+preview-release checklist.

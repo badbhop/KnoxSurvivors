@@ -1,6 +1,7 @@
 require "KS_Persistence"
 require "KS_SurvivorNeeds"
 require "KS_SurvivorInventoryActions"
+require "Util/AdjacentFreeTileFinder"
 
 local Storage = rawget(_G, "KnoxBaseStorage") or {}
 _G.KnoxBaseStorage = Storage
@@ -152,7 +153,8 @@ function Storage.matchesCategory(item, category)
         return item.IsWeapon ~= nil and item:IsWeapon()
     end
     if category == "ammunition" then
-        return safeBoolean(item, "isAmmo") == true
+        return (rawget(_G, "ItemTag") ~= nil and ItemTag.AMMO ~= nil
+                and safeBoolean(item, "hasTag", ItemTag.AMMO) == true)
             or hasPrefix(full, "Base.Bullets")
             or hasPrefix(full, "Base.ShotgunShells")
     end
@@ -235,19 +237,69 @@ function Storage.summarize(base)
     return summary
 end
 
-local function hasRoom(container, item)
+local function hasRoom(container, item, character)
     if container == nil then
         return false
     end
     if container.hasRoomFor ~= nil then
         local success, result = pcall(function()
-            return container:hasRoomFor(item)
+            return container:hasRoomFor(character, item)
         end)
-        if success and result == false then
-            return false
+        return success and result == true
+    end
+    return false
+end
+
+-- Cleanup deposits never target arbitrary nearby homes or foreign storage.
+-- The caller supplies only this survivor's canonical assigned/owned base.
+local function findDeposit(base, character, item, trip, excluded, ticks, policyKey)
+    local origin = character ~= nil and character:getCurrentSquare() or nil
+    if base == nil or origin == nil then return nil, "no_owned_storage" end
+    local candidates = {}
+    for _, policy in ipairs(Storage.policies(base)) do
+        local dx, dy = (tonumber(policy.x) or math.huge) - origin:getX(),
+            (tonumber(policy.y) or math.huge) - origin:getY()
+        local category = tostring(policy.category or "general")
+        if tonumber(policy.z) == origin:getZ() and dx * dx + dy * dy <= (trip and 128 * 128 or 2)
+            and (policyKey == nil or policy.key == policyKey)
+            and (excluded == nil or (excluded[policy.key] or 0) <= (ticks or 0))
+            and (category == "depot" or category == "general" or Storage.matchesCategory(item, category)) then
+            local resolved = Storage.resolvePolicy(policy)
+            if resolved ~= nil and hasRoom(resolved.container, item, character)
+                and safeBoolean(resolved.container, "isItemAllowed", item) == true then
+                -- Native transfer validity does not itself reject every wall
+                -- between two containers. Require a clear adjacent interaction.
+                local approach = trip and AdjacentFreeTileFinder.Find(resolved.square, character) or origin
+                local clear = approach ~= nil and approach:getZ() == resolved.square:getZ()
+                    and (approach:getX() - resolved.square:getX()) ^ 2
+                        + (approach:getY() - resolved.square:getY()) ^ 2 <= 2
+                    and (approach == resolved.square or (approach.isSomethingTo ~= nil
+                        and not approach:isSomethingTo(resolved.square)))
+                if clear then
+                    resolved.approach = approach
+                    resolved.preference = (category == "depot" or category == "general") and 1 or 0
+                    resolved.distance = dx * dx + dy * dy
+                    candidates[#candidates + 1] = resolved
+                end
+            end
         end
     end
-    return true
+    table.sort(candidates, function(a, b)
+        if a.preference ~= b.preference then return a.preference < b.preference end
+        if a.distance ~= b.distance then return a.distance < b.distance end
+        return a.policy.key < b.policy.key
+    end)
+    return candidates[1], candidates[1] ~= nil and "nearby_storage" or "no_reachable_storage"
+end
+
+function Storage.findNearbyDeposit(base, character, item, policyKey)
+    return findDeposit(base, character, item, false, nil, nil, policyKey)
+end
+
+-- Only loaded owned containers within a practical local trip. The native
+-- adjacent-square finder picks the interaction side; existing movement owns routing.
+function Storage.findDepositTrip(base, character, item, excluded, ticks)
+    return findDeposit(base, character, item, true, excluded, ticks)
 end
 
 local function firstMatchingItem(container, category)

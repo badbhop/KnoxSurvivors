@@ -4,6 +4,7 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 package.loaded["KS_Persistence"] = true
 package.loaded["KS_SurvivorNeeds"] = true
 package.loaded["KS_SurvivorInventoryActions"] = true
+package.loaded["Util/AdjacentFreeTileFinder"] = true
 KnoxSurvivorNeeds = {
     isSafeFood = function(item) return item:getFullType() == "Base.TinnedSoup" end,
     isWaterItem = function(item) return item:getFullType() == "Base.WaterBottleFull" end,
@@ -35,6 +36,11 @@ local function container(kind, values)
     function result:isExistYet() return true end
     function result:getType() return kind end
     function result:getParent() return nil end
+    function result:hasRoomFor(character, candidate)
+        assert(candidate ~= nil, "native capacity check requires character plus item")
+        return not self.full
+    end
+    function result:isItemAllowed() return true end
     function result:contains(target)
         for _, value in ipairs(self.values) do
             if value == target then return true end
@@ -104,6 +110,9 @@ assert(target.sourceKey == "depot" and target.destinationKey == "building")
 local resolved, resolvedResult = storage.resolveTransfer(base, target)
 assert(resolved ~= nil and resolvedResult == "resolved")
 assert(resolved.item == depotItem and resolved.source.container == depot)
+destination.full = true
+assert(storage.findTransfer(base) == nil, "full destination is rejected before queuing transfer")
+destination.full = false
 
 local summary = storage.summarize(base)
 assert(summary.loadedPolicies == 2 and summary.unavailablePolicies == 0,
@@ -121,6 +130,42 @@ local worker = {
         return { getItemCount = function() return 0 end }
     end,
 }
+local origin = square(11, 20, 0, {})
+function origin:isSomethingTo() return self.blocked == true end
+function worker:getCurrentSquare() return origin end
+local nearby = assert(storage.findNearbyDeposit(base, worker, depotItem))
+assert(nearby.policy.key == "building", "matching assigned storage beats a generic depot")
+origin.blocked = true
+assert(not storage.findNearbyDeposit(base, worker, depotItem), "cleanup cannot deposit through a wall")
+origin.blocked = false
+assert(not storage.findNearbyDeposit(nil, worker, depotItem), "no base means no arbitrary nearby storage")
+destination.full = true
+nearby = assert(storage.findNearbyDeposit(base, worker, depotItem))
+assert(nearby.policy.key == "depot", "full categorized storage falls back to assigned depot")
+destination.full = false
+local tripApproach = square(11, 20, 0, {})
+function tripApproach:isSomethingTo() return self.blocked == true end
+AdjacentFreeTileFinder = { Find = function() return tripApproach end }
+origin.x = 50
+assert(not storage.findNearbyDeposit(base, worker, depotItem), "distant containers cannot transfer immediately")
+local trip = assert(storage.findDepositTrip(base, worker, depotItem, {}, 100))
+assert(trip.policy.key == "building" and trip.approach == tripApproach, "trip uses native interaction-side target")
+trip = assert(storage.findDepositTrip(base, worker, depotItem, { building = 200 }, 100))
+assert(trip.policy.key == "depot", "failed storage cools down while alternatives remain available")
+assert(storage.findDepositTrip(base, worker, depotItem, { building = 200 }, 201).policy.key == "building",
+    "failure memory expires")
+assert(not storage.findDepositTrip(base, worker, depotItem, { building = 200, depot = 200 }, 100))
+tripApproach.blocked = true
+assert(not storage.findDepositTrip(base, worker, depotItem), "blocked interaction side is not a trip target")
+tripApproach.blocked = false
+origin.x = 200
+assert(not storage.findDepositTrip(base, worker, depotItem), "low-value storage trip has bounded distance")
+origin.x, origin.z = 50, 1
+assert(not storage.findDepositTrip(base, worker, depotItem), "this local deposit selector does not invent another-floor access")
+origin.x, origin.z = 11, 0
+assert(storage.findNearbyDeposit(base, worker, depotItem, "depot").policy.key == "depot",
+    "arrival revalidates the selected policy instead of silently substituting another container")
+assert(not storage.findNearbyDeposit(base, worker, depotItem, "removed-policy"))
 local requiredTransfer, requiredResult = storage.findRequiredTransfer(
     base, worker, { items = { ["Base.Plank"] = 1 } }
 )

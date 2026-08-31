@@ -6,26 +6,19 @@ _G.KnoxBaseHighlights = Highlights
 
 local enabled = {}
 local draftByPlayer = {}
+local highlightedFloors = {}
 
 local function setSquareHighlighted(square, highlight, color)
     if square == nil or square:getFloor() == nil then return end
     local floor = square:getFloor()
     if highlight then
+        highlightedFloors[floor] = true
         floor:setHighlighted(true, false)
         if color ~= nil and floor.setHighlightColor ~= nil then
             pcall(function() floor:setHighlightColor(color.r, color.g, color.b, color.a) end)
         end
-        -- Also use vanilla area highlight as fallback for visibility at distance
-        if color ~= nil and addAreaHighlight ~= nil then
-            pcall(function()
-                addAreaHighlight(square:getX(), square:getY(), square:getX(), square:getY(), square:getZ(), color.r, color.g, color.b, 0.35)
-            end)
-        end
     else
         floor:setHighlighted(false, false)
-        if removeAreaHighlight ~= nil then
-            pcall(function() removeAreaHighlight(square:getX(), square:getY(), square:getX(), square:getY(), square:getZ()) end)
-        end
     end
 end
 
@@ -73,7 +66,7 @@ function Highlights.isDraft(playerNum)
     return entry ~= nil and entry.active == true
 end
 
-function Highlights.refresh(playerNum)
+local function drawPlayer(playerNum)
     playerNum = tonumber(playerNum) or 0
     local player = getSpecificPlayer(playerNum)
     local playerId = player ~= nil and KnoxPersistence.ensurePlayerId(player) or nil
@@ -102,14 +95,6 @@ function Highlights.refresh(playerNum)
             construction = { r = 0.7, g = 0.4, b = 0.85, a = zoneAlpha },
             general = { r = 0.4, g = 0.4, b = 0.85, a = zoneAlphaGeneral },
         }
-        -- First clear all then re-apply if enabled, to avoid stale highlights after disable.
-        forEachSquare(territory, function(sq) setSquareHighlighted(sq, false) end)
-        for _, zone in pairs(base.zones or {}) do
-            if zone ~= nil and zone.x1 ~= nil then
-                local area = { minX = zone.x1, minY = zone.y1, maxX = zone.x2, maxY = zone.y2, z = zone.z or 0 }
-                forEachSquare(area, function(sq) setSquareHighlighted(sq, false) end)
-            end
-        end
         if show then
             forEachSquare(territory, function(sq) setSquareHighlighted(sq, true, colorTerritory) end)
             for _, zone in pairs(base.zones or {}) do
@@ -123,10 +108,26 @@ function Highlights.refresh(playerNum)
     end
 end
 
-local function onTick()
-    -- Lightweight: only refresh when enabled; vanilla highlight otherwise persists.
+function Highlights.clear()
+    -- Clear the actual objects touched, including removed zones/old boundaries.
+    for floor in pairs(highlightedFloors) do floor:setHighlighted(false, false) end
+    highlightedFloors = {}
 end
 
-Events.OnTick.Add(onTick)
+function Highlights.refresh(playerNum)
+    Highlights.clear()
+    -- Reapply every viewer so clearing an overlapping area cannot erase another
+    -- split-screen player's enabled highlights.
+    local viewers = {}
+    for number in pairs(enabled) do viewers[number] = true end
+    for number in pairs(draftByPlayer) do viewers[number] = true end
+    viewers[tonumber(playerNum) or 0] = true
+    for number in pairs(viewers) do drawPlayer(number) end
+end
+
+Events.OnGameStart.Add(function()
+    Highlights.clear()
+    enabled, draftByPlayer = {}, {}
+end)
 
 return Highlights

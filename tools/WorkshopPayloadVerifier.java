@@ -1,0 +1,35 @@
+import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/** Read-only upload-layout check against the installed game's own Workshop validator. */
+public final class WorkshopPayloadVerifier {
+    public static void main(String[] args) throws Exception {
+        if (args.length != 1) throw new IllegalArgumentException("Expected Workshop staging folder");
+        Path root = Path.of(args[0]).toAbsolutePath().normalize();
+        Class<?> type = Class.forName("zombie.core.znet.SteamWorkshopItem");
+        // Seed only the native path validator's base directory, without booting
+        // the game, Steam, a world, or the full filesystem/mod loader.
+        Class<?> filesystem = Class.forName("zombie.ZomboidFileSystem");
+        Object instance = filesystem.getField("instance").get(null);
+        Object base = filesystem.getField("base").get(instance);
+        Path game = Path.of(type.getProtectionDomain().getCodeSource().getLocation().toURI()).getParent();
+        base.getClass().getMethod("set", java.io.File.class).invoke(base, game.toFile());
+        Object item = type.getConstructor(String.class).newInstance(root.toString());
+        Path uploaded = Path.of((String) type.getMethod("getContentFolder").invoke(item));
+        if (!uploaded.equals(root.resolve("Contents"))) throw new IllegalStateException("Unexpected native upload root");
+        for (String name : new String[] { "validateModsFolder", "validateFileTypes" }) {
+            Method method = type.getDeclaredMethod(name, Path.class);
+            method.setAccessible(true);
+            Object error = method.invoke(item, name.equals("validateModsFolder") ? uploaded.resolve("mods") : uploaded);
+            if (error != null) throw new IllegalStateException(name + ": " + error);
+        }
+        try (var files = Files.walk(uploaded)) {
+            long jars = files.filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().matches("knox-agent-.*\\.jar")).count();
+            if (jars != 1) throw new IllegalStateException("Expected exactly one uploaded agent, got " + jars);
+        }
+        System.out.println("Native Workshop payload validation passed (Contents root, mod layout, file types, one agent).");
+        System.out.println("Upload metadata/preview and Steam publication still require separate verification.");
+    }
+}

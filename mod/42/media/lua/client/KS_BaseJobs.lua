@@ -113,8 +113,9 @@ end
 
 local function itemRequirements(...)
     local items = {}
-    for index = 1, select("#", ...) do
-        local fullType = select(index, ...)
+    -- Kahlua does not expose Lua's select(). pairs also preserves arguments
+    -- after an optional nil requirement, unlike ipairs or a length loop.
+    for _, fullType in pairs({ ... }) do
         if type(fullType) == "string" and fullType ~= "" then
             items[fullType] = (items[fullType] or 0) + 1
         end

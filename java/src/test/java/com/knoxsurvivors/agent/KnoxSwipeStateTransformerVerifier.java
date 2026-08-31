@@ -16,12 +16,23 @@ public final class KnoxSwipeStateTransformerVerifier {
             );
         }
         byte[] original;
+        byte[] impactOriginal;
         try (ZipFile gameJar = new ZipFile(Path.of(arguments[0]).toFile())) {
             original = gameJar.getInputStream(
                 gameJar.getEntry("zombie/ai/states/SwipeStatePlayer.class")
             ).readAllBytes();
+            impactOriginal = gameJar.getInputStream(gameJar.getEntry("zombie/CombatManager.class")).readAllBytes();
         }
         byte[] patched = KnoxSwipeStateTransformer.patchForVerification(original);
+        byte[] impact = KnoxSwipeStateTransformer.patchImpactForVerification(impactOriginal);
+        if (Arrays.equals(impact, impactOriginal)) throw new AssertionError("Impact audio gate not patched");
+        try {
+            KnoxSwipeStateTransformer.patchImpactForVerification(impact);
+            throw new AssertionError("Unexpected engine shape must fail closed");
+        } catch (java.io.IOException expected) {
+            // Already redirected gate must not patch another local-player check.
+        }
+        System.out.println("combat impact transformer verified calls=1 fail_closed=true");
         if (KnoxSwipeStateTransformer.getLastPatchCount()
             != KnoxSwipeStateTransformer.EXPECTED_PATCH_COUNT) {
             throw new AssertionError(

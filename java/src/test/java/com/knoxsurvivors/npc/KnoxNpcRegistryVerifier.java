@@ -23,7 +23,22 @@ public final class KnoxNpcRegistryVerifier {
         if (ordinary.reanimateLaterCalls != 0) {
             throw new IllegalStateException("ordinary corpse was incorrectly scheduled");
         }
-        System.out.println("corpse lifecycle verified native-predicate=true native-schedule=true");
+
+        KnoxCorpseRetirement handoff = new KnoxCorpseRetirement();
+        handoff.markCorpseCreated(true);
+        handoff.markReanimationScheduled();
+        if (!handoff.corpseCreated() || !handoff.reanimationRequired()
+            || !handoff.reanimationScheduled()) {
+            throw new IllegalStateException("corpse handoff state was not retained for cleanup retry");
+        }
+        handoff.reset();
+        if (handoff.corpseCreated() || handoff.reanimationRequired()
+            || handoff.reanimationScheduled()) {
+            throw new IllegalStateException("corpse handoff state leaked after teardown");
+        }
+        System.out.println(
+            "corpse lifecycle verified native-predicate=true native-schedule=true cleanup-retry=true"
+        );
     }
 
     public static final class FakeBody {

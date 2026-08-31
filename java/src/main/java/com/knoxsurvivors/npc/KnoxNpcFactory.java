@@ -125,11 +125,35 @@ final class KnoxNpcFactory {
 
     static void cancelMovement(KnoxNpc npc) throws ReflectiveOperationException {
         Object body = npc.getBody();
-        Object pathfinder = invoke(body, "getPathFindBehavior2");
-        invoke(pathfinder, "cancel");
-        invoke(body, "setPath2", classFor(body, "zombie.pathfind.Path"), null);
+        ReflectiveOperationException firstFailure = null;
+        try {
+            Object pathfinder = invoke(body, "getPathFindBehavior2");
+            invoke(pathfinder, "cancel");
+        } catch (ReflectiveOperationException failure) {
+            firstFailure = failure;
+        }
+        try {
+            invoke(body, "setPath2", classFor(body, "zombie.pathfind.Path"), null);
+        } catch (ReflectiveOperationException failure) {
+            if (firstFailure == null) {
+                firstFailure = failure;
+            } else {
+                firstFailure.addSuppressed(failure);
+            }
+        }
         npc.clearMovementRoute();
-        clearHumanMovementIntent(body);
+        try {
+            clearHumanMovementIntent(body);
+        } catch (ReflectiveOperationException failure) {
+            if (firstFailure == null) {
+                firstFailure = failure;
+            } else {
+                firstFailure.addSuppressed(failure);
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
     }
 
     static void moveToRangeFrom(
@@ -463,9 +487,17 @@ final class KnoxNpcFactory {
         Object body = npc.getBody();
         float x = ((Number) invoke(body, "getX")).floatValue();
         float y = ((Number) invoke(body, "getY")).floatValue();
+        Object currentSquare = invoke(body, "getCurrentSquare");
+        if (currentSquare == null) {
+            clearHumanMovementIntent(body);
+            return "FailedNoCurrentSquare";
+        }
+        int z = ((Number) invoke(currentSquare, "getZ")).intValue();
 
         float[] node = npc.currentMovementNode();
-        while (node != null && distance(x, y, node[0], node[1]) <= 0.35f) {
+        while (node != null && KnoxMovementGeometry.nodeReached(
+            x, y, z, node[0], node[1], node[2], npc.movementNodeTolerance()
+        )) {
             npc.advanceMovementRoute();
             node = npc.currentMovementNode();
         }
@@ -503,9 +535,9 @@ final class KnoxNpcFactory {
 
         float routeDistance = Math.max(
             remainingDistance,
-            npc.remainingMovementDistance(x, y)
+            npc.remainingMovementDistance(x, y, z)
         );
-        applyHumanMovementIntent(body, node[0], node[1], routeDistance, pace);
+        applyHumanMovementIntent(npc, body, node[0], node[1], routeDistance, pace);
         return "ManualRoute";
     }
 
@@ -533,8 +565,14 @@ final class KnoxNpcFactory {
         if (deltaX == 0 && deltaY == 0 && nextZ == currentZ) {
             return "CLEAR";
         }
+        // Build 42's native path contains the stair-spanning XYZ nodes. Keep
+        // consuming that route through ordinary human movement; the engine's
+        // stair geometry updates character Z as the survivor walks the stairs.
+        // Never snap or mutate Z here.
         if (nextZ != currentZ) {
-            return "FAILED_UNSUPPORTED_Z_CHANGE";
+            return Math.abs(nextZ - currentZ) == 1
+                ? "CLEAR"
+                : "FAILED_INVALID_Z_CHANGE";
         }
         if (Math.abs(deltaX) > 1 || Math.abs(deltaY) > 1) {
             return "CLEAR";
@@ -579,11 +617,15 @@ final class KnoxNpcFactory {
         if (door != null) {
             npc.useTraversalInteractionTarget(door);
             boolean open = (Boolean) invoke(door, "IsOpen");
-            if (open) {
+            boolean barricaded = (Boolean) invoke(door, "isBarricaded");
+            KnoxTraversalPolicy.DoorAction action = KnoxTraversalPolicy.doorAction(
+                open,
+                barricaded
+            );
+            if (action == KnoxTraversalPolicy.DoorAction.PASS) {
                 return "CLEAR";
             }
-            boolean barricaded = (Boolean) invoke(door, "isBarricaded");
-            if (barricaded) {
+            if (action == KnoxTraversalPolicy.DoorAction.FAIL_BARRICADED) {
                 return "FAILED_BARRICADED_DOOR";
             }
             faceObject(body, door);
@@ -605,10 +647,6 @@ final class KnoxNpcFactory {
                 return "FAILED_CLIMBING_DISABLED";
             }
             npc.useTraversalInteractionTarget(window);
-            if ((Boolean) invoke(window, "isBarricaded")) {
-                return "FAILED_BARRICADED_WINDOW";
-            }
-
             String characterState = String.valueOf(invoke(body, "getCurrentStateName"));
             if (characterState.contains("OpenWindowState")) {
                 String completion = String.valueOf(
@@ -639,6 +677,7 @@ final class KnoxNpcFactory {
 
             boolean open = (Boolean) invoke(window, "IsOpen");
             boolean smashed = (Boolean) invoke(window, "isSmashed");
+            boolean barricaded = (Boolean) invoke(window, "isBarricaded");
             boolean canClimb = (Boolean) invoke(
                 window,
                 "canClimbThrough",
@@ -650,36 +689,28 @@ final class KnoxNpcFactory {
                 return "TURNING_TO_WINDOW";
             }
 
-            if (!open && !smashed) {
-                String stage = npc.getTraversalInteractionStage();
-                if ("NONE".equals(stage)) {
-                    invoke(
-                        body,
-                        "openWindow",
-                        classFor(body, "zombie.iso.objects.IsoWindow"),
-                        window
-                    );
-                    npc.setTraversalInteractionStage("OPEN_ATTEMPTED");
-                    return "STARTED_WINDOW_OPEN";
-                }
-                if ("OPEN_ATTEMPTED".equals(stage)) {
-                    if (npc.isProtectedStructureEdge(currentX, currentY, nextX, nextY)) {
-                        return "FAILED_PROTECTED_STRUCTURE";
-                    }
-                    invoke(
-                        body,
-                        "smashWindow",
-                        classFor(body, "zombie.iso.objects.IsoWindow"),
-                        window
-                    );
-                    npc.setTraversalInteractionStage("SMASH_ATTEMPTED");
-                    return "STARTED_WINDOW_SMASH";
-                }
-                return "FAILED_WINDOW_SMASH_DID_NOT_BREAK";
+            KnoxTraversalPolicy.WindowAction action = KnoxTraversalPolicy.windowAction(
+                open,
+                smashed,
+                barricaded,
+                canClimb,
+                npc.getTraversalInteractionStage()
+            );
+            if (action == KnoxTraversalPolicy.WindowAction.FAIL_BARRICADED) {
+                return "FAILED_BARRICADED_WINDOW";
             }
-
-            if (!canClimb) {
-                return "FAILED_BLOCKED_WINDOW";
+            if (action == KnoxTraversalPolicy.WindowAction.FAIL_UNUSABLE) {
+                return "FAILED_LOCKED_OR_UNUSABLE_WINDOW";
+            }
+            if (action == KnoxTraversalPolicy.WindowAction.TRY_NATIVE_OPEN) {
+                invoke(
+                    body,
+                    "openWindow",
+                    classFor(body, "zombie.iso.objects.IsoWindow"),
+                    window
+                );
+                npc.setTraversalInteractionStage("OPEN_ATTEMPTED");
+                return "STARTED_WINDOW_OPEN";
             }
             invoke(
                 body,
@@ -697,6 +728,7 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (windowThumpable != null) {
+            npc.useTraversalInteractionTarget(windowThumpable);
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
             }
@@ -723,6 +755,7 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (windowFrame != null) {
+            npc.useTraversalInteractionTarget(windowFrame);
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
             }
@@ -743,6 +776,7 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (hoppable) {
+            npc.useTraversalInteractionTarget(currentSquare);
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
             }
@@ -771,6 +805,7 @@ final class KnoxNpcFactory {
             nextSquare
         );
         if (wallHoppable != null) {
+            npc.useTraversalInteractionTarget(wallHoppable);
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
             }
@@ -792,6 +827,9 @@ final class KnoxNpcFactory {
             return "STARTED_WALL_CLIMB";
         }
 
+        // The route edge changed or its world object disappeared. Invalidate any
+        // staged interaction without releasing the route's final destination.
+        npc.useTraversalInteractionTarget(null);
         boolean blocked = (Boolean) invoke(
             currentSquare,
             "isBlockedTo",
@@ -823,6 +861,7 @@ final class KnoxNpcFactory {
     }
 
     private static void applyHumanMovementIntent(
+        KnoxNpc npc,
         Object body,
         float nextX,
         float nextY,
@@ -871,21 +910,30 @@ final class KnoxNpcFactory {
             health = ((Number) invoke(body, "getHealth")).floatValue();
         } catch (ReflectiveOperationException ignored) {
         }
-        String movementPace = pace == null ? "normal" : pace.toLowerCase(java.util.Locale.ROOT);
-        boolean catchUp = "catchup".equals(movementPace);
-        boolean explicitRun = "run".equals(movementPace) || "sprint".equals(movementPace);
-        boolean explicitSprint = "sprint".equals(movementPace);
-        boolean shouldRun = (explicitRun || (catchUp && routeDistance > 3.0f))
-            && endurance > 0.22f && fatigue < 0.88f && health > 15.0f;
-        boolean shouldSprint = (explicitSprint || (catchUp && routeDistance > 10.0f))
-            && endurance > 0.48f && fatigue < 0.72f && health > 25.0f;
+        boolean nativeCanSprint = false;
+        try {
+            nativeCanSprint = (Boolean) invoke(body, "canSprint");
+        } catch (ReflectiveOperationException ignored) {
+        }
+        KnoxLocomotionPolicy.Decision locomotion = KnoxLocomotionPolicy.decide(
+            pace,
+            routeDistance,
+            endurance,
+            fatigue,
+            health,
+            nativeCanSprint
+        );
+        boolean shouldRun = locomotion.running();
+        boolean shouldSprint = locomotion.sprinting();
         boolean shouldSneak = false;
         try {
+            boolean combatActive = npc.isCombatActive();
             // If player is sneaking and survivor is near player, mirror sneak for stealth.
             Class<?> isoPlayerClass2 = Class.forName("zombie.characters.IsoPlayer", false, body.getClass().getClassLoader());
             Object players = isoPlayerClass2.getField("players").get(null);
             Object localPlayer = java.lang.reflect.Array.get(players, 0);
-            if (KnoxShellVisibility.isPartyVisible(body)
+            if (!combatActive
+                && KnoxShellVisibility.isPartyVisible(body)
                 && localPlayer != null
                 && (Boolean) localPlayer.getClass().getMethod("isSneaking").invoke(localPlayer)) {
                 float px = ((Number) localPlayer.getClass().getMethod("getX").invoke(localPlayer)).floatValue();
@@ -900,7 +948,7 @@ final class KnoxNpcFactory {
                 }
             }
             // Also sneak if very close to zombie and not in combat (cautious approach) - only when undetected.
-            if (!shouldSneak) {
+            if (!combatActive && !shouldSneak) {
                 // Don't sneak while aiming/fighting
                 boolean isAiming = false;
                 try {
@@ -913,34 +961,39 @@ final class KnoxNpcFactory {
                         Object zombies = cell.getClass().getMethod("getZombieList").invoke(cell);
                         int zsize = (Integer) zombies.getClass().getMethod("size").invoke(zombies);
                         boolean isTargeted = false;
+                        int nearbyZombies = 0;
+                        float nearestZombieDistance = Float.MAX_VALUE;
+                        int bodyZ = ((Number) invoke(body, "getZ")).intValue();
                         for (int i = 0; i < zsize; i++) {
                             Object z = zombies.getClass().getMethod("get", int.class).invoke(zombies, i);
-                            if (z != null) {
+                            if (z != null && !(Boolean) z.getClass().getMethod("isDead").invoke(z)) {
                                 Object zt = z.getClass().getMethod("getTarget").invoke(z);
                                 if (zt == body) {
                                     isTargeted = true;
                                     break;
                                 }
-                            }
-                        }
-                        // Only sneak when undetected and in a populated area, not when already spotted
-                        if (!isTargeted) {
-                            for (int i = 0; i < zsize; i++) {
-                                Object z = zombies.getClass().getMethod("get", int.class).invoke(zombies, i);
-                                if (z != null && !(Boolean) z.getClass().getMethod("isDead").invoke(z)) {
+                                int zombieZ = ((Number) z.getClass().getMethod("getZ").invoke(z)).intValue();
+                                if (zombieZ == bodyZ) {
                                     float zx = ((Number) z.getClass().getMethod("getX").invoke(z)).floatValue();
                                     float zy = ((Number) z.getClass().getMethod("getY").invoke(z)).floatValue();
                                     float zdx = x - zx;
                                     float zdy = y - zy;
                                     float zdist = (float) Math.sqrt(zdx * zdx + zdy * zdy);
-                                    if (zdist < 10.0f && length < 6.0f && endurance > 0.5f) {
-                                        shouldSneak = true;
-                                        shouldRun = false;
-                                        shouldSprint = false;
-                                        break;
+                                    if (zdist < 10.0f) {
+                                        nearbyZombies++;
+                                        nearestZombieDistance = Math.min(nearestZombieDistance, zdist);
                                     }
                                 }
                             }
+                        }
+                        // Sneak only through a genuine same-floor crowd while still
+                        // unnoticed. One ordinary zombie does not justify crouch-walking.
+                        if (!isTargeted && nearbyZombies >= 3
+                            && nearestZombieDistance < 10.0f
+                            && length < 6.0f && endurance > 0.5f) {
+                            shouldSneak = true;
+                            shouldRun = false;
+                            shouldSprint = false;
                         }
                     }
                 }

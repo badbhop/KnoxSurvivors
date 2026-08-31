@@ -5,8 +5,9 @@ Knox Survivors adds two pages to Project Zomboid's sandbox options.
 ## Knox Survivors
 
 - **Enable Knox Survivors** pauses the rebuild's gameplay entry points without deleting survivor save data.
-- **World Population** sets the persistent living-survivor target across the map. The default is 16 and the supported range is 0–64.
-- **Max Active Survivors** caps how many production survivors may be physically materialized at once. The default is 8 and the supported range is 1–16.
+- **World Population** sets the persistent starting population and, normally, the living-survivor target across the map. The default is 32 and the supported range is 0–256.
+- **Disable Survivor Caps** is off by default. When enabled, the active-survivor and companion counts do not block activation or recruitment. World Population remains the starting count, but later arrivals may exceed it: at most one new identity per refill interval at an unused world location. Trust, ownership, death, safe spawning and cooldown rules still apply. There is no separate numeric faction cap to bypass. Larger active populations can reduce performance.
+- **Max Active Survivors** normally caps how many production survivors may be physically materialized at once. The default is 12 and the supported range is 1–48. Disabling caps ignores this setting; the scheduler still builds at most two new bodies per population update instead of loading a whole settlement in one burst. This rate limit does not impose a total-body cap.
 - **Population Refill Days** controls how long a population deficit must persist before one replacement identity is allocated. Refill is gradual, never a catch-up burst.
 - **Minimum Spawn Distance** keeps first materialization away from local players and out of immediate view. Saved survivors always restore at their exact recorded square once it is loaded.
 - **Companion Limit** controls how many active companions each local player may recruit.
@@ -15,7 +16,7 @@ Knox Survivors adds two pages to Project Zomboid's sandbox options.
 - **Show Companion HUD** controls the right-side companion panel.
 - **Show Survivor Activity Feed** controls the Knox message window. Speech bubbles still work.
 
-Production population now allocates identities from the map's real Build 42 player-spawn definitions. Distant survivors stay virtual, nearby loaded survivors materialize, and dead origins remain permanently reserved. These controls are still development-facing balance values and may change before Workshop release.
+Production population uses real Build 42 player starts and supplemental ground-floor building locations. Distant survivors retain virtual locations and nearby loaded survivors materialize only when safe. Dead origins remain reserved. Disabling caps never recycles dead identities or repeatedly spawns a batch after a long time skip. Re-enabling caps does not delete existing survivors or forcibly dismiss companions. With caps disabled, a starting population of zero can still receive later gradual arrivals.
 
 ## Developer tools
 

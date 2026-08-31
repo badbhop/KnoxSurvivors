@@ -23,6 +23,7 @@ public final class KnoxNpc {
     private Object traversalInteractionTarget;
     private String traversalInteractionStage = "NONE";
     private boolean climbingAllowed = true;
+    private boolean combatActive;
     private boolean hasProtectedArea;
     private int protectedMinX;
     private int protectedMinY;
@@ -121,15 +122,20 @@ public final class KnoxNpc {
         return movementPace;
     }
 
-    float remainingMovementDistance(float currentX, float currentY) {
+    float remainingMovementDistance(float currentX, float currentY, float currentZ) {
         float distance = 0.0f;
         float previousX = currentX;
         float previousY = currentY;
+        float previousZ = currentZ;
         for (int index = movementRouteIndex; index < movementRoute.size(); index++) {
             float[] node = movementRoute.get(index);
-            distance += distance(previousX, previousY, node[0], node[1]);
+            distance += KnoxMovementGeometry.routeDistance(
+                previousX, previousY, previousZ,
+                node[0], node[1], node[2]
+            );
             previousX = node[0];
             previousY = node[1];
+            previousZ = node[2];
         }
         return distance;
     }
@@ -140,6 +146,11 @@ public final class KnoxNpc {
 
     float[] currentMovementNode() {
         return hasMovementRoute() ? movementRoute.get(movementRouteIndex) : null;
+    }
+
+    float movementNodeTolerance() {
+        return combatActive && movementRouteIndex == movementRoute.size() - 1
+            ? 0.04f : 0.35f;
     }
 
     void advanceMovementRoute() {
@@ -162,6 +173,14 @@ public final class KnoxNpc {
 
     boolean isClimbingAllowed() {
         return climbingAllowed;
+    }
+
+    boolean isCombatActive() {
+        return combatActive;
+    }
+
+    void setCombatActive(boolean active) {
+        combatActive = active;
     }
 
     void setClimbingAllowed(boolean allowed) {

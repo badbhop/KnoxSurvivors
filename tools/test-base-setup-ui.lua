@@ -10,13 +10,20 @@ end
 local notebook = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNotebook.lua")
 assert(string.find(notebook, 'require "ISUI/ISCollapsableWindowJoypad"', 1, true),
     "Notebook must use the vanilla collapsable window pattern")
-assert(string.find(notebook, 'self.baseView:createChildren()', 1, true)
-    and string.find(notebook, 'self.residentsView:createChildren()', 1, true)
-    and string.find(notebook, 'self.workView:createChildren()', 1, true)
-    and string.find(notebook, 'self.missionsView:createChildren()', 1, true)
-    and string.find(notebook, 'self.survivorsView:createChildren()', 1, true)
-    and string.find(notebook, 'self.factionsView:createChildren()', 1, true),
-    "Notebook tab controls must be created before the tab is populated")
+assert(not string.find(notebook, 'self.baseView:createChildren()', 1, true)
+    and not string.find(notebook, 'self.residentsView:createChildren()', 1, true)
+    and not string.find(notebook, 'self.workView:createChildren()', 1, true)
+    and not string.find(notebook, 'self.missionsView:createChildren()', 1, true)
+    and not string.find(notebook, 'self.survivorsView:createChildren()', 1, true)
+    and not string.find(notebook, 'self.factionsView:createChildren()', 1, true),
+    "vanilla addView lifecycle must create each tab's controls exactly once")
+assert(string.find(notebook, 'local rawW,rawH=760,600', 1, true)
+    and string.find(notebook, 'left+(sw-width)/2', 1, true)
+    and string.find(notebook, 'top+(sh-height)/2', 1, true),
+    "Notebook must use a readable viewport-clamped centered size")
+assert(string.find(notebook, 'local function trimText', 1, true)
+    and string.find(notebook, 'drawListText', 1, true),
+    "long player-facing rows must be clipped inside their list")
 for _, tab in ipairs({ '"Base"', '"Residents"', '"Work"', '"Missions"', '"Survivors"', '"Factions"' }) do
     assert(string.find(notebook, tab, 1, true), "Notebook must expose all management tabs")
 end
@@ -46,6 +53,10 @@ assert(string.find(notebook, 'KnoxSurvivorViewModel.getSurvivor', 1, true)
 assert(string.find(notebook, '"Set Job"', 1, true)
     and string.find(notebook, 'KnoxPersistence.setBaseJobPreference', 1, true),
     "Residents tab must expose the persisted base-job preference control")
+assert(string.find(notebook, 'self.showHighlights.enable=false', 1, true),
+    "Build 42 tick boxes must not use the ISButton-only setEnable method")
+assert(string.find(notebook, 'self.jobPicker:setEnabled', 1, true),
+    "Build 42 combo boxes must use setEnabled")
 
 local context = read(rootPath .. "/mod/42/media/lua/client/KS_BaseContextMenu.lua")
 assert(not string.find(context, 'require "KS_BaseSetup"', 1, true),
@@ -54,6 +65,10 @@ assert(string.find(context, '"Open Base Management"', 1, true),
     "world base menu must open unified Base Management")
 assert(string.find(context, 'KnoxSurvivorNotebook.show', 1, true),
     "world base menu must route to the Notebook")
+assert(string.find(context, '"Move Home Base Here"', 1, true)
+    and string.find(context, 'KnoxBaseManager.movePlayerBase', 1, true)
+    and string.find(context, 'ISModalDialog:new', 1, true),
+    "claiming another building must use a confirmation-backed base relocation")
 
 local party = read(rootPath .. "/mod/42/media/lua/client/KS_PartyCommands.lua")
 assert(not string.find(party, 'require "KS_BaseSetup"', 1, true),

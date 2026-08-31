@@ -98,7 +98,8 @@ local function physicalState(character, id)
     if character == nil then
         local stored = KnoxPersistence.getUnloadedSurvivalState ~= nil
             and KnoxPersistence.getUnloadedSurvivalState(id) or nil
-        return type(stored) == "table" and stored or fallback, type(stored) == "table"
+        local known = type(stored) == "table" and stored.pendingMaterialization ~= true
+        return known and stored or fallback, known
     end
     local success, state = pcall(function()
         return KnoxSurvivorNeeds.snapshot(character)
@@ -241,7 +242,13 @@ local function runtimeActivity(id)
         local labels = {
             base_life = "Living at base",
             group_travel = "Travelling with group",
+            group_waiting = "Waiting for group",
+            group_regrouping = "Regrouping",
             surviving = "Surviving offscreen",
+            sleeping = "Sleeping",
+            resting = "Resting",
+            sheltering = "Staying nearby",
+            returning_to_base = "Returning to base",
             waiting_for_leader = "Waiting for leader",
             away_mission = "On a mission",
         }

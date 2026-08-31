@@ -30,9 +30,48 @@ public final class KnoxZombieVisibilityTransformerVerifier {
         if (Arrays.equals(original, patched)) {
             throw new AssertionError("Transformer did not change IsoZombie");
         }
+        KnoxCombatGate.markVisibilityPatchReady(
+            KnoxZombieVisibilityTransformer.getLastPatchCount()
+        );
+        if (!KnoxCombatGate.isVisibilityPatchReady()) {
+            throw new AssertionError("Visibility patch readiness was not established");
+        }
+        FakeTarget ordinaryTarget = new FakeTarget(2);
+        KnoxCombatGate.captureTargetVisibilityIndex(ordinaryTarget);
+        if (KnoxCombatGate.allowTargetVisibility(new FakeSquare(false), 2)) {
+            throw new AssertionError("Ordinary target bypassed square visibility");
+        }
+        KnoxCombatGate.captureTargetVisibilityIndex(ordinaryTarget);
+        if (!KnoxCombatGate.allowTargetVisibility(new FakeSquare(true), 2)) {
+            throw new AssertionError("Ordinary target lost square visibility");
+        }
         System.out.println(
             "zombie visibility transformer verified calls="
                 + KnoxZombieVisibilityTransformer.getLastPatchCount()
         );
+    }
+
+    public static final class FakeTarget {
+        private final int index;
+
+        FakeTarget(int index) {
+            this.index = index;
+        }
+
+        public int getIndex() {
+            return index;
+        }
+    }
+
+    public static final class FakeSquare {
+        private final boolean visible;
+
+        FakeSquare(boolean visible) {
+            this.visible = visible;
+        }
+
+        public boolean isCouldSee(int index) {
+            return visible;
+        }
     }
 }

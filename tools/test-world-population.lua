@@ -107,8 +107,8 @@ getSpecificPlayer = function() return player end
 
 SandboxVars = nil
 require "KS_Settings"
-assert(KnoxSettings.worldPopulation() == 16, "world population default")
-assert(KnoxSettings.maxActiveSurvivors() == 8, "active population default")
+assert(KnoxSettings.worldPopulation() == 32, "world population default")
+assert(KnoxSettings.maxActiveSurvivors() == 12, "active population default")
 assert(KnoxSettings.populationRefillDays() == 3, "refill default")
 assert(KnoxSettings.minimumSpawnDistance() == 60, "minimum distance default")
 
@@ -118,7 +118,7 @@ SandboxVars = { KnoxSurvivors = {
     PopulationRefillDays = 3,
     MinimumSpawnDistance = 2,
 } }
-assert(KnoxSettings.maxActiveSurvivors() == 32, "active population clamp")
+assert(KnoxSettings.maxActiveSurvivors() == 48, "active population clamp")
 assert(KnoxSettings.minimumSpawnDistance() == 25, "minimum distance clamp")
 
 require "KS_Persistence"
@@ -322,4 +322,31 @@ local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(
 assert(unloaded == nil and unloadedReason == "saved_square_not_loaded",
     "saved survivor waits instead of falling back to origin")
 
-print("World population PASS balanced=true refill=one exact_restore=true durable_restore=true hidden_spawn=true virtual_restore=true")
+SandboxVars.KnoxSurvivors.WorldPopulation = 1
+local oldLiving = #KnoxPersistence.getLivingWorldSurvivorIds()
+assert(KnoxWorldPopulation.maintain(100).status == "at_target", "configured target still limits ordinary refill")
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
+assert(KnoxWorldPopulation.maintain(101).status == "waiting", "uncapped arrivals start a clock rather than a burst")
+assert(#KnoxWorldPopulation.maintain(172).addedIds == 0, "uncapped arrivals still wait the refill interval")
+local uncappedArrival = KnoxWorldPopulation.maintain(173)
+assert(#uncappedArrival.addedIds == 1 and uncappedArrival.living == oldLiving + 1,
+    "uncapped arrivals may exceed the configured population target")
+assert(#KnoxWorldPopulation.maintain(173).addedIds == 0, "same-tick reconciliation cannot create another arrival")
+assert(#KnoxWorldPopulation.maintain(100000).addedIds == 1,
+    "large time jump creates one arrival, never an accumulated spawning burst")
+local preserved = #KnoxPersistence.getLivingWorldSurvivorIds()
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = false
+assert(KnoxWorldPopulation.maintain(100001).status == "at_target"
+    and #KnoxPersistence.getLivingWorldSurvivorIds() == preserved,
+    "re-enabling caps stops arrivals without deleting existing survivors")
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
+for interval = 1, 25 do
+    local result = KnoxWorldPopulation.maintain(100001 + interval * 72)
+    assert(#result.addedIds <= 1, "uncapped allocation rate remains bounded")
+end
+assert(KnoxWorldPopulation.maintain(200000).status == "spawn_origins_exhausted",
+    "uncapped population never recycles occupied/dead origins or manufactures infinite sites")
+assert(#KnoxPersistence.getAllWorldSurvivorIds() == #catalog.origins,
+    "finite world catalog is a spatial resource, not runaway population generation")
+
+print("World population PASS balanced=true refill=one exact_restore=true durable_restore=true hidden_spawn=true virtual_restore=true uncapped=true")

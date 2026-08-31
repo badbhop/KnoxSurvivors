@@ -17,6 +17,15 @@ local tickHooked = false
 
 local BOUNDARY_COLOR = { r = 0.30, g = 0.62, b = 0.30, a = 0.32 }
 
+local function newSelectionCursor(selection)
+    local cursor = ISSelectCursor:new(selection.player, selection, selection.onSquareSelected)
+    -- ISSelectCursor inherits ISBuildingObject:walkTo(). Build 42 calls that before
+    -- create() even when skipBuildAction is set, so a plain selection cursor queues
+    -- player movement toward the selected corner. skipWalk2 is the native opt-out.
+    cursor.skipWalk2 = true
+    return cursor
+end
+
 local function pickMouseSquare(player)
     if player == nil or getCell() == nil then return nil, nil, nil, nil end
     local z = player:getZ()
@@ -124,7 +133,7 @@ function Selection:confirmCreate(secondSquare)
     local h = math.abs(y2 - y1) + 1
     self.pendingConfirm = true
     local prompt = "Set home boundary  " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(w * h) .. " tiles, all floors)?"
-    local modal = ISModalDialog:new(0, 0, 380, 150, prompt, true, nil, function(button)
+    local modal = ISModalDialog:new(0, 0, 380, 150, prompt, true, nil, function(_, button)
         self.pendingConfirm = false
         unhookTick(self)
         clearDraftHighlight(self)
@@ -160,7 +169,7 @@ function Selection:onSquareSelected(square)
         self.firstSquare = square
         KnoxActivityFeed.event("First corner set at " .. tostring(square:getX()) .. "," .. tostring(square:getY()) .. ". Now click opposite corner — highlighted area is preview. Right-click cancels.")
         hookTick(self)
-        self.cursor = ISSelectCursor:new(self.player, self, self.onSquareSelected)
+        self.cursor = newSelectionCursor(self)
         getCell():setDrag(self.cursor, self.player:getPlayerNum())
         return
     end
@@ -190,7 +199,7 @@ function BaseTerritorySelector.start(player, baseId)
         cursor = nil,
         pendingConfirm = false,
     }, Selection)
-    selection.cursor = ISSelectCursor:new(player, selection, selection.onSquareSelected)
+    selection.cursor = newSelectionCursor(selection)
     getCell():setDrag(selection.cursor, player:getPlayerNum())
     KnoxActivityFeed.event("Set home boundary: click first corner, then opposite corner. Highlighted area is preview. Confirm size to save. Right-click cancels.")
     return true

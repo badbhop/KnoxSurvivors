@@ -16,5 +16,10 @@ assert(string.find(source, 'CompanionInventory.show', 1, true),
     "survivor card must expose the vanilla inventory shortcut")
 assert(string.find(source, 'context.medicalCheck', 1, true),
     "survivor card must expose the shared medical-check shortcut")
+assert(string.find(source, 'progressBar.char = self.char', 1, true)
+    and string.find(source, 'view.playerNum = window.playerNum', 1, true),
+    "vanilla skill bars must use a valid local UI slot and read the selected survivor")
+assert(not string.find(source, 'pcall(function() view:createChildren() end)', 1, true),
+    "health children must be instantiated exactly once by the vanilla addView lifecycle")
 
-print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true")
+print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true")

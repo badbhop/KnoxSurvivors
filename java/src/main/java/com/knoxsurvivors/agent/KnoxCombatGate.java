@@ -6,6 +6,8 @@ public final class KnoxCombatGate {
     private static final ThreadLocal<Object> targetVisibilityCandidate = new ThreadLocal<>();
     private static volatile boolean patchReady;
     private static volatile int patchedCallCount;
+    private static volatile boolean visibilityPatchReady;
+    private static volatile int visibilityPatchedCallCount;
 
     private KnoxCombatGate() {
     }
@@ -65,11 +67,24 @@ public final class KnoxCombatGate {
         patchReady = calls == KnoxSwipeStateTransformer.EXPECTED_PATCH_COUNT;
     }
 
+    static void markVisibilityPatchReady(int calls) {
+        visibilityPatchedCallCount = calls;
+        visibilityPatchReady = calls == KnoxZombieVisibilityTransformer.EXPECTED_PATCH_COUNT;
+    }
+
     public static boolean isPatchReady() {
         return patchReady;
     }
 
     public static int getPatchedCallCount() {
         return patchedCallCount;
+    }
+
+    public static boolean isVisibilityPatchReady() {
+        return visibilityPatchReady;
+    }
+
+    public static int getVisibilityPatchedCallCount() {
+        return visibilityPatchedCallCount;
     }
 }

@@ -10,6 +10,7 @@ _G.KnoxCompanionService = CompanionService
 local RECRUIT_TRUST = 50
 local TALK_GAIN = 8
 local TALK_COOLDOWN_HOURS = 0.5
+local RECRUIT_REFUSAL_COOLDOWN_HOURS = 0.5
 local INTERACTION_DISTANCE_SQUARED = 16
 
 local TALK_LINES = {
@@ -18,6 +19,13 @@ local TALK_LINES = {
     "Keep your voice down. Sound carries.",
     "If you find clean water, remember where it was.",
     "I haven't seen many living people lately.",
+    "We should check our supplies before we move on.",
+    "Doors first. Windows only if we have to.",
+    "I could use a quiet night for once.",
+    "Let me know if you need me to carry anything.",
+    "We should keep an eye out for medicine.",
+    "This place still feels too exposed.",
+    "I'm good to keep moving when you are.",
 }
 
 local function worldAge()
@@ -85,6 +93,9 @@ function CompanionService.talk(player, survivorId)
     if character == nil or playerId == nil then
         return false, availability
     end
+    if KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId) then return false, "hostile" end
+    local previousRelation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
+    local previousTrust = previousRelation ~= nil and (tonumber(previousRelation.trust) or 30) or 30
     local relation, result = KnoxPersistence.recordPlayerConversation(
         playerId,
         survivorId,
@@ -100,7 +111,11 @@ function CompanionService.talk(player, survivorId)
         return false, result
     end
     local line = TALK_LINES[((relation.meetings - 1) % #TALK_LINES) + 1]
+    KnoxActivityFeed.event("Talked to " .. displayName(survivorId) .. ".")
     KnoxActivityFeed.speak(character, line)
+    if KnoxActivityFeed.reputation ~= nil then
+        KnoxActivityFeed.reputation(character, (tonumber(relation.trust) or previousTrust) - previousTrust)
+    end
     print(
         "[KnoxSurvivors][Companions] talk survivor=" .. survivorId
             .. " player=" .. playerId
@@ -125,6 +140,7 @@ function CompanionService.canRecruit(player, survivorId)
     if character == nil then
         return false, availability
     end
+    if KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId) then return false, "hostile" end
     if not KnoxPersistence.isIndependentSurvivor(survivorId) then
         return false, "not_independent"
     end
@@ -136,6 +152,9 @@ function CompanionService.canRecruit(player, survivorId)
         return false, "companion_limit"
     end
     local relation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
+    if relation ~= nil and (tonumber(relation.nextRecruitHours) or 0) > worldAge() then
+        return false, "recruit_cooldown", relation.trust
+    end
     if relation == nil or (tonumber(relation.trust) or 0) < RECRUIT_TRUST then
         return false, "needs_trust", relation ~= nil and relation.trust or 0
     end
@@ -147,10 +166,20 @@ function CompanionService.recruit(player, survivorId)
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
     if not ready then
         if character ~= nil then
-            local line = reason == "already_with_group"
+            local line = reason == "recruit_cooldown"
+                and "Give me a little time."
+                or reason == "already_with_group"
                 and "I'm already travelling with people."
                 or "I don't know you well enough."
             KnoxActivityFeed.speak(character, line)
+        end
+        if reason == "needs_trust" and playerId ~= nil then
+            KnoxPersistence.recordPlayerRecruitRefusal(
+                playerId,
+                survivorId,
+                worldAge(),
+                RECRUIT_REFUSAL_COOLDOWN_HOURS
+            )
         end
         return false, reason, trust
     end
@@ -251,6 +280,26 @@ function CompanionService.setCombatStanceAll(player, stance)
             aggressive = "clear threats",
         }
         KnoxActivityFeed.event("Party combat stance: " .. (labels[stance] or stance) .. ".")
+    end
+    return changed > 0, changed
+end
+
+function CompanionService.setWeaponPreference(player, survivorId, preference)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionWeaponPreference(
+        survivorId, playerId, preference, worldAge()
+    ) then return false, "invalid_companion_weapon_preference" end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, preference
+end
+
+function CompanionService.setWeaponPreferenceAll(player, preference)
+    if preference ~= "melee" and preference ~= "ranged" and preference ~= "auto" then
+        return false, "invalid_weapon_preference"
+    end
+    local changed = 0
+    for _, id in ipairs(CompanionService.getCompanionIds(player)) do
+        if CompanionService.setWeaponPreference(player, id, preference) then changed = changed + 1 end
     end
     return changed > 0, changed
 end
@@ -431,6 +480,10 @@ function CompanionService.syncController(survivorId, controller)
         return
     end
     local duty = KnoxPersistence.getSurvivorDuty(survivorId)
+    if controller.setWeaponPreference ~= nil then
+        local policies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
+        controller:setWeaponPreference(policies.weaponPreference)
+    end
     local bridge = rawget(_G, "KnoxJavaBridge")
     if bridge ~= nil and bridge.setNpcPartyVisible ~= nil then
         bridge:setNpcPartyVisible(survivorId, duty ~= nil and duty.mode == "companion")

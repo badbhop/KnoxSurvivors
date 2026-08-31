@@ -106,13 +106,144 @@ For the next live pass:
 9. Separate one travelling-group member by more than the retrieve leash. The leader should
    wait or move back toward that member rather than continuing to widen the separation.
 
+## Barter quotation / exchange / Trade window — live verification required
+
+Run `tools/test-trade-valuation.lua` with the repository root argument. It executes the quote module
+against real Knox persistence and native-shaped inventory objects: full-type ownership, known item
+subtypes, quantity/condition, food/water safety, stock/urgency, offer order and food portion splitting,
+whole-basket reserve protection, native ammo-key matching, nested bags, favorite/equipped items,
+oversized/corrupt inventory, canonical base task demand, life/affiliation/hostility, player identity,
+trust/reputation, reload stability and the nonzero spread. Quotes never change inventory or rewards.
+
+`tools/test-trade-action.lua` additionally executes the installed 42.20.3 `ISTransferAction` and
+base timed-action Lua with native-shaped containers and the real Knox controller/runtime/quote/
+persistence domain. Its optional second argument is the game installation directory. Native Java
+containers and record encoding remain mocked here. It covers exactly-once exchange, original item
+identity/receipt, full-capacity root swaps, source/destination policy and ID rejection, cancellation,
+queue failure, invalidated offers/relationships/life/reach, capture failures, transfer exceptions
+before and after insertion, verified rollback, reputation error isolation, lease expiry, directive
+changes, unload/detachment and retaining a recovery journal after an injected rollback failure.
+
+`tools/test-trade-ui.lua` runs the actual UI/context callbacks and exchange/controller code with
+native-shaped widget stubs. It checks single initialization, viewport/font layout, joypad focus,
+fair-offer selection, completed exchange, close cancellation, two-minute expiry, danger, menu/death/
+resolution cleanup, changed inventory, persistent capacity-error feedback and hostile/multiplayer
+menu guards. It is not a rendered game UI test. Valuation checks also reject hidden items/hidden bag
+contents and shared-inventory browsing; action checks cover browsing-to-exchange lease handoff.
+
+Use an independent nearby NPC on a backed-up single-player save. Stand beside them with no blocked
+edge and right-click Trade. Select items on both sides with double-click or Offer / Remove (joypad
+A; left/right changes list). Y or Trade confirms an acceptable offer; B or Close cancels. Test a
+low offer, then a fair one, and ensure the refusal/fair indication is readable. Try duplicate/stale
+items, nearly equivalent goods, unsafe food, mismatched ammo, a whole reserve basket and a fair
+useful exchange. Verify the real items change owners exactly once only for a valid accepted offer.
+Repeat while moving away, entering danger, changing inventory after the quote and interrupting the
+action; neither side may lose its payment or receive free items. Save/reload immediately afterward
+and check both inventories and completion-only reputation. Also check nested bags, container
+capacity, hostile/recruited targets and split-screen. While browsing, close the window, leave reach,
+allow two minutes to pass, introduce a threat, or return to the menu: the survivor must be released
+without losing its underlying activity. Opening/closing alone must never grant inventory access or
+reputation. Verify both small/large fonts, list scrolling, long names, window close/minimize behavior
+and controller focus. Reopen after completing one exchange to trade again. Real animation, native
+container side effects, rendered layout and save/reload exchange integrity need live evidence.
+`[Trade] RECOVERY_REQUIRED` is a hard test failure: stop further trading, retain the logs and do not
+assume the before-record or inventory has safely recovered. Fault-recovery UX/durable recovery is
+unfinished. Multiplayer trade is deliberately rejected rather than using fake player IDs.
+
+## Wallet / currency gate — live verification required
+
+Run `tools/test-wallet-currency.lua` with the repository root; optional second argument is the
+42.20.3 installation. It checks the actual native wallet definition/UnbundleMoney recipe, executes
+native wallet acceptance and wear completion Lua against native-shaped fixtures, then real Knox
+equipment selection and barter using cash inside a worn wallet. Checks include missing/changed
+script definitions, repeated setup, separate slot, unchanged non-wallet definitions, accepted and
+rejected contents, supported/unknown currency, denomination ratio, stock saturation, trade receipt,
+remaining coin ownership and no repeated equip. Native objects/registry initialization are mocked;
+this does not prove the full game bootstrap. Inventory cleanup tests protect bundles/coins, and
+the Java inventory snapshot verifier round-trips wallet cash/coins plus a separately worn backpack.
+
+On a backed-up test save, obtain an existing Base wallet, cash, coins and a backpack. Use the normal
+inventory Wear option for both wallet and backpack. Confirm a separate accessible wallet container;
+drag bills/coins into it, confirm capacity/size limits still apply and a gold bar is rejected. A
+MoneyBundle must be unpacked using the native recipe before its bills can enter the wallet. No
+free wallet or cash should appear merely from loading the mod. Wear/unequip should keep contents.
+
+Give a survivor a carried wallet and cash/coins, let existing equipment evaluation equip it, then
+unload/restore and save/reload. Check the same types/counts and wallet/backpack worn state. Trade
+with a neutral survivor using bills/coins from a worn wallet or a bundle from normal inventory.
+Verify real payment, no duplicate currency, no emptied wallet lost or unequipped, preserved favorite
+protection and clean action cancellation. Repeated equivalent trades must not manufacture value.
+Check native menu labels/bag switching and console errors. This mod slot should be unequipped before
+disabling/removing Knox. Broader currency/rarity balance and compatibility with other wallet mods
+remain unverified. Then continue the reputation gate below.
+
+## Player contribution / reputation gate — live retest required
+
+On a disposable backed-up save, find a neutral survivor and kill a zombie actively targeting them
+within eight tiles. Stay on the same floor and within twenty tiles of the survivor. Confirm a bounded
+acknowledgement and trust increase in the existing survivor card; repeated rapid kills must not spam
+credit. Repeat with a faction member and inspect the canonical faction relationship reputation.
+Save/reload and confirm trust/reputation and reward cooldowns survive. Unrelated kills, another
+floor, a zombie targeting the player, NPC-made kills and missing native target evidence earn nothing.
+If the native death event has already cleared its target in a particular death path, record that
+missing-evidence case; do not treat nearby kills as proof of defense.
+
+With survivor/player combat enabled, hit a previously neutral survivor. Confirm Talk/Recruit become
+unavailable with a hostile label, trust drops, and their NPC faction becomes hostile if applicable.
+Continued combat must not repeatedly apply the first-aggression penalty. A hostile target cannot
+be made recruitable just by talking/help credit. Test with both split-screen players if available:
+only the actual player's relationship should change. No test grants items, cash, health or XP.
+Trade credit is now wired only after a captured, verified exchange; gifts/medical/construction
+rewards still lack completion adapters.
+
+## Weapon preference gate — live retest required
+
+Give a companion a usable bat, pistol, compatible magazine and real rounds. Under Orders →
+Weapon Preference, choose Prefer Melee, Prefer Ranged and Survivor Choice in turn. Confirm only
+the active option has the native checked marker and a newly opened menu reflects saved state.
+Melee should keep the bat available; ranged should use the pistol only when native ammo/reload
+allows it. Remove compatible ammo and verify melee fallback without reload spam. Survivor Choice
+should usually keep a novice on melee; a survivor with native Aiming 4+ and room to aim may use a gun.
+
+Change preference during a reload and during combat; check no simultaneous reload/fire/weapon-swap
+loop, then confirm Follow/Hold/Guard remains intact. Set two companions to different preferences:
+the party menu should show no single checked preference. Apply a party choice and confirm both
+update. Save/reload, send a companion home/re-recruit, and verify the policy remains. Run the existing
+Survivor Firearm Test: its test identity now explicitly prefers ranged to exercise real reload/fire.
+Automated policy/menu/native-shaped fixtures cannot prove live timing, sound, ammo or animations.
+
+## Carried cleanup / deposit gate — live retest required
+
+On a backed-up disposable save, overload a survivor with a broken spare weapon, an inferior spare,
+vanilla junk, extra food and planks. Also include equipped/attached gear, a favorite bag, ammo,
+medical supplies and an accessory. Observe away from storage, then beside a categorized container
+or depot assigned to their own base. Only eligible low-value items may be dropped; useful surplus
+food/materials should be deposited rather than discarded. Confirm dropped objects remain lootable
+and deposited items really exist in the destination. Required job supplies must remain carried.
+
+Repeat with full storage, an intervening wall, a foreign/unassigned container, combat interruption
+and replacement Hold/Follow. There should be one action at a time, no transfer spam, no command
+loss and no item disappearance/duplication after save/reload. Unknown/favorite/valuable gear stays
+protected. Also place an unassigned base resident 20–60 tiles from their own loaded assigned
+storage with useful spare gear/materials. Confirm they walk to a valid interaction side, transfer
+real items and return to normal behavior. Repeat with a blocked approach and then another eligible
+container: failure must cool down rather than loop. During a trip change the base/storage, favorite
+the selected item, issue Follow/Hold, trigger combat, or unload/save/reload. No old transfer may
+survive invalid ownership and no duplicate/missing item may result. Travelling groups and active
+companions must not abandon their roles for this detour. The local trip selector is same-floor and
+128 tiles maximum; it does not claim cross-floor or unloaded-container logistics.
+A protected-heavy inventory may remain overweight. Automated `test-inventory-cleanup.lua` and `test-base-storage.lua`
+cover policy/action ownership and native-shaped fixtures, not in-game animation or world transfer.
+
 ## Unloaded survival ledger — live retest required
 
 When a captured survivor is not active, Knox now advances a compact persisted survival
 ledger rather than freezing their needs completely. It uses the portable inventory record:
-if an unloaded survivor drinks or eats, the matching stored item is removed before the need
-is relieved. Rest and endurance recovery are then applied to the same ledger and restored to
-the body when that survivor materializes again.
+if an unloaded survivor drinks or eats, real stored quantities are consumed before the need
+is relieved. Partial food and reusable water bottles remain. Independent survivors distinguish
+awake travel from endurance rest and sleep in the same ledger, then restore those needs when
+the survivor materializes again. Fully stored travel groups share travel/rest decisions;
+away-team missions retain their earlier policy.
 
 1. Give a survivor at least one food item and one drink, then allow normal distance
    hibernation. Do not use a developer preset that gives the survivor endless supplies.
@@ -129,6 +260,24 @@ the body when that survivor materializes again.
 
 The focused `test-unloaded-survival.lua` check covers record-backed consumption, rest
 recovery, and durable starvation/dehydration death. It does not prove live engine behavior.
+`test-world-presence.lua` also exercises real Lua persistence and the production itinerary across
+capture, travel, interrupted sleep, module reload and hidden-square activation. In a disposable
+save, compare a rested independent survivor and an exhausted one after several unloaded hours;
+the rested survivor should progress between nearby locations, and the tired one should pause,
+recover and resume. Save/reload during the pause and confirm no snap back to the capture tile.
+Send a companion to an unloaded base several hundred tiles away and verify gradual travel,
+rest when needed and arrival at the current base. Reassign Follow during the trip and verify the
+old return destination no longer controls movement. These pacing/restore checks remain live-only.
+
+For stored groups, keep three members together, exhaust one, and leave their area. Advance time,
+save/reload, then inspect the same identities: the group should rest together and later travel
+with preserved spacing. Separating one before hibernation should make the others wait while that
+member approaches, not teleport them together. Keep one member loaded in a repeat run: stored
+members must not independently drift while the loaded controller owns the group. Verify native
+regroup/activation after returning, member/leader death cleanup and retained inventory quantities.
+`test-unloaded-groups.lua` covers the production Lua scheduler, shared itinerary, real persistence,
+rest/reload, unequal clocks, separation, death and per-member supply transactions without a live
+engine. Different-floor regrouping remains delegated to loaded navigation, not this simulation.
 
 Do not call this gate complete until activation, hibernation, restoration, and one real zombie
 attack have all been observed in game, and the collected log contains no formation retry storm.

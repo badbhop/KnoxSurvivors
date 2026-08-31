@@ -94,6 +94,11 @@ final class KnoxSurvivorRecord {
         ).encode();
     }
 
+    String withInventory(KnoxInventorySnapshot nextInventory) {
+        return new KnoxSurvivorRecord(id, x, y, z, positionX, positionY,
+            appearance, nextInventory, health, physiology).encode();
+    }
+
     static KnoxSurvivorRecord decode(String encoded) {
         String[] fields = encoded.split("\\|", -1);
         int version = Integer.parseInt(fields[0]);

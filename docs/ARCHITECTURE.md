@@ -39,6 +39,24 @@ contain. New survivors receive real wearable inventory items selected with Build
 default, profession, and trait clothing definitions; a restrained separate roll may add
 a schoolbag or duffel bag.
 
+Inventory sub-schema 3 captures each root item using native `InventoryItem.saveWithSize`, with
+its native world version, total nested-item count, and existing worn/hand bindings. Native container
+serialization carries bag contents and item-specific fields such as food state, fluids and rounds.
+Restore preflights all native roots and nested counts before clearing the destination inventory;
+missing mod items or incomplete decoding reject reconstruction while leaving the encoded record
+intact. Schema-2 records remain readable with their old type/condition/uses/visual semantics. They
+cannot recover nested contents or quantities that the old format never saved. A fresh capture
+upgrades the inventory subrecord; old agent jars cannot read the new sub-schema.
+
+Offscreen food/water consumption decodes detached native items, never an IsoPlayer or a new default
+item inferred from its type. Ordinary safe food is reduced with `multiplyFoodValues`; pure clean
+water uses native fluid quantity adjustment at the Build 42 bottle ratio of 0.12 fluid per 0.1
+thirst. Consumed quantity determines relief. Reusable bottles and partial food remain serialized;
+simple fully consumed food is removed from its actual saved container. Scripted food callbacks,
+byproduct-producing food, unsafe food/fluids and legacy quantity-unknown snapshots are not consumed
+offscreen. Those cases require loaded actions or further supported simulation work. Registry rejects
+consuming an active identity, and Lua applies relief only after the updated record is committed.
+
 Records are saved by stable ID under the rebuild-specific `KnoxSurvivors_IsoPlayer`
 global ModData key. Every loaded survivor has a separate runtime containing its temporary
 body, movement request, traversal route, combat controller, and latest record. Saving
@@ -60,20 +78,82 @@ into the capability profile; translated labels are never used as save keys.
 ## Population and origin policy
 
 Survivors are durable world inhabitants, not a refill effect around the active player.
-New identities originate from the map's real spawn-region point tables. A candidate is
+New identities originate from the map's real spawn-region point tables, supplemented by
+native ground-floor building room rectangles. A candidate is
 rejected when its square is currently visible, occupied, unsafe, or too close to a
 player. A valid identity may originate in another town and remain virtually simulated
 until its cell loads; loading a cell activates the survivor at their recorded location
 instead of relocating them toward the player.
 
 The production population core now maintains a configurable persistent target, defaults
-to 16 living identities, and limits physical materialization separately from world count.
-Initial allocation is region-balanced across real player-spawn definitions. Death is durable
+to 32 living identities, and limits physical materialization separately from world count.
+Initial allocation is region-balanced, preferring player starts for two allocations out of
+three and native building locations for the third when available. Metadata is cached once
+per map; supplemental locations are thinned to one per 100-tile cell. Death is durable
 and does not trigger an immediate nearby replacement; after the configured refill interval,
 one new identity is allocated at a still-unused origin. Active world survivors hibernate
 when they leave the player band and restore at their saved square when that area becomes
 relevant again. Developer scenarios remain available as a separate bounded test harness for
 social, faction, base, and companion behavior.
+
+The optional `DisableSurvivorCaps` setting preserves those configured values but bypasses the
+active-body and recruitment count checks. WorldPopulation remains a finite starting count; later
+arrivals can exceed it, one identity per refill interval, from unused origins only. No numeric
+faction count cap currently exists. The scheduler constructs at most two bodies per population
+reconciliation in either mode; this is a rate limit, not another total-population cap. Disabling
+caps is an explicit performance tradeoff. Re-enabling them preserves existing identities and
+companions instead of deleting excess members. No infinity value is persisted in save records.
+
+Before first materialization, an identity has a location-only `unloadedSurvival` ledger with
+`pendingMaterialization=true`. It stores a short itinerary between nearby catalog locations,
+departure/rest timestamps and lightweight destination memory. Population reconciliation advances
+that itinerary without allocating a character, changing the birth origin, or moving it toward a
+player. First activation uses the progressed position with the same hidden/standable/safe-square
+requirements. This ledger contains no invented physiology or inventory and must never be applied
+as real character stats. The first successful body capture replaces it with real needs and record
+coordinates. Every subsequent capture also replaces stale virtual coordinates with the fresh
+record position. Ordinary hibernated survivors continue through the existing survival simulation.
+
+Pre-materialization travel is a coarse location simulation, not native offscreen pathfinding or
+resource generation. Routes stay on the same floor, within 600 tiles of the last stop, at a net
+40 tiles/game-hour with two-to-five-hour stops. Reconciliation performs at most eight legs and
+48 hours of catch-up; older excess time does not trigger unbounded world scans. These constants
+are implementation policy awaiting live density/pacing evidence, not claims of full offscreen
+human simulation. Saved body records remain authoritative once they exist.
+
+Captured independent survivors reuse that nearby-catalog itinerary through UnloadedSurvival;
+they no longer drift 1.25 tiles/hour on an arbitrary heading. An unavailable catalog leaves them
+at their current location. Explicit return-home trips use 40 net tiles/game-hour and refresh the
+destination against the current assigned base; replacement companion duty cancels the old trip.
+Virtual trips are coarse simulation, not loaded pathfinding or a guarantee of a traversable route.
+
+Independent survivors, base residents and briefly stored companions split elapsed time between
+awake activity and rest. Walking spends endurance; stationary time restores it. Fatigue rises while
+awake only when the existing Needs sleep policy requires sleep, and decreases only during a saved
+sleep phase. Rest starts at 0.30 endurance and ends at 0.80; sleep starts at 0.72 fatigue and ends
+at 0.35. A maximum of eight transitions per six-hour physiology step bounds the work. These are
+coarse Knox rates, not a claim to simulate the full native sleep/trait physiology offscreen.
+Rest preserves the itinerary/base-return directive; real capture clears stale virtual phases.
+Sleeping/resting/sheltering identities restore through the same hidden-square virtual-location
+handoff as travelling identities. No world loot, wound healing or extra supplies are generated
+by these travel phases. Away teams retain their existing mission travel/recovery policy.
+
+Fully stored autonomous travel groups advance as one cohort in `UnloadedSurvival.advanceAll`.
+The existing travel-group record owns one optional `unloadedTravel` itinerary; condition is derived
+from the members' real ledgers rather than saved as a second group health/needs model. Shared
+walking translates each member by the same delta, preserving their captured offsets. Highest
+fatigue/lowest endurance determine shared rest timing; each member retains individual needs,
+recovery and real encoded inventory consumption. A member more than 20 tiles away causes a
+leader wait and bounded approach to within six tiles before shared travel resumes. No loaded
+body is moved by this simulation, and different-floor groups do not invent offscreen stair routes.
+
+Any active member or conflicting companion/base/mission duty prevents cohort travel. Stored
+members still advance needs/rest in place; the active controllers retain navigation ownership.
+Unequal capture clocks catch up physiology in place before the common travel interval begins.
+Membership/leader/capture-clock changes rebase the saved itinerary from current member positions.
+Death uses ordinary identity/social cleanup and ends that cohort update; the next reconciliation
+rebuilds membership. Direct single-member simulation cannot move a group member independently.
+Waiting/regrouping phases use the same hidden-square restoration boundary as travelling phases.
 
 ## Minimal active-survivor loop
 
@@ -82,9 +162,13 @@ planner. Each decision update selects one state, and only one action owns the bo
 
 1. **Threat** — flee when unsafe, otherwise equip and engage one nearby zombie.
 2. **Injury** — stop somewhere safe and treat the most urgent wound with a carried item.
-3. **Loot need** — approach one reachable container and take a small ranked set of useful
+3. **Critical thirst/hunger** — consume real safe food or water from carried inventory through
+   the shipped timed actions.
+4. **Exhaustion** — sit/rest for endurance, or enter the native sleeping event for fatigue when
+   the current sleep rules require it.
+5. **Loot need** — approach one reachable container and take a small ranked set of useful
    items through normal inventory transfer actions, based on current equipment and stock.
-4. **Idle travel** — choose a nearby reachable destination and walk there.
+6. **Idle travel** — choose a nearby reachable destination and walk there.
 
 The controller chooses *what* to do. Small action executors own *how* to move, equip,
 attack, transfer, or treat. Threats may interrupt travel and looting; an executor must
@@ -96,6 +180,14 @@ pipeline, and `BodyDamage`. Knox persists a portable snapshot of those values ra
 than treating the live `IsoPlayer` object as the save record. Directly applying damage,
 teleporting items, or healing wounds is reserved for unloaded-world simulation; an
 active survivor should use the same world actions and consume the same items as a player.
+
+Self-care is temporary action ownership, not a durable order. The controller records the real
+need/BodyDamage state before queuing a native eat, drink, bandage, or improvisation action. An empty
+queue is not considered success unless that authoritative state changed. Failure installs one
+bounded retry instead of selecting the same action every tick. Immediate danger clears the native
+action or wakes the survivor through `SleepingEvent.wakeUp`, then exposes the unchanged Follow,
+Hold, group-travel, or roaming role after danger ends. Sitting remains native endurance recovery;
+fatigue uses `SleepingEvent.setPlayerFallAsleep` without local-player fades or time-control writes.
 
 ## Confirmed 42.20 engine surface
 
@@ -125,12 +217,19 @@ predicate that accepts the real local player or the exact `KnoxIsoPlayerShell` c
 The rest of each callback remains unmodified engine code, including hit selection,
 damage, endurance, weapon condition, sound, blood, reactions, and death.
 
+Standing-zombie target visibility has one separate off-slot boundary in Build 42.20.3:
+`IsoZombie.isTargetVisible()` reads the target player's local-lighting index, which a contained
+shell intentionally does not own. A second transformer adapts only that method's `getIndex()` and
+`isCouldSee(int)` calls for the exact Knox shell. Live combat refuses to start unless both this
+two-call adapter and the three-call survivor-melee adapter report their expected patch counts.
+Zombie target selection, approach, attack state, collision, hit rolls, BodyDamage, reactions, and
+death remain native.
+
 The shell supplies its controller-owned forward direction as its aim vector because it
 has no mouse or controller input component. The combat executor synchronizes the human
-AI control variables, target square, facing, charge, and attack request. If the normal
+AI control variables, target square, facing, charge, and attack request. If a melee
 request does not enter `SwipeStatePlayer`, the executor makes one explicit state entry
-and records that fallback in the diagnostic log. This is intentionally limited to
-melee; firearm aiming and ballistics require a separate verified slice.
+and records that fallback in the diagnostic log.
 
 Combat approach targets are placed inside the equipped weapon's maximum range with
 enough margin for the movement executor's arrival tolerance. A generic adjacent-square
@@ -142,10 +241,61 @@ moves beyond the equipped weapon's effective attack margin, the combat executor 
 the stale swing request, paths back into range, and then settles its aim again. Locked-door
 combat remains fixed in place and does not use this re-approach rule.
 
+Combat is a temporary movement owner, not a durable order. Entry cancels the current engine
+movement request while leaving the companion/group directive intact. Every terminal, invalid-target,
+exception, and explicit-reset path clears the attack flags, `AttackType`, attack square, AI input,
+combat route, and pathfinder before releasing ownership. The Lua controller then resumes its normal
+decision loop, where an existing Follow/group directive can request movement again.
+
 Threat awareness distinguishes immediate proximity, visible zombies, and zombies already
 targeting the survivor or a travelling companion. Active threats receive priority over an
-idle visible zombie, and at most two survivors reserve the same zombie. This avoids both
-single-file indifference and the whole faction chasing one distant target.
+idle visible zombie, while bounded score hysteresis keeps a valid target until danger changes
+meaningfully. Reservations scale with urgency: one survivor owns an ordinary distant target,
+two may answer an immediate/group threat, and up to three may defend a survivor already under
+attack. Companion/group role leashes prevent a visible zombie from pulling the whole party away.
+
+Retreat remains part of this same small decision layer rather than a tactical planner. Low health
+or three nearby zombies per nearby ally interrupts combat, chooses a standable direction weighted
+away from the closest pressure, and starts one ordinary Java movement request. Short-lived group
+plans keep loaded members moving roughly together. Two safe scans end retreat and expose the
+durable Follow/Hold/travel order to the normal decision loop again.
+
+## Off-slot firearm integration
+
+Firearms preserve Build 42.20.3's split ownership instead of implementing Knox ammunition or
+ballistics. Lua's shipped `ISReloadWeaponAction.canShoot` is the readiness authority;
+`BeginAutomaticReload` and `ISRackFirearm` own magazine, loose-ammunition, chamber, jam, and timed
+action transitions. Knox only selects a carried functional weapon and refuses to queue a second
+preparation action while the first still owns that firearm.
+
+Weapon preference lives in the existing persisted `survivor.policies.weaponPreference` field:
+`auto` (legacy/default), `melee`, or `ranged`. Player changes pass through companion ownership
+validation; there is no separate command/planner registry. `auto` favors a usable melee weapon
+for novices and close threats. Native Aiming level 4+ with a same-floor target at least three tiles
+away can prefer ranged combat. Explicit ranged preference still requires native viable ammo/reload;
+explicit melee prefers melee when available, with a usable firearm as fallback if no melee remains.
+Preference is considered at combat acquisition/preparation, not every frame. Existing native combat
+owns close-range repositioning/fallback and threat selection. A changed preference releases attack/
+reload ownership without erasing Follow/Hold/Guard. Unchanged controller sync does nothing.
+The individual and party menus use native checked options; mixed party values show no active check.
+Faction doctrines remain future integration, not inferred from faction names or hidden buffs.
+
+Java captures the equipped firearm for the encounter, maintains facing and floor aim, and owns one
+bounded approach or close-range reposition request. It does not call `pressedAttack()` for a ranged
+request. Instead it returns `COMBAT_FIREARM_REQUEST`, and the Lua controller invokes the shipped
+`ISReloadWeaponAction.attackHook` once. That native hook owns the ranged sound and world-noise event
+and enters `DoAttack`; the normal `OnWeaponSwingHitPoint` callback remains responsible for
+ballistics, damage, chamber state, magazine count, jamming, condition, and ammunition consumption.
+`setAuthorizeMeleeAction(true)` is required because Build 42 uses the legacy-named method as the
+general player attack authorization gate, including firearms.
+
+An active rack/reload temporarily releases Knox combat ownership without clearing the underlying
+Follow, Hold, or group directive. A missing compatible round or magazine selects an actual carried
+melee weapon instead of retrying reload. If a close-range backing route fails, the ranged owner
+returns a distinct fallback result and the controller switches to melee without placing the nearby
+threat on the unreachable-target cooldown. Dead targets, weapon changes, terminal attacks, and
+explicit resets clear ranged intent and the temporary route through the same combat teardown used
+by melee.
 
 The shell's LOS override must remain disabled because off-slot `IsoPlayer.updateLOS()`
 writes into a real local player's render channel. A scheduled Lua awareness adapter restores
@@ -206,6 +356,15 @@ actually within awareness range on the same level. The save retains their names,
 and most recent meeting times, number of meetings, nearby world-hours, and shared
 completed roaming, looting, and combat activity.
 
+Active allegiance is also resolved only from persisted IDs. `affiliation` owns player/faction
+membership, travel-group and faction records own their member and leader lists, and pair/faction
+relationship records own disposition. Runtime character lists are derived caches used for movement
+and ally assistance; they never decide membership. One deterministic classifier resolves self,
+allied, neutral, or hostile, with shared player ownership/group/faction taking precedence over stale
+pair hostility. Save-load normalization removes duplicate roster copies, repairs missing leaders,
+and removes dead members from active groups, factions, and camps while retaining historical encounter
+records. This prevents an unloaded shell or transient controller reset from changing allegiance.
+
 An ungrouped pair that enters awareness range now interrupts only safe, non-combat work,
 approaches, faces one another, and holds a short visible conversation. Mutual agreement
 creates a persistent travelling group. The lowest stable ID is the initial route leader;
@@ -225,14 +384,22 @@ line and major encounter outcomes also pass through a client-side activity feed 
 vanilla `ISCollapsableWindow` and `ISRichTextPanel` components. This is separate from the
 base game's chat window because Build 42 creates that window only for multiplayer clients.
 
-Ungrouped survivors notice one another within 24 tiles, but social work never interrupts
-combat or an unsafe action. One approaches while the other waits, avoiding artificial
-teleporting or constant magnetic movement. Stable identity traits supply sociability and
-aggression; pair history then resolves the encounter as joining, declining, or hostility.
-Declines cool down for six in-game hours. The first hostile executor is robbery through
-normal timed inventory transfers, limited to two unequipped items. Hostility persists;
-lethal survivor-versus-survivor combat remains behind a separate native PvP verification
-gate because the current combat executor is proven only against zombies.
+Independent survivors notice one another within 14 tiles, but only consider a cautious
+encounter within 10. Social work never interrupts combat or an unsafe action. One approaches
+while the other waits, avoiding artificial teleporting or constant magnetic movement. A
+persisted ally never starts a social encounter; a known hostile keeps distance rather than
+falling back into a friendly greeting. Neutral first contact deterministically becomes either
+a brief cautious greeting or no interaction, with a short memory cooldown. Joining requires
+later familiarity plus shared activity, so proximity alone cannot form a party. Only one pair
+may own a survivor in a social scan, and group leaders—not every member—initiate an invitation.
+Completed greetings and interruptions release both controllers back to their durable behavior.
+
+Stable identity traits supply sociability and aggression. Existing valid first aggression can
+still produce the limited normal-timed-transfer robbery executor and durable hostility; it does
+not add a new surrender or diplomacy system. Hostile loaded survivors and players now route
+through the same live native-combat owner used for zombies, while the controlled combat gate
+remains zombie-only. Human target routing and cleanup are focused-test verified, but lethal
+human PvP remains behind a live Build 42 animation/collision/BodyDamage verification gate.
 
 Purposeful exploration considers useful nearby supplies before undirected roaming. A
 survivor searches reachable containers for stronger melee weapons, better protective clothing,
@@ -241,7 +408,49 @@ the search animation when an uninspected container is already convenient. A visi
 up to two ranked items. Survivors then travel before considering another optional stop;
 blocked rooms are cooled down instead of repeatedly forcing entry.
 
+Independent loaded roaming keeps one goal until movement completes, fails, or a higher-priority
+danger/self-care owner interrupts it. Useful ranked containers remain the first choice. When none
+is currently worthwhile, the survivor prefers a nearby unvisited building, then a safe nearby area,
+rather than an arbitrary tile. Candidates near an obvious zombie concentration are rejected. A
+bounded twelve-entry, loaded-session memory cools completed destinations briefly and failed ones
+longer, so the survivor leaves exhausted areas without creating permanent world knowledge.
+Container inspection memory also expires, allowing later reconsideration if the world changes.
+
+Temporary camps remain lightweight faction shelter records rather than miniature bases. The camp
+stores one building identity, loaded bounds, and the current durable faction-member IDs. Runtime
+controllers derive camp assignment from that persisted faction link on registration and low-frequency
+reconciliation; no second survivor affiliation is created. Members choose deterministic, reserved,
+standable positions inside the shelter, with slot-staggered rest, reposition, excursion, and quiet-idle
+choices. Needs and threats retain priority. An excursion uses ordinary roaming and at most one normal
+ranked exploration opportunity before returning through native movement. Camp identity survives those
+temporary owners and is cleared when the camp is removed or converted to a permanent faction home.
+Nearby real containers remain available to the ordinary need/looting paths; camps create no abstract
+stockpile, item generation, work board, territory, or storage ownership.
+
 ## Player companions and presentation
+
+### Player trust and faction reputation
+
+Personal trust remains in `survivor.playerRelationships[playerId]`; faction reputation extends the
+existing canonical faction-pair relationship, not a second diplomacy registry. Positive contribution
+records have fixed supported reasons, per-kind cooldowns and a rolling 24-hour budget (12 personal
+trust, 8 faction reputation shared across members). Reward windows survive save/load and do not
+reset on clock rollback. Faction relationship getters deep-copy nested reward data. Existing trust
+continues to govern recruitment; explicit hostility always blocks Talk/recruitment and positive credit.
+
+The native `OnZombieDead` boundary grants defense credit only when the dead zombie's actual attacker
+is a real local player and its current target is a living loaded Knox survivor: same floor, zombie
+within eight tiles of that survivor, player within twenty. Missing native evidence earns nothing.
+A weak body-key set suppresses repeated callbacks; persisted cooldown/budgets bound separate kills.
+No full-world scan, custom kill, inventory reward or damage mutation is involved. Positive help does
+not automatically erase hostility or create an alliance. Credit acknowledgement uses existing speech.
+
+A native player hit on a previously non-hostile survivor records a trust loss and, for NPC-faction
+members, negative reputation plus hostile faction disposition through the existing relationship.
+Repeated attacks on an already-hostile target are not additional unprovoked aggression. Player-owned
+factions are not made hostile to themselves. Trade credit now follows verified exchange completion,
+and quotation reads trust/faction reputation. Gift/treatment/construction credit reasons remain a
+persistence contract; their gameplay completion adapters are still unfinished.
 
 Recruitment is a persistent affiliation transition, not a UI flag. A namespaced player ID
 owns one player faction; a survivor may belong to only one authority and cannot remain in
@@ -256,6 +465,17 @@ loot-corpses are temporary directives; after the target has been searched, the s
 returns to the primary order. Header commands use the same service as individual and world
 context menus. NPC travel groups and factions reject any survivor whose affiliation or duty
 is player-owned, including stale pending meetings.
+
+Follow reuses the existing staggered slot structure rather than targeting the player's
+occupied square. Slots are refreshed on a bounded cadence and a route is replaced only when
+the slot changes by a meaningful distance or floor; pace-only changes update the active Java
+request without replacing its destination. Close followers walk, moderately separated
+followers run, and far followers may request sprint. Each movement tick re-evaluates the
+remaining route, real health, endurance, fatigue, and native `canSprint()` result, so sprint
+downgrades to run and then walk as the gap closes. The implementation uses native
+`setRunning`/`setSprinting` state and the existing NPC human-control variables; it never
+changes coordinates or movement speed directly. Hold is an explicit guard at both follow
+start and refresh boundaries.
 
 The runtime registry is deliberately narrow. Gameplay and interface code may resolve a
 temporary character or request a fresh semantic snapshot, but cannot take ownership of a
@@ -357,16 +577,157 @@ walking while a normal engine interaction or climb state owns the body. Unloaded
 barricaded, unclimbable, and static obstructions produce an explicit route failure
 instead of allowing the survivor to walk in place forever.
 
+## Carried inventory cleanup
+
+The existing Looting policy exposes `itemUtility` (retention priority, not a trade price) and
+`cleanupPlan`. Cleanup begins above 90% of native maximum carry weight and, once active, stops
+below 80%. Recursive inspection is cycle/depth bounded. Equipped, attached, hand-held, favorite,
+medical, ammunition, essential-tool, best-melee, needed-food/water, valuable/accessory, unknown
+modded and queued/claimed-job items remain protected. Favorited bags protect their contents;
+nonempty bags themselves are not discarded. Surplus food/water and recognized base materials
+are deposit-only. Inferior spare gear, broken weapons and known vanilla junk may be dropped.
+
+The normal controller thinks about cleanup after threats/self-care, without interrupting a claimed
+base task. It queues one item through the existing off-slot native inventory transfer adapter,
+then verifies source removal plus destination/world receipt. Nearby reachable assigned storage
+from the canonical player/faction base is preferred; categorized storage precedes depot/general.
+Floor drops use a private native `ItemContainer("floor", nil, nil)` like the vanilla loot panel,
+never a local-player indexed inventory. No item is manually deleted or recreated by cleanup.
+
+Cleanup is temporary `INVENTORY_CLEANUP` ownership. Danger/new commands cancel it, timeout and
+failure clear it, and Follow/Hold/Guard remain persistent underneath it. Evaluation and failure
+cooldowns bound repeated attempts. Inventory changes use the ordinary snapshot/capture path;
+transient item references are not serialized. Useful surplus can also initiate `MOVING_TO_DEPOSIT`
+for a loaded owned container within 128 tiles on the current floor. The native adjacent-tile finder
+selects the interaction side; the existing movement/traversal runtime owns the route. Companions,
+directives, travelling groups, away duties and claimed jobs cannot take this autonomous detour.
+Arrival recomputes canonical base ownership, item utility/job protection and the exact container
+policy/capacity/interaction edge before queuing a real transfer. Movement failure or timeout cools
+down that storage key for 1800 ticks (at most 16 remembered keys); cleanup retry waits 600 ticks.
+Danger, new commands, detachment and shutdown discard transient trip ownership. No teleport,
+abstract stockpile or persisted item reference is introduced. Cross-floor/distant deposits, broader
+reserve/modded valuation and currency/trading prices remain separate work. Protected-heavy
+inventories may remain overweight when no safe disposal or practical owned deposit is available.
+
+## Independent survivor barter quotation
+
+`KS_TradeValuation.quote(player, survivorId, playerItems, survivorItems)` is a read-only policy
+boundary, not a completed trade or permission to transfer. It resolves the active body from the
+existing runtime and life/affiliation/hostility/trust/faction reputation and base task needs from
+existing persistence. A local real player and living non-player-owned survivor must be within three
+tiles on the same floor. Quoting does not create relationships, award reputation, move items,
+change orders or capture a second inventory record.
+
+Actual inventory ownership is walked recursively, with 4096-item and 16-level bounds. Offers are
+dense unique arrays of at most 32 item references per side. Stale ownership, shared inventory,
+favorite/hidden/equipped/attached/hand items, favorite or hidden bag contents, nonempty bags, unsafe food/water,
+broken weapons and unclassified items are rejected. Real food relief, fluid amount, bandage power,
+condition, protection, bag capacity and weapon/ammunition fields drive the initial known-item
+values. Native `AmmoType.getItemKey()` returns the `Base.*` key; compatibility is not guessed from
+a name/category or a nonexistent `isAmmo()` method. Unknown modded items have no assumed price.
+
+Whole-basket checks preserve existing food/water/treatment reserves, best carried melee capability,
+compatible ammo/magazines and queued/claimed base job requirements. Real incoming replacements may
+cover food/water/medical/melee/task reserves. Need urgency, carried stock and canonical job demand
+affect value. Incoming duplicate utility falls with the whole basket, independent of selection
+order; equivalent food portions retain equivalent value. Trust/reputation reduce a bounded spread,
+but never eliminate it. Quotes contain a deterministic fair/low indication, not random acceptance
+rolls. Values are initial barter utility, not vanilla prices or proof of a balanced economy.
+
+Native 42.20.3 `ISTradingUI` resolves `getPlayerByOnlineID` and sends network trading messages.
+Its unmodified multiplayer protocol cannot be used for off-slot bodies. `KS_TradeUI` uses native
+collapsable-window, scrolling-list and button widgets, fonts, item icons and checkmarks instead;
+it never registers the survivor as a real local/network player. The existing survivor context menu
+exposes Trade for independent/non-player-owned survivors, with hostile/distant/multiplayer guards.
+The stock lists expose only supported unlocked real items; reserves remain subject to the whole
+basket quote. Selecting items does not move them. Quotes show fair/low or a concrete refusal reason.
+Stock refresh is limited to once per second; selection changes explicitly refresh the quote.
+
+`beginBrowse` acquires the same controller lease as an exchange, for at most two wall-clock minutes
+or 7200 controller ticks. Closing, changing scenes/resolution, player death, distance, danger or a
+new directive releases it. One window exists per actual local player viewport. Mouse and joypad
+callbacks select real item references. `queue(..., session)` validates and hands off that exact
+lease to one exchange action; stale browsing cleanup cannot release a newer owner. Closing during
+the action cancels that trade before completion, not unrelated queued actions. One exchange is
+allowed per window; reopen for another. Successful stock refresh cannot hide a failed queue result.
+
+`KS_TradeAction.queue` provides the single-player exchange action used by that window.
+It uses a short player `ISBaseTimedAction` and an identity-bound `TRADING` lease on the existing NPC
+controller/runtime. It declines native traversal, active actions, claimed work and perceived danger;
+it cancels existing movement only after those checks. The normal threat scanner remains active.
+Combat, flee, new directives, detachment and shutdown cancel the lease; release cannot overwrite
+a newer behavior. A 1800-controller-tick ceiling bounds the exchange-action lease. Persistent duty,
+group/camp and identity records are not rewritten by the lease.
+
+Completion rechecks real offers, canonical relationships, adjacent unobstructed squares, vehicles,
+hit/attack state, native source-removal/destination-add rules, item ID collisions and root inventory
+capacity. Native `hasRoomFor` receives net root weight; nested outgoing weight is conservatively
+not credited, so a valid crowded bag trade may need more room. Both offers then move through native
+`ISTransferAction.transferItem` in one non-yielding callback, with original instance/container
+receipt checks. No fake TradeUI/floor stockpile or type-based item recreation is used. The existing
+survivor snapshot must succeed before mutation and after both transfers; only then is bounded
+trade reputation recorded. Reputation failure cannot reverse or repeat a completed exchange.
+
+Transfer/final-capture failures restore the original item instances to their original containers
+using native `AddItem(instance)` and verify both sides. The pre-exchange encoded survivor record is
+retained if a restored inventory cannot be recaptured. Unexpected rollback/persistence-recovery
+failure retains the journal's actual references in `KnoxTradeActions.failedExchange`, logs
+`RECOVERY_REQUIRED` and blocks further trading for the session. This is a diagnostic stop, not a
+durable recovery ledger or proof against process crashes. Ordinary cancel/queue removal before
+completion never mutates inventory. Multiplayer is explicitly rejected; no network protocol is
+being simulated. The window reports recovery failure and instructs testers to stop and retain logs;
+it does not offer an unsafe retry. Rarity sourcing, additional medical/material classes, broader
+currency coverage, durable fault recovery and live UI/save/animation/economy evidence remain unfinished.
+
+## Native wallets and physical currency
+
+`media/registries.lua` registers the namespaced `knoxsurvivors:wallet` ItemBodyLocation through the
+native ModRegistries entry point, before script loading. Shared `KS_Wallets` requires the native
+Human body locations and adds that location. After script loading, it changes only CanBeEquipped
+on the four existing Base wallet container definitions (Wallet, Wallet_Female, Wallet_Male and
+Wallet_Hide). Removed definitions or replacements that are no longer containers are skipped. No
+item types are replaced and no contents, weights, capacity, sound, icons or acceptance rules change.
+Other mods that alter those wallets' wearing slot may conflict; this is not a key-ring tag patch.
+
+Exact 42.20.3 evidence: native inventory menus recognize `InventoryContainer.canBeEquipped`, native
+`ISWearClothing.complete` calls setWornItem, and ISInventoryPage lists worn containers. Key rings
+have a separate tag-based UI path and are not wearable examples to copy. InventoryContainer's load
+restores contents while its wearing location comes from the item script/factory. Knox's existing
+native-payload snapshot and worn-flag restoration therefore retain the same wallet type, contents
+and slot alongside a backpack. Existing equipment evaluation can wear a carried wallet without a
+new NPC action, model, automatic free wallet or per-tick inventory scan. The wallet has no added
+visible 3D attachment. Unequip it before disabling the mod so a save does not retain a removed slot.
+
+`KS_Currency` recognizes only real Base.Money, MoneyBundle, SilverCoin and GoldCoin objects. It
+returns read-only descriptions, not an account balance. Cash bundles use the exact native recipe
+ratio of 100 bills. Cash stock saturation counts bill equivalents so unpacking does not manufacture
+value. Coins have initial barter utility, not claimed real-world/vanilla monetary values. Existing
+quote needs, stock, relationship spread, reserves, item ownership and verified exchange govern
+payment. Currency can be selected inside a worn wallet; a favorite/hidden wallet protects contents.
+Trade receipts still go into normal root inventory, and players can move them with native inventory
+controls. No automatic change, currency generation, account ledger or NPC-specific money storage.
+
+Native wallet acceptance permits maps/literature/FITS_WALLET items with its original capacity 1
+and maximum item size 0.2. Bills and gold/silver coins have FITS_WALLET; MoneyBundle does not. Native
+UnbundleMoney is the way to put that cash in the wallet. Large gold bars cannot be squeezed into it.
+Bars remain protected by cleanup but are not priced until conversion/rarity policy is verified.
+Cleanup also explicitly protects cash bundles and both coin types instead of discarding bundled
+cash as native-category Junk. Further currencies, precious-metal conversion, hiring contracts,
+economy balance and live wallet/trade persistence remain separate unfinished work.
+
 ## Building entry policy
 
 Entry selection belongs to the controller; crossing the selected edge belongs to the
 traversal executor. The intended preference is:
 
-1. Try a window first. Open it normally; if it remains closed, smash it and climb through.
-2. If there is no usable window, try the door normally.
-3. If a selected door is locked, search the destination room for a usable window and
-   route to that window instead.
-4. Optional loot abandons and cools down a room when alternate entry fails. Only urgent
+1. Let the native path use an already-open edge or open a closed, unlocked door/gate.
+2. If that preferred edge fails, select another usable door before a window where the
+   target room exposes both choices.
+3. Open a usable window through the native state, then climb through only after the
+   window is genuinely passable. Open or broken windows still use native climbability.
+4. Temporarily suppress only the failed XYZ edge and retain the original destination so
+   another entrance, low fence, or other human-accessible route remains eligible.
+5. Optional loot abandons and cools down a room when every scanned entry fails. Only urgent
    food, water, or medical needs may force the door with sufficient endurance.
 
 Build 42 completes the world-state portion of `OpenWindowState` only for a local player.
@@ -378,7 +739,22 @@ invalidation, and synchronization in their engine-owned sequence without assigni
 NPC a local-player slot.
 
 Barricaded or otherwise unsafe openings may be rejected. Forced entry must preserve
-normal time, noise, equipment, injury, and zombie-attraction consequences. The current
-M1 traversal slice executes window open, smash, and climb states on an already selected
-route edge. Room-wide alternate-entry planning and legitimate door destruction remain
-separate gates; traversal must never delete an obstacle or alter its health directly.
+normal time, noise, equipment, injury, and zombie-attraction consequences. Ordinary
+traversal never initiates window smashing. The current traversal slice executes native
+door/gate opening and window, frame, fence, and climbable-wall states on an already selected
+route edge; deliberate locked-door breaching remains a separate, survival-need-gated action.
+Traversal must never delete an obstacle, fake passability, teleport across it, or alter its
+health directly.
+## 2026-08-31 native feedback boundaries
+
+- Single-player survivor labels use vanilla text/camera projection and the real viewing player's
+  `CanSee` plus NPC alpha. `showTag` is multiplayer faction metadata, not an SP rendering switch.
+  Relationship lookups are cached at the existing 15-tick update; no NPC claims a viewer slot.
+- Clothing replacement evaluates native mutually exclusive body locations, not just the exact
+  worn slot. The native worn collection remains authoritative; unreadable metadata rejects upgrades.
+- `KnoxSwipeStateTransformer` also handles one **audio-only** check in exact 42.20.3
+  `CombatManager.attackCollisionCheck`: bytecode 1628 `IsoPlayer.isLocalPlayer()`, followed by
+  the branch to 1822 and `HandWeapon.isRanged`. Same-length virtual-to-static substitution preserves
+  the operand stack, exception tables and native impact body. Any shape mismatch fails closed.
+  It does not grant local-player status to other combat, input, networking or rendering systems.
+  The original three SwipeStatePlayer callback substitutions remain unchanged.

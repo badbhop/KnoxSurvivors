@@ -18,9 +18,12 @@ local npc = {
     setZombiesDontAttack = function(self, value) self.protected = value end,
 }
 local zombie = {
+    visible = true,
     getCurrentSquare = function() return square(14, 10, 0) end,
     isDead = function() return false end,
     getTarget = function(self) return self.target end,
+    setTarget = function(self, target) self.target = target end,
+    CanSee = function(self) return self.visible end,
 }
 local list = {
     isEmpty = function() return false end,
@@ -87,4 +90,35 @@ KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 120)
 assert(directed == 5 and zombie.target == npc,
     "a substantially nearer survivor competes with the player as a target")
 
-print("Zombie awareness PASS nearest=true refreshed=true close_attack=true balanced_switch=true")
+activePlayer = nil
+local memoryZombie = {
+    visible = false,
+    current = square(14, 10, 0),
+    getCurrentSquare = function(self) return self.current end,
+    isDead = function() return false end,
+    getTarget = function(self) return self.target end,
+    setTarget = function(self, target) self.target = target end,
+    CanSee = function(self) return self.visible end,
+}
+list.get = function(_, index) return index == 0 and memoryZombie or nil end
+npc.current = square(10, 10, 0)
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 135)
+assert(directed == 5, "distance alone does not reveal a survivor through blocked LOS")
+memoryZombie.visible = true
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 150)
+assert(directed == 6 and memoryZombie.target == npc,
+    "native LOS reveals a same-floor survivor")
+memoryZombie.visible = false
+memoryZombie.target = nil
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 165)
+assert(directed == 7 and memoryZombie.target == npc,
+    "recently perceived survivor has bounded target memory")
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 345)
+assert(directed == 7 and memoryZombie.target == nil,
+    "lost target memory expires and releases the stale off-slot native target")
+memoryZombie.visible = true
+memoryZombie.current = square(14, 10, 1)
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 360)
+assert(directed == 7, "different-floor survivor is not treated as adjacent")
+
+print("Zombie awareness PASS nearest=true los=true memory=true floors=true refreshed=true close_attack=true balanced_switch=true")

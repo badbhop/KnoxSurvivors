@@ -7,6 +7,8 @@ local CorpseHandling = rawget(_G, "KnoxBaseCorpseHandling") or {}
 _G.KnoxBaseCorpseHandling = CorpseHandling
 
 local MAX_SOURCE_SCAN_RADIUS = 36
+local GRAB_SETTLE_TICKS = 30
+local GRAB_RETRY_SETTLE_TICKS = 90
 
 local function safeCall(object, method, ...)
     if object == nil or object[method] == nil then
@@ -350,11 +352,46 @@ function CorpseHandling.queueGrab(character, target)
     return action, "queued"
 end
 
--- IsoPlayer shells normally complete the same vanilla grab action as a player.
--- If the action animation completes but the engine did not attach the corpse,
--- retry the native pickup call once before abandoning the cleanup job. This is
--- deliberately a fallback: the visible vanilla action remains the normal path.
-function CorpseHandling.retryGrab(character, target)
+function CorpseHandling.grabTransitionState(character)
+    if CorpseHandling.isDragging(character) then
+        return "dragging"
+    end
+    if safeCall(character, "isGrappling") == true
+        or safeCall(character, "isPerformingAnyGrappleAnimation") == true
+        or safeCall(character, "isPerformingGrappleAnimation") == true then
+        return "transitioning"
+    end
+    return "idle"
+end
+
+-- Build 42's pickUpCorpse starts a grapple handshake. isDraggingCorpse becomes
+-- true only after the native grapple target accepts, so checking it in the same
+-- Lua call incorrectly treats a valid pickup as a failure. This helper gives the
+-- native transition one bounded settle window, permits one native retry, and
+-- then terminates cleanly instead of leaving the job owned forever.
+function CorpseHandling.nextGrabStep(character, retryIssued, verifyUntil, ticks)
+    local state = CorpseHandling.grabTransitionState(character)
+    if state == "dragging" then
+        return "ready", state, verifyUntil
+    end
+    local deadline = tonumber(verifyUntil)
+    if deadline == nil then
+        local delay = state == "transitioning"
+            and GRAB_RETRY_SETTLE_TICKS or GRAB_SETTLE_TICKS
+        return "wait", state, ticks + delay
+    end
+    if ticks < deadline then
+        return "wait", state, deadline
+    end
+    if retryIssued ~= true then
+        return "retry", state, ticks + GRAB_RETRY_SETTLE_TICKS
+    end
+    return "failed", state, deadline
+end
+
+-- The visible vanilla action remains the normal path. This requests the exact
+-- same native pickup only once when its first asynchronous handoff never began.
+function CorpseHandling.requestGrabRetry(character, target)
     if character == nil or target == nil or target.body == nil then
         return false, "missing_corpse"
     end
@@ -364,10 +401,41 @@ function CorpseHandling.retryGrab(character, target)
     local success = pcall(function()
         character:pickUpCorpse(target.body, "BwdDrag")
     end)
-    if success and CorpseHandling.isDragging(character) then
-        return true, "native_retry"
+    if success then
+        return true, "native_retry_requested"
     end
-    return false, success and "native_pickup_not_attached" or "native_pickup_failed"
+    return false, "native_pickup_failed"
+end
+
+function CorpseHandling.nextDropStep(character, retryIssued, verifyUntil, ticks)
+    local state = CorpseHandling.grabTransitionState(character)
+    if state == "idle" then
+        return "ready", "released", verifyUntil
+    end
+    local deadline = tonumber(verifyUntil)
+    if deadline == nil then
+        return "wait", state, ticks + GRAB_RETRY_SETTLE_TICKS
+    end
+    if ticks < deadline then
+        return "wait", state, deadline
+    end
+    if retryIssued ~= true then
+        return "retry", state, ticks + GRAB_RETRY_SETTLE_TICKS
+    end
+    return "failed", state, deadline
+end
+
+function CorpseHandling.requestDropRetry(character)
+    if character == nil then
+        return false, "missing_character"
+    end
+    if not CorpseHandling.isDragging(character) then
+        return true, "already_released"
+    end
+    local success = pcall(function()
+        character:setDoGrappleLetGo()
+    end)
+    return success, success and "native_release_requested" or "native_release_failed"
 end
 
 function CorpseHandling.queueDrop(character, target)

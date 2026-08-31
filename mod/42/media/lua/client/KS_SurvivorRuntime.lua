@@ -12,6 +12,7 @@ local ACTIVITY_BY_STATE = {
     ROAMING = "exploring",
     MOVING_TO_REST = "resting",
     WAITING_TO_RECOVER = "resting",
+    SLEEPING_RECOVERY = "resting",
     TIMED_ACTION = "busy",
     GROUP_FOLLOW = "travelling",
     GROUP_WAIT = "travelling",
@@ -22,6 +23,10 @@ local ACTIVITY_BY_STATE = {
     BASE_RETURN = "returning_home",
     BASE_PATROL = "working_at_base",
     BASE_IDLE = "at_base",
+    CAMP_RETURN = "returning_to_shelter",
+    CAMP_REPOSITION = "at_shelter",
+    CAMP_IDLE = "at_shelter",
+    CAMP_AMBIENT_REST = "resting",
     MOVING_TO_BASE_CANDIDATE = "scouting_base",
     MEETING_APPROACH = "meeting",
     MEETING_WAIT = "meeting",
@@ -31,6 +36,7 @@ local ACTIVITY_BY_STATE = {
     STORED = "away",
     STOPPED = "stopped",
     IDLE = "idle",
+    TRADING = "trading",
 }
 
 local function validId(id)
@@ -121,6 +127,24 @@ end
 
 function Runtime.notifyDutyChanged(id)
     return getEntry(id) ~= nil
+end
+
+-- Transient action lease only. Identity, orders and inventory stay in their
+-- existing owners; a replacement/detached controller cannot inherit this lease.
+function Runtime.beginTrade(id, action)
+    local entry = getEntry(id)
+    return entry ~= nil and entry.controller:beginTrade(action) or false
+end
+
+function Runtime.ownsTrade(id, action)
+    local entry = getEntry(id)
+    return entry ~= nil and entry.controller.tradeAction == action
+        and entry.controller.state == "TRADING" and Runtime.getCharacter(id) == action.npc
+end
+
+function Runtime.releaseTrade(id, action)
+    local entry = getEntry(id)
+    return entry ~= nil and entry.controller:releaseTrade(action) or false
 end
 
 function Runtime.nearestToSquare(square, maximumDistance)

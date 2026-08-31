@@ -101,3 +101,13 @@ function InventoryActions.queueSearch(character, container, duration)
     ISTimedActionQueue.add(action)
     return action, "queued_search"
 end
+
+function InventoryActions.queueDrop(character, item)
+    if character == nil or item == nil or character:getCurrentSquare() == nil
+        or character:getVehicle() ~= nil then return nil, "drop_unavailable" end
+    -- Match ISInventoryPage.GetFloorContainer without borrowing a local player's
+    -- indexed UI container. Native transfer places the actual item in the world.
+    local floor = ItemContainer.new("floor", nil, nil)
+    floor:setExplored(true)
+    return InventoryActions.queueTransfer(character, item, item:getContainer(), floor, nil)
+end

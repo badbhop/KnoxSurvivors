@@ -67,6 +67,10 @@ public final class KnoxBridge {
         return npcRegistry.moveWithPace(id, square, pace);
     }
 
+    public boolean setNpcMovementPace(String id, String pace) {
+        return npcRegistry.updateMovementPace(id, pace);
+    }
+
     public String crossTestNpc(Object square) {
         return npcRegistry.crossOneAdjacentEdge(square);
     }
@@ -148,6 +152,11 @@ public final class KnoxBridge {
     /** Equip a real carried weapon chosen by the Lua planner. */
     public String equipNpcOwnedWeapon(String id, String fullType) {
         return npcRegistry.equipOwnedWeapon(id, fullType);
+    }
+
+    /** Wears an existing owned clothing or container item without creating gear. */
+    public String wearNpcOwnedItem(String id, String fullType) {
+        return npcRegistry.wearOwnedItem(id, fullType);
     }
 
     /** Developer-only real-item kit for the native firearm test path. */
@@ -285,12 +294,17 @@ public final class KnoxBridge {
         return npcRegistry.consumePersistentRecordItem(encoded, fullType);
     }
 
+    /** Consumes real saved food/fluid without creating an IsoPlayer or default supplies. */
+    public java.util.Map<String, Object> consumeNpcRecordSupply(String encoded, String kind, double amount) {
+        return npcRegistry.consumePersistentRecordSupply(encoded, kind, amount);
+    }
+
     public String relocateNpcRecord(String encoded, int x, int y, int z) {
         return npcRegistry.relocatePersistentRecord(encoded, x, y, z);
     }
 
-    public String beginNpcLiveCombat(String id, Object zombie, Object approachSquare) {
-        return npcRegistry.beginLiveCombat(id, zombie, approachSquare);
+    public String beginNpcLiveCombat(String id, Object target, Object approachSquare) {
+        return npcRegistry.beginLiveCombat(id, target, approachSquare);
     }
 
     public String beginNpcLockedDoorCombat(String id) {

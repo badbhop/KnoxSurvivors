@@ -6,6 +6,10 @@ require "KS_Settings"
 
 assert(KnoxSettings.enabled(), "mod enabled default")
 assert(KnoxSettings.companionLimit() == 4, "companion limit default")
+assert(not KnoxSettings.capsDisabled(), "caps remain enabled by default")
+assert(KnoxSettings.activationBudget(0) == 2, "activation has a bounded construction budget")
+assert(KnoxSettings.activationBudget(11) == 1 and KnoxSettings.activationBudget(12) == 0,
+    "construction budget respects configured active cap")
 assert(KnoxSettings.allowNPCFactions(), "factions default")
 assert(KnoxSettings.allowHostileEncounters(), "hostility default")
 assert(KnoxSettings.showCompanionHUD(), "HUD default")
@@ -31,6 +35,14 @@ assert(KnoxSettings.developerToolsEnabled(), "developer tools configured on")
 assert(KnoxSettings.developerScenario() == "faction_base", "enum mapping")
 assert(KnoxSettings.developerSpawnDistance() == 6, "spawn distance lower clamp")
 assert(KnoxSettings.allowDestructiveDeveloperTests(), "destructive opt-in")
+
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
+assert(KnoxSettings.capsDisabled(), "explicit sandbox opt-in disables caps")
+assert(KnoxSettings.companionLimit() == math.huge, "recruitment count no longer blocks companions")
+assert(KnoxSettings.maxActiveSurvivors() == math.huge, "configured physical count no longer blocks activation")
+assert(KnoxSettings.activationBudget(500) == 2, "uncapped population still has bounded per-update construction")
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = false
+assert(KnoxSettings.companionLimit() == 12, "re-enabling caps retains the configured value")
 
 SandboxVars.KnoxSurvivors.Enabled = false
 assert(not KnoxSettings.enabled(), "master switch")

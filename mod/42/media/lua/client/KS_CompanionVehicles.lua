@@ -1,6 +1,6 @@
-require "TimedActions/ISPathFindAction"
-require "TimedActions/ISEnterVehicle"
-require "TimedActions/ISExitVehicle"
+require "Vehicles/TimedActions/ISPathFindAction"
+require "Vehicles/TimedActions/ISEnterVehicle"
+require "Vehicles/TimedActions/ISExitVehicle"
 require "Vehicles/TimedActions/ISCloseVehicleDoor"
 
 -- Passenger-only vehicle support.  NPC driving remains deliberately out of

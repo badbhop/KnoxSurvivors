@@ -8,22 +8,108 @@ final class KnoxNpcRuntime {
     private static final int STUCK_WINDOW_TICKS = 45;
     private static final float STUCK_MIN_DISPLACEMENT = 0.12f;
 
+    interface MovementEngine {
+        float bodyX(KnoxNpc npc) throws ReflectiveOperationException;
+
+        float bodyY(KnoxNpc npc) throws ReflectiveOperationException;
+
+        int bodyZ(KnoxNpc npc) throws ReflectiveOperationException;
+
+        float targetX(Object square) throws ReflectiveOperationException;
+
+        float targetY(Object square) throws ReflectiveOperationException;
+
+        int targetZ(Object square) throws ReflectiveOperationException;
+
+        void start(KnoxNpc npc, Object square, boolean crossing) throws ReflectiveOperationException;
+
+        String tick(KnoxNpc npc, float remainingDistance, String pace)
+            throws ReflectiveOperationException;
+
+        void cancel(KnoxNpc npc) throws ReflectiveOperationException;
+    }
+
+    private static final MovementEngine LIVE_MOVEMENT_ENGINE = new MovementEngine() {
+        @Override
+        public float bodyX(KnoxNpc npc) throws ReflectiveOperationException {
+            Object body = npc.getBody();
+            return ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
+        }
+
+        @Override
+        public float bodyY(KnoxNpc npc) throws ReflectiveOperationException {
+            Object body = npc.getBody();
+            return ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
+        }
+
+        @Override
+        public int bodyZ(KnoxNpc npc) throws ReflectiveOperationException {
+            Object square = npc.getBody().getClass().getMethod("getCurrentSquare")
+                .invoke(npc.getBody());
+            if (square == null) {
+                throw new ReflectiveOperationException("NPC has no current square");
+            }
+            return ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+        }
+
+        @Override
+        public float targetX(Object square) throws ReflectiveOperationException {
+            return ((Number) square.getClass().getMethod("getX").invoke(square)).floatValue() + 0.5f;
+        }
+
+        @Override
+        public float targetY(Object square) throws ReflectiveOperationException {
+            return ((Number) square.getClass().getMethod("getY").invoke(square)).floatValue() + 0.5f;
+        }
+
+        @Override
+        public int targetZ(Object square) throws ReflectiveOperationException {
+            return ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+        }
+
+        @Override
+        public void start(KnoxNpc npc, Object square, boolean crossing)
+            throws ReflectiveOperationException {
+            if (crossing) {
+                KnoxNpcFactory.moveAcrossAdjacentEdge(npc, square);
+            } else {
+                KnoxNpcFactory.moveTo(npc, square);
+                npc.clearMovementRoute();
+            }
+        }
+
+        @Override
+        public String tick(KnoxNpc npc, float remainingDistance, String pace)
+            throws ReflectiveOperationException {
+            return KnoxNpcFactory.tickMovement(npc, remainingDistance, pace);
+        }
+
+        @Override
+        public void cancel(KnoxNpc npc) throws ReflectiveOperationException {
+            KnoxNpcFactory.cancelMovement(npc);
+        }
+    };
+
     private KnoxNpc npc;
-    private boolean movementRequested;
+    private final MovementEngine movementEngine;
+    private final KnoxMovementRequest movementRequest = new KnoxMovementRequest();
     private float movementStartX;
     private float movementStartY;
-    private float movementTargetX;
-    private float movementTargetY;
-    private int movementTargetZ;
     private String movementControllerState = "NotStarted";
     private float lastProgressX;
     private float lastProgressY;
     private int noProgressTicks;
     private KnoxSurvivorRecord lastRecord;
     private final KnoxCombatController combatController = new KnoxCombatController();
+    private final KnoxCorpseRetirement corpseRetirement = new KnoxCorpseRetirement();
 
     KnoxNpcRuntime(KnoxNpc npc) {
+        this(npc, LIVE_MOVEMENT_ENGINE);
+    }
+
+    KnoxNpcRuntime(KnoxNpc npc, MovementEngine movementEngine) {
         this.npc = npc;
+        this.movementEngine = movementEngine;
         npc.clearMovementRoute();
     }
 
@@ -50,36 +136,48 @@ final class KnoxNpcRuntime {
         return combatController;
     }
 
+    KnoxCorpseRetirement corpseRetirement() {
+        return corpseRetirement;
+    }
+
     String beginMove(Object square, boolean exactAdjacentCrossing) {
         return beginMove(square, exactAdjacentCrossing, "normal");
     }
 
     String beginMove(Object square, boolean exactAdjacentCrossing, String pace) {
-        if (movementRequested) {
-            return "MOVE_ALREADY_REQUESTED " + movementDescription();
-        }
         try {
-            Object body = npc.getBody();
-            movementStartX = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
-            movementStartY = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
-            movementTargetX = ((Number) square.getClass().getMethod("getX").invoke(square)).floatValue()
-                + 0.5f;
-            movementTargetY = ((Number) square.getClass().getMethod("getY").invoke(square)).floatValue()
-                + 0.5f;
-            movementTargetZ = ((Number) square.getClass().getMethod("getZ").invoke(square)).intValue();
+            float targetX = movementEngine.targetX(square);
+            float targetY = movementEngine.targetY(square);
+            int targetZ = movementEngine.targetZ(square);
+            KnoxMovementRequest.Change change = movementRequest.classify(
+                targetX,
+                targetY,
+                targetZ,
+                exactAdjacentCrossing
+            );
+            if (change == KnoxMovementRequest.Change.KEEP) {
+                npc.setMovementPace(pace);
+                return (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
+                    + "existing=true " + movementDescription();
+            }
+            if (change == KnoxMovementRequest.Change.REPLACE) {
+                String cancellationFailure = releaseEngineMovement("MOVE_REPLACE_FAILED");
+                resetMovement();
+                if (cancellationFailure != null) {
+                    return cancellationFailure;
+                }
+            }
+            movementStartX = movementEngine.bodyX(npc);
+            movementStartY = movementEngine.bodyY(npc);
             lastProgressX = movementStartX;
             lastProgressY = movementStartY;
             noProgressTicks = 0;
             npc.setMovementPace(pace);
-            if (exactAdjacentCrossing) {
-                KnoxNpcFactory.moveAcrossAdjacentEdge(npc, square);
-            } else {
-                KnoxNpcFactory.moveTo(npc, square);
-                npc.clearMovementRoute();
-            }
-            movementRequested = true;
+            movementEngine.start(npc, square, exactAdjacentCrossing);
+            movementRequest.activate(targetX, targetY, targetZ, exactAdjacentCrossing);
             movementControllerState = "Working";
             String result = (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
+                + (change == KnoxMovementRequest.Change.REPLACE ? "replaced=true " : "")
                 + movementDescription();
             // Autonomous movement makes many short, normal route requests.  Those are
             // expected gameplay, not diagnostic evidence, and previously drowned out
@@ -90,12 +188,23 @@ final class KnoxNpcRuntime {
             }
             return result;
         } catch (Throwable throwable) {
-            return failure("MOVE_FAILED", throwable);
+            String startFailure = failure("MOVE_FAILED", throwable);
+            String cleanupFailure = releaseEngineMovement("MOVE_START_CLEANUP_FAILED");
+            resetMovement();
+            return cleanupFailure == null ? startFailure : startFailure + " " + cleanupFailure;
         }
     }
 
+    boolean updateMovementPace(String pace) {
+        if (!movementRequest.isActive()) {
+            return false;
+        }
+        npc.setMovementPace(pace);
+        return true;
+    }
+
     String tickMovement() {
-        if (!movementRequested) {
+        if (!movementRequest.isActive()) {
             return "IDLE";
         }
         if (isTerminal(movementControllerState)) {
@@ -103,16 +212,37 @@ final class KnoxNpcRuntime {
         }
         try {
             String previousState = movementControllerState;
-            float currentX = ((Number) npc.getBody().getClass().getMethod("getX")
-                .invoke(npc.getBody())).floatValue();
-            float currentY = ((Number) npc.getBody().getClass().getMethod("getY")
-                .invoke(npc.getBody())).floatValue();
-            float remainingDistance = distance(currentX, currentY, movementTargetX, movementTargetY);
-            movementControllerState = KnoxNpcFactory.tickMovement(
+            float currentX = movementEngine.bodyX(npc);
+            float currentY = movementEngine.bodyY(npc);
+            int currentZ = movementEngine.bodyZ(npc);
+            float remainingDistance = KnoxMovementGeometry.routeDistance(
+                currentX,
+                currentY,
+                currentZ,
+                movementRequest.targetX(),
+                movementRequest.targetY(),
+                movementRequest.targetZ()
+            );
+            movementControllerState = movementEngine.tick(
                 npc,
                 remainingDistance,
                 npc.getMovementPace()
             );
+            if ("Succeeded".equals(movementControllerState)) {
+                currentX = movementEngine.bodyX(npc);
+                currentY = movementEngine.bodyY(npc);
+                currentZ = movementEngine.bodyZ(npc);
+            }
+            if ("Succeeded".equals(movementControllerState)
+                && !KnoxMovementGeometry.arrived(
+                    currentX, currentY, currentZ,
+                    movementRequest.targetX(),
+                    movementRequest.targetY(),
+                    movementRequest.targetZ(),
+                    ARRIVAL_DISTANCE
+                )) {
+                movementControllerState = "FailedWrongFloorOrPosition";
+            }
             if (isStuckState(movementControllerState) && remainingDistance > ARRIVAL_DISTANCE) {
                 float progress = distance(currentX, currentY, lastProgressX, lastProgressY);
                 if (progress >= STUCK_MIN_DISPLACEMENT) {
@@ -123,7 +253,6 @@ final class KnoxNpcRuntime {
                     noProgressTicks++;
                 }
                 if (noProgressTicks >= STUCK_WINDOW_TICKS) {
-                    KnoxNpcFactory.cancelMovement(npc);
                     String result = "FailedStuck displacement="
                         + distance(currentX, currentY, movementStartX, movementStartY)
                         + " targetDistance=" + remainingDistance
@@ -154,26 +283,23 @@ final class KnoxNpcRuntime {
                 : movementControllerState;
         } catch (Throwable throwable) {
             Throwable cause = rootCause(throwable);
-            movementControllerState = "Failed";
-            movementRequested = false;
+            String cleanupFailure = releaseEngineMovement("MOVE_TICK_CLEANUP_FAILED");
+            resetMovement();
             KnoxAgent.writeLog(
                 "ERROR NPC probe movement tick failed "
                     + cause.getClass().getName()
                     + ": "
                     + cause.getMessage()
             );
-            return "TICK_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
+            String result = "TICK_FAILED " + cause.getClass().getName() + ": " + cause.getMessage();
+            return cleanupFailure == null ? result : result + " " + cleanupFailure;
         }
     }
 
     String cancelMovement() {
-        try {
-            KnoxNpcFactory.cancelMovement(npc);
-            resetMovement();
-            return "MOVE_CANCELLED " + npc.describe();
-        } catch (Throwable throwable) {
-            return failure("MOVE_CANCEL_FAILED", throwable);
-        }
+        String cleanupFailure = releaseEngineMovement("MOVE_CANCEL_FAILED");
+        resetMovement();
+        return cleanupFailure == null ? "MOVE_CANCELLED " + npc.describe() : cleanupFailure;
     }
 
     boolean hasTraversalEvidence(String state) {
@@ -183,19 +309,28 @@ final class KnoxNpcRuntime {
     String status() {
         try {
             String live = KnoxNpcFactory.describeLive(npc);
-            if (!movementRequested) {
+            if (!movementRequest.isActive()) {
                 return live + " movement=NOT_REQUESTED";
             }
             Object body = npc.getBody();
             float x = ((Number) body.getClass().getMethod("getX").invoke(body)).floatValue();
             float y = ((Number) body.getClass().getMethod("getY").invoke(body)).floatValue();
-            float distance = distance(x, y, movementTargetX, movementTargetY);
+            int z = movementEngine.bodyZ(npc);
+            float distance = KnoxMovementGeometry.routeDistance(
+                x, y, z,
+                movementRequest.targetX(), movementRequest.targetY(), movementRequest.targetZ()
+            );
             float displacement = distance(x, y, movementStartX, movementStartY);
-            String state = distance <= ARRIVAL_DISTANCE ? "ARRIVED" : "IN_PROGRESS";
+            String state = KnoxMovementGeometry.arrived(
+                x, y, z,
+                movementRequest.targetX(), movementRequest.targetY(), movementRequest.targetZ(),
+                ARRIVAL_DISTANCE
+            ) ? "ARRIVED" : "IN_PROGRESS";
             return live
                 + " movement=" + state
                 + " controller=" + movementControllerState
-                + " target=" + movementTargetX + "," + movementTargetY + "," + movementTargetZ
+                + " target=" + movementRequest.targetX() + "," + movementRequest.targetY()
+                    + "," + movementRequest.targetZ()
                 + " distance=" + distance
                 + " displacement=" + displacement;
         } catch (Throwable throwable) {
@@ -206,11 +341,12 @@ final class KnoxNpcRuntime {
     void reset() {
         combatController.reset();
         lastRecord = null;
+        corpseRetirement.reset();
         resetMovement();
     }
 
     private void resetMovement() {
-        movementRequested = false;
+        movementRequest.release();
         movementControllerState = "NotStarted";
         lastProgressX = 0.0f;
         lastProgressY = 0.0f;
@@ -219,10 +355,18 @@ final class KnoxNpcRuntime {
     }
 
     private String finishMovementRequest(String terminalState) {
-        movementRequested = false;
-        noProgressTicks = 0;
-        npc.setMovementPace("normal");
-        return terminalState;
+        String cleanupFailure = releaseEngineMovement("MOVE_FINISH_CLEANUP_FAILED");
+        resetMovement();
+        return cleanupFailure == null ? terminalState : "FailedCleanup " + cleanupFailure;
+    }
+
+    private String releaseEngineMovement(String failurePrefix) {
+        try {
+            movementEngine.cancel(npc);
+            return null;
+        } catch (Throwable throwable) {
+            return failure(failurePrefix, throwable);
+        }
     }
 
     private static boolean isStuckState(String state) {
@@ -235,7 +379,8 @@ final class KnoxNpcRuntime {
     private String movementDescription() {
         return npc.describe()
             + " from=" + movementStartX + "," + movementStartY
-            + " target=" + movementTargetX + "," + movementTargetY + "," + movementTargetZ;
+            + " target=" + movementRequest.targetX() + "," + movementRequest.targetY()
+                + "," + movementRequest.targetZ();
     }
 
     private static boolean isTerminal(String state) {
