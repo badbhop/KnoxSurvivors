@@ -79,31 +79,87 @@ local function onViewSurvivor(_, playerNum, survivorId)
     KnoxSurvivorCard.show(playerNum, survivorId)
 end
 
+local function medicalMessage(player, survivorId, reason)
+    print("[KnoxSurvivors][Medical] survivor=" .. tostring(survivorId) .. " " .. reason)
+    if player ~= nil then player:Say(reason) end
+    return false, reason
+end
+
+local function medicalReach(player, patient)
+    if ISHealthPanel.IsCharactersInSameCar(player, patient) then return true end
+    local from, to = player:getCurrentSquare(), patient:getCurrentSquare()
+    return from ~= nil and to ~= nil and player:getZ() == patient:getZ()
+        and math.abs(player:getX() - patient:getX()) <= 2
+        and math.abs(player:getY() - patient:getY()) <= 2
+        and (from == to or from:canReachTo(to))
+end
+
 function SurvivorContextMenu.medicalCheck(playerNum, survivorId)
     local player = getSpecificPlayer(playerNum)
     local patient = KnoxSurvivorRuntime.getCharacter(survivorId)
-    if player == nil or patient == nil then
-        return
+    if player == nil or patient == nil or player:isDead() or patient:isDead() then
+        return medicalMessage(player, survivorId, "That survivor is no longer available.")
     end
-    if not ISHealthPanel.canPerformMedicalCheck(patient, player) then
-        return
+    local queue = ISTimedActionQueue.queues[player]
+    for _, pending in ipairs(queue ~= nil and queue.queue or {}) do
+        if pending.knoxMedicalPatient == patient then return true, "already_queued" end
     end
-    -- Hold the survivor so the BodyDamage positions (otherPlayerX/Y) do not
-    -- change mid-action. The companion controller will otherwise pursue/move
-    -- and the ISMedicalCheckAction:isValid() position check fails.
+    local sameCar = ISHealthPanel.IsCharactersInSameCar(player, patient)
+    local square = patient:getCurrentSquare()
+    if not sameCar and (square == nil or player:getZ() ~= patient:getZ()
+        or (distanceToPlayer(player, survivorId) or math.huge) > CONVERSATION_DISTANCE
+        or not luautils.walkAdjTest(player, square)) then
+        return medicalMessage(player, survivorId, "I need to get closer to check them.")
+    end
+    -- Keep the existing explicit Hold for owned companions. Never call vanilla
+    -- canPerformMedicalCheck here: it queues the PATIENT to walk to the doctor.
     runService(playerNum, function(p, id)
         return KnoxCompanionService.command(p, id, "hold")
     end, survivorId)
-    -- Walk player adjacent if needed — vanilla medical check expects you to be
-    -- on the same tile, otherwise isValid fails immediately.
-    local pSquare = player:getCurrentSquare()
-    local sSquare = patient:getCurrentSquare()
-    if pSquare ~= nil and sSquare ~= nil and pSquare ~= sSquare then
-        if pSquare:isBlockedTo(sSquare) or player:DistToSquared(patient) > 2 then
-            ISTimedActionQueue.add(ISWalkToTimedAction:new(player, sSquare))
-        end
+
+    if not sameCar and not luautils.walkAdj(player, square) then
+        return medicalMessage(player, survivorId, "I can't reach them from here.")
     end
-    ISTimedActionQueue.add(ISMedicalCheckAction:new(player, patient))
+    local action = ISMedicalCheckAction:new(player, patient)
+    action.knoxMedicalPatient = patient
+    local nativeValid, nativeStart, nativeStop = action.isValid, action.start, action.stop
+    local nativePerform = action.perform
+    local function available()
+        return KnoxSurvivorRuntime.getCharacter(survivorId) == patient
+            and not player:isDead() and not patient:isDead() and medicalReach(player, patient)
+    end
+    function action:isValid()
+        -- Snapshot at action start, not before the doctor has finished walking.
+        if not self.knoxMedicalStarted then
+            self.otherPlayerX, self.otherPlayerY = patient:getX(), patient:getY()
+        end
+        local valid = available() and nativeValid(self)
+        if not valid and not self.knoxMedicalReported then
+            self.knoxMedicalReported = true
+            medicalMessage(player, survivorId, "Medical check interrupted. Stay close and try again.")
+        end
+        return valid
+    end
+    function action:start()
+        self.otherPlayerX, self.otherPlayerY = patient:getX(), patient:getY()
+        self.knoxMedicalStarted = true
+        nativeStart(self)
+    end
+    function action:stop()
+        if not self.knoxMedicalReported then
+            self.knoxMedicalReported = true
+            medicalMessage(player, survivorId, "Medical check cancelled.")
+        end
+        nativeStop(self)
+    end
+    function action:perform()
+        if not self:isValid() then nativeStop(self); return end
+        nativePerform(self)
+        print("[KnoxSurvivors][Medical] survivor=" .. tostring(survivorId) .. " check_completed")
+    end
+    ISTimedActionQueue.add(action)
+    print("[KnoxSurvivors][Medical] survivor=" .. tostring(survivorId) .. " check_queued")
+    return true, "queued"
 end
 
 local function onMedicalCheck(_, playerNum, survivorId)

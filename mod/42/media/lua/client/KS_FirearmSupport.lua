@@ -42,6 +42,7 @@ local function queueFor(character)
 end
 
 local function firearmActionActive(character, gun)
+    if gun == nil then return false end
     local queue = queueFor(character)
     if queue == nil or type(queue.queue) ~= "table" then
         return false
@@ -190,7 +191,7 @@ end
 
 function Firearms.cancelPreparation(character)
     local primary = safe(function() return character:getPrimaryHandItem() end, nil)
-    local active = safe(function() return primary:IsWeapon() and primary:isRanged() end, false)
+    local active = primary ~= nil and safe(function() return primary:IsWeapon() and primary:isRanged() end, false)
         and firearmActionActive(character, primary)
     local queue = queueFor(character)
     -- A player inventory operation may have removed/swapped the primary while

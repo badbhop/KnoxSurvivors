@@ -390,6 +390,8 @@ assert(not flee:retreatIsSafelyClear(true) and flee.fleeSafeScans == 0,
 assert(not flee:retreatIsSafelyClear(false, { targeting = 1 })
     and not flee:retreatIsSafelyClear(false, { close = 1 }),
     "falling below flee initiation threshold does not end an ongoing pursuit")
+assert(not flee:retreatIsSafelyClear(false, { nearestDistanceSquared = 25 }),
+    "a zombie five tiles away is not enough clearance to end an established retreat")
 assert(not flee:retreatIsSafelyClear(false, {}, 301)
     and not flee:retreatIsSafelyClear(false, {}, 301)
     and flee:retreatIsSafelyClear(false, {}, 302),
@@ -403,6 +405,10 @@ blockedEdge = function(a, b)
 end
 local wallEscape = assert(controller("wall"):findFleeTarget(310))
 assert(wallEscape:getX() >= -1, "standable destination beyond a blocking wall is not an escape lane")
+blockedEdge = function(_, b) return b:getY() ~= 0 or b:getX() < 0 end
+zombies = { zombieAt(3, 0, character) }
+assert(controller("crowded-corridor"):findFleeTarget(312) == nil,
+    "safe-looking far endpoint must not send escape straight through a zombie in the corridor")
 blockedEdge = function(_, b)
     return not (b:getY() == 0 and (b:getX() == 0 or b:getX() == 1))
 end
@@ -483,6 +489,29 @@ assert(flee.state == "IDLE" and flee.movementFailureCount == 0,
 zombies = surrounding
 assert(flee.companionOrder == "follow",
     "completed retreat leaves the durable Follow order available to resume")
+local postRetreat = zombieAt(5, 0, nil)
+assert(flee:evaluateCombatThreat(postRetreat, 511) == nil,
+    "completed retreat cannot immediately reacquire a five-tile chase")
+assert(flee:evaluateCombatThreat(zombieAt(1, 0, character), 512) ~= nil,
+    "disengagement still permits adjacent self defense")
+assert(flee:evaluateCombatThreat(postRetreat, flee.combatDisengageUntil) ~= nil,
+    "post-retreat chase restriction expires instead of permanently disabling combat")
+
+local unarmed = controller("unarmed")
+unarmed.bridge = {
+    beginNpcLiveCombat = function() return "COMBAT_FAILED NO_EQUIPPED_WEAPON" end,
+    resetNpcCombat = function() end,
+}
+weapon = nil
+zombies = { postRetreat }
+assert(not unarmed:beginCombat(postRetreat) and unarmed.unarmedCombatBlocked,
+    "native no-weapon rejection records a survival fallback rather than a long generic combat retry")
+local unarmedFlee, unarmedRisk = unarmed:assessFlee()
+assert(unarmedFlee and unarmedRisk.reason == "no_usable_weapon",
+    "unarmed actor escapes instead of repeatedly chasing a zombie it cannot attack")
+weapon = meleeWeapon(10, 1.5, 5)
+assert(not unarmed:assessFlee(), "finding a usable weapon removes unarmed-only retreat pressure")
+weapon, zombies = nil, surrounding
 
 local groupTargets = {}
 local function groupRetreater(id, slot)

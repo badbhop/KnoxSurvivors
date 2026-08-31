@@ -90,6 +90,8 @@ local FLEE_TARGET_DISTANCE = 12
 local FLEE_RECHECK_TICKS = 45
 local FLEE_PLAN_TICKS = 240
 local FLEE_SAFE_CONFIRM_SCANS = 2
+local FLEE_CLEAR_DISTANCE_SQUARED = 64
+local FLEE_DISENGAGE_TICKS = 600
 
 -- Short-lived, loaded-world coordination only.  This is deliberately not
 -- persistence: a flee route is a reaction to the zombies visible right now,
@@ -517,6 +519,11 @@ local function evaluateThreat(self, zombie, ticks)
         return nil
     end
     local distance = distanceSquared(square, zombieSquare)
+    -- Escaping a crowd must not immediately become a fresh five-tile chase.
+    -- Nearby self-defense remains available, but distant acquisition waits.
+    if ticks < (self.combatDisengageUntil or 0) and distance > 3.0625 then
+        return nil
+    end
     local humanThreat = hostileHuman(self, zombie)
     local runtime = rawget(_G, "KnoxSurvivorRuntime")
     local isHuman = humanThreat or (runtime ~= nil and runtime.idForCharacter ~= nil
@@ -873,6 +880,28 @@ local function fleeLaneClear(origin, target)
     return true
 end
 
+local function fleeRouteSafety(origin, target, threats)
+    if origin == nil or target == nil then return nil end
+    local dx, dy = target:getX() - origin:getX(), target:getY() - origin:getY()
+    local length2 = dx * dx + dy * dy
+    if length2 == 0 then return nil end
+    local nearest, nearestStart = math.huge, math.huge
+    for _, zombie in ipairs(threats) do
+        local square = zombie:getCurrentSquare()
+        local zx, zy = square:getX() - origin:getX(), square:getY() - origin:getY()
+        local startDistance = zx * zx + zy * zy
+        nearestStart = math.min(nearestStart, startDistance)
+        local progress = math.max(0, math.min(1, (zx * dx + zy * dy) / length2))
+        local clearance = (zx - dx * progress)^2 + (zy - dy * progress)^2
+        -- Already-touching attackers must not prevent movement away, but a safe
+        -- endpoint across a zombie is not a safe route through that zombie.
+        if clearance < math.min(startDistance, 1.5625) - 0.01 then return nil end
+        nearest = math.min(nearest, distanceSquared(target, square))
+    end
+    if nearest < math.huge and nearest <= nearestStart + 0.25 then return nil end
+    return nearest
+end
+
 local function fleeDestinationAvailable(self, square, ticks)
     local failed = self.failedFleeTarget
     if failed ~= nil and ticks < failed.untilTick and square ~= nil
@@ -939,11 +968,13 @@ local function fleeAssessment(self)
     end
     local allies = nearbyAllyCount(self, FLEE_SCAN_RADIUS)
     local immediate, close, targeting = 0, 0, 0
+    local nearestDistanceSquared = math.huge
     local sectors = {}
     local risk = 0
     for _, zombie in ipairs(threats) do
         local zombieSquare = zombie:getCurrentSquare()
         local distance2 = distanceSquared(square, zombieSquare)
+        nearestDistanceSquared = math.min(nearestDistanceSquared, distance2)
         if distance2 <= 3.0625 then
             immediate = immediate + 1
             risk = risk + 3
@@ -999,14 +1030,17 @@ local function fleeAssessment(self)
     risk = risk - math.max(0, allies - 1) * 2
 
     local critical = health <= 25 and count > 0
+    local unarmed = self.unarmedCombatBlocked == true and weaponCondition == false and count > 0
     local closeCollapse = immediate >= 4
         or (immediate >= 3 and targeting >= 2)
     local surrounded = sectorCount >= 4 and immediate + close >= 4
         and escapeLanes <= 3
-    local unsafe = critical or closeCollapse or surrounded or risk >= 7.5
+    local unsafe = critical or unarmed or closeCollapse or surrounded or risk >= 7.5
     local reason = nil
     if critical then
         reason = "critical_health"
+    elseif unarmed then
+        reason = "no_usable_weapon"
     elseif closeCollapse then
         reason = "close_collapse"
     elseif surrounded then
@@ -1026,6 +1060,7 @@ local function fleeAssessment(self)
         immediate = immediate,
         close = close,
         targeting = targeting,
+        nearestDistanceSquared = nearestDistanceSquared,
         approachSectors = sectorCount,
         escapeLanes = escapeLanes,
         bleedingParts = bleedingParts,
@@ -1046,7 +1081,8 @@ end
 
 local function retreatIsSafelyClear(self, stillUnsafe, assessment, ticks)
     local pursued = assessment ~= nil and ((assessment.immediate or 0) > 0
-        or (assessment.close or 0) > 0 or (assessment.targeting or 0) > 0)
+        or (assessment.close or 0) > 0 or (assessment.targeting or 0) > 0
+        or (assessment.nearestDistanceSquared or math.huge) < FLEE_CLEAR_DISTANCE_SQUARED)
     if stillUnsafe or pursued then
         self.fleeSafeScans = 0
         self.fleeLastSafeScan = nil
@@ -1079,9 +1115,8 @@ local function findFleeTarget(self, ticks)
     local cell = getCell()
     if origin == nil or cell == nil then return nil end
     local awayX, awayY = 0, 0
-    local zombies = cell:getZombieList()
-    for index = 0, zombies:size() - 1 do
-        local zombie = zombies:get(index)
+    local threats = nearbyZombies(self, FLEE_SCAN_RADIUS + FLEE_TARGET_DISTANCE)
+    for _, zombie in ipairs(threats) do
         local zs = zombie ~= nil and zombie:getCurrentSquare() or nil
         if zombie ~= nil and not zombie:isDead() and zs ~= nil
             and zs:getZ() == origin:getZ() then
@@ -1128,23 +1163,17 @@ local function findFleeTarget(self, ticks)
             local y = math.floor(origin:getY() + direction.y * distance + 0.5)
             local square = cell:getGridSquare(x, y, origin:getZ())
             if square ~= nil and square:canStand() and fleeDestinationAvailable(self, square, ticks) then
-                local nearest = math.huge
-                for index = 0, zombies:size() - 1 do
-                    local zombie = zombies:get(index)
-                    local zs = zombie ~= nil and zombie:getCurrentSquare() or nil
-                    if zombie ~= nil and not zombie:isDead() and zs ~= nil
-                        and zs:getZ() == square:getZ() then
-                        nearest = math.min(nearest, distanceSquared(square, zs))
-                    end
-                end
+                local nearest = fleeRouteSafety(origin, square, threats)
                 local alignment = 0
                 if self.lastFleeDirectionX ~= nil
                     and ticks <= (self.fleeDirectionUntil or -1) then
                     alignment = (direction.x * self.lastFleeDirectionX
                         + direction.y * self.lastFleeDirectionY) * 8
                 end
-                local score = nearest + distance * 0.5 + alignment
-                if score > bestScore then best, bestScore = square, score end
+                if nearest ~= nil then
+                    local score = nearest + distance * 0.5 + alignment
+                    if score > bestScore then best, bestScore = square, score end
+                end
             end
         end
     end
@@ -1192,10 +1221,16 @@ local function groupFleeTarget(self, ticks)
         if current ~= nil and navigationDistanceSquared(current, square) <= 2.25 then
             return nil, true
         end
-        if fleeDestinationAvailable(self, square, ticks) then return square, true end
+        if fleeDestinationAvailable(self, square, ticks)
+            and fleeRouteSafety(current, square,
+                nearbyZombies(self, FLEE_SCAN_RADIUS + FLEE_TARGET_DISTANCE)) ~= nil then
+            return square, true
+        end
     end
     local center = cell:getGridSquare(plan.x, plan.y, plan.z)
     return center ~= nil and center:canStand() and fleeDestinationAvailable(self, center, ticks)
+        and fleeRouteSafety(self.character:getCurrentSquare(), center,
+            nearbyZombies(self, FLEE_SCAN_RADIUS + FLEE_TARGET_DISTANCE)) ~= nil
         and center or nil, true
 end
 
@@ -3544,15 +3579,19 @@ function Controller:beginCombat(target)
     local result = tostring(self.bridge:beginNpcLiveCombat(self.id, target, approach))
     if string.find(result, "COMBAT_STARTED", 1, true) ~= 1 then
         self.bridge:resetNpcCombat(self.id)
-        self.failedThreats[target] = self.nextThreatScan + THREAT_FAILURE_COOLDOWN_TICKS
+        local noWeapon = string.find(result, "NO_EQUIPPED_WEAPON", 1, true) ~= nil
+        if noWeapon then self.unarmedCombatBlocked = true end
+        local retry = noWeapon and THREAT_SCAN_TICKS or THREAT_FAILURE_COOLDOWN_TICKS
+        self.failedThreats[target] = self.nextThreatScan + retry
         releaseThreat(self.reservations, target, self.id)
         self:recordFailure(
             "combat_start:" .. result,
             self.nextThreatScan,
-            THREAT_FAILURE_COOLDOWN_TICKS
+            retry
         )
         return false
     end
+    self.unarmedCombatBlocked = nil
     self:releaseSupply()
     self.combatTarget = target
     self.activeDecision = "fight"
@@ -3770,6 +3809,7 @@ end
 
 function Controller:beginFlee(ticks, assessment)
     self:cancelTrade("danger")
+    self.combatDisengageUntil = ticks + FLEE_DISENGAGE_TICKS
     local target, hadGroupPlan = groupFleeTarget(self, ticks)
     if target == nil then
         target = findFleeTarget(self, ticks)
@@ -4383,6 +4423,7 @@ function Controller:tick(ticks)
                 self.fleeRecoveryUntil = nil
                 self.fleeTarget = nil
                 self.failedFleeTarget = nil
+                self.combatDisengageUntil = ticks + FLEE_DISENGAGE_TICKS
                 self:finishDecision(ticks)
                 self.nextThink = ticks + 5
                 print(
@@ -5358,6 +5399,7 @@ function Controller:tick(ticks)
                 if retreatIsSafelyClear(self, unsafe, assessment, ticks) then
                     self.fleeTarget = nil
                     self.failedFleeTarget = nil
+                    self.combatDisengageUntil = ticks + FLEE_DISENGAGE_TICKS
                     self:finishDecision(ticks)
                     self.nextThink = ticks + 5
                 else

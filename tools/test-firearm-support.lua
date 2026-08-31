@@ -306,6 +306,16 @@ end
 assert(not support.cancelPreparation(activeCharacter), "weapon preference does not cancel unrelated self-care")
 pcall = nativePcall
 assert(caughtErrors == 0, "unrelated action with no gun must not throw even inside pcall (Kahlua logs it)")
+activeCharacter.primary = nil
+pcall = function(...)
+    local ok, value = nativePcall(...)
+    if not ok then caughtErrors = caughtErrors + 1 end
+    return ok, value
+end
+assert(not support.cancelPreparation(activeCharacter), "empty hand is not an active firearm")
+assert(not support.fireNative(activeCharacter), "empty hand cannot fire or inspect magazine metadata")
+pcall = nativePcall
+assert(caughtErrors == 0, "empty hand must not throw inside Kahlua pcall")
 ISTimedActionQueue.clear(activeCharacter)
 assert(support.prepareForThreat("preference", activeCharacter, bridge, target) == "melee")
 preference = "auto"

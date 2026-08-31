@@ -2254,3 +2254,58 @@ fence where possible, recovers after a failed route without a request storm, doe
 resume looting while still pursued, and resumes prior duty once safe. Severe exhaustion
 or injury can still legitimately limit speed. Verify the updated Steam payload, not a
 shadowing local copy. Linux/macOS real game launch remains unverified.
+
+## 2026-08-31 — Empty-hand errors, medical checks, and retreat reversal
+
+Status: implemented, regression checks pass; live verification pending.
+
+Latest test evidence (run 20260831-051303 and its console log):
+
+- Repeated `IsWeapon of non-table: null` at KS_FirearmSupport.lua:193 comes from
+  `primary:IsWeapon()` with an empty hand. The previous patch guarded queued
+  `action.gun`, but missed this separate primary-hand dereference. Both empty-hand
+  cancellation and firing preparation now stop before subtype inspection; the
+  regression counts caught exceptions, not just the function's false result.
+- Exact 42.20.3 `ISHealthPanel.canPerformMedicalCheck(target, requester)` calls
+  `luautils.walkAdj(target, requester:getCurrentSquare())`. It moves the patient;
+  it is not a read-only distance check. The old context handler called it, changed
+  the companion to Hold, then captured the patient's position before approach
+  finished. Native medical actions invalidate when that position changes.
+- Medical Check now validates availability and native approach feasibility first,
+  keeps the existing companion Hold behavior, and queues only the real player's
+  approach. Its scoped native ISMedicalCheckAction instance anchors the patient at
+  action start, rechecks real reach/body identity/death, and keeps native animation,
+  duration and health-window completion. No global vanilla override or custom heal.
+  Duplicate clicks are suppressed. Failed/interrupted checks report a short message
+  and a Medical log entry. Moving/dangerous patients can still interrupt treatment.
+- `ks-world-5` repeatedly logged retreat-complete then COMBAT_STARTED about five
+  tiles from a zombie five ticks later (for example frames 53718–53843). The previous
+  fix prevented three-tile pursuit exits, but still permitted this fresh chase.
+  Retreat now requires eight-tile clearance plus existing danger checks and two
+  distinct safe observations. A bounded 600-tick post-retreat chase restriction
+  leaves adjacent self-defense available without immediately reapproaching a crowd.
+- Flee scoring previously checked obstacle-free segments but only measured zombie
+  safety at endpoints. Short candidate segments now reject passing closer through
+  a nearby zombie, and their endpoints must improve nearest-threat separation.
+  Existing group escape targets use the same checks. No teleporting or pathfinder rewrite.
+- Native NO_EQUIPPED_WEAPON rejection now records an unarmed survival fallback and
+  uses a short retry boundary, rather than a long failed-combat idle. If still
+  unequipped and threatened, the next danger check chooses retreat. A usable weapon
+  removes that extra retreat pressure. This does not add unarmed melee mechanics.
+
+Verification: all 59 standalone Lua tests and 72 Lua syntax checks pass, including
+behavioral medical tests (the old check was source-string-only), nil-hand exception
+coverage, post-retreat acquisition, adjacent defense, cooldown expiry, blocked crowd
+segments, and unarmed escape fallback. Java source and runtime protocol are unchanged;
+`:java:jar stageWorkshop` passes. Full prepared-payload and released-launcher validation
+pass with the same agent checksum as the preceding entry. No launcher patch required.
+
+The staging directory was absent at packaging time; it was regenerated from source
+with the existing Workshop ID and versioned preview/description. Prior release backups
+remain available. No Steam upload or save edits were performed.
+
+Pending live: right-click Medical Check on a stationary nearby companion opens the
+native treatment window after the doctor's approach; a moving/unloaded patient cancels
+cleanly. Escape from a crowd must continue without immediate chase reversal and return
+to prior activity once safe. No new nil-hand Kahlua errors. Existing stair/path failures
+and unrelated map/recipe warnings are not claimed resolved by this patch.
