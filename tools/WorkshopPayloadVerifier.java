@@ -30,6 +30,25 @@ public final class WorkshopPayloadVerifier {
             if (jars != 1) throw new IllegalStateException("Expected exactly one uploaded agent, got " + jars);
         }
         System.out.println("Native Workshop payload validation passed (Contents root, mod layout, file types, one agent).");
-        System.out.println("Upload metadata/preview and Steam publication still require separate verification.");
+        if (Files.exists(root.resolve("workshop.txt"))) {
+            String metadata = Files.readString(root.resolve("workshop.txt"));
+            if (!metadata.lines().anyMatch("id=3749727604"::equals)) {
+                throw new IllegalStateException("Upload must update existing item 3749727604");
+            }
+            if (!Boolean.TRUE.equals(type.getMethod("readWorkshopTxt").invoke(item))
+                || !"3749727604".equals(type.getMethod("getID").invoke(item))) {
+                throw new IllegalStateException("Native uploader did not read existing item ID");
+            }
+            String description = (String) type.getMethod("getDescription").invoke(item);
+            if (!description.contains("\uD83E\uDDDF") || !description.contains("KnoxSurvivorsLauncher/releases")) {
+                throw new IllegalStateException("Native description decoding lost artwork heading or launcher link");
+            }
+            Object error = type.getMethod("validateContents").invoke(item);
+            if (error != null) throw new IllegalStateException("Native upload validation: " + error);
+            System.out.println("Native full upload validation passed, including preview; existing item ID confirmed.");
+        } else {
+            System.out.println("Upload metadata/preview still need preparation.");
+        }
+        System.out.println("Steam publication and subscribed-install gameplay remain separate live checks.");
     }
 }

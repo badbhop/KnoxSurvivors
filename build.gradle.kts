@@ -100,3 +100,19 @@ tasks.register("deployDev") {
     description = "Builds and deploys both the local test mod and Workshop staging package."
     dependsOn("deployLocal", "stageWorkshop")
 }
+
+tasks.register("prepareWorkshopUpload") {
+    group = "knox survivors"
+    description = "Stages the mod and prepares the existing Workshop item's preview and description; does not publish."
+    dependsOn("stageWorkshop")
+    doLast {
+        val root = file(workshopRoot.get()).resolve(workshopModFolder.get())
+        val description = file("workshop/description.bbcode").readLines(Charsets.UTF_8)
+        val metadata = listOf(
+            "version=1", "id=3749727604",
+            "title=[42.20.3] Knox Survivors - Early Rebuild (Launcher Required)"
+        ) + description.map { "description=$it" } + listOf("tags=Build 42", "visibility=public")
+        root.resolve("workshop.txt").writeText(metadata.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+        file("mod/poster.png").copyTo(root.resolve("preview.png"), overwrite = true)
+    }
+}

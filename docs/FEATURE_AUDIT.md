@@ -2177,3 +2177,20 @@ game launches remain pending. Source repository is private; launcher repository 
   the existing item's metadata/preview (ID 3749727604), review the upload, then test a normal
   Steam-downloaded copy with the release launcher. Do not equate fixtures/CI with live
   Linux/macOS, Flatpak or large-population gameplay verification.
+
+## 2026-08-31 — Workshop upload preparation
+
+- Reused the old subscribed mod's original 512x512 poster and 256x256 icon unchanged;
+  root/Build 42 mod.info reference those assets. The same poster is the upload preview.
+- `prepareWorkshopUpload` explicitly stages the runtime and writes existing item
+  3749727604 metadata from the versioned player-facing BBCode description. It does not
+  publish. Copy explains launcher requirement, fresh-save testing, unfinished behavior,
+  42.20.3/single-player focus and unverified Linux/macOS live launches.
+- Native `SteamWorkshopItem.validateContents()` now passes on the complete prepared
+  folder, including the PNG. Launcher validation passes on the actual staged Contents.
+  Java checks pass; no gameplay code changed in this packaging pass.
+- Launcher preview tag `v0.2.0-preview.1` targets the previously verified 5c949b3 code;
+  release automation prepares a draft rather than advertising an untested Workshop pairing.
+- Normal subscribed-install testing remains pending. Two local Mod ID KnoxSurvivors
+  copies must be moved aside with the game closed; neither has been moved during
+  packaging while the game is running. See NORMAL_PLAYER_TEST.md.

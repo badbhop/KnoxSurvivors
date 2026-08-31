@@ -1,7 +1,9 @@
 name=Knox Survivors
 id=KnoxSurvivors
 author=.exe
-description=Development rebuild with persistent IsoPlayer survivors, survival AI, groups, companions, and early faction bases.
+description=Early IsoPlayer rebuild. Knox Survivors Launcher required. Use a fresh test save; bugs and unfinished behavior are expected. Tested against 42.20.3, single-player focus.
+poster=poster.png
+icon=icon.png
 versionMin=42.20
 versionMax=42.20
 incompatible=

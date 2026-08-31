@@ -5,7 +5,9 @@ The Workshop mod must be published before the matching launcher release. The lau
 ## 1. Freeze and verify the mod build
 
 1. Commit the exact mod revision intended for the preview.
-2. Run `gradlew.bat clean :java:build stageWorkshop` from the repository root.
+2. Run `gradlew.bat :java:build prepareWorkshopUpload` from the repository root.
+   Unlike ordinary staging, this explicit release task replaces `workshop.txt` from
+   `workshop/description.bbcode` and copies the existing poster to `preview.png`.
 3. Confirm the staged package contains:
    - `Contents/mods/KnoxSurvivors/42/knox-runtime.properties`
    - exactly one `Contents/mods/KnoxSurvivors/java/knox-agent-*.jar`
@@ -68,3 +70,10 @@ the main mod source repository private does not affect either dependency.
 ## 5. Rollback preparation
 
 Keep a ZIP of the exact previous Workshop upload folder before updating. If the preview has a blocking issue, restore that folder through the same existing-item update flow; do not delete the Workshop page.
+
+The recovered subscribed copy labelled `1.0.237-beta-active-contained-path-driver` is
+also backed up, but has not been confirmed as the latest public Workshop revision.
+Do not label it an exact latest-release rollback without checking the actual upload.
+
+See [NORMAL_PLAYER_TEST.md](NORMAL_PLAYER_TEST.md) before testing from this development PC:
+local copies with the same Mod ID can shadow the subscribed files.
