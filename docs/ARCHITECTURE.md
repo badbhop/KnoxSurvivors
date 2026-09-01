@@ -877,3 +877,11 @@ Police walkie-talkie and bounded ordinary survival supplies. Capture then makes 
 profession, clothing and inventory states authoritative, so restore never reapplies the theme.
 Automatic named triggers, real faction objectives, disposition realization, other faction
 loadouts and persist-after-event policy differences remain later event-runtime responsibilities.
+
+The first faction-specific objective is Police `secure_area`. Its event record owns only bounded
+observation evidence: next scan time, same-floor loaded-zombie count, clear-window start and final
+outcome. Every 0.02 world hours at most, the runtime counts living zombies within 18 tiles of the
+persisted target (capped at 24). It never directs those zombies or Police actors; common perception,
+combat and retreat systems retain ownership. A threat resets the clear window, while at least 0.05
+world hours of separated zero-threat observations permits `area_secure` withdrawal. The deadline
+records elapsed presence when positive clearance evidence is unavailable.

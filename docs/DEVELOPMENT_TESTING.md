@@ -638,7 +638,11 @@ anchor, and keep one identity/faction record each after save/reload. Inspect
 party. On first appearance, Police members should use recognizable ordinary Build 42 Police
 clothing, own/equip a nightstick and carry a Police walkie-talkie. Save/reload must preserve the
 same profession, clothing and items without issuing a second kit. Automatic Police triggers,
-disposition behavior and actual Police objectives are not part of this gate.
+disposition behavior and the `assist` objective are not part of this gate. For `secure_area`, place
+a small number of zombies inside 18 tiles of the selected target. Police must remain on objective
+while a living threat remains, fight only through common combat behavior, then withdraw after the
+area stays clear for roughly three in-game minutes. Reload during that clear window and confirm the
+event neither completes twice nor invents a cleared result.
 
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe

@@ -397,27 +397,77 @@ function KnoxEvents.beginFactionEntryObjective(id, revision, hours)
     if changed == nil then return nil, reason end
     event.objective = { kind = event.objectiveKind, startedAtHours = hours,
         deadlineHours = math.min(event.deadlineHours, hours + 1) }
+    if event.objectiveKind == "secure_area" then
+        event.objective.nextScanAtHours = hours
+        event.objective.lastThreatCount = 0
+    end
     return copy(event), "started"
 end
 
 function KnoxEvents.isValidFactionEntryObjective(event)
     local objective = type(event) == "table" and event.objective or nil
-    return event ~= nil and event.kind == "faction_entry" and type(objective) == "table"
+    local valid = event ~= nil and event.kind == "faction_entry" and type(objective) == "table"
         and objective.kind == event.objectiveKind
         and KnoxEventFactions.allowsObjective(event.policyId, objective.kind)
         and finite(objective.startedAtHours) and finite(objective.deadlineHours)
         and objective.deadlineHours > objective.startedAtHours
         and objective.deadlineHours <= event.deadlineHours
+    if not valid then return false end
+    if objective.kind == "secure_area" then
+        local threatCount = tonumber(objective.lastThreatCount)
+        return finite(objective.nextScanAtHours)
+            and objective.nextScanAtHours >= objective.startedAtHours
+            and objective.nextScanAtHours <= objective.deadlineHours
+            and threatCount ~= nil and threatCount % 1 == 0
+            and threatCount >= 0 and threatCount <= 24
+            and (objective.clearSinceHours == nil
+                or finite(objective.clearSinceHours)
+                    and objective.clearSinceHours >= objective.startedAtHours
+                    and objective.clearSinceHours <= objective.deadlineHours)
+    end
+    return true
 end
 
-function KnoxEvents.finishFactionEntryObjective(id, revision, hours)
+function KnoxEvents.recordSecureAreaScan(id, revision, hours, threatCount)
+    local event = records()[id]
+    threatCount = math.floor(tonumber(threatCount) or -1)
+    if type(event) ~= "table" or event.phase ~= "objective" or event.revision ~= revision
+        or not KnoxEvents.isValidFactionEntryObjective(event)
+        or event.objective.kind ~= "secure_area" or not finite(hours)
+        or hours < event.objective.nextScanAtHours or hours >= event.objective.deadlineHours
+        or threatCount < 0 or threatCount > 24 then return nil, "secure_scan_rejected" end
+    event.objective.lastThreatCount = threatCount
+    event.objective.lastScanAtHours = hours
+    event.objective.nextScanAtHours = math.min(event.objective.deadlineHours, hours + 0.02)
+    if threatCount == 0 then
+        event.objective.clearSinceHours = event.objective.clearSinceHours or hours
+    else
+        event.objective.clearSinceHours = nil
+    end
+    return copy(event), "recorded"
+end
+
+function KnoxEvents.finishFactionEntryObjective(id, revision, hours, outcome)
     local event = records()[id]
     if type(event) ~= "table" or event.phase ~= "objective" or event.revision ~= revision
-        or not finite(hours) or not KnoxEvents.isValidFactionEntryObjective(event)
-        or hours < event.objective.deadlineHours then
+        or not finite(hours) or not KnoxEvents.isValidFactionEntryObjective(event) then
         return nil, "missing_objective_evidence"
     end
-    return KnoxEvents.transition(id, revision, "withdrawing", hours, "event_objective_elapsed")
+    outcome = outcome or "elapsed"
+    if outcome == "area_secure" then
+        if event.objective.kind ~= "secure_area"
+            or event.objective.lastThreatCount ~= 0
+            or not finite(event.objective.clearSinceHours)
+            or hours - event.objective.clearSinceHours < 0.05 then
+            return nil, "missing_objective_evidence"
+        end
+    elseif outcome ~= "elapsed" or hours < event.objective.deadlineHours then
+        return nil, "missing_objective_evidence"
+    end
+    event.objective.outcome = outcome
+    event.objective.finishedAtHours = hours
+    return KnoxEvents.transition(id, revision, "withdrawing", hours,
+        outcome == "area_secure" and "area_secured" or "event_objective_elapsed")
 end
 
 function KnoxEvents.isTravelEvent(event)

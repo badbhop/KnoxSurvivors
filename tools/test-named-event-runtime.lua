@@ -85,10 +85,36 @@ R.update(controllers, hours)
 event = E.get(event.id)
 assert(event.phase == "objective" and event.objective.kind == "secure_area",
     "named entry uses the common objective phase without a raid loot objective")
-hours = event.objective.deadlineHours
+local threats = {
+    { x = 201, y = 200, z = 0, dead = false },
+}
+local function zombieList()
+    return { size = function() return #threats end,
+        get = function(_, index)
+            local state = threats[index + 1]
+            if state == nil then return nil end
+            return { isDead = function() return state.dead end,
+                getCurrentSquare = function() return square(state.x, state.y, state.z) end }
+        end }
+end
+getCell = function() return { getZombieList = zombieList } end
+hours = event.objective.startedAtHours + 0.01
+R.update(controllers, hours)
+event = E.get(event.id)
+assert(event.phase == "objective" and event.objective.lastThreatCount == 1
+    and event.objective.clearSinceHours == nil, "real nearby threat keeps secure objective active")
+threats = {}
+hours = event.objective.startedAtHours + 0.03
+R.update(controllers, hours)
+event = E.get(event.id)
+assert(event.phase == "objective" and event.objective.clearSinceHours == hours,
+    "first clear scan starts persisted confirmation window")
+hours = event.objective.startedAtHours + 0.09
 R.update(controllers, hours)
 event = E.get(event.id)
 assert(event.phase == "withdrawing", "bounded objective time starts withdrawal")
+assert(event.objective.outcome == "area_secure" and event.reason == "area_secured",
+    "two separated real clear observations finish secure-area work")
 for _, id in ipairs(event.memberIds) do
     local destination = R.destination(event, id)
     bodies[id].x, bodies[id].y, bodies[id].z = destination.x, destination.y, destination.z

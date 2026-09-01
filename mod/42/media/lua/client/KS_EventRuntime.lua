@@ -255,12 +255,49 @@ local function objectiveValid(event)
         or event.kind == "faction_entry" and KnoxEvents.isValidFactionEntryObjective(event))
 end
 
+local function secureAreaThreatCount(event)
+    local target = type(event) == "table" and event.targetLocation or nil
+    local cell = getCell ~= nil and getCell() or nil
+    local zombies = cell ~= nil and cell:getZombieList() or nil
+    if target == nil or zombies == nil then return nil end
+    local count, radiusSquared = 0, 18 * 18
+    for index = 0, zombies:size() - 1 do
+        local zombie = zombies:get(index)
+        local square = zombie ~= nil and not zombie:isDead() and zombie:getCurrentSquare() or nil
+        if square ~= nil and square:getZ() == target.z then
+            local dx, dy = square:getX() - target.x, square:getY() - target.y
+            if dx * dx + dy * dy <= radiusSquared then
+                count = count + 1
+                if count >= 24 then return 24 end
+            end
+        end
+    end
+    return count
+end
+
 function Runtime.reviewObjective(event, hours)
     event = event ~= nil and KnoxEvents.get(event.id) or nil
     if event == nil or event.phase ~= "objective" then return end
     if not objectiveValid(event) then change(event, "withdrawing", hours, "objective_state_missing"); return end
     if event.kind == "faction_entry" then
-        KnoxEvents.finishFactionEntryObjective(event.id, event.revision, hours)
+        if event.objective.kind == "secure_area"
+            and hours >= event.objective.nextScanAtHours
+            and hours < event.objective.deadlineHours then
+            local threats = secureAreaThreatCount(event)
+            if threats ~= nil then
+                event = KnoxEvents.recordSecureAreaScan(event.id, event.revision, hours, threats)
+                    or event
+                if event.objective.lastThreatCount == 0
+                    and event.objective.clearSinceHours ~= nil
+                    and hours - event.objective.clearSinceHours >= 0.05 then
+                    KnoxEvents.finishFactionEntryObjective(event.id, event.revision, hours, "area_secure")
+                    return
+                end
+            end
+        end
+        if hours >= event.objective.deadlineHours then
+            KnoxEvents.finishFactionEntryObjective(event.id, event.revision, hours, "elapsed")
+        end
         return
     end
     local count, exhausted = KnoxEvents.objectiveCount(event), true

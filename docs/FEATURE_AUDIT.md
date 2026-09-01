@@ -2727,3 +2727,38 @@ recognizable ordinary Police clothing, own/equip a nightstick, carry a Police ra
 same profession/clothing/items after save/reload and do not receive the kit twice. Disposition,
 automatic triggers and meaningful Police objectives remain unfinished. No Java or launcher
 protocol changed, so this increment requires no launcher patch.
+
+## 2026-09-01 — Evidence-backed Police secure-area objective
+
+Status: implemented and automatically verified; live combat/objective evidence remains required.
+This completes one narrow Police objective, not automatic event scheduling or the broader Police
+faction feature.
+
+- `secure_area` previously placed entrants at the target and waited exactly one hour. The timer
+  proved only elapsed time and could not distinguish an occupied area from one actually cleared.
+- The event objective now persists a bounded scan schedule, last real threat count and the start
+  of a clear confirmation window. `KS_EventRuntime` checks the loaded Build 42 zombie list only
+  when that persisted scan becomes due, counts living same-floor zombies within 18 tiles of the
+  event target, and caps work/evidence at 24 threats.
+- This observation does not choose targets, force aggro, apply damage or claim a victory. Existing
+  perception, native combat, retreat and group behavior remain authoritative while members hold
+  their event positions.
+- A threat resets the clear window. Two separated clear observations covering at least 0.05 world
+  hours produce the durable `area_secure` outcome and withdrawal. If the world/objective cannot
+  provide that evidence, the existing one-hour deadline ends with the honest `elapsed` outcome.
+- Scan mutations are revision/phase/deadline checked, limited to one per 0.02 world hours and
+  persist across save/reload. Corrupt counts/times make the objective invalid and enter existing
+  recovery rather than fabricating completion.
+
+Verification: `tools/test-named-event-runtime.lua` covers a real nearby threat keeping the
+objective active, threat removal starting but not instantly completing the confirmation window,
+and a later clear observation recording `area_secure`. All 68 standalone Lua tests, all 74 mod
+Lua syntax checks and `:java:build prepareWorkshopUpload` pass; the staged runtime matches source.
+
+Pending live: schedule Police near a small loaded zombie presence. Police must reach and hold the
+target, fight only through existing combat, remain in the objective while a nearby zombie lives,
+then withdraw after the area stays clear. Save/reload during the clear window and confirm it neither
+completes twice nor restarts from fabricated evidence. Existing player aggression already changes
+the canonical faction relationship to hostile; neutral/reputation behavior is reused rather than
+duplicated. Automatic Police triggers and the `assist` objective remain unfinished. No Java or
+launcher protocol changed, so no launcher patch is required.
