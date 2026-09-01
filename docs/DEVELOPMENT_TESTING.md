@@ -638,6 +638,14 @@ real balanced `base:doctor` profession, native clothing application with the rea
 the ordinary clipboard/pen/scalpel field kit, canonical policy propagation and one-time event
 identity. These checks do not claim research simulation or a completed Scientist feature.
 
+The same focused set covers Military first materialization: real balanced `base:veteran`, four
+real army clothing items, and a restrained M9 kit with one compatible `Base.9mmClip` and exactly
+three native five-round `Base.Bullets9mm` stacks. For a live gate on a disposable day-14-or-later
+save, choose **Schedule Military Exit Test Here**. Verify three entrants materialize with stable
+identity/gear, use the existing native reload/firearm path rather than appearing with fabricated
+loaded state, execute the bounded secure-area objective, and depart through the existing event-only
+lifecycle. Save/reload must not duplicate clothing, firearms, magazines or ammunition.
+
 Live named-entry gate: on a disposable day-one-or-later save, enable **Developer Tools** and
 **Allow Destructive Tests**, then right-click a loaded ground square and choose **Schedule Police
 Entry Here**. The feed should report one event ID. Confirm three Police identities enter from a

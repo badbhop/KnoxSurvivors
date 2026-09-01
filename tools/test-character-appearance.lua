@@ -30,7 +30,7 @@ local bridge = {
 
 dofile("mod/42/media/lua/client/KS_CharacterAppearance.lua")
 local ok, evidence = KnoxCharacterAppearance.randomizeNewSurvivor(bridge, "ks-scientist-1",
-    { professionId = "base:doctor", traitIds = {} }, "Base.JacketLong_Doctor")
+    { professionId = "base:doctor", traitIds = {} }, { "Base.JacketLong_Doctor" })
 assert(ok, evidence)
 assert(worn[1] == "ks-scientist-1:Base.Shirt_FormalWhite")
 assert(dressed[1] == "ks-scientist-1:Base.Trousers_Suit"

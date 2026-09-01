@@ -54,7 +54,7 @@ local function traitDefinition(id)
     return nil
 end
 
-function KnoxCharacterAppearance.randomizeNewSurvivor(bridge, id, capabilities, appearanceItem)
+function KnoxCharacterAppearance.randomizeNewSurvivor(bridge, id, capabilities, appearanceItems)
     if ClothingSelectionDefinitions == nil or ClothingSelectionDefinitions.default == nil then
         return false, "character_creator_definitions_unavailable"
     end
@@ -95,7 +95,7 @@ function KnoxCharacterAppearance.randomizeNewSurvivor(bridge, id, capabilities, 
     end
     worn = worn + professionWorn
 
-    if appearanceItem ~= nil then
+    for _, appearanceItem in ipairs(appearanceItems or {}) do
         local themedOk, themedResult = wear(bridge, id, appearanceItem, true)
         if not themedOk then return false, themedResult end
         worn = worn + 1

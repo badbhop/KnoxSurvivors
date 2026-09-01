@@ -897,6 +897,14 @@ Only bounded normal water, food and medical rolls supplement that field kit. It 
 research result, firearm, artificial stat or combat multiplier. Once captured, the ordinary native
 appearance/inventory record remains authoritative and the policy cannot issue the kit again.
 
+Military entrants follow that same boundary using Build 42.20.3's real `base:veteran` profession
+(including its native Aiming/Reloading boosts and Desensitized trait), native Veteran creator
+clothing, and a bounded list of real army clothing items. Their ordinary field kit contains a
+Hunting Knife, M9, one compatible 9mm magazine, three native five-round 9mm stacks and a military
+walkie-talkie. Knox does not prefill the magazine, chamber a round or alter weapon accuracy; the
+existing native reload/firearm controllers must establish all usable gun state. Capture remains
+the one-time handoff to normal persistent appearance and inventory ownership.
+
 The first faction-specific objective is Police `secure_area`. Its event record owns only bounded
 observation evidence: next scan time, same-floor loaded-zombie count, clear-window start and final
 outcome. Every 0.02 world hours at most, the runtime counts living zombies within 18 tiles of the

@@ -23,7 +23,7 @@ local DEFINITIONS = {
         defaultDisposition = "neutral",
         loadoutTheme = "science",
         professionId = "base:doctor",
-        appearanceItem = "Base.JacketLong_Doctor",
+        appearanceItems = { "Base.JacketLong_Doctor" },
         objectives = { "research", "recover_research" },
         persistsAfterEvent = false,
     },
@@ -33,6 +33,13 @@ local DEFINITIONS = {
         minimumWorldDays = 14,
         defaultDisposition = "neutral",
         loadoutTheme = "military",
+        professionId = "base:veteran",
+        appearanceItems = {
+            "Base.Hat_Army",
+            "Base.Jacket_ArmyCamoGreen",
+            "Base.Trousers_CamoGreen",
+            "Base.Shoes_ArmyBoots",
+        },
         objectives = { "secure_area", "recover_resource" },
         persistsAfterEvent = false,
     },
@@ -82,10 +89,18 @@ local function valid(definition)
         or type(definition.loadoutTheme) ~= "string" or definition.loadoutTheme == ""
         or (definition.professionId ~= nil and (type(definition.professionId) ~= "string"
             or not definition.professionId:match("^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$")))
-        or (definition.appearanceItem ~= nil and (type(definition.appearanceItem) ~= "string"
-            or not definition.appearanceItem:match("^[A-Za-z][A-Za-z0-9_]*%.[A-Za-z][A-Za-z0-9_]*$")))
+        or (definition.appearanceItems ~= nil and type(definition.appearanceItems) ~= "table")
         or type(definition.objectives) ~= "table" or #definition.objectives == 0
         or type(definition.persistsAfterEvent) ~= "boolean" then return false end
+    if definition.appearanceItems ~= nil then
+        if #definition.appearanceItems == 0 or #definition.appearanceItems > 8 then return false end
+        for _, fullType in ipairs(definition.appearanceItems) do
+            if type(fullType) ~= "string"
+                or not fullType:match("^[A-Za-z][A-Za-z0-9_]*%.[A-Za-z][A-Za-z0-9_]*$") then
+                return false
+            end
+        end
+    end
     local seen = {}
     for _, objective in ipairs(definition.objectives) do
         if type(objective) ~= "string" or objective == "" or seen[objective] then return false end

@@ -26,8 +26,12 @@ assert(F.get("scavengers").bossEnabled == false, "scavenger boss hook remains di
 assert(F.get("pmc").contractEligible == true, "PMC policy retains future contract role")
 local scientists = F.get("scientists")
 assert(scientists.professionId == "base:doctor"
-    and scientists.appearanceItem == "Base.JacketLong_Doctor",
+    and scientists.appearanceItems[1] == "Base.JacketLong_Doctor",
     "Scientists use a real balanced medical profession and real lab-coat item")
+local military = F.get("military")
+assert(military.professionId == "base:veteran" and #military.appearanceItems == 4
+    and military.appearanceItems[2] == "Base.Jacket_ArmyCamoGreen",
+    "Military uses real Veteran capability and real army clothing policy")
 
 local ids = { "a", "b", "c" }
 for _, id in ipairs(ids) do

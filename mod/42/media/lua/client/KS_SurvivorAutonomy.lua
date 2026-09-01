@@ -172,7 +172,7 @@ local function createSurvivorAt(bridge, id, square, developerKit)
         bridge,
         id,
         capabilities,
-        eventPolicy ~= nil and eventPolicy.appearanceItem or nil
+        eventPolicy ~= nil and eventPolicy.appearanceItems or nil
     )
     if not appearanceOk then
         bridge:removeNpc(id)

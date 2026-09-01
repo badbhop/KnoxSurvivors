@@ -2836,3 +2836,37 @@ Confirm both entrants first appear with plausible Doctor clothing plus lab coats
 items. Save/reload while they are present and verify the same appearance, profession and inventory
 return without duplicate items; then let the existing withdrawal/departure gate complete. No Java
 or launcher protocol changed, so this increment requires no launcher patch.
+
+## 2026-09-01 — Military first-materialization identity and field kit
+
+Status: implemented and automatically verified; native reload/firearm behavior, appearance and
+save/reload remain live gates. This is a narrow conventional Military entrant slice, not Military
+doctrine, automatic scheduling or a completed faction.
+
+- Installed Build 42.20.3 defines `base:veteran` with cost -8, native Aiming 2/Reloading 2 boosts
+  and Desensitized. Military event policy requests that real profession through the existing
+  balanced vanilla trait-point generator; no custom skill or artificial accuracy is applied.
+- Event appearance policy now supports a bounded validated list of real item full types. Military
+  entrants retain native Veteran creator clothing and add real army hat, camo jacket, camo trousers
+  and army boots through the existing wear bridge. Scientist's lab coat moved to the same list
+  representation with unchanged behavior.
+- The real M9 metadata requires `Base.9mmClip` and `base:bullets_9mm`. The field kit therefore owns
+  a real Hunting Knife, M9, one compatible magazine, three native five-round `Base.Bullets9mm`
+  stacks and `Base.WalkieTalkie5`, plus bounded ordinary survival supplies. Knox does not prefill
+  the magazine, chamber the weapon, fake ammo counters or alter damage/health.
+- Existing equipment and ranged-combat systems remain authoritative for choosing, loading and
+  firing the owned weapon. First successful capture makes normal persistence authoritative, so
+  restore cannot issue a second kit.
+- Added the destructive, sandbox-gated **Schedule Military Exit Test Here** action. It uses the
+  existing named-entry transaction, secure-area objective and event-only departure lifecycle; it
+  is not an automatic Military trigger.
+- Focused capability, appearance, starter-gear, event-policy and named-runtime tests pass, as do
+  all 69 standalone Lua tests and all 74 mod Lua syntax checks. `:java:build
+  prepareWorkshopUpload` passes the full Java 25 verification suite and stages the current
+  Workshop payload.
+
+Pending live: on a disposable day-14-or-later save, schedule the Military test. Confirm three
+entrants wear stable army clothing, own exactly one M9/magazine and 15 rounds each, reload/fire only
+through native behavior, hold/clear the selected area, and depart at their real entry anchor. Save
+and reload while present; no item or identity may duplicate and no departed member may reactivate.
+No Java or launcher protocol changed, so this increment requires no launcher patch.

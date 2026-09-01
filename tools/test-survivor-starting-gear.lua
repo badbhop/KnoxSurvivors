@@ -56,4 +56,19 @@ assert(added[4] == "Base.WaterBottle" and added[5] == "Base.Crisps"
     and added[6] == "Base.RippedSheets")
 assert(string.find(scienceEvidence, "theme=science", 1, true) ~= nil)
 
+rolls = { 0, 0, 0, 0, 0, 0, 0, 0 }
+rollIndex = 0
+added = {}
+local militaryOk, militaryEvidence = gear.initialize("ks-world-1", character, bridge, "military")
+assert(militaryOk, militaryEvidence)
+assert(#added == 10, militaryEvidence)
+assert(added[1] == "Base.HuntingKnife" and added[2] == "Base.Pistol"
+    and added[3] == "Base.9mmClip", "Military kit uses real weapon and magazine items")
+assert(added[4] == "Base.Bullets9mm" and added[5] == "Base.Bullets9mm"
+    and added[6] == "Base.Bullets9mm" and added[7] == "Base.WalkieTalkie5",
+    "Military kit carries exactly three native five-round stacks and one radio")
+assert(added[8] == "Base.WaterBottle" and added[9] == "Base.Crisps"
+    and added[10] == "Base.RippedSheets")
+assert(string.find(militaryEvidence, "theme=military", 1, true) ~= nil)
+
 print("survivor starting gear tests passed")

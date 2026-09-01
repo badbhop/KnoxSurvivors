@@ -34,6 +34,13 @@ local function addRandom(inventory, choices, added)
     return add(inventory, choices[ZombRand(#choices) + 1], added)
 end
 
+local function addMany(inventory, fullType, count, added)
+    for _ = 1, count do
+        if not add(inventory, fullType, added) then return false end
+    end
+    return true
+end
+
 -- Character creation supplies clothing and the occasional bag. This adds only a
 -- restrained pocket-sized start: many people remain poorly prepared, while some
 -- arrive with the sort of ordinary item a new player might reasonably carry.
@@ -60,11 +67,23 @@ function StartingGear.initialize(id, character, bridge, loadoutTheme)
             or not add(inventory, "Base.Scalpel", added) then
             return false, "science_kit_item_unavailable"
         end
+    elseif loadoutTheme == "military" then
+        -- A real M9, compatible magazine and three five-round 9mm stacks let
+        -- the existing native reload system establish weapon state. Nothing
+        -- here fabricates chamber/magazine state or combat bonuses.
+        if not add(inventory, "Base.HuntingKnife", added)
+            or not add(inventory, "Base.Pistol", added)
+            or not add(inventory, "Base.9mmClip", added)
+            or not addMany(inventory, "Base.Bullets9mm", 3, added)
+            or not add(inventory, "Base.WalkieTalkie5", added) then
+            return false, "military_kit_item_unavailable"
+        end
     elseif ZombRand(100) < 72 then
         addRandom(inventory, SIMPLE_WEAPONS, added)
     end
     local waterChance = loadoutTheme == "police" and 65
-        or loadoutTheme == "science" and 60 or 45
+        or loadoutTheme == "science" and 60
+        or loadoutTheme == "military" and 75 or 45
     if ZombRand(100) < waterChance then
         addRandom(inventory, { "Base.WaterBottle" }, added)
     end
@@ -72,7 +91,8 @@ function StartingGear.initialize(id, character, bridge, loadoutTheme)
         addRandom(inventory, SIMPLE_FOOD, added)
     end
     local medicalChance = loadoutTheme == "police" and 45
-        or loadoutTheme == "science" and 55 or 30
+        or loadoutTheme == "science" and 55
+        or loadoutTheme == "military" and 60 or 30
     if ZombRand(100) < medicalChance then
         addRandom(inventory, MEDICAL, added)
     end

@@ -51,6 +51,43 @@ local scientist, scientistEvidence = Capabilities.generate("ks-scientist-1", "ba
 assert(scientist ~= nil and scientistEvidence == "generated_preferred"
     and scientist.professionId == "base:doctor" and scientist.unspentPoints >= 0,
     "medical-research entrant uses the real balanced Doctor profession")
+
+local desensitized = {
+    getType = function() return "base:desensitized" end,
+    getCost = function() return 0 end,
+    getGrantedTraits = function() return empty end,
+    isFree = function() return true end,
+    isDisabledInMultiplayer = function() return false end,
+    isMutuallyExclusive = function() return false end,
+}
+local veteranBalance = {
+    getType = function() return "base:veryunderweight" end,
+    getCost = function() return -10 end,
+    getGrantedTraits = function() return empty end,
+    isFree = function() return false end,
+    isDisabledInMultiplayer = function() return false end,
+    isMutuallyExclusive = function() return false end,
+}
+local veteran = {
+    getType = function() return "base:veteran" end,
+    getCost = function() return -8 end,
+    getGrantedTraits = function() return list({ "base:desensitized" }) end,
+}
+CharacterProfessionDefinition.getProfessions = function() return list({ veteran }) end
+CharacterTraitDefinition.getTraits = function() return list({ veteranBalance, desensitized }) end
+CharacterTraitDefinition.getCharacterTraitDefinition = function(id)
+    return id == "base:desensitized" and desensitized or nil
+end
+local soldier, soldierEvidence = Capabilities.generate("ks-military-1", "base:veteran")
+assert(soldier ~= nil and soldierEvidence == "generated_preferred"
+    and soldier.professionId == "base:veteran" and soldier.unspentPoints >= 0,
+    "Military entrant uses the real balanced Veteran profession")
+
+CharacterProfessionDefinition.getProfessions = function() return list({ police, doctor }) end
+CharacterTraitDefinition.getTraits = function() return list({ balancingTrait }) end
+CharacterTraitDefinition.getCharacterTraitDefinition = function(id)
+    return id == "base:slowreader" and balancingTrait or nil
+end
 local missing, missingEvidence = Capabilities.generate("ks-police-2", "base:missing")
 assert(missing == nil and string.find(missingEvidence, "preferred_profession_missing", 1, true),
     "unknown preferred profession fails explicitly")

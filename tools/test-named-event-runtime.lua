@@ -183,7 +183,7 @@ local scientistFactionId = scientists.sourceFactionId
 for _, id in ipairs(scientists.memberIds) do
     local policy = assert(KnoxEventFactions.materializationPolicy(id))
     assert(policy.professionId == "base:doctor" and policy.loadoutTheme == "science"
-        and policy.appearanceItem == "Base.JacketLong_Doctor",
+        and policy.appearanceItems[1] == "Base.JacketLong_Doctor",
         "Scientist entry retains its first-materialization policy")
     local destination = assert(R.destination(scientists, id))
     assert(P.setRecord(id, "scientist-record-" .. id))
