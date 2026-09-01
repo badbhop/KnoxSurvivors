@@ -35,6 +35,14 @@ local function nowHours()
         and tonumber(getGameTime():getWorldAgeHours()) or 0
 end
 
+local function survivorPresent(persistence, id)
+    if persistence == nil then return false end
+    if persistence.isSurvivorPresent ~= nil then
+        return persistence.isSurvivorPresent(id)
+    end
+    return persistence.isSurvivorAlive ~= nil and persistence.isSurvivorAlive(id)
+end
+
 local function consumeStoredSupply(id, kind, amount)
     local persistence = rawget(_G, "KnoxPersistence")
     local bridge = rawget(_G, "KnoxJavaBridge")
@@ -418,7 +426,7 @@ end
 
 function Simulation.advanceHibernated(id, hours)
     local persistence = rawget(_G, "KnoxPersistence")
-    if persistence == nil or not persistence.isSurvivorAlive(id) or persistence.getRecord(id) == nil then
+    if persistence == nil or not survivorPresent(persistence, id) or persistence.getRecord(id) == nil then
         return false, "not_hibernated"
     end
     local targetHours = tonumber(hours) or nowHours()
@@ -504,7 +512,7 @@ local function advanceStoredGroup(group, active, hours)
             local ok, result = Simulation.advanceHibernated(member.id, start)
             if ok then results[member.id] = result end
             member.state = persistence.getUnloadedSurvivalState(member.id)
-            if not persistence.isSurvivorAlive(member.id) then return results end
+            if not survivorPresent(persistence, member.id) then return results end
         end
     end
     local signature = table.concat(ids, ":") .. ":leader:" .. anchor.id

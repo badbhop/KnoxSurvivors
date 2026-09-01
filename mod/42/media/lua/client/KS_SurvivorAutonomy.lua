@@ -30,6 +30,8 @@ local HIBERNATION_DISTANCE = 260
 local HIBERNATION_DISTANCE_SQUARED = HIBERNATION_DISTANCE * HIBERNATION_DISTANCE
 local DETACHED_GRACE_CHECKS = 3
 local detachedGrace = {}
+local departureRetryAt = {}
+local departureFailures = {}
 local DECISIONS_REQUIRED = 2
 local GATE_KEY = "multi_survival_autonomy_v1"
 local FACTION_BASE_GATE_KEY = "faction_base_scouting_v1"
@@ -402,6 +404,86 @@ local function retireDeadControllers(bridge)
     end
 end
 
+-- Event departure is a two-phase lifecycle boundary. Persistence first blocks
+-- reactivation; this runtime owner then captures and removes any live shell.
+-- Only a successful teardown finalizes the survivor as having left the county.
+local function retirePendingEventDepartures(bridge)
+    for _, id in ipairs(KnoxPersistence.getPendingEventDepartureIds()) do
+        if ticks >= (departureRetryAt[id] or 0) then
+            -- A native teardown failure owns a bounded retry window. The controller
+            -- stays stopped and cannot resume ordinary autonomy between attempts.
+            local departure = KnoxPersistence.getSurvivorDeparture(id)
+            local controller = controllers[id]
+            local character = controller ~= nil and controller.character
+                or bridge:getNpcCharacter(id)
+            local dead = false
+            if character ~= nil then
+                local ok, value = pcall(function() return character:isDead() end)
+                dead = ok and value == true
+            end
+            if dead and controller ~= nil then
+                departureRetryAt[id], departureFailures[id] = nil, nil
+                retireDeadSurvivor(bridge, id, controller)
+            elseif controller ~= nil then
+                controller.state = "STOPPED"
+                local success, saved, evidence = pcall(function()
+                    return controller:shutdown()
+                end)
+                if success and saved then
+                    local removed = tostring(bridge:removeNpc(id))
+                    local registryStillActive = bridge:getNpcCharacter(id) ~= nil
+                    if string.find(removed, "REMOVED", 1, true) == 1
+                        or removed == "NONE_ACTIVE" or not registryStillActive then
+                        KnoxSurvivorRuntime.unregister(id, controller)
+                        controllers[id] = nil
+                        removeActiveId(id)
+                        departureRetryAt[id], departureFailures[id] = nil, nil
+                        local finalized, result = KnoxPersistence.finalizeEventDeparture(
+                            id,
+                            departure.eventId,
+                            getGameTime():getWorldAgeHours()
+                        )
+                        print(TAG .. " id=" .. tostring(id)
+                            .. " state=DEPARTED finalized=" .. tostring(finalized)
+                            .. " save=" .. tostring(evidence)
+                            .. " remove=" .. tostring(removed)
+                            .. " result=" .. tostring(result))
+                    else
+                        local failures = math.min(5, (departureFailures[id] or 0) + 1)
+                        departureFailures[id] = failures
+                        departureRetryAt[id] = ticks + math.min(300, 30 * 2 ^ (failures - 1))
+                        print(TAG .. " id=" .. tostring(id)
+                            .. " departure-remove-failed result=" .. tostring(removed)
+                            .. " retryAt=" .. tostring(departureRetryAt[id]))
+                    end
+                else
+                    local failures = math.min(5, (departureFailures[id] or 0) + 1)
+                    departureFailures[id] = failures
+                    departureRetryAt[id] = ticks + math.min(300, 30 * 2 ^ (failures - 1))
+                    print(TAG .. " id=" .. tostring(id)
+                        .. " departure-save-failed evidence=" .. tostring(evidence)
+                        .. " retryAt=" .. tostring(departureRetryAt[id]))
+                end
+            elseif bridge:getNpcCharacter(id) == nil then
+                -- A pending departure restored after a process restart has no live
+                -- engine shell to retire. Finalize the durable state directly.
+                KnoxPersistence.finalizeEventDeparture(
+                    id,
+                    departure.eventId,
+                    getGameTime():getWorldAgeHours()
+                )
+                departureRetryAt[id], departureFailures[id] = nil, nil
+            else
+                local failures = math.min(5, (departureFailures[id] or 0) + 1)
+                departureFailures[id] = failures
+                departureRetryAt[id] = ticks + math.min(300, 30 * 2 ^ (failures - 1))
+                print(TAG .. " id=" .. tostring(id)
+                    .. " departure-orphaned-shell retryAt=" .. tostring(departureRetryAt[id]))
+            end
+        end
+    end
+end
+
 local function squareDescription(square)
     if square == nil then
         return "none"
@@ -749,6 +831,7 @@ update = function()
         print(TAG .. " state=RUNNING " .. tostring(evidence))
     end
     retireDeadControllers(bridge)
+    retirePendingEventDepartures(bridge)
     if ticks >= nextHibernationUpdate then
         nextHibernationUpdate = ticks + HIBERNATION_INTERVAL_TICKS
         hibernateDistantWorldSurvivors(bridge, currentPlayers())
@@ -773,7 +856,10 @@ update = function()
         end
     end
     KnoxSurvivorRelationships.coordinate(controllers, activeIds, ticks)
-    if ticks % 30 == 0 then KnoxEventRuntime.update(controllers, getGameTime():getWorldAgeHours()) end
+    if ticks % 30 == 0 then
+        KnoxEventRuntime.update(controllers, getGameTime():getWorldAgeHours())
+        retirePendingEventDepartures(bridge)
+    end
     for _, id in ipairs(activeIds) do
         local controller = controllers[id]
         KnoxCompanionService.syncController(id, controller)
@@ -816,6 +902,8 @@ local function onGameStart()
     passReported = false
     factionBasePassReported = false
     activeIds = {}
+    departureRetryAt = {}
+    departureFailures = {}
     scenarioIds = {}
     nextPopulationUpdate = 1
     nextHibernationUpdate = 1

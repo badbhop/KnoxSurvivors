@@ -76,26 +76,35 @@ function DeveloperTools.scheduleEligibleRaid()
         .. " result=" .. tostring(result))
 end
 
-function DeveloperTools.schedulePoliceEntry(playerNum, worldObjects)
+local function scheduleNamedEntry(worldObjects, policyId, objectiveKind, partySize, label)
     if not KnoxSettings.allowDestructiveDeveloperTests() then
-        KnoxActivityFeed.event("Police entry test requires Allow Destructive Tests.")
+        KnoxActivityFeed.event(label .. " entry test requires Allow Destructive Tests.")
         return
     end
     local object = worldObjects ~= nil and worldObjects[1] or nil
     local square = object ~= nil and object:getSquare() or nil
     if square == nil then
-        KnoxActivityFeed.event("Police entry scheduling failed: no target square.")
+        KnoxActivityFeed.event(label .. " entry scheduling failed: no target square.")
         return
     end
     local hours = getGameTime():getWorldAgeHours()
-    local event, result = KnoxEvents.scheduleFactionEntry("police", "secure_area", {
+    local event, result = KnoxEvents.scheduleFactionEntry(policyId, objectiveKind, {
         x = square:getX(), y = square:getY(), z = square:getZ(),
-    }, 3, hours, 0)
+    }, partySize, hours, 0)
     KnoxActivityFeed.event(event ~= nil
-        and ("Police Knox Event scheduled: " .. tostring(event.id) .. ".")
-        or ("Police entry scheduling failed: " .. tostring(result) .. "."))
-    print("[KnoxSurvivors][DeveloperTools] policeEntry="
+        and (label .. " Knox Event scheduled: " .. tostring(event.id) .. ".")
+        or (label .. " entry scheduling failed: " .. tostring(result) .. "."))
+    print("[KnoxSurvivors][DeveloperTools] namedEntry=" .. tostring(policyId)
+        .. " event="
         .. tostring(event ~= nil and event.id or "none") .. " result=" .. tostring(result))
+end
+
+function DeveloperTools.schedulePoliceEntry(playerNum, worldObjects)
+    scheduleNamedEntry(worldObjects, "police", "secure_area", 3, "Police")
+end
+
+function DeveloperTools.scheduleScientistsEntry(playerNum, worldObjects)
+    scheduleNamedEntry(worldObjects, "scientists", "research", 2, "Scientists")
 end
 
 local function onFill(playerNum, context, worldObjects, test)
@@ -133,6 +142,8 @@ local function onFill(playerNum, context, worldObjects, test)
             DeveloperTools.scheduleEligibleRaid)
         menu:addOption("Schedule Police Entry Here", playerNum,
             DeveloperTools.schedulePoliceEntry, worldObjects)
+        menu:addOption("Schedule Scientists Exit Test Here", playerNum,
+            DeveloperTools.scheduleScientistsEntry, worldObjects)
     end
 
     menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)

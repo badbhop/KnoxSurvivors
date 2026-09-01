@@ -2662,9 +2662,9 @@ faction-specific behavior/loadouts remain required.
 - Named parties reuse distinct loaded event destinations and the existing stored cohort scheduler.
   Real loaded positions establish arrival. The initial policy-allowed objective is a bounded
   one-hour presence state only; it manufactures no items, results, combat, reputation or lore.
-- Withdrawal returns to the saved entry anchor, releases event duty, and retains living members as
-  ordinary persistent world/faction identities. Non-persistent faction disposal is intentionally
-  not faked by deleting survivors; that lifecycle policy remains future work.
+- Withdrawal returns to the saved entry anchor and releases event duty. The later event-departure
+  lifecycle section records how policy now distinguishes persistent parties from parties that
+  leave Knox County without being marked dead.
 - A destructive developer action can explicitly schedule a three-person Police entry at the
   selected world location. It does not bypass world-age or safe-origin policy and is not an
   automatic event trigger.
@@ -2762,3 +2762,45 @@ completes twice nor restarts from fabricated evidence. Existing player aggressio
 the canonical faction relationship to hostile; neutral/reputation behavior is reused rather than
 duplicated. Automatic Police triggers and the `assist` objective remain unfinished. No Java or
 launcher protocol changed, so no launcher patch is required.
+
+## 2026-09-01 — Event-only party departure lifecycle
+
+Status: implemented and automatically verified; loaded-shell teardown and save/reload remain live
+verification gates. This is shared Knox Events lifecycle work, not a Scientists/Military content
+implementation.
+
+### Defect and implementation
+
+- Every named entry party previously became permanent world population after withdrawal, even when
+  its canonical policy declared `persistsAfterEvent=false`. Releasing `duty.eventId` alone turned
+  Scientists, Military, PMC and Black Division entrants into ordinary roaming survivors.
+- Departure is now a durable state distinct from death and hibernation. A member must first reach
+  its real saved entry anchor. Persistence then records `pending` departure, which immediately
+  excludes that identity from activation, world-population counts and offscreen simulation without
+  changing `alive=true` or deleting its native record, equipment, identity or history.
+- A loaded member is captured and removed only by the existing autonomy lifecycle owner. Successful
+  engine teardown finalizes `departed`; capture/removal failure retains the stopped runtime and
+  pending ownership under bounded exponential retry instead of creating a duplicate or per-tick
+  teardown storm. An unloaded member with no runtime shell finalizes directly. A pending state
+  restored after process restart also finalizes only when the bridge confirms that no shell exists.
+- Finalization releases group/faction/camp/job ownership and records a non-actionable `departed`
+  duty. The empty named faction remains as historical event identity rather than becoming a live
+  resource roster. Police and Scavengers retain their ordinary persistent survivors because their
+  policies explicitly opt into persistence.
+- Real death wins over same-tick departure: the pending marker is cleared and the existing native
+  corpse/reanimation lifecycle remains authoritative.
+
+### Verification and pending evidence
+
+`tools/test-named-event-runtime.lua` now covers both policy branches: Police returns and remains
+present, while a Scientists party returns through distinct entry positions, holds loaded departure
+pending until shell teardown, finalizes stored members directly, remains alive as history, keeps
+its record, disappears from activatable/living population, preserves one departed faction record
+and completes the event only after every shell is retired. All 68 standalone Lua tests pass.
+
+Pending live: use **Schedule Scientists Exit Test Here** on a disposable day-14-or-later save,
+observe loaded members return to their entry boundary and disappear only
+after reaching it, then save/reload. The same identities must remain departed and never reactivate;
+there must be no corpse, duplicate shell, `RESTORE_FAILED`, or lost event completion. Kill one
+member during withdrawal and confirm only that member follows the normal corpse lifecycle. No Java
+or launcher protocol changed, so this increment requires no launcher patch.

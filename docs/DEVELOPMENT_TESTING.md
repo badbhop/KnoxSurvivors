@@ -621,7 +621,10 @@ Run `lua tools/test-named-event-runtime.lua .` for the persisted named-event lif
 schedule-without-allocation, world-age/objective validation, due-time one-shot party creation,
 atomic event duty, no duplicate retry, local-player entry separation, distinct approach points,
 real-position arrival, the bounded common objective, entry-anchor withdrawal, identity/faction
-retention, fully stored cohort travel and persisted retry cooldown when no safe origin exists.
+retention, fully stored cohort travel and persisted retry cooldown when no safe origin exists. It
+also covers the policy split after withdrawal: Police remains present, while Scientists retain
+identity/native records but enter two-phase pending/complete departure, stop activation/offscreen
+simulation and leave only a historical empty faction after every shell is retired.
 
 Run `lua tools/test-survivor-capabilities.lua .`, `lua tools/test-survivor-starting-gear.lua .`
 and `lua tools/test-event-entry.lua .` for Police first materialization. Together they verify the
@@ -643,6 +646,17 @@ a small number of zombies inside 18 tiles of the selected target. Police must re
 while a living threat remains, fight only through common combat behavior, then withdraw after the
 area stays clear for roughly three in-game minutes. Reload during that clear window and confirm the
 event neither completes twice nor invents a cleared result.
+
+Event-only departure live gate: on a disposable day-14-or-later save with **Developer Tools** and
+**Allow Destructive Tests** enabled, right-click a loaded ground square and choose **Schedule
+Scientists Exit Test Here**. Keep at least one member loaded through its return. A survivor must
+not disappear before reaching the saved entry anchor. At the anchor, the
+loaded shell must capture/remove once, the event must wait for every member, and no corpse may be
+created. Save/reload afterward and revisit the area: departed identities must not materialize again
+or count toward living world population. Repeat while killing one withdrawing member; that member
+must use the ordinary death/corpse path while surviving members depart normally. Inspect autonomy
+logs for one `state=DEPARTED` per surviving loaded member and no repeated removal, restore or event
+completion loop.
 
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe

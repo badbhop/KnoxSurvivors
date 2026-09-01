@@ -8,6 +8,8 @@ getGameTime = function() return { getWorldAgeHours = function() return hours end
 package.preload.SpawnRegions = function() return true end
 SpawnRegionMgr = { getSpawnRegions = function() return { { name = "Town", points = { unemployed = {
     { posX = 400, posY = 200, posZ = 0 }, { posX = 700, posY = 200, posZ = 0 },
+    { posX = 400, posY = 400, posZ = 0 }, { posX = 500, posY = 300, posZ = 0 },
+    { posX = 300, posY = 500, posZ = 0 }, { posX = 600, posY = 400, posZ = 0 },
 } } } } end }
 getWorld = function() return { getMap = function() return "Named event runtime test" end } end
 
@@ -170,4 +172,83 @@ local attempts = deferred.entryAttempts
 assert(not R.dispatch(deferred, {}, hours) and E.get(deferred.id).entryAttempts == attempts,
     "persisted cooldown prevents an entry-attempt storm")
 
-print("Named event runtime PASS scheduled=true atomic_entry=true no_duplicate=true distinct=true objective=true withdrawal=true persistence=true offscreen_travel=true bounded_retry=true")
+-- Event-only parties remain real persistent identities while present, then
+-- leave through their entry anchor without being marked dead or reactivated.
+hours = 14 * 24
+local scientists = assert(E.scheduleFactionEntry("scientists", "research",
+    { x = 200, y = 200, z = 0 }, 2, hours, 0))
+assert(R.dispatch(scientists, {}, hours))
+scientists = E.get(scientists.id)
+local scientistFactionId = scientists.sourceFactionId
+for _, id in ipairs(scientists.memberIds) do
+    local destination = assert(R.destination(scientists, id))
+    assert(P.setRecord(id, "scientist-record-" .. id))
+    P.setUnloadedSurvivalState(id, { hunger = .1, thirst = .1, health = 100,
+        bleedingParts = 0, fatigue = .1, endurance = .9, lastHours = hours,
+        virtualX = destination.x, virtualY = destination.y, virtualZ = destination.z,
+        virtualAtHours = hours, status = "hibernated" })
+    local body = { x = destination.x, y = destination.y, z = destination.z }
+    function body:getCurrentSquare() return square(self.x, self.y, self.z) end
+    function body:getX() return self.x end
+    function body:getY() return self.y end
+    function body:isDead() return false end
+    bodies[id] = body
+    controllers[id] = { character = body, state = "IDLE", eventMoveFailures = 0 }
+end
+R.update(controllers, hours)
+R.update(controllers, hours)
+scientists = E.get(scientists.id)
+assert(scientists.phase == "objective" and scientists.objective.kind == "research")
+for _, id in ipairs(scientists.memberIds) do
+    bodies[id], controllers[id] = nil, nil
+end
+hours = scientists.objective.deadlineHours
+R.update(controllers, hours)
+scientists = E.get(scientists.id)
+assert(scientists.phase == "withdrawing")
+for _, id in ipairs(scientists.memberIds) do
+    local destination = assert(R.destination(scientists, id))
+    local state = P.getUnloadedSurvivalState(id)
+    state.virtualX, state.virtualY, state.virtualZ = destination.x, destination.y, destination.z
+    state.lastHours, state.virtualAtHours = hours, hours
+    P.setUnloadedSurvivalState(id, state)
+end
+local loadedDepartingId = scientists.memberIds[1]
+local loadedDestination = assert(R.destination(scientists, loadedDepartingId))
+local loadedBody = { x = loadedDestination.x, y = loadedDestination.y, z = loadedDestination.z }
+function loadedBody:getCurrentSquare() return square(self.x, self.y, self.z) end
+function loadedBody:getX() return self.x end
+function loadedBody:getY() return self.y end
+function loadedBody:isDead() return false end
+bodies[loadedDepartingId] = loadedBody
+controllers[loadedDepartingId] = {
+    character = loadedBody, state = "IDLE", eventMoveFailures = 0,
+}
+R.update(controllers, hours)
+scientists = E.get(scientists.id)
+local pending = assert(P.getSurvivorDeparture(loadedDepartingId))
+assert(scientists.phase == "withdrawing" and pending.status == "pending"
+    and not P.isSurvivorPresent(loadedDepartingId)
+    and P.getSurvivorDuty(loadedDepartingId).eventId == scientists.id,
+    "loaded departure blocks reactivation but retains event ownership until shell teardown")
+bodies[loadedDepartingId], controllers[loadedDepartingId] = nil, nil
+assert(P.finalizeEventDeparture(loadedDepartingId, scientists.id, hours))
+R.update(controllers, hours)
+scientists = E.get(scientists.id)
+assert(scientists.phase == "completed", "event-only party completes after every real shell is retired")
+local activatable = {}; for _, id in ipairs(P.getActivatableSurvivorIds()) do activatable[id] = true end
+local living = {}; for _, id in ipairs(P.getLivingWorldSurvivorIds()) do living[id] = true end
+for _, id in ipairs(scientists.memberIds) do
+    local departure = assert(P.getSurvivorDeparture(id))
+    assert(P.isSurvivorAlive(id) and not P.isSurvivorPresent(id)
+        and departure.status == "departed" and departure.eventId == scientists.id
+        and P.getSurvivorDuty(id).mode == "departed"
+        and P.getRecord(id) == "scientist-record-" .. id
+        and not activatable[id] and not living[id],
+        "departure retains identity/record but excludes the survivor from world presence")
+end
+local departedFaction = assert(P.getFaction(scientistFactionId))
+assert(departedFaction.lifecycle == "departed" and #departedFaction.memberIds == 0,
+    "departed event faction remains as history without active members")
+
+print("Named event runtime PASS scheduled=true atomic_entry=true no_duplicate=true distinct=true objective=true withdrawal=true persistence=true offscreen_travel=true bounded_retry=true event_departure=true")

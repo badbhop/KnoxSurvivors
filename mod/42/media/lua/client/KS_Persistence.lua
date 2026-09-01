@@ -3,7 +3,7 @@ _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 14
+local SCHEMA_VERSION = 15
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 local FACTION_NAME_STYLES = {
@@ -220,6 +220,23 @@ local function root()
             or not finiteCoordinate(eventIdentity.boundAtHours)
             or eventIdentity.boundAtHours < 0) then
             faction.eventIdentity = nil
+        end
+    end
+    for _, survivor in pairs(data.survivors) do
+        local departure = type(survivor) == "table" and survivor.departure or nil
+        if departure ~= nil then
+            local requested = type(departure) == "table"
+                and tonumber(departure.requestedAtHours) or nil
+            local completed = type(departure) == "table"
+                and tonumber(departure.completedAtHours) or nil
+            local validDeparture = type(departure) == "table"
+                and (departure.status == "pending" or departure.status == "departed")
+                and departure.source == "knox_event"
+                and type(departure.eventId) == "string" and departure.eventId ~= ""
+                and finiteCoordinate(requested) and requested >= 0
+                and (departure.status ~= "departed"
+                    or finiteCoordinate(completed) and completed >= requested)
+            if not validDeparture then survivor.departure = nil end
         end
     end
     -- Rebuild schemas 1 and 2 already stored compatible encoded survivor records.
@@ -449,6 +466,9 @@ function KnoxPersistence.getActivatableSurvivorIds()
     for id, survivor in pairs(root().survivors) do
         if type(id) == "string" and type(survivor) == "table"
             and survivor.alive ~= false
+            and not (type(survivor.departure) == "table"
+                and (survivor.departure.status == "pending"
+                    or survivor.departure.status == "departed"))
             and (survivor.record ~= nil or type(survivor.origin) == "table") then
             ids[#ids + 1] = id
         end
@@ -461,7 +481,10 @@ function KnoxPersistence.getLivingWorldSurvivorIds()
     local ids = {}
     for id, survivor in pairs(root().survivors) do
         if type(id) == "string" and type(survivor) == "table"
-            and survivor.populationManaged == true and survivor.alive ~= false then
+            and survivor.populationManaged == true and survivor.alive ~= false
+            and not (type(survivor.departure) == "table"
+                and (survivor.departure.status == "pending"
+                    or survivor.departure.status == "departed")) then
             ids[#ids + 1] = id
         end
     end
@@ -505,6 +528,10 @@ function KnoxPersistence.markSurvivorDead(id, worldAgeHours, reason)
         return false
     end
     survivor.alive = false
+    -- Death wins over a same-tick event withdrawal. The corpse lifecycle must
+    -- remain authoritative and a dead entrant must never be recorded as having
+    -- safely left Knox County.
+    survivor.departure = nil
     survivor.diedAtHours = tonumber(worldAgeHours) or 0
     survivor.deathReason = tostring(reason or "died")
     if KnoxPersistence.removeSurvivorFromSocialDomains ~= nil then
@@ -516,6 +543,21 @@ end
 function KnoxPersistence.isSurvivorAlive(id)
     local survivor = type(id) == "string" and root().survivors[id] or nil
     return survivor ~= nil and survivor.alive ~= false
+end
+
+function KnoxPersistence.isSurvivorPresent(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    local departure = survivor ~= nil and survivor.departure or nil
+    return survivor ~= nil and survivor.alive ~= false
+        and not (type(departure) == "table"
+            and (departure.status == "pending" or departure.status == "departed"))
+end
+
+function KnoxPersistence.getSurvivorDeparture(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and type(survivor.departure) == "table"
+        and copySerializable(survivor.departure)
+        or nil
 end
 
 function KnoxPersistence.getLastKnownNeeds(id)
@@ -2628,7 +2670,9 @@ function KnoxPersistence.normalizeRelationshipDomains()
     for _, factionId in ipairs(factionIds) do
         local faction = data.factions[factionId]
         if faction ~= nil then
-            if faction.kind ~= "player" and #faction.memberIds == 0 then
+            if faction.kind ~= "player" and #faction.memberIds == 0
+                and not (faction.lifecycle == "departed"
+                    and type(faction.eventIdentity) == "table") then
                 if faction.campId ~= nil then data.camps[faction.campId] = nil end
                 data.factions[factionId] = nil
                 changes = changes + 1
@@ -2654,10 +2698,11 @@ function KnoxPersistence.normalizeRelationshipDomains()
     return changes
 end
 
-function KnoxPersistence.removeSurvivorFromSocialDomains(id, reason, worldAgeHours)
+local function removeSurvivorFromSocialDomains(id, lifecycle, reason, worldAgeHours)
     local data = root()
     local survivor = type(id) == "string" and data.survivors[id] or nil
     if survivor == nil then return false end
+    local formerFactionId = (survivor.affiliation or {}).factionId
     requeueClaimsForSurvivor(id, nil, reason or "social_membership_removed")
     for _, group in pairs(data.travelGroups) do
         local retained = {}
@@ -2681,15 +2726,105 @@ function KnoxPersistence.removeSurvivorFromSocialDomains(id, reason, worldAgeHou
         camp.memberIds = retained
     end
     survivor.formerAffiliation = copySerializable(survivor.affiliation)
-    survivor.affiliation = { kind = "deceased", ownerId = nil }
+    survivor.affiliation = { kind = lifecycle, ownerId = nil }
     survivor.duty = {
-        mode = "deceased",
+        mode = lifecycle,
         order = "none",
         changedAtHours = tonumber(worldAgeHours) or 0,
         revision = (tonumber(survivor.duty ~= nil and survivor.duty.revision) or 0) + 1,
     }
+    if lifecycle == "departed" then
+        local faction = formerFactionId ~= nil and data.factions[formerFactionId] or nil
+        if type(faction) == "table" and type(faction.eventIdentity) == "table"
+            and #(faction.memberIds or {}) == 0 then
+            faction.lifecycle = "departed"
+            faction.departedAtHours = tonumber(worldAgeHours) or 0
+            faction.leaderId = nil
+        end
+    end
     KnoxPersistence.normalizeRelationshipDomains()
     return true
+end
+
+function KnoxPersistence.removeSurvivorFromSocialDomains(id, reason, worldAgeHours)
+    return removeSurvivorFromSocialDomains(id, "deceased", reason, worldAgeHours)
+end
+
+-- Event-only factions leave through their real entry anchor. Departure is not
+-- death and therefore deliberately keeps alive=true, identity, record, gear and
+-- relationship history. The pending state is already excluded from activation;
+-- the autonomy owner must capture/remove a loaded shell before finalization.
+function KnoxPersistence.beginEventDeparture(id, eventId, worldAgeHours)
+    local data = root()
+    local survivor = type(id) == "string" and data.survivors[id] or nil
+    local event = type(eventId) == "string" and data.knoxEvents.records[eventId] or nil
+    local duty = survivor ~= nil and survivor.duty or nil
+    local affiliation = survivor ~= nil and survivor.affiliation or nil
+    local faction = affiliation ~= nil and data.factions[affiliation.factionId] or nil
+    local identity = faction ~= nil and faction.eventIdentity or nil
+    local hours = tonumber(worldAgeHours)
+    if survivor == nil or survivor.alive == false or event == nil
+        or event.kind ~= "faction_entry" or event.phase ~= "withdrawing"
+        or not containsId(event.memberIds, id) or duty == nil or duty.eventId ~= eventId
+        or identity == nil or identity.sourceEventId ~= eventId
+        or survivor.eventManaged ~= true or survivor.eventSourceId ~= eventId
+        or not finiteCoordinate(hours) or hours < 0 then
+        return false, "departure_not_owned"
+    end
+    local current = survivor.departure
+    if type(current) == "table" then
+        if current.eventId ~= eventId then return false, "departure_already_owned" end
+        return true, current.status
+    end
+    survivor.departure = {
+        status = "pending",
+        source = "knox_event",
+        eventId = eventId,
+        requestedAtHours = hours,
+        reason = "event_party_withdrew",
+    }
+    return true, "pending"
+end
+
+function KnoxPersistence.finalizeEventDeparture(id, eventId, worldAgeHours)
+    local data = root()
+    local survivor = type(id) == "string" and data.survivors[id] or nil
+    local departure = survivor ~= nil and survivor.departure or nil
+    local hours = tonumber(worldAgeHours)
+    if survivor == nil or survivor.alive == false or type(departure) ~= "table"
+        or departure.eventId ~= eventId or departure.status ~= "pending"
+        or not finiteCoordinate(hours)
+        or hours < (tonumber(departure.requestedAtHours) or math.huge) then
+        return false, "departure_not_pending"
+    end
+    local formerFactionId = (survivor.affiliation or {}).factionId
+    removeSurvivorFromSocialDomains(id, "departed", "event_departed", hours)
+    departure.status = "departed"
+    departure.completedAtHours = hours
+    survivor.departure = departure
+    survivor.eventManaged = false
+    local faction = formerFactionId ~= nil and data.factions[formerFactionId] or nil
+    if faction ~= nil and type(faction.eventIdentity) == "table"
+        and faction.eventIdentity.sourceEventId == eventId
+        and #(faction.memberIds or {}) == 0 then
+        faction.lifecycle = "departed"
+        faction.departedAtHours = hours
+        faction.leaderId = nil
+    end
+    return true, "departed"
+end
+
+function KnoxPersistence.getPendingEventDepartureIds()
+    local ids = {}
+    for id, survivor in pairs(root().survivors) do
+        if type(id) == "string" and type(survivor) == "table"
+            and type(survivor.departure) == "table"
+            and survivor.departure.status == "pending" then
+            ids[#ids + 1] = id
+        end
+    end
+    table.sort(ids)
+    return ids
 end
 
 function KnoxPersistence.getFactionBaseCandidate(factionId)

@@ -418,7 +418,7 @@ end
 -- Before first body creation only location is known. This never invents health
 -- or inventory. After capture the stored-survival controller owns the identity.
 function WorldPopulation.advanceOriginTravel(id, hours)
-    if not KnoxPersistence.isSurvivorAlive(id) or KnoxPersistence.getRecord(id) ~= nil then
+    if not KnoxPersistence.isSurvivorPresent(id) or KnoxPersistence.getRecord(id) ~= nil then
         return false, "not_unmaterialized"
     end
     local origin = KnoxPersistence.getSurvivorOrigin(id)
@@ -872,7 +872,7 @@ end
 -- recorded square or waits for that square to load; it never silently moves a
 -- persistent survivor back to their original spawn point.
 function WorldPopulation.activationCandidate(id, bridge, options)
-    if type(id) ~= "string" or id == "" or not KnoxPersistence.isSurvivorAlive(id) then
+    if type(id) ~= "string" or id == "" or not KnoxPersistence.isSurvivorPresent(id) then
         return nil, "not_living"
     end
     local duty = KnoxPersistence.getSurvivorDuty(id)

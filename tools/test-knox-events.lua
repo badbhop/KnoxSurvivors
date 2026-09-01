@@ -29,7 +29,7 @@ local home = assert(P.createBase("faction", faction.id,
 local target = assert(P.createBase("player", "player-1",
     { minX = 200, minY = 200, width = 10, height = 10 }, 10))
 for _, id in ipairs(ids) do assert(P.setFactionBaseResident(id, faction.id, home.id, 10)) end
-assert(data.schemaVersion == 14 and P.getRecord("a") == "native-record-a", "additive migration preserves native inventory records")
+assert(data.schemaVersion == 15 and P.getRecord("a") == "native-record-a", "additive migration preserves native inventory records")
 assert(E.proposeRaid(faction.id, target.id, 10) == nil, "neutral factions cannot schedule a raid")
 assert(P.setFactionRelationshipDisposition(faction.id, playerFaction.id, "hostile", 10, "test"))
 local proposal = assert(E.proposeRaid(faction.id, target.id, 10))

@@ -866,7 +866,18 @@ than splitting into independent itineraries. Real loaded positions establish arr
 fabricates it offscreen. The initial shared objective is deliberately only a bounded one-hour
 presence state allowed by the selected policy. It grants no loot, combat outcome, faction-specific
 behavior or items. Withdrawal returns toward the saved entry anchor, releases temporary event duty,
-and leaves every surviving identity in the ordinary faction/world population.
+and applies the selected policy's persistence boundary.
+
+For `persistsAfterEvent=false`, departure is a two-phase lifecycle rather than deletion. Reaching
+the entry anchor writes a pending departure marker that excludes the identity from activation and
+lightweight simulation. The autonomy owner then captures and removes a loaded IsoPlayer shell using
+the same transactional boundary as hibernation; a stopped controller and bounded backoff retain
+ownership after capture/removal failure. Only successful teardown finalizes `departed` and clears
+actionable social/duty ownership. A stored member with no shell can finalize immediately.
+Identity, native record, equipment and history remain durable, while the empty event faction is
+retained as non-actionable history. `alive` remains true because departure is not death; a real death
+clears pending departure and continues through the existing corpse/reanimation path. Police and
+Scavengers use the persistent branch and rejoin ordinary world life after event duty releases.
 
 The destructive developer action **Schedule Police Entry Here** is the first explicit live harness.
 It is not an automatic Police event. On the ordinary first-materialization path only, a canonical

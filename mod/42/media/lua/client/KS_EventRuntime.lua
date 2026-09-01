@@ -31,6 +31,12 @@ local function sourceHome(event)
     return base ~= nil and base.ownerKind == "faction" and base.ownerId == event.sourceFactionId and base or nil
 end
 
+local function partyLeavesCounty(event)
+    if event == nil or event.kind ~= "faction_entry" then return false end
+    local policy = KnoxEventFactions ~= nil and KnoxEventFactions.get(event.policyId) or nil
+    return policy ~= nil and policy.persistsAfterEvent == false
+end
+
 local function areaFor(event, returning)
     if event.kind == "faction_entry" then
         local location = returning and event.entryLocation or event.targetLocation
@@ -438,8 +444,21 @@ function Runtime.update(controllers, hours)
                                 Runtime.destination(event, id))
                             or home ~= nil and returnedHome(id,
                                 controller ~= nil and controller.character or nil, home)
-                        if not KnoxPersistence.isSurvivorAlive(id) or returned
-                            or event.kind == "faction_raid" and home == nil then
+                        if not KnoxPersistence.isSurvivorAlive(id) then
+                            KnoxPersistence.releaseEventDuty(id, event.id, hours)
+                        elseif returned and partyLeavesCounty(event) then
+                            local pending = KnoxPersistence.beginEventDeparture(id, event.id, hours)
+                            if pending and controller == nil
+                                and KnoxSurvivorRuntime.getCharacter(id) == nil then
+                                KnoxPersistence.finalizeEventDeparture(id, event.id, hours)
+                            else
+                                -- A loaded shell must be captured and removed by
+                                -- the autonomy lifecycle owner before this event
+                                -- can complete. Pending departure is intentionally
+                                -- not treated as a released member.
+                                resolved = false
+                            end
+                        elseif returned or event.kind == "faction_raid" and home == nil then
                             KnoxPersistence.releaseEventDuty(id, event.id, hours)
                         else
                             resolved = false
