@@ -456,7 +456,7 @@ end
 
 local function advanceStoredGroup(group, active, hours)
     local persistence = KnoxPersistence
-    local event = group.kind == "faction_raid"
+    local event = group.kind == "faction_raid" or group.kind == "faction_entry"
     local eventRuntime = rawget(_G, "KnoxEventRuntime")
     if event and (eventRuntime == nil or (group.phase ~= "approaching"
         and group.phase ~= "withdrawing" and group.phase ~= "active" and group.phase ~= "objective")) then return nil end
@@ -665,7 +665,8 @@ function Simulation.advanceAll(activeIds, hours)
     end
     for _, groupId in ipairs(groupIds) do
         local results = advanceStoredGroup(groups[groupId], active, hours or nowHours())
-        if results ~= nil and groups[groupId].kind == "faction_raid" then
+        if results ~= nil and (groups[groupId].kind == "faction_raid"
+            or groups[groupId].kind == "faction_entry") then
             events.saveUnloadedTravel(groups[groupId].id, groups[groupId].revision, groups[groupId].unloadedTravel)
         end
         for id, result in pairs(results or {}) do

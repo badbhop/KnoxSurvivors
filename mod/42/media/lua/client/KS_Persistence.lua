@@ -719,6 +719,16 @@ function KnoxPersistence.releaseEventDuty(id, eventId, worldAgeHours)
     duty.eventId = nil
     duty.revision = (tonumber(duty.revision) or 0) + 1
     duty.changedAtHours = tonumber(worldAgeHours) or 0
+    local state = survivor.unloadedSurvival
+    if type(state) == "table" and state.eventEntryId == eventId then
+        -- An event can withdraw before every entrant ever materializes. Release
+        -- its origin-wait marker with the duty or that persistent identity would
+        -- remain permanently frozen at the entry anchor after the event ends.
+        state.eventEntryId = nil
+        state.activity = "sheltering"
+        state.activitySinceHours = duty.changedAtHours
+        state.departAtHours = math.max(tonumber(state.departAtHours) or 0, duty.changedAtHours + 1)
+    end
     -- A removed home cannot remain an actionable base order. Keep affiliation;
     -- surviving members can use the existing faction/autonomy recovery instead.
     local base = data.bases[duty.baseId]
@@ -1904,6 +1914,69 @@ function KnoxPersistence.createEventFactionPopulation(
         end
     end
     return copySerializable(faction), "created"
+end
+
+-- Finalize a named event entry as one ModData transaction. The allocation
+-- helper above is idempotent, so a reload between allocation and this commit
+-- can safely retry without creating another faction. No body or item is made.
+function KnoxPersistence.commitEventFactionEntry(eventId, expectedRevision, factionId, worldAgeHours)
+    local data = root()
+    local event = type(eventId) == "string" and data.knoxEvents.records[eventId] or nil
+    local faction = type(factionId) == "string" and data.factions[factionId] or nil
+    local hours, revision = tonumber(worldAgeHours), tonumber(expectedRevision)
+    if type(event) ~= "table" or event.id ~= eventId or event.kind ~= "faction_entry"
+        or event.phase ~= "spawning" or event.revision ~= revision
+        or not finiteCoordinate(hours) or hours < (tonumber(event.lastChangedAtHours) or math.huge)
+        or type(faction) ~= "table" or faction.kind ~= "npc" then
+        return nil, "event_changed"
+    end
+    local identity = faction.eventIdentity
+    if type(identity) ~= "table" or identity.policyId ~= event.policyId
+        or identity.sourceEventId ~= eventId then return nil, "event_faction_changed" end
+    local members = copyIds(faction.memberIds)
+    if #members ~= math.floor(tonumber(event.partySize) or 0) then
+        return nil, "event_party_changed"
+    end
+    local group, duties, leaderOrigin = nil, {}, nil
+    for _, id in ipairs(members) do
+        local survivor = data.survivors[id]
+        local duty = survivor ~= nil and survivor.duty or nil
+        local affiliation = survivor ~= nil and survivor.affiliation or nil
+        local memberGroup = KnoxPersistence.getTravelGroupFor(id)
+        if survivor == nil or survivor.alive == false or survivor.eventManaged ~= true
+            or survivor.eventSourceId ~= eventId or affiliation == nil
+            or affiliation.kind ~= "faction" or affiliation.factionId ~= factionId
+            or duty == nil or duty.mode ~= "autonomous" or duty.eventId ~= nil
+            or KnoxPersistence.getAwayTeamForSurvivor(id) ~= nil
+            or memberGroup == nil or memberGroup.factionId ~= factionId
+            or (group ~= nil and memberGroup.id ~= group.id) then
+            return nil, "event_member_unavailable"
+        end
+        group = group or memberGroup
+        duties[#duties + 1] = duty
+        if id == faction.leaderId then leaderOrigin = survivor.origin end
+    end
+    leaderOrigin = leaderOrigin or (data.survivors[members[1]] or {}).origin
+    if group == nil or type(leaderOrigin) ~= "table"
+        or not finiteCoordinate(leaderOrigin.x) or not finiteCoordinate(leaderOrigin.y)
+        or not finiteCoordinate(leaderOrigin.z or 0) then return nil, "event_origin_missing" end
+
+    event.sourceFactionId = factionId
+    event.sourceGroupId = group.id
+    event.memberIds = members
+    event.entryLocation = { x = math.floor(tonumber(leaderOrigin.x)),
+        y = math.floor(tonumber(leaderOrigin.y)), z = math.floor(tonumber(leaderOrigin.z) or 0) }
+    event.phase = "approaching"
+    event.revision = revision + 1
+    event.lastChangedAtHours = hours
+    event.nextAttemptAtHours = hours
+    event.reason = "persistent_event_party_entered"
+    for _, duty in ipairs(duties) do
+        duty.eventId = eventId
+        duty.revision = (tonumber(duty.revision) or 0) + 1
+        duty.changedAtHours = hours
+    end
+    return copySerializable(event), "committed"
 end
 
 function KnoxPersistence.addFactionMember(factionId, survivorId, worldAgeHours)

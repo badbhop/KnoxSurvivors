@@ -617,6 +617,22 @@ activation eligibility, idempotent retry, injected mid-batch rollback, world-age
 entry-wait cleanup after a real-state capture. It does not materialize an IsoPlayer or validate
 the themed appearance/loadout that later event runtime work must request.
 
+Run `lua tools/test-named-event-runtime.lua .` for the persisted named-event lifecycle. It covers
+schedule-without-allocation, world-age/objective validation, due-time one-shot party creation,
+atomic event duty, no duplicate retry, local-player entry separation, distinct approach points,
+real-position arrival, the bounded common objective, entry-anchor withdrawal, identity/faction
+retention, fully stored cohort travel and persisted retry cooldown when no safe origin exists.
+
+Live named-entry gate: on a disposable day-one-or-later save, enable **Developer Tools** and
+**Allow Destructive Tests**, then right-click a loaded ground square and choose **Schedule Police
+Entry Here**. The feed should report one event ID. Confirm three Police identities enter from a
+believable offscreen anchor rather than beside the player, approach distinct nearby positions,
+remain ordinary neutral survivors during the initial bounded objective, withdraw toward that same
+anchor, and keep one identity/faction record each after save/reload. Inspect
+`[KnoxSurvivors][Events]` for `spawning`, `active`, and `completed`; no phase may create a second
+party. Appearance/loadout theming, automatic Police triggers and actual Police objectives are not
+part of this gate.
+
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe
 that as a successful live raid. `lua tools/test-event-runtime.lua .` additionally runs

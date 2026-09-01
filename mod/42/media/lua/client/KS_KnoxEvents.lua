@@ -59,11 +59,32 @@ local function records()
 end
 
 local function retainCooldown(event)
+    if event.kind ~= "faction_raid" then return end
     if type(event.sourceFactionId) ~= "string" or not finite(event.lastChangedAtHours) then return end
     local cooldowns = KnoxPersistence.getKnoxEventState().cooldowns
     local untilHours = event.lastChangedAtHours + RAID_COOLDOWN_HOURS
     cooldowns[event.sourceFactionId] = math.max(untilHours,
         finite(cooldowns[event.sourceFactionId]) and cooldowns[event.sourceFactionId] or 0)
+end
+
+local function point(value)
+    if type(value) ~= "table" then return false end
+    local x, y, z = tonumber(value.x), tonumber(value.y), tonumber(value.z) or 0
+    return finite(x) and finite(y) and finite(z) and math.abs(x) <= 1000000
+        and math.abs(y) <= 1000000 and z % 1 == 0 and z >= 0 and z <= 7
+end
+
+local function emptyList(value)
+    return type(value) == "table" and next(value) == nil
+end
+
+local function allocateEventId(state)
+    local number = serial(state.nextId) and state.nextId or 1
+    while state.records["knox-event-" .. string.format("%.0f", number)] ~= nil do
+        number = number < MAX_SERIAL and number + 1 or 1
+    end
+    state.nextId = number < MAX_SERIAL and number + 1 or 1
+    return "knox-event-" .. string.format("%.0f", number)
 end
 
 local function targetFaction(base)
@@ -300,18 +321,108 @@ function KnoxEvents.scheduleRaid(factionId, baseId, hours, delayHours)
     local proposal, reason = KnoxEvents.proposeRaid(factionId, baseId, hours)
     if proposal == nil then return nil, reason end
     local state = KnoxPersistence.getKnoxEventState()
-    local number = serial(state.nextId) and state.nextId or 1
-    while state.records["knox-event-" .. string.format("%.0f", number)] ~= nil do
-        number = number < MAX_SERIAL and number + 1 or 1
-    end
-    state.nextId = number < MAX_SERIAL and number + 1 or 1
-    proposal.id = "knox-event-" .. string.format("%.0f", number)
+    proposal.id = allocateEventId(state)
     proposal.phase, proposal.revision = "scheduled", 1
     proposal.createdAtHours, proposal.lastChangedAtHours = hours, hours
     proposal.dueAtHours, proposal.deadlineHours = hours + delayHours, hours + delayHours + 24
     proposal.reason = "awaiting_dispatch"
     state.records[proposal.id] = proposal
     return copy(proposal), "scheduled"
+end
+
+-- Named arrivals are scheduled as bookkeeping first. No survivor, body, item,
+-- faction relationship or hostility is created until the due event is claimed
+-- by the runtime through the atomic persistence entry transaction.
+function KnoxEvents.scheduleFactionEntry(policyId, objectiveKind, target, partySize, hours, delayHours)
+    hours, delayHours = tonumber(hours), delayHours == nil and 1 or tonumber(delayHours)
+    partySize = math.floor(tonumber(partySize) or 0)
+    if not finite(hours) or hours < 0 or not finite(delayHours) or delayHours < 0 or delayHours > 168
+        or not point(target) or partySize < 2 or partySize > 6
+        or not KnoxEventFactions.isWorldAgeEligible(policyId, hours)
+        or not KnoxEventFactions.allowsObjective(policyId, objectiveKind) then
+        return nil, "invalid_faction_entry"
+    end
+    local state = KnoxPersistence.getKnoxEventState()
+    local id = allocateEventId(state)
+    local due = hours + delayHours
+    local event = {
+        id = id,
+        kind = "faction_entry",
+        policyId = policyId,
+        objectiveKind = objectiveKind,
+        partySize = partySize,
+        memberIds = {},
+        targetLocation = {
+            x = math.floor(tonumber(target.x)),
+            y = math.floor(tonumber(target.y)),
+            z = math.floor(tonumber(target.z) or 0),
+        },
+        phase = "scheduled",
+        revision = 1,
+        createdAtHours = hours,
+        lastChangedAtHours = hours,
+        dueAtHours = due,
+        deadlineHours = due + 24,
+        nextAttemptAtHours = due,
+        entryAttempts = 0,
+        reason = "awaiting_event_entry",
+    }
+    state.records[id] = event
+    return copy(event), "scheduled"
+end
+
+function KnoxEvents.deferFactionEntry(id, revision, hours, reason)
+    local event = records()[id]
+    if type(event) ~= "table" or event.kind ~= "faction_entry" or event.phase ~= "spawning"
+        or event.revision ~= revision or not finite(hours) or hours < event.lastChangedAtHours then
+        return nil, "event_changed"
+    end
+    event.entryAttempts = math.min(96, math.max(0, math.floor(tonumber(event.entryAttempts) or 0)) + 1)
+    event.nextAttemptAtHours = math.min(event.deadlineHours, hours + 0.25)
+    event.lastChangedAtHours = hours
+    event.reason = string.sub(tostring(reason or "event_entry_deferred"), 1, 120)
+    return copy(event), "deferred"
+end
+
+function KnoxEvents.commitFactionEntry(id, revision, factionId, hours)
+    local event, reason = KnoxPersistence.commitEventFactionEntry(id, revision, factionId, hours)
+    return event ~= nil and copy(event) or nil, reason
+end
+
+function KnoxEvents.beginFactionEntryObjective(id, revision, hours)
+    local event = records()[id]
+    if type(event) ~= "table" or event.kind ~= "faction_entry" or event.phase ~= "active"
+        or event.revision ~= revision then return nil, "event_changed" end
+    local changed, reason = KnoxEvents.transition(id, revision, "objective", hours, "event_objective_active")
+    if changed == nil then return nil, reason end
+    event.objective = { kind = event.objectiveKind, startedAtHours = hours,
+        deadlineHours = math.min(event.deadlineHours, hours + 1) }
+    return copy(event), "started"
+end
+
+function KnoxEvents.isValidFactionEntryObjective(event)
+    local objective = type(event) == "table" and event.objective or nil
+    return event ~= nil and event.kind == "faction_entry" and type(objective) == "table"
+        and objective.kind == event.objectiveKind
+        and KnoxEventFactions.allowsObjective(event.policyId, objective.kind)
+        and finite(objective.startedAtHours) and finite(objective.deadlineHours)
+        and objective.deadlineHours > objective.startedAtHours
+        and objective.deadlineHours <= event.deadlineHours
+end
+
+function KnoxEvents.finishFactionEntryObjective(id, revision, hours)
+    local event = records()[id]
+    if type(event) ~= "table" or event.phase ~= "objective" or event.revision ~= revision
+        or not finite(hours) or not KnoxEvents.isValidFactionEntryObjective(event)
+        or hours < event.objective.deadlineHours then
+        return nil, "missing_objective_evidence"
+    end
+    return KnoxEvents.transition(id, revision, "withdrawing", hours, "event_objective_elapsed")
+end
+
+function KnoxEvents.isTravelEvent(event)
+    return type(event) == "table"
+        and (event.kind == "faction_raid" or event.kind == "faction_entry")
 end
 
 local function baseCenter(base)
@@ -412,17 +523,55 @@ function KnoxEvents.scheduleAutomaticRaid(hours, enabled, minimumDays, intervalD
 end
 
 function KnoxEvents.isValidRecord(event)
-    if type(event) ~= "table" or event.kind ~= "faction_raid" or NEXT[event.phase] == nil
-        or not memberList(event.memberIds) or not serial(event.revision)
+    if type(event) ~= "table" or not KnoxEvents.isTravelEvent(event) or NEXT[event.phase] == nil
+        or not serial(event.revision)
         or not finite(event.dueAtHours) or not finite(event.lastChangedAtHours)
         or not finite(event.deadlineHours) or event.deadlineHours < event.dueAtHours then
         return false
     end
-    return true
+    if event.kind == "faction_raid" then return memberList(event.memberIds) end
+    if type(event.policyId) ~= "string" or type(event.objectiveKind) ~= "string"
+        or not serial(event.partySize) or event.partySize < 2 or event.partySize > 6
+        or not point(event.targetLocation) or not finite(event.createdAtHours)
+        or not finite(event.nextAttemptAtHours) or not finite(event.entryAttempts)
+        or event.nextAttemptAtHours < event.dueAtHours or event.nextAttemptAtHours > event.deadlineHours
+        or event.entryAttempts < 0 or event.entryAttempts > 96 or event.entryAttempts % 1 ~= 0 then
+        return false
+    end
+    if event.sourceFactionId == nil then
+        return (event.phase == "scheduled" or event.phase == "spawning") and emptyList(event.memberIds)
+            and event.entryLocation == nil and event.sourceGroupId == nil
+    end
+    return type(event.sourceFactionId) == "string" and event.sourceFactionId ~= ""
+        and type(event.sourceGroupId) == "string" and event.sourceGroupId ~= ""
+        and memberList(event.memberIds) and #event.memberIds == event.partySize and point(event.entryLocation)
 end
 
 function KnoxEvents.validate(event)
     if not KnoxEvents.isValidRecord(event) then return false, "invalid_event_record" end
+    if event.kind == "faction_entry" then
+        if not KnoxEventFactions.isWorldAgeEligible(event.policyId, event.createdAtHours)
+            or not KnoxEventFactions.allowsObjective(event.policyId, event.objectiveKind) then
+            return false, "invalid_event_policy"
+        end
+        if event.sourceFactionId == nil then return true, "valid" end
+        local faction = KnoxPersistence.getFaction(event.sourceFactionId)
+        local identity = faction ~= nil and faction.eventIdentity or nil
+        if identity == nil or identity.policyId ~= event.policyId
+            or identity.sourceEventId ~= event.id then return false, "event_faction_changed" end
+        local roster = {}; for _, id in ipairs(faction.memberIds or {}) do roster[id] = true end
+        for _, id in ipairs(event.memberIds) do
+            local affiliation = KnoxPersistence.getSurvivorAffiliation(id)
+            local group = KnoxPersistence.getTravelGroupFor(id)
+            if not roster[id] or not KnoxPersistence.isSurvivorAlive(id)
+                or affiliation == nil or affiliation.factionId ~= faction.id
+                or group == nil or group.id ~= event.sourceGroupId then return false, "member_lost" end
+        end
+        if event.phase == "objective" and not KnoxEvents.isValidFactionEntryObjective(event) then
+            return false, "objective_state_missing"
+        end
+        return true, "valid"
+    end
     local owners, reason = raidOwners(event.sourceFactionId, event.targetBaseId)
     if owners == nil then return false, reason end
     if owners.targetFactionId ~= event.targetFactionId or owners.home.id ~= event.sourceBaseId
@@ -514,7 +663,9 @@ function KnoxEvents.maintain(hours, budget)
         elseif not terminal(event) then
             local valid, reason = KnoxEvents.validate(event)
             if not valid or hours >= event.deadlineHours then
-                local phase = event.phase == "scheduled" and "failed" or "withdrawing"
+                local undeployedEntry = event.kind == "faction_entry" and event.sourceFactionId == nil
+                local phase = (event.phase == "scheduled" or undeployedEntry)
+                    and "failed" or "withdrawing"
                 if event.phase ~= "withdrawing" then
                     KnoxEvents.transition(id, event.revision, phase, hours,
                         valid and "event_deadline" or reason)

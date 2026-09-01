@@ -76,6 +76,28 @@ function DeveloperTools.scheduleEligibleRaid()
         .. " result=" .. tostring(result))
 end
 
+function DeveloperTools.schedulePoliceEntry(playerNum, worldObjects)
+    if not KnoxSettings.allowDestructiveDeveloperTests() then
+        KnoxActivityFeed.event("Police entry test requires Allow Destructive Tests.")
+        return
+    end
+    local object = worldObjects ~= nil and worldObjects[1] or nil
+    local square = object ~= nil and object:getSquare() or nil
+    if square == nil then
+        KnoxActivityFeed.event("Police entry scheduling failed: no target square.")
+        return
+    end
+    local hours = getGameTime():getWorldAgeHours()
+    local event, result = KnoxEvents.scheduleFactionEntry("police", "secure_area", {
+        x = square:getX(), y = square:getY(), z = square:getZ(),
+    }, 3, hours, 0)
+    KnoxActivityFeed.event(event ~= nil
+        and ("Police Knox Event scheduled: " .. tostring(event.id) .. ".")
+        or ("Police entry scheduling failed: " .. tostring(result) .. "."))
+    print("[KnoxSurvivors][DeveloperTools] policeEntry="
+        .. tostring(event ~= nil and event.id or "none") .. " result=" .. tostring(result))
+end
+
 local function onFill(playerNum, context, worldObjects, test)
     if not KnoxSettings.developerToolsEnabled() then
         return
@@ -109,6 +131,8 @@ local function onFill(playerNum, context, worldObjects, test)
     if KnoxSettings.allowDestructiveDeveloperTests() then
         menu:addOption("Schedule Eligible Faction Raid Now", nil,
             DeveloperTools.scheduleEligibleRaid)
+        menu:addOption("Schedule Police Entry Here", playerNum,
+            DeveloperTools.schedulePoliceEntry, worldObjects)
     end
 
     menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)

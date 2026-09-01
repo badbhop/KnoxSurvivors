@@ -3,12 +3,14 @@ require "KS_SurvivorRuntime"
 require "KS_SurvivorNeeds"
 require "KS_FirearmSupport"
 require "KS_BaseManager"
+require "KS_WorldPopulation"
 
 local Runtime = rawget(_G, "KnoxEventRuntime") or {}
 _G.KnoxEventRuntime = Runtime
 local cursor = 0
 local nextDispatchCheck = {}
 local READY_STATES = { IDLE = true, BASE_IDLE = true, BASE_PATROL = true, BASE_RETURN = true }
+local ENTRY_OFFSETS = { { 0, 0 }, { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 }, { 2, 2 } }
 
 local function finished(event)
     return event == nil or event.phase == "completed" or event.phase == "failed"
@@ -24,11 +26,17 @@ local function indexOf(event, id)
 end
 
 local function sourceHome(event)
+    if event.kind ~= "faction_raid" then return nil end
     local base = KnoxPersistence.getBase(event.sourceBaseId)
     return base ~= nil and base.ownerKind == "faction" and base.ownerId == event.sourceFactionId and base or nil
 end
 
 local function areaFor(event, returning)
+    if event.kind == "faction_entry" then
+        local location = returning and event.entryLocation or event.targetLocation
+        if type(location) ~= "table" then return nil end
+        return { minX = location.x, minY = location.y, width = 1, height = 1, z = location.z }
+    end
     local base = returning and sourceHome(event) or nil
     if not returning then base = KnoxPersistence.getBase(event.targetBaseId) end
     return base ~= nil and base.home or nil
@@ -43,6 +51,10 @@ function Runtime.destination(event, id)
     if x == nil or y == nil or w == nil or h == nil or w < 1 or h < 1 then return nil end
     for _, value in ipairs({ x, y, w, h, area.z or 0 }) do
         if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then return nil end
+    end
+    if event.kind == "faction_entry" then
+        local offset = ENTRY_OFFSETS[(slot - 1) % #ENTRY_OFFSETS + 1]
+        return { x = x + offset[1], y = y + offset[2], z = area.z or 0 }
     end
     if returning then
         return { x = x + math.min(w - 1, 1 + (slot - 1) % math.max(1, math.floor(w - 2))),
@@ -69,6 +81,18 @@ function Runtime.destination(event, id)
     end
     return { x = x + offset % w, y = (dy < 0 and y - 3 or y + h + 2)
         + (dy < 0 and -1 or 1) * math.floor(offset / w), z = area.z or 0 }
+end
+
+local function currentPlayers()
+    local players, specific = {}, rawget(_G, "getSpecificPlayer")
+    if type(specific) ~= "function" then return players end
+    local countFunction = rawget(_G, "getNumActivePlayers")
+    local count = type(countFunction) == "function" and tonumber(countFunction()) or 4
+    for index = 0, math.max(0, math.floor(count or 0) - 1) do
+        local player = specific(index)
+        if player ~= nil and player:getCurrentSquare() ~= nil then players[#players + 1] = player end
+    end
+    return players
 end
 
 function Runtime.memberReady(controller, base)
@@ -103,6 +127,16 @@ local function nearDestination(character, destination)
     local square = character:getCurrentSquare()
     if square == nil or square:getZ() ~= destination.z then return false end
     local dx, dy = character:getX() - destination.x, character:getY() - destination.y
+    return dx * dx + dy * dy <= 9
+end
+
+local function atDestination(id, character, destination)
+    if character ~= nil then return nearDestination(character, destination) end
+    local state = KnoxPersistence.getUnloadedSurvivalState(id)
+    if state == nil or destination == nil then return false end
+    local x, y, z = tonumber(state.virtualX), tonumber(state.virtualY), tonumber(state.virtualZ)
+    if x == nil or y == nil or z == nil or z ~= destination.z then return false end
+    local dx, dy = x - destination.x, y - destination.y
     return dx * dx + dy * dy <= 9
 end
 
@@ -171,6 +205,27 @@ function Runtime.dispatch(event, controllers, hours)
     if hours < event.dueAtHours then return false, "not_due" end
     local valid, why = KnoxEvents.validate(event)
     if not valid then return false, why end
+    if event.kind == "faction_entry" then
+        if event.phase == "scheduled" then
+            event = change(event, "spawning", hours, "selecting_event_entry")
+            if event == nil then return false, "event_changed" end
+        end
+        if hours < (tonumber(event.nextAttemptAtHours) or 0) then return false, "entry_retry_cooldown" end
+        local origins, reason = KnoxWorldPopulation.eventEntryOrigins(event.targetLocation,
+            event.partySize, event.id, { players = currentPlayers(), minimumTargetDistance = 100,
+                maximumTargetDistance = 600, minimumPlayerDistance = 100 })
+        if origins == nil then
+            KnoxEvents.deferFactionEntry(event.id, event.revision, hours, reason)
+            return false, reason
+        end
+        local faction, created = KnoxEventFactions.createEntry(event.policyId, event.id, origins, hours)
+        if faction == nil then
+            KnoxEvents.deferFactionEntry(event.id, event.revision, hours, created)
+            return false, created
+        end
+        local committed, result = KnoxEvents.commitFactionEntry(event.id, event.revision, faction.id, hours)
+        return committed ~= nil, committed ~= nil and "dispatched" or result
+    end
     local home = KnoxPersistence.getBase(event.sourceBaseId)
     for _, id in ipairs(event.memberIds) do
         if not owns(id, event.id) then
@@ -196,13 +251,18 @@ function Runtime.dispatch(event, controllers, hours)
 end
 
 local function objectiveValid(event)
-    return KnoxEvents.isValidRaidObjective(event)
+    return event ~= nil and (event.kind == "faction_raid" and KnoxEvents.isValidRaidObjective(event)
+        or event.kind == "faction_entry" and KnoxEvents.isValidFactionEntryObjective(event))
 end
 
 function Runtime.reviewObjective(event, hours)
     event = event ~= nil and KnoxEvents.get(event.id) or nil
     if event == nil or event.phase ~= "objective" then return end
     if not objectiveValid(event) then change(event, "withdrawing", hours, "objective_state_missing"); return end
+    if event.kind == "faction_entry" then
+        KnoxEvents.finishFactionEntryObjective(event.id, event.revision, hours)
+        return
+    end
     local count, exhausted = KnoxEvents.objectiveCount(event), true
     for _, id in ipairs(event.memberIds) do
         if (tonumber(event.objective.misses[id]) or 0) < 3 then exhausted = false end
@@ -222,6 +282,11 @@ function Runtime.beginObjectiveWork(controller, ticks)
     local event = assignment ~= nil and KnoxEvents.get(assignment.id) or nil
     if event == nil or event.phase ~= "objective" or not objectiveValid(event) then
         controller.state, controller.nextThink = "EVENT_WAIT", math.max(controller.nextThink or 0, ticks + 90)
+        return true
+    end
+    if event.kind == "faction_entry" then
+        controller.state = "EVENT_WAIT"
+        controller.nextThink = math.max(controller.nextThink or 0, ticks + 90)
         return true
     end
     local base = KnoxPersistence.getBase(event.targetBaseId)
@@ -245,7 +310,8 @@ function Runtime.captureLootContext(character, source, destination)
         or source:isInCharacterInventory(character) then return nil end
     local duty = KnoxPersistence.getSurvivorDuty(id)
     local event = duty ~= nil and duty.eventId ~= nil and KnoxEvents.get(duty.eventId) or nil
-    if event == nil or event.phase ~= "objective" or not objectiveValid(event) then return nil end
+    if event == nil or event.kind ~= "faction_raid" or event.phase ~= "objective"
+        or not objectiveValid(event) then return nil end
     local square, parent = source:getSourceGrid(), source:getParent()
     if square == nil or parent == nil or instanceof(parent, "IsoGameCharacter")
         or not KnoxBaseManager.containsSquare(KnoxPersistence.getBase(event.targetBaseId), square) then return nil end
@@ -317,7 +383,11 @@ function Runtime.update(controllers, hours)
                 if arrived and event.phase == "approaching" then
                     change(event, "active", hours, "party_arrived")
                 elseif event.phase == "active" then
-                    KnoxEvents.beginRaidObjective(event.id, event.revision, hours)
+                    if event.kind == "faction_raid" then
+                        KnoxEvents.beginRaidObjective(event.id, event.revision, hours)
+                    else
+                        KnoxEvents.beginFactionEntryObjective(event.id, event.revision, hours)
+                    end
                 elseif event.phase == "objective" then
                     Runtime.reviewObjective(event, hours)
                 end
@@ -326,16 +396,24 @@ function Runtime.update(controllers, hours)
                 for _, id in ipairs(event.memberIds or {}) do
                     if owns(id, event.id) then
                         local controller = controllers[id]
-                        if not KnoxPersistence.isSurvivorAlive(id) or home == nil
-                            or returnedHome(id, controller ~= nil and controller.character or nil, home) then
+                        local returned = event.kind == "faction_entry"
+                            and atDestination(id, controller ~= nil and controller.character or nil,
+                                Runtime.destination(event, id))
+                            or home ~= nil and returnedHome(id,
+                                controller ~= nil and controller.character or nil, home)
+                        if not KnoxPersistence.isSurvivorAlive(id) or returned
+                            or event.kind == "faction_raid" and home == nil then
                             KnoxPersistence.releaseEventDuty(id, event.id, hours)
                         else
                             resolved = false
                         end
                     end
                 end
-                if resolved then change(event, home ~= nil and "completed" or "failed", hours,
-                    home ~= nil and "party_returned_or_released" or "home_removed") end
+                if resolved then
+                    local completed = event.kind == "faction_entry" or home ~= nil
+                    change(event, completed and "completed" or "failed", hours,
+                        completed and "party_returned_or_released" or "home_removed")
+                end
             end
         end
     end

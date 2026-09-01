@@ -850,5 +850,25 @@ Before first real materialization, event entrants retain `pendingMaterialization
 entry anchor rather than independently advancing the ordinary roaming itinerary. Normal hidden,
 loaded, distance and standability gates still decide when each body may appear. The first real
 capture clears entry waiting and transfers physiology/location ownership to the existing native
-snapshot path. This layer does not create bodies/items, apply loadout themes or schedule named
-events; those remain later event-runtime responsibilities.
+snapshot path.
+
+Named arrivals now use `kind=faction_entry` in the same persisted event ledger. Scheduling stores
+only policy, objective, party size and target; it creates no survivor. At due time the runtime
+claims `scheduled -> spawning`, selects one safe cached-world anchor, invokes the idempotent entry
+allocation, and commits faction/member/group identity plus every member's temporary `duty.eventId`
+in one ModData transaction. A persisted 15-world-minute retry prevents missing-origin attempts
+from becoming an update storm, while retry after reload remains safe because source-event binding
+cannot allocate a second faction.
+
+Entry parties use distinct common approach/return points and the existing loaded EVENT_TRAVEL and
+stored-cohort movement. An incomplete mix of materialized and unmaterialized members waits rather
+than splitting into independent itineraries. Real loaded positions establish arrival; no timer
+fabricates it offscreen. The initial shared objective is deliberately only a bounded one-hour
+presence state allowed by the selected policy. It grants no loot, combat outcome, faction-specific
+behavior or items. Withdrawal returns toward the saved entry anchor, releases temporary event duty,
+and leaves every surviving identity in the ordinary faction/world population.
+
+The destructive developer action **Schedule Police Entry Here** is the first explicit live harness.
+It is not an automatic Police event and does not yet apply themed appearance/loadouts. Automatic
+named triggers, real faction objectives, disposition realization, loadout realization and
+persist-after-event policy differences remain later event-runtime responsibilities.

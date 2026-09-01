@@ -2636,7 +2636,52 @@ durable identity because a later engine materialization attempt is temporarily u
 activation retries are safer than deleting persistent people. The earlier audit wording implying
 materialization/loadout rollback is therefore corrected at this boundary.
 
-Remaining: create a persisted named-event record before entry, call this transaction exactly once
-at its due transition, apply an archetype loadout through real first materialization, then give the
-party a common approach/objective/withdrawal duty. Until that runtime path exists, the transaction
-is not called by normal gameplay or developer menus and no Police/Military/etc. encounter occurs.
+Remaining at this historical boundary was the persisted named-event caller, common travel duty,
+loadout realization and objectives. The following entry records the implemented caller/runtime;
+appearance/loadout and faction-specific behavior remain open.
+
+## 2026-08-31 — Persisted named-event entry lifecycle
+
+Status: common named-entry runtime implemented and automatically verified; live verification and
+faction-specific behavior/loadouts remain required.
+
+### Missing boundary and implementation
+
+- Policy and entry allocation previously had no durable caller. A named faction could be created
+  only by invoking the persistence helper directly, with no schedule, retry ownership, approach,
+  objective, withdrawal or cleanup record.
+- `faction_entry` now uses the existing Knox Events phase/revision ledger. Scheduling records no
+  actor. Due dispatch claims the spawning phase, chooses a compact cached-world origin 100–600
+  tiles from the target and at least 100 tiles from supplied local players, then calls the existing
+  idempotent persistent-party transaction.
+- A second atomic commit validates the canonical faction, ordinary travel group, all members,
+  affiliations, duties and source-event identity before writing the roster and temporary event
+  ownership. Reload/retry returns the same faction; a partial duty claim cannot occur.
+- No safe entry origin leaves the event in spawning with a persisted 15-world-minute retry. It
+  creates no people and cannot retry every controller update.
+- Named parties reuse distinct loaded event destinations and the existing stored cohort scheduler.
+  Real loaded positions establish arrival. The initial policy-allowed objective is a bounded
+  one-hour presence state only; it manufactures no items, results, combat, reputation or lore.
+- Withdrawal returns to the saved entry anchor, releases event duty, and retains living members as
+  ordinary persistent world/faction identities. Non-persistent faction disposal is intentionally
+  not faked by deleting survivors; that lifecycle policy remains future work.
+- A destructive developer action can explicitly schedule a three-person Police entry at the
+  selected world location. It does not bypass world-age or safe-origin policy and is not an
+  automatic event trigger.
+
+### Verification and remaining evidence
+
+`tools/test-named-event-runtime.lua` covers zero-actor scheduling, due-time one-shot allocation,
+world-age/objective policy, atomic duty, unique destinations, player separation, real-position
+arrival, bounded objective, withdrawal, persistent survivors/faction, fully stored cohort travel,
+same-time no-double-advance, no-origin retry cooldown, entry-wait cleanup and no duplicate party.
+All 67 standalone Lua tests and all 75 mod Lua syntax checks pass. `:java:build
+prepareWorkshopUpload` passes all Java 25 shell/transformer/inventory verifiers and stages the
+current Lua payload. Existing raid, entry, objective, readiness and scheduler regressions pass.
+
+Pending live: use **Schedule Police Entry Here** on a disposable save and confirm the same three
+identities enter, approach, survive reload/hibernation, withdraw and release ownership without a
+duplicate or movement storm. This is not a completed Police faction feature: themed appearance,
+real Police equipment, disposition/reputation behavior, automatic triggers and meaningful Police
+objectives are still unimplemented. Scientists, Military, Scavengers, PMC contracts and Black
+Division remain policy-only. No Java/launcher protocol changed in this pass.
