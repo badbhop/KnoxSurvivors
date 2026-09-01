@@ -212,6 +212,15 @@ local function root()
         if type(faction) == "table" and (type(faction.name) ~= "string" or faction.name == "") then
             faction.name = stableFactionName(data, factionId, faction)
         end
+        local eventIdentity = type(faction) == "table" and faction.eventIdentity or nil
+        if eventIdentity ~= nil and (type(eventIdentity) ~= "table"
+            or type(eventIdentity.policyId) ~= "string" or eventIdentity.policyId == ""
+            or type(eventIdentity.sourceEventId) ~= "string" or eventIdentity.sourceEventId == ""
+            or (eventIdentity.basePolicy ~= "event_only" and eventIdentity.basePolicy ~= "optional")
+            or not finiteCoordinate(eventIdentity.boundAtHours)
+            or eventIdentity.boundAtHours < 0) then
+            faction.eventIdentity = nil
+        end
     end
     -- Rebuild schemas 1 and 2 already stored compatible encoded survivor records.
     -- Add newer domain tables in place instead of erasing people on a version bump.
@@ -1497,6 +1506,41 @@ end
 
 function KnoxPersistence.getFactions()
     return root().factions
+end
+
+-- Event factions remain ordinary Knox factions. This metadata identifies why
+-- they entered the world; it never owns members, relationships, health or gear.
+function KnoxPersistence.bindFactionEventIdentity(
+    factionId,
+    policyId,
+    displayName,
+    sourceEventId,
+    basePolicy,
+    worldAgeHours
+)
+    local faction = KnoxPersistence.getFaction(factionId)
+    local hours = tonumber(worldAgeHours)
+    if faction == nil or faction.kind ~= "npc"
+        or type(policyId) ~= "string" or not policyId:match("^[a-z][a-z0-9_]*$") or #policyId > 40
+        or type(displayName) ~= "string" or displayName == "" or #displayName > 64
+        or type(sourceEventId) ~= "string" or sourceEventId == "" or #sourceEventId > 80
+        or (basePolicy ~= "event_only" and basePolicy ~= "optional")
+        or not finiteCoordinate(hours) or hours < 0 then return nil, "invalid_event_faction" end
+    local current = faction.eventIdentity
+    if current ~= nil then
+        if current.policyId == policyId and current.sourceEventId == sourceEventId then
+            return copySerializable(faction), "existing"
+        end
+        return nil, "event_faction_already_bound"
+    end
+    faction.eventIdentity = {
+        policyId = policyId,
+        sourceEventId = sourceEventId,
+        basePolicy = basePolicy,
+        boundAtHours = hours,
+    }
+    faction.name = displayName
+    return copySerializable(faction), "bound"
 end
 
 local FACTION_DISPOSITIONS = {

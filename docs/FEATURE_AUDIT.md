@@ -2573,3 +2573,32 @@ duty across save/reload. Then test natural scheduling after the configured day w
 developer command. The staged package is not a Steam upload or local subscribed-install update.
 Faction-specific event policies must wait for this common live gate; the next safe independent
 dependency is defining the reusable event-faction identity/policy records without spawning them.
+
+## 2026-08-31 — Shared named event-faction policy boundary
+
+Status: policy/persistence foundation implemented and automatically verified. No named event
+faction is spawned or enabled by this boundary.
+
+- Added one immutable policy catalog for Police, Scientists, Military, Black Division,
+  Scavengers and PMC. Definitions express only stable display identity, earliest world day,
+  base policy, permitted future objectives, persistence intent and loadout theme. Scavenger boss
+  spawning is explicitly disabled and PMC contract eligibility is retained as a future hook.
+- The policies contain no damage, health or accuracy multiplier. Black Division difficulty is
+  not implemented as hidden stat inflation; later behavior must use real training, skills,
+  equipment, accuracy and the common combat controller.
+- Event identity binds to the existing canonical NPC faction through `faction.eventIdentity`.
+  It does not create a parallel roster/relationship/inventory domain, alter duties or allocate
+  survivors. Repeating the same binding is idempotent; rebinding to another identity fails.
+- Save normalization rejects malformed policy/source/base/time metadata without touching the
+  faction's ordinary membership. Player factions cannot be relabeled as event factions.
+
+Verification: `tools/test-event-factions.lua` covers six deterministic policies, defensive
+copies, objective/age constraints, no multiplier fields, disabled boss, PMC hook, real faction
+binding, unchanged encoded inventories/duties/affiliations, rebind rejection, player rejection,
+malformed persistence and zero survivor allocation. Existing faction persistence coverage passes.
+
+Remaining: named-faction trigger/entry, believable spawn location, survivor allocation,
+appearance/loadout realization, objective execution, withdrawal/persistence outcome and live
+encounters are all unimplemented. The next architecture dependency is an event-entry transaction
+that allocates ordinary persistent survivor identities at a validated world location, binds one
+ordinary faction once, and rolls back atomically if materialization/loadout preparation fails.

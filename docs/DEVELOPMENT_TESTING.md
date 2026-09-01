@@ -604,6 +604,12 @@ normalization. With Developer Tools and Allow Destructive Tests enabled, **Sched
 Faction Raid Now** invokes this same scheduler without waiting for the calendar gate; it still
 requires two real hostile bases and an eligible five-member source faction.
 
+Run `lua tools/test-event-factions.lua .` for the named-faction policy boundary. It verifies all
+six stable definitions, defensive catalog copies, world-age/objective constraints, no artificial
+combat multipliers, disabled Scavenger boss, future PMC contract role, canonical faction binding,
+idempotency/rebind rejection, malformed-save cleanup and no survivor/inventory/duty creation.
+This is policy/persistence coverage only; it does not prove a Police/Military/etc. encounter.
+
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe
 that as a successful live raid. `lua tools/test-event-runtime.lua .` additionally runs

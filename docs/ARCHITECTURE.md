@@ -828,3 +828,12 @@ Disabling automatic raids prevents new schedules but does not erase a deployed p
 Actual live raid combat/loot/return evidence and the other Knox Event faction policies remain
 unfinished. Native human combat remains the existing authority and still needs its documented
 live evidence. Named event factions may not bypass this common persistent-survivor lifecycle.
+
+`KS_EventFactions` is the read-only catalog for Police, Scientists, Military, Black Division,
+Scavengers and PMC policy identity. Catalog entries contain only naming, world-age, base,
+objective, persistence and future loadout-theme constraints. They grant no actor, item, skill,
+accuracy, damage, health or relationship state. When an existing ordinary NPC faction is bound
+to one policy, `faction.eventIdentity` records the policy/source event on that same canonical
+faction; survivor affiliation, duty, inventory and relationships remain in their existing domains.
+Malformed identity metadata is dropped during save normalization and a faction cannot be rebound
+to a different event identity. The catalog does not yet spawn or trigger a named faction.

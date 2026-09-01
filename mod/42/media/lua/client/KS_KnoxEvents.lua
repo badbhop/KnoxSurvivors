@@ -1,4 +1,5 @@
 require "KS_Persistence"
+require "KS_EventFactions"
 
 local KnoxEvents = rawget(_G, "KnoxEvents") or {}
 _G.KnoxEvents = KnoxEvents
