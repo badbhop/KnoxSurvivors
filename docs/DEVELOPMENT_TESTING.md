@@ -631,6 +631,13 @@ and `lua tools/test-event-entry.lua .` for Police first materialization. Togethe
 canonical event-policy lookup, real `base:policeofficer` selection with balanced vanilla points,
 native Police starter items, and protection against rewriting an existing persisted profile.
 
+Run `lua tools/test-character-appearance.lua .`, `lua tools/test-survivor-capabilities.lua .`,
+`lua tools/test-survivor-starting-gear.lua .`, `lua tools/test-event-factions.lua .` and
+`lua tools/test-named-event-runtime.lua .` for Scientist first materialization. They verify the
+real balanced `base:doctor` profession, native clothing application with the real lab coat item,
+the ordinary clipboard/pen/scalpel field kit, canonical policy propagation and one-time event
+identity. These checks do not claim research simulation or a completed Scientist feature.
+
 Live named-entry gate: on a disposable day-one-or-later save, enable **Developer Tools** and
 **Allow Destructive Tests**, then right-click a loaded ground square and choose **Schedule Police
 Entry Here**. The feed should report one event ID. Confirm three Police identities enter from a
@@ -656,7 +663,8 @@ created. Save/reload afterward and revisit the area: departed identities must no
 or count toward living world population. Repeat while killing one withdrawing member; that member
 must use the ordinary death/corpse path while surviving members depart normally. Inspect autonomy
 logs for one `state=DEPARTED` per surviving loaded member and no repeated removal, restore or event
-completion loop.
+completion loop. On first materialization, confirm the entrants retain the same medical profession,
+lab coat and ordinary field items after save/reload without receiving duplicate equipment.
 
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe

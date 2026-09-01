@@ -22,6 +22,8 @@ local DEFINITIONS = {
         minimumWorldDays = 14,
         defaultDisposition = "neutral",
         loadoutTheme = "science",
+        professionId = "base:doctor",
+        appearanceItem = "Base.JacketLong_Doctor",
         objectives = { "research", "recover_research" },
         persistsAfterEvent = false,
     },
@@ -80,6 +82,8 @@ local function valid(definition)
         or type(definition.loadoutTheme) ~= "string" or definition.loadoutTheme == ""
         or (definition.professionId ~= nil and (type(definition.professionId) ~= "string"
             or not definition.professionId:match("^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$")))
+        or (definition.appearanceItem ~= nil and (type(definition.appearanceItem) ~= "string"
+            or not definition.appearanceItem:match("^[A-Za-z][A-Za-z0-9_]*%.[A-Za-z][A-Za-z0-9_]*$")))
         or type(definition.objectives) ~= "table" or #definition.objectives == 0
         or type(definition.persistsAfterEvent) ~= "boolean" then return false end
     local seen = {}

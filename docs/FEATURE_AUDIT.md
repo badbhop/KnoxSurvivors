@@ -2804,3 +2804,35 @@ after reaching it, then save/reload. The same identities must remain departed an
 there must be no corpse, duplicate shell, `RESTORE_FAILED`, or lost event completion. Kill one
 member during withdrawal and confirm only that member follows the normal corpse lifecycle. No Java
 or launcher protocol changed, so this increment requires no launcher patch.
+
+## 2026-09-01 — Scientist first-materialization identity and field kit
+
+Status: implemented and automatically verified; first live materialization and save/reload remain
+required. This is a narrow medical-research identity slice, not research gameplay or a completed
+Scientist faction.
+
+- Build 42.20.3 exposes no dedicated Scientist profession. The canonical Scientist policy now
+  requests the real zero-cost `base:doctor` profession, which still passes the existing vanilla
+  profession/trait point-balancing path rather than receiving custom skills or stats.
+- Existing creator clothing remains native. The policy adds the real `Base.JacketLong_Doctor`
+  through the existing wear bridge after Doctor clothing, making the theme recognizable without
+  a custom outfit engine or synthetic appearance state.
+- The existing starter-gear service provides only real ordinary `Base.Clipboard`, `Base.Pen` and
+  `Base.Scalpel` items plus bounded normal water, food and medical rolls. It grants no research
+  vial/result, firearm, ammunition, accuracy, health, damage or other artificial advantage.
+- Policy is consulted only on canonical `knox_event` first materialization. The first successful
+  native capture clears pending materialization, after which persisted profession, clothing,
+  equipment and inventory remain authoritative and the kit cannot be reissued on restore.
+- `tools/test-character-appearance.lua`, `tools/test-survivor-capabilities.lua`,
+  `tools/test-survivor-starting-gear.lua`, `tools/test-event-factions.lua` and
+  `tools/test-named-event-runtime.lua` cover clothing application, real balanced profession,
+  exact item types, immutable policy and propagation into the named-event roster.
+- All 69 standalone Lua tests and all 74 mod Lua syntax checks pass. `:java:build
+  prepareWorkshopUpload` passes the full Java 25 verification suite and stages the current
+  Workshop payload.
+
+Pending live: use **Schedule Scientists Exit Test Here** on a disposable day-14-or-later save.
+Confirm both entrants first appear with plausible Doctor clothing plus lab coats and ordinary field
+items. Save/reload while they are present and verify the same appearance, profession and inventory
+return without duplicate items; then let the existing withdrawal/departure gate complete. No Java
+or launcher protocol changed, so this increment requires no launcher patch.

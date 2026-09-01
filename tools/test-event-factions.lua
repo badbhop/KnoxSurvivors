@@ -24,6 +24,10 @@ assert(not F.isWorldAgeEligible("black_division", 60 * 24 - 0.01)
     and F.isWorldAgeEligible("black_division", 60 * 24), "late-game gate is explicit")
 assert(F.get("scavengers").bossEnabled == false, "scavenger boss hook remains disabled")
 assert(F.get("pmc").contractEligible == true, "PMC policy retains future contract role")
+local scientists = F.get("scientists")
+assert(scientists.professionId == "base:doctor"
+    and scientists.appearanceItem == "Base.JacketLong_Doctor",
+    "Scientists use a real balanced medical profession and real lab-coat item")
 
 local ids = { "a", "b", "c" }
 for _, id in ipairs(ids) do

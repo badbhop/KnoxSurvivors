@@ -889,6 +889,14 @@ profession, clothing and inventory states authoritative, so restore never reappl
 Automatic named triggers, real faction objectives, disposition realization, other faction
 loadouts and persist-after-event policy differences remain later event-runtime responsibilities.
 
+Scientists use the same one-time materialization boundary without inventing a parallel character
+type. Build 42.20.3 has no Scientist profession, so the current medical-research entrant policy
+uses the real balanced `base:doctor` profession, native Doctor creator clothing plus the real
+`Base.JacketLong_Doctor`, and ordinary real `Base.Clipboard`, `Base.Pen` and `Base.Scalpel` items.
+Only bounded normal water, food and medical rolls supplement that field kit. It grants no vial,
+research result, firearm, artificial stat or combat multiplier. Once captured, the ordinary native
+appearance/inventory record remains authoritative and the policy cannot issue the kit again.
+
 The first faction-specific objective is Police `secure_area`. Its event record owns only bounded
 observation evidence: next scan time, same-floor loaded-zombie count, clear-window start and final
 outcome. Every 0.02 world hours at most, the runtime counts living zombies within 18 tiles of the

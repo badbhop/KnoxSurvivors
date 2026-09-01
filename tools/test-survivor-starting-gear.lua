@@ -44,4 +44,16 @@ assert(added[3] == "Base.WaterBottle" and added[4] == "Base.Crisps"
     and added[5] == "Base.RippedSheets")
 assert(string.find(policeEvidence, "theme=police", 1, true) ~= nil)
 
+rolls = { 0, 0, 0, 0, 0, 0, 0, 0 }
+rollIndex = 0
+added = {}
+local scienceOk, scienceEvidence = gear.initialize("ks-world-1", character, bridge, "science")
+assert(scienceOk, scienceEvidence)
+assert(#added == 6, scienceEvidence)
+assert(added[1] == "Base.Clipboard" and added[2] == "Base.Pen"
+    and added[3] == "Base.Scalpel", "science kit must use real ordinary field items")
+assert(added[4] == "Base.WaterBottle" and added[5] == "Base.Crisps"
+    and added[6] == "Base.RippedSheets")
+assert(string.find(scienceEvidence, "theme=science", 1, true) ~= nil)
+
 print("survivor starting gear tests passed")

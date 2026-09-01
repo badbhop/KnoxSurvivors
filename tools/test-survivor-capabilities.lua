@@ -14,6 +14,11 @@ local police = {
     getCost = function() return -4 end,
     getGrantedTraits = function() return empty end,
 }
+local doctor = {
+    getType = function() return "base:doctor" end,
+    getCost = function() return 0 end,
+    getGrantedTraits = function() return empty end,
+}
 local balancingTrait = {
     getType = function() return "base:slowreader" end,
     getCost = function() return -4 end,
@@ -22,7 +27,7 @@ local balancingTrait = {
     isDisabledInMultiplayer = function() return false end,
     isMutuallyExclusive = function() return false end,
 }
-CharacterProfessionDefinition = { getProfessions = function() return list({ police }) end }
+CharacterProfessionDefinition = { getProfessions = function() return list({ police, doctor }) end }
 CharacterTraitDefinition = {
     getTraits = function() return list({ balancingTrait }) end,
     getCharacterTraitDefinition = function(id)
@@ -42,6 +47,10 @@ local profile, evidence = Capabilities.generate("ks-police-1", "base:policeoffic
 assert(profile ~= nil and evidence == "generated_preferred", tostring(evidence))
 assert(profile.professionId == "base:policeofficer" and profile.unspentPoints >= 0
     and profile.unspentPoints <= 3, "preferred profession must still use balanced vanilla points")
+local scientist, scientistEvidence = Capabilities.generate("ks-scientist-1", "base:doctor")
+assert(scientist ~= nil and scientistEvidence == "generated_preferred"
+    and scientist.professionId == "base:doctor" and scientist.unspentPoints >= 0,
+    "medical-research entrant uses the real balanced Doctor profession")
 local missing, missingEvidence = Capabilities.generate("ks-police-2", "base:missing")
 assert(missing == nil and string.find(missingEvidence, "preferred_profession_missing", 1, true),
     "unknown preferred profession fails explicitly")

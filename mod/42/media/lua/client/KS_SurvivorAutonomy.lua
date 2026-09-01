@@ -171,7 +171,8 @@ local function createSurvivorAt(bridge, id, square, developerKit)
     local appearanceOk, appearance = KnoxCharacterAppearance.randomizeNewSurvivor(
         bridge,
         id,
-        capabilities
+        capabilities,
+        eventPolicy ~= nil and eventPolicy.appearanceItem or nil
     )
     if not appearanceOk then
         bridge:removeNpc(id)

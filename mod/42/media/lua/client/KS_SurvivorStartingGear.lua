@@ -51,16 +51,29 @@ function StartingGear.initialize(id, character, bridge, loadoutTheme)
             or not add(inventory, "Base.WalkieTalkie4", added) then
             return false, "police_kit_item_unavailable"
         end
+    elseif loadoutTheme == "science" then
+        -- Build 42 has no scientist profession or magic research inventory.
+        -- These are ordinary real field/medical items; the visible lab coat is
+        -- applied by the creator appearance path and captured only once.
+        if not add(inventory, "Base.Clipboard", added)
+            or not add(inventory, "Base.Pen", added)
+            or not add(inventory, "Base.Scalpel", added) then
+            return false, "science_kit_item_unavailable"
+        end
     elseif ZombRand(100) < 72 then
         addRandom(inventory, SIMPLE_WEAPONS, added)
     end
-    if ZombRand(100) < (loadoutTheme == "police" and 65 or 45) then
+    local waterChance = loadoutTheme == "police" and 65
+        or loadoutTheme == "science" and 60 or 45
+    if ZombRand(100) < waterChance then
         addRandom(inventory, { "Base.WaterBottle" }, added)
     end
     if ZombRand(100) < 35 then
         addRandom(inventory, SIMPLE_FOOD, added)
     end
-    if ZombRand(100) < (loadoutTheme == "police" and 45 or 30) then
+    local medicalChance = loadoutTheme == "police" and 45
+        or loadoutTheme == "science" and 55 or 30
+    if ZombRand(100) < medicalChance then
         addRandom(inventory, MEDICAL, added)
     end
 
