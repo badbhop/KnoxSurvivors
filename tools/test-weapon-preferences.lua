@@ -99,7 +99,8 @@ selected.callback(selected.target, unpack(selected.args))
 assert(KnoxPersistence.getSurvivorPolicies("a").weaponPreference == "melee", "individual callback persists policy")
 assert(KnoxPersistence.setSurvivorIndependent("a", "dismissed", 48))
 KnoxPersistence.setSurvivorHostileToPlayer("a", "owner", true)
-KnoxSettings = { enabled = function() return true end, companionLimit = function() return 4 end }
+KnoxSettings = { enabled = function() return true end, companionLimit = function() return 4 end,
+    requireTrustForRecruitment = function() return false end }
 local hostileMenu = menu()
 individual.populate(hostileMenu, 0, "a")
 assert(hostileMenu.options["Talk (hostile)"].notAvailable and hostileMenu.options["Recruit (hostile)"].notAvailable,

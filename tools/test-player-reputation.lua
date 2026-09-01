@@ -56,7 +56,7 @@ require = function() return true end
 local survivor = actor(2, 0, 0)
 local bodyIds = { [survivor] = "neutral" }
 KnoxSettings = { enabled = function() return true end, allowSurvivorPlayerCombat = function() return true end,
-    companionLimit = function() return 4 end }
+    companionLimit = function() return 4 end, requireTrustForRecruitment = function() return false end }
 KnoxSurvivorRuntime = { idForCharacter = function(body) return bodyIds[body] end,
     getCharacter = function() return survivor end }
 local acknowledgements, hostilityNotices, reputationNotices = 0, 0, {}

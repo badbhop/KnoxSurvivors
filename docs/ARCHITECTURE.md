@@ -435,8 +435,11 @@ Personal trust remains in `survivor.playerRelationships[playerId]`; faction repu
 existing canonical faction-pair relationship, not a second diplomacy registry. Positive contribution
 records have fixed supported reasons, per-kind cooldowns and a rolling 24-hour budget (12 personal
 trust, 8 faction reputation shared across members). Reward windows survive save/load and do not
-reset on clock rollback. Faction relationship getters deep-copy nested reward data. Existing trust
-continues to govern recruitment; explicit hostility always blocks Talk/recruitment and positive credit.
+reset on clock rollback. Faction relationship getters deep-copy nested reward data. Personal trust
+governs recruitment only when the **Require Trust to Recruit** sandbox option is enabled; it is off
+by default. Explicit hostility always blocks Talk/recruitment and positive credit regardless of that
+option. Group/faction ownership, companion limits, life, loaded availability and range also remain
+authoritative.
 
 The native `OnZombieDead` boundary grants defense credit only when the dead zombie's actual attacker
 is a real local player and its current target is a living loaded Knox survivor: same floor, zombie

@@ -1,11 +1,31 @@
 local rootPath = arg[1] or "."
 package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 
+local function read(path)
+    local file = assert(io.open(rootPath .. "/" .. path, "rb"))
+    local content = file:read("*a")
+    file:close()
+    return content
+end
+
+local sandboxDefinition = read("mod/42/media/sandbox-options.txt")
+local sandboxEnglish = read("mod/42/media/lua/shared/Translate/EN/Sandbox.json")
+local trustOptionAt = string.find(sandboxDefinition,
+    "option KnoxSurvivors.RequireTrustForRecruitment", 1, true)
+local trustOptionBlock = trustOptionAt ~= nil
+    and string.sub(sandboxDefinition, trustOptionAt, trustOptionAt + 240) or ""
+assert(trustOptionAt ~= nil
+    and string.find(trustOptionBlock, "type = boolean, default = false", 1, true),
+    "trust recruitment setting is declared off by default")
+assert(string.find(sandboxEnglish, "Sandbox_KnoxSurvivors_RequireTrustForRecruitment", 1, true),
+    "trust recruitment setting has player-facing English text")
+
 SandboxVars = nil
 require "KS_Settings"
 
 assert(KnoxSettings.enabled(), "mod enabled default")
 assert(KnoxSettings.companionLimit() == 4, "companion limit default")
+assert(not KnoxSettings.requireTrustForRecruitment(), "trust requirement defaults off")
 assert(not KnoxSettings.capsDisabled(), "caps remain enabled by default")
 assert(KnoxSettings.activationBudget(0) == 2, "activation has a bounded construction budget")
 assert(KnoxSettings.activationBudget(11) == 1 and KnoxSettings.activationBudget(12) == 0,
@@ -23,6 +43,7 @@ assert(not KnoxSettings.allowDestructiveDeveloperTests(), "destructive tests def
 
 SandboxVars = { KnoxSurvivors = {
     CompanionLimit = 99,
+    RequireTrustForRecruitment = true,
     AllowNPCFactions = false,
     AllowHostileEncounters = false,
     AllowFactionRaids = true,
@@ -35,6 +56,7 @@ SandboxVars = { KnoxSurvivors = {
 } }
 
 assert(KnoxSettings.companionLimit() == 12, "companion limit upper clamp")
+assert(KnoxSettings.requireTrustForRecruitment(), "trust requirement explicit opt-in")
 assert(not KnoxSettings.allowNPCFactions(), "factions configured off")
 assert(not KnoxSettings.allowHostileEncounters(), "hostility configured off")
 assert(not KnoxSettings.allowFactionRaids(), "raids require factions and hostile encounters")

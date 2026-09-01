@@ -2902,3 +2902,32 @@ Pending live: schedule the search near real containers on a disposable day-7-or-
 the three members visibly travel/search, real items leave their source containers and enter their
 inventories, the search ends without fabricated loot, and save/reload neither repeats a receipt nor
 duplicates an item. No Java or launcher protocol changed, so no launcher patch is required.
+
+## 2026-09-01 — Optional recruitment trust sandbox policy
+
+Status: implemented and automatically verified; the two live recruitment paths remain to be
+confirmed in game.
+
+- Added **Require Trust to Recruit** to the normal Knox Survivors sandbox page. It defaults off,
+  so an otherwise eligible independent survivor can be recruited immediately. Enabling it restores
+  the existing 50-trust threshold and half-hour refusal cooldown.
+- The option changes only personal trust gating. Hostility, NPC group/faction ownership, companion
+  limits, life, loaded availability, distance and the master mod switch remain authoritative.
+  Existing trust/reputation data is preserved and continues to affect trade and social presentation.
+- A trust refusal cooldown is consulted only while the trust policy is enabled, so an old low-trust
+  refusal cannot contradict the default no-trust policy.
+- Fixed the existing refusal path resolving `playerId` after it had already tried to record the
+  refusal. It now resolves ownership before eligibility and records the cooldown against the correct
+  split-screen player when trust gating is enabled.
+- Sandbox review found no other missing setting that is both currently implemented and useful to
+  ordinary players. Internal AI distances, cadence, risk and objective limits remain implementation
+  details rather than cluttering the menu.
+- Focused settings, companion policy, reputation and context-menu suites pass. Static coverage also
+  verifies the option declaration defaults false and has player-facing English text. All 69
+  standalone Lua tests, all 74 mod Lua syntax checks and `:java:build prepareWorkshopUpload` pass;
+  the four changed Workshop runtime/content files match their staged copies byte-for-byte.
+
+Pending live: on one disposable save, leave the option off and recruit an eligible independent
+survivor immediately. On another, enable it and verify low trust refuses, the refusal cooldown is
+bounded, and 50 trust permits recruitment. Confirm grouped/hostile survivors remain unavailable in
+both cases. No Java or launcher protocol changed, so no launcher patch is required.

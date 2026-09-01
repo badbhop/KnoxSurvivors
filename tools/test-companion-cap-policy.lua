@@ -4,7 +4,7 @@ for _, module in ipairs({ "KS_Persistence", "KS_SurvivorRuntime", "KS_ActivityFe
     package.preload[module] = function() return true end
 end
 SandboxVars = { KnoxSurvivors = { CompanionLimit = 1 } }
-local trust, grouped, alive, cooldown = 60, false, true, 0
+local trust, grouped, alive, cooldown, refusalPlayer = 60, false, true, 0, nil
 local square = { getX = function() return 1 end, getY = function() return 1 end,
     getZ = function() return 0 end }
 local character = { getCurrentSquare = function() return square end }
@@ -17,8 +17,13 @@ KnoxPersistence = {
     getFactionForSurvivor = function() return nil end,
     getCompanionIds = function() return { "existing" } end,
     getPlayerRelationship = function() return { trust = trust, nextRecruitHours = cooldown } end,
+    recordPlayerRecruitRefusal = function(playerId)
+        refusalPlayer = playerId
+        return {}
+    end,
 }
 KnoxSurvivorRuntime = { getCharacter = function() return character end }
+KnoxActivityFeed = { speak = function() end }
 getGameTime = function() return { getWorldAgeHours = function() return 10 end } end
 local service = require "KS_CompanionService"
 local ok, reason = service.canRecruit(character, "candidate")
@@ -26,8 +31,13 @@ assert(not ok and reason == "companion_limit", "existing configured follower lim
 SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
 assert(service.canRecruit(character, "candidate"), "cap opt-out reaches actual recruitment gate")
 trust = 5
+assert(service.canRecruit(character, "candidate"),
+    "low trust does not block recruitment under the default sandbox policy")
+SandboxVars.KnoxSurvivors.RequireTrustForRecruitment = true
 ok, reason = service.canRecruit(character, "candidate")
-assert(not ok and reason == "needs_trust", "disabling caps does not bypass trust")
+assert(not ok and reason == "needs_trust", "trust requirement remains available as an opt-in")
+assert(not service.recruit(character, "candidate") and refusalPlayer == "player",
+    "trust refusal records against the resolved player identity")
 trust, grouped = 60, true
 ok, reason = service.canRecruit(character, "candidate")
 assert(not ok and reason == "already_with_group", "disabling caps does not steal faction/group members")

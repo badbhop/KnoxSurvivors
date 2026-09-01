@@ -289,9 +289,11 @@ right-side HUD, and the shared base domain. Compilation and standalone save test
 the following behavior is not yet called live-verified:
 
 1. Start with the normal three-survivor scenario and confirm the player stays visible.
-2. Right-click a nearby survivor. `Talk` should work inside four tiles. Three successful
-   conversations, separated by the half-hour in-game cooldown, should make `Recruit`
-   available. Grouped or faction survivors must refuse recruitment.
+2. Right-click a nearby independent survivor. With the default **Require Trust to Recruit** setting
+   off, `Recruit` should be immediately available inside four tiles. On a second disposable save,
+   enable that setting: three successful `Talk` conversations separated by the half-hour in-game
+   cooldown should raise trust enough to recruit. Hostile, grouped, or faction survivors must refuse
+   recruitment under both policies.
 3. Recruitment should create one companion HUD row. Confirm the portrait, name, activity,
    weapon, health, food, water, and rest bars update without stealing mouse input.
 4. Test Follow and Hold from both the world menu and HUD right-click. Lead a zombie close;

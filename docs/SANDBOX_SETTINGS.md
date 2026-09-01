@@ -6,11 +6,12 @@ Knox Survivors adds two pages to Project Zomboid's sandbox options.
 
 - **Enable Knox Survivors** pauses the rebuild's gameplay entry points without deleting survivor save data.
 - **World Population** sets the persistent starting population and, normally, the living-survivor target across the map. The default is 32 and the supported range is 0–256.
-- **Disable Survivor Caps** is off by default. When enabled, the active-survivor and companion counts do not block activation or recruitment. World Population remains the starting count, but later arrivals may exceed it: at most one new identity per refill interval at an unused world location. Trust, ownership, death, safe spawning and cooldown rules still apply. There is no separate numeric faction cap to bypass. Larger active populations can reduce performance.
+- **Disable Survivor Caps** is off by default. When enabled, the active-survivor and companion counts do not block activation or recruitment. World Population remains the starting count, but later arrivals may exceed it: at most one new identity per refill interval at an unused world location. Recruitment trust still applies when enabled; ownership, death, safe spawning and cooldown rules always apply. There is no separate numeric faction cap to bypass. Larger active populations can reduce performance.
 - **Max Active Survivors** normally caps how many production survivors may be physically materialized at once. The default is 12 and the supported range is 1–48. Disabling caps ignores this setting; the scheduler still builds at most two new bodies per population update instead of loading a whole settlement in one burst. This rate limit does not impose a total-body cap.
 - **Population Refill Days** controls how long a population deficit must persist before one replacement identity is allocated. Refill is gradual, never a catch-up burst.
 - **Minimum Spawn Distance** keeps first materialization away from local players and out of immediate view. Saved survivors always restore at their exact recorded square once it is loaded.
 - **Companion Limit** controls how many active companions each local player may recruit.
+- **Require Trust to Recruit** is off by default, allowing an eligible independent survivor to be recruited immediately. Enable it to require 50 personal trust and use the existing refusal cooldown. It never permits recruiting hostile, dead, unavailable, grouped, or faction-owned survivors and does not bypass the companion limit.
 - **Allow NPC Factions** controls new faction formation and base scouting. Existing factions remain intact.
 - **Allow Hostile Survivor Encounters** controls threats and robberies between independent survivors.
 - **Show Companion HUD** controls the right-side companion panel.

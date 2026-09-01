@@ -152,16 +152,19 @@ function CompanionService.canRecruit(player, survivorId)
         return false, "companion_limit"
     end
     local relation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
-    if relation ~= nil and (tonumber(relation.nextRecruitHours) or 0) > worldAge() then
+    local requiresTrust = KnoxSettings.requireTrustForRecruitment()
+    if requiresTrust and relation ~= nil
+        and (tonumber(relation.nextRecruitHours) or 0) > worldAge() then
         return false, "recruit_cooldown", relation.trust
     end
-    if relation == nil or (tonumber(relation.trust) or 0) < RECRUIT_TRUST then
+    if requiresTrust and (relation == nil or (tonumber(relation.trust) or 0) < RECRUIT_TRUST) then
         return false, "needs_trust", relation ~= nil and relation.trust or 0
     end
-    return true, "ready", relation.trust
+    return true, "ready", relation ~= nil and relation.trust or 0
 end
 
 function CompanionService.recruit(player, survivorId)
+    local playerId = CompanionService.getPlayerId(player)
     local ready, reason, trust = CompanionService.canRecruit(player, survivorId)
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
     if not ready then
@@ -183,7 +186,6 @@ function CompanionService.recruit(player, survivorId)
         end
         return false, reason, trust
     end
-    local playerId = CompanionService.getPlayerId(player)
     local saved, result = KnoxPersistence.setPlayerCompanion(
         survivorId,
         playerId,

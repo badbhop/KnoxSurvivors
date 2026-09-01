@@ -9,6 +9,7 @@ local DEFAULTS = {
     PopulationRefillDays = 3,
     MinimumSpawnDistance = 60,
     CompanionLimit = 4,
+    RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
     AllowHostileEncounters = true,
     AllowFactionRaids = true,
@@ -89,6 +90,10 @@ end
 function Settings.companionLimit()
     if Settings.capsDisabled() then return math.huge end
     return integer("CompanionLimit", 1, 12)
+end
+
+function Settings.requireTrustForRecruitment()
+    return value("RequireTrustForRecruitment") == true
 end
 
 function Settings.allowNPCFactions()
