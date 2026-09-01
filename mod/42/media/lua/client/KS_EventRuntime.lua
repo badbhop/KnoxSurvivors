@@ -7,6 +7,7 @@ require "KS_BaseManager"
 local Runtime = rawget(_G, "KnoxEventRuntime") or {}
 _G.KnoxEventRuntime = Runtime
 local cursor = 0
+local nextDispatchCheck = {}
 local READY_STATES = { IDLE = true, BASE_IDLE = true, BASE_PATROL = true, BASE_RETURN = true }
 
 local function finished(event)
@@ -134,6 +135,37 @@ local function change(event, phase, hours, reason)
     return result
 end
 
+function Runtime.storedMemberReady(id, home, hours)
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil or bridge.isStoredNpcWeaponReady == nil then return false, "stored_readiness_unavailable" end
+    if not KnoxPersistence.isSurvivorAlive(id) or KnoxSurvivorRuntime.getCharacter(id) ~= nil then
+        return false, "member_not_stored"
+    end
+    local state, record = KnoxPersistence.getUnloadedSurvivalState(id), KnoxPersistence.getRecord(id)
+    if state == nil or state.pendingMaterialization or type(record) ~= "string" or record == "" then
+        return false, "real_survival_snapshot_required"
+    end
+    -- Let the existing offscreen scheduler catch up, rather than dispatch from
+    -- old pre-hibernation needs or advance physiology twice in separate systems.
+    for _, key in ipairs({ "lastHours", "health", "bleedingParts", "endurance", "fatigue", "hunger", "thirst",
+        "virtualX", "virtualY", "virtualZ" }) do
+        local value = state[key]
+        if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then
+            return false, "stored_state_unavailable"
+        end
+    end
+    if state.lastHours > hours or hours - state.lastHours > 0.25 then return false, "stored_state_stale" end
+    if state.health < 70 or state.health > 100 or state.bleedingParts ~= 0
+        or state.endurance < 0.5 or state.endurance > 1 or state.fatigue < 0 or state.fatigue > 0.65
+        or state.hunger < 0 or state.hunger > 0.7 or state.thirst < 0 or state.thirst > 0.7
+        or state.restMode ~= nil or state.baseReturn ~= nil then return false, "member_needs_care" end
+    if not returnedHome(id, nil, home) then return false, "member_not_home" end
+    -- Java also checks active ownership and encoded identity. Lua's controller
+    -- lookup alone cannot exclude a body that is mid-activation/retirement.
+    local ok, ready = pcall(function() return bridge:isStoredNpcWeaponReady(id, record) end)
+    return ok and ready == true, ok and (ready and "ready" or "stored_weapon_unready") or "stored_readiness_unavailable"
+end
+
 function Runtime.dispatch(event, controllers, hours)
     if event == nil or (event.phase ~= "scheduled" and event.phase ~= "spawning") then return false, "invalid_phase" end
     if hours < event.dueAtHours then return false, "not_due" end
@@ -142,7 +174,9 @@ function Runtime.dispatch(event, controllers, hours)
     local home = KnoxPersistence.getBase(event.sourceBaseId)
     for _, id in ipairs(event.memberIds) do
         if not owns(id, event.id) then
-            local ready, reason = Runtime.memberReady(controllers[id], home)
+            local ready, reason
+            if controllers[id] ~= nil then ready, reason = Runtime.memberReady(controllers[id], home)
+            else ready, reason = Runtime.storedMemberReady(id, home, hours) end
             if not ready then return false, reason end
         end
     end
@@ -244,6 +278,8 @@ end
 
 function Runtime.update(controllers, hours)
     local ids = KnoxEvents.activeIds()
+    local present = {}; for _, id in ipairs(ids) do present[id] = true end
+    for id in pairs(nextDispatchCheck) do if not present[id] then nextDispatchCheck[id] = nil end end
     for _ = 1, math.min(8, #ids) do
         cursor = cursor % #ids + 1
         local event = KnoxEvents.get(ids[cursor])
@@ -253,7 +289,10 @@ function Runtime.update(controllers, hours)
                 event = change(event, "withdrawing", hours, reason) or event
             end
             if event.phase == "scheduled" or event.phase == "spawning" then
-                Runtime.dispatch(event, controllers, hours)
+                if hours >= (nextDispatchCheck[event.id] or 0) then
+                    nextDispatchCheck[event.id] = hours + 0.05
+                    Runtime.dispatch(event, controllers, hours)
+                end
             elseif event.phase == "approaching" or event.phase == "active" or event.phase == "objective" then
                 local arrived = true
                 for _, id in ipairs(event.memberIds) do

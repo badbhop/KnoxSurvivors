@@ -188,7 +188,32 @@ public final class KnoxInventorySnapshotVerifier {
             "wallet money/coin contents lost during snapshot reconstruction");
         require(KnoxInventorySnapshot.capture(walletRestored, 240).encode().equals(walletRecord),
             "wallet round trip duplicated or changed currency");
-        System.out.println("Inventory snapshot PASS native-payload=true nested=true equipment=true legacy=true preflight=true bounded-buffer=true real-supplies=true wallet=true");
+        require(captured.hasReadyPrimaryWeapon(Item.class), "saved chambered gun should qualify");
+        require(captured.encode().equals(encoded) && gun.rounds == 7 && gun.chambered,
+            "readiness inspection modified source ammunition or encoded snapshot");
+        require(!KnoxInventorySnapshot.decode(legacy).hasReadyPrimaryWeapon(Item.class),
+            "legacy snapshot invented loaded ammunition");
+        Body readiness = new Body();
+        Item weapon = new Item("Base.Pistol");
+        readiness.inventory.AddItem(weapon); readiness.primary = weapon;
+        require(!KnoxInventorySnapshot.capture(readiness, 240).hasReadyPrimaryWeapon(Item.class), "empty gun qualified");
+        weapon.rounds = 9;
+        require(!KnoxInventorySnapshot.capture(readiness, 240).hasReadyPrimaryWeapon(Item.class), "unchambered gun qualified");
+        weapon.chambered = true;
+        require(KnoxInventorySnapshot.capture(readiness, 240).hasReadyPrimaryWeapon(Item.class), "chambered gun rejected");
+        weapon.condition = 0;
+        require(!KnoxInventorySnapshot.capture(readiness, 240).hasReadyPrimaryWeapon(Item.class), "broken gun qualified");
+        for (String type : List.of("Base.Bat", "Base.JammedGun", "Base.SafeGun", "Base.Revolver", "Base.Bag")) {
+            Body sample = new Body(); Item candidate = new Item(type);
+            candidate.rounds = 2; candidate.chambered = true;
+            sample.inventory.AddItem(candidate); sample.primary = candidate;
+            boolean expected = type.equals("Base.Bat") || type.equals("Base.Revolver");
+            require(KnoxInventorySnapshot.capture(sample, 240).hasReadyPrimaryWeapon(Item.class) == expected,
+                "wrong saved weapon readiness: " + type);
+            sample.primary = null;
+            require(!KnoxInventorySnapshot.capture(sample, 240).hasReadyPrimaryWeapon(Item.class), "spare item became equipped");
+        }
+        System.out.println("Inventory snapshot PASS native-payload=true nested=true equipment=true legacy=true preflight=true bounded-buffer=true real-supplies=true wallet=true stored-weapon-readiness=true");
     }
 
     public static final class Body {
@@ -234,6 +259,15 @@ public final class KnoxInventorySnapshotVerifier {
         Item(String type) { this.type = type; }
         public String getFullType() { return type; }
         public int getCondition() { return condition; }
+        public boolean IsWeapon() { return type.equals("Base.Bat") || type.equals("Base.Pistol") || type.endsWith("Gun") || type.equals("Base.Revolver"); }
+        public boolean isBroken() { return condition <= 0; }
+        public boolean isRanged() { return !type.equals("Base.Bat"); }
+        public boolean isSelectFire() { return type.equals("Base.SafeGun"); }
+        public String getFireMode() { return "Safe"; }
+        public boolean isJammed() { return type.equals("Base.JammedGun"); }
+        public boolean haveChamber() { return !type.equals("Base.Revolver"); }
+        public boolean isRoundChambered() { return chambered; }
+        public int getCurrentAmmoCount() { return rounds; }
         public int getUses() { return uses; }
         public boolean isFavorite() { return favorite; }
         public void setCondition(int value) { condition = value; }

@@ -592,6 +592,11 @@ death/relocation/peace invalidation, home-defender loss, malformed record recove
 maintenance, history pruning, and cooldown retention across pruning/reload. It also checks
 that survivor count, native record strings, and base/affiliation intent are not rewritten.
 
+Run `lua tools/test-event-stored-readiness.lua .` to verify the inactive-party dispatch
+boundary. It checks fresh persisted physiology and home position, read-only native equipped-
+weapon readiness, active-body exclusion, atomic all-member qualification, bounded retry,
+save reconstruction, and dispatch without materializing or manufacturing survivors/items.
+
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe
 that as a successful live raid. `lua tools/test-event-runtime.lua .` additionally runs

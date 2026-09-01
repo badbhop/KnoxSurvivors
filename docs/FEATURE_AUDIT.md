@@ -2481,3 +2481,49 @@ the released launcher verifier pass. The agent SHA256 remains
 `15dea740a2f33b04b2c7a84c8b83e215b03904c67b8ecb31a874da6ebe870015`.
 No Java/protocol or launcher change is required. This updates staging only, not Steam
 or the already-installed local test copy; fully restart after deploying a new test build.
+
+## 2026-08-31 — Stored event-party readiness
+
+Status: implemented — focused/full automated verification passes; live verification required.
+This closes the already-hibernated readiness dependency for explicit real-roster raids. It
+does not enable automatic events or claim that raid travel/objectives are live-proven.
+
+### Exact defect and correction
+
+- Event dispatch previously required a loaded controller for every selected member. A healthy,
+  equipped faction whose residents were correctly hibernated at home could therefore never
+  leave for an event; the dispatcher returned `member_unavailable` indefinitely.
+- Stored members now qualify only from a fresh real unloaded-survival snapshot, their persisted
+  home position, and their existing encoded native inventory. Health, bleeding, endurance,
+  fatigue, hunger, thirst, rest/return state and activation ownership must all be safe before
+  the party can be claimed.
+- A read-only Java bridge probe decodes only the saved equipped-primary item and applies the
+  exact Build 42.20.3 usable-weapon boundaries needed for departure. It neither reconstructs
+  an `IsoPlayer`, equips/defaults an item, consumes ammunition nor changes the encoded record.
+  Invalid, legacy, modded or incomplete snapshots fail closed.
+- All selected members are validated before any event duty is claimed. A Lua controller or
+  Java-active identity cannot fall back to an older stored snapshot. Failed native inspection
+  retries at a bounded three-world-minute interval instead of deserializing inventory on every
+  event update. Successful dispatch continues through the existing stored-group travel path.
+
+### Verification
+
+- Exact installed 42.20.3 `InventoryItem`/`HandWeapon` signatures were inspected for weapon,
+  broken, ranged, safety, jam, chamber and ammunition state.
+- `tools/test-event-stored-readiness.lua` covers healthy/unsafe/missing state, all-floor home
+  containment, active-body guards, old/missing bridge behavior, atomic party rejection,
+  bounded recovery, save reconstruction and no actor/item creation.
+- `KnoxInventorySnapshotVerifier` covers loaded melee/ranged, empty/unchambered/jammed/safe/
+  broken firearms, spare-vs-equipped state, legacy records and mutation-free round trips.
+- All 63 standalone Lua tests and 73 mod Lua syntax checks pass. `:java:build
+  prepareWorkshopUpload` passes, including Java 25 class/transformer verification and the
+  complete inventory/persistence verifier set.
+
+### Pending live and next dependency
+
+Schedule an explicit raid while every selected resident is hibernated at its real faction base.
+Confirm the same IDs activate/travel with their existing equipment, an unready member defers the
+whole party without partial duty claims, and a later-ready party departs once. Reload before
+departure and during stored travel. Automatic scheduling remains disabled; the next common
+event dependency is a conservative scheduler using the existing proposal/cooldown system and
+convenient development scenarios, before any faction-specific event rollout.

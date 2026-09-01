@@ -740,6 +740,17 @@ public final class KnoxNpcRegistry {
         return KnoxSurvivorRecord.decode(encoded).inventorySummary();
     }
 
+    public synchronized boolean storedRecordWeaponReady(String id, String encoded) {
+        try {
+            KnoxSurvivorRecord record = KnoxSurvivorRecord.decode(encoded);
+            if (!record.id.equals(id) || activeNpcs.containsKey(id)) return false;
+            return record.inventory.hasReadyPrimaryWeapon(Class.forName("zombie.inventory.InventoryItem"));
+        } catch (ReflectiveOperationException | RuntimeException unavailable) {
+            // Unsupported/missing items and legacy snapshots defer dispatch.
+            return false;
+        }
+    }
+
     /**
      * Removes one exact item from an unloaded survivor record. A blank response
      * means no matching item was present, so callers can leave persistent needs

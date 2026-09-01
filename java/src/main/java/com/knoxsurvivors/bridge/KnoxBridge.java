@@ -289,6 +289,11 @@ public final class KnoxBridge {
         return npcRegistry.persistentRecordInventorySummary(encoded);
     }
 
+    /** Read-only native weapon readiness for a confirmed inactive identity. */
+    public boolean isStoredNpcWeaponReady(String id, String encoded) {
+        return npcRegistry.storedRecordWeaponReady(id, encoded);
+    }
+
     /** Consumes one real stored item without reconstructing the survivor body. */
     public String consumeNpcRecordItem(String encoded, String fullType) {
         return npcRegistry.consumePersistentRecordItem(encoded, fullType);

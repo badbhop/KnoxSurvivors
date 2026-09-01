@@ -130,6 +130,27 @@ final class KnoxInventorySnapshot {
         return "none";
     }
 
+    /** Inspect only the detached native primary item; never reconstruct a body or default gear. */
+    boolean hasReadyPrimaryWeapon(Class<?> itemClass) throws ReflectiveOperationException {
+        ItemState primary = null;
+        for (ItemState state : items) {
+            if (!state.primary) continue;
+            if (primary != null || state.nativeBytes.isEmpty()) return false;
+            primary = state;
+        }
+        if (primary == null) return false;
+        Object weapon = loadNativeItem(primary, itemClass);
+        if (!(Boolean) invoke(weapon, "IsWeapon") || (Boolean) invoke(weapon, "isBroken")) return false;
+        if (!(Boolean) invoke(weapon, "isRanged")) return true;
+        // Exact 42.20.3 ISReloadWeaponAction.canShoot, without a player's debug
+        // unlimited-ammo bypass. This is readiness only, not reload/firing logic.
+        if ((Boolean) invoke(weapon, "isSelectFire") && "Safe".equals(invoke(weapon, "getFireMode"))) return false;
+        if ((Boolean) invoke(weapon, "isJammed")) return false;
+        return (Boolean) invoke(weapon, "haveChamber")
+            ? (Boolean) invoke(weapon, "isRoundChambered")
+            : ((Number) invoke(weapon, "getCurrentAmmoCount")).intValue() > 0;
+    }
+
     /**
      * Stable, read-only count summary for the Lua persistence layer. The full
      * snapshot remains authoritative for restoration; this deliberately exposes
