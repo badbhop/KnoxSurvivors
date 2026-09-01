@@ -10,6 +10,17 @@ end
 
 local sandboxDefinition = read("mod/42/media/sandbox-options.txt")
 local sandboxEnglish = read("mod/42/media/lua/shared/Translate/EN/Sandbox.json")
+local function optionBlock(name)
+    local startAt = assert(string.find(sandboxDefinition,
+        "option KnoxSurvivors." .. name, 1, true), name .. " sandbox option missing")
+    return string.sub(sandboxDefinition, startAt, startAt + 260)
+end
+
+local function assertDefault(name, expected)
+    assert(string.find(optionBlock(name), "default = " .. tostring(expected), 1, true),
+        name .. " sandbox declaration default drifted")
+end
+
 local trustOptionAt = string.find(sandboxDefinition,
     "option KnoxSurvivors.RequireTrustForRecruitment", 1, true)
 local trustOptionBlock = trustOptionAt ~= nil
@@ -19,6 +30,15 @@ assert(trustOptionAt ~= nil
     "trust recruitment setting is declared off by default")
 assert(string.find(sandboxEnglish, "Sandbox_KnoxSurvivors_RequireTrustForRecruitment", 1, true),
     "trust recruitment setting has player-facing English text")
+assertDefault("WorldPopulation", 48)
+assertDefault("MaxActiveSurvivors", 16)
+assertDefault("PopulationRefillDays", 5)
+assertDefault("MinimumSpawnDistance", 40)
+assertDefault("AllowFactionRaids", false)
+assertDefault("FactionRaidMinimumDays", 14)
+assert(string.find(sandboxEnglish, "Allow NPC Factions (Work in Progress)", 1, true)
+    and string.find(sandboxEnglish, "Allow Faction Raids (Experimental)", 1, true),
+    "unfinished normal-play settings are identified in player-facing text")
 
 SandboxVars = nil
 require "KS_Settings"
@@ -27,13 +47,17 @@ assert(KnoxSettings.enabled(), "mod enabled default")
 assert(KnoxSettings.companionLimit() == 4, "companion limit default")
 assert(not KnoxSettings.requireTrustForRecruitment(), "trust requirement defaults off")
 assert(not KnoxSettings.capsDisabled(), "caps remain enabled by default")
+assert(KnoxSettings.worldPopulation() == 48, "balanced world population default")
+assert(KnoxSettings.maxActiveSurvivors() == 16, "balanced active population default")
+assert(KnoxSettings.populationRefillDays() == 5, "balanced replacement default")
+assert(KnoxSettings.minimumSpawnDistance() == 40, "balanced encounter distance default")
 assert(KnoxSettings.activationBudget(0) == 2, "activation has a bounded construction budget")
-assert(KnoxSettings.activationBudget(11) == 1 and KnoxSettings.activationBudget(12) == 0,
+assert(KnoxSettings.activationBudget(15) == 1 and KnoxSettings.activationBudget(16) == 0,
     "construction budget respects configured active cap")
 assert(KnoxSettings.allowNPCFactions(), "factions default")
 assert(KnoxSettings.allowHostileEncounters(), "hostility default")
-assert(KnoxSettings.allowFactionRaids(), "resource-backed faction raids default")
-assert(KnoxSettings.factionRaidMinimumDays() == 7, "raid world-age default")
+assert(not KnoxSettings.allowFactionRaids(), "experimental faction raids default off")
+assert(KnoxSettings.factionRaidMinimumDays() == 14, "raid world-age balanced default")
 assert(KnoxSettings.factionRaidIntervalDays() == 7, "raid interval default")
 assert(KnoxSettings.showCompanionHUD(), "HUD default")
 assert(KnoxSettings.showActivityFeed(), "feed default")
@@ -66,6 +90,10 @@ assert(KnoxSettings.developerToolsEnabled(), "developer tools configured on")
 assert(KnoxSettings.developerScenario() == "faction_base", "enum mapping")
 assert(KnoxSettings.developerSpawnDistance() == 6, "spawn distance lower clamp")
 assert(KnoxSettings.allowDestructiveDeveloperTests(), "destructive opt-in")
+
+SandboxVars.KnoxSurvivors.AllowNPCFactions = true
+SandboxVars.KnoxSurvivors.AllowHostileEncounters = true
+assert(KnoxSettings.allowFactionRaids(), "experimental raids remain available by explicit opt-in")
 
 SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
 assert(KnoxSettings.capsDisabled(), "explicit sandbox opt-in disables caps")

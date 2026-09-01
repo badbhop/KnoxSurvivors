@@ -13,9 +13,9 @@ local nameplates = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNamepla
 local relations = read(rootPath .. "/mod/42/media/lua/client/KS_HumanCombatRelations.lua")
 local autonomy = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua")
 
-assert(string.find(settings, "WorldPopulation = 32", 1, true)
-    and string.find(sandbox, "max = 256, default = 32", 1, true),
-    "new worlds must use the expanded survivor population default")
+assert(string.find(settings, "WorldPopulation = 48", 1, true)
+    and string.find(sandbox, "max = 256, default = 48", 1, true),
+    "new worlds must use the balanced survivor population default")
 for _, relation in ipairs({ "hostile", "neutral", "friendly", "ally" }) do
     assert(string.find(nameplates, relation .. " =", 1, true),
         "nameplate relationship colour missing: " .. relation)

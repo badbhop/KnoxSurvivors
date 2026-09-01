@@ -107,10 +107,10 @@ getSpecificPlayer = function() return player end
 
 SandboxVars = nil
 require "KS_Settings"
-assert(KnoxSettings.worldPopulation() == 32, "world population default")
-assert(KnoxSettings.maxActiveSurvivors() == 12, "active population default")
-assert(KnoxSettings.populationRefillDays() == 3, "refill default")
-assert(KnoxSettings.minimumSpawnDistance() == 60, "minimum distance default")
+assert(KnoxSettings.worldPopulation() == 48, "world population balanced default")
+assert(KnoxSettings.maxActiveSurvivors() == 16, "active population balanced default")
+assert(KnoxSettings.populationRefillDays() == 5, "replacement cadence balanced default")
+assert(KnoxSettings.minimumSpawnDistance() == 40, "hidden encounter distance balanced default")
 
 SandboxVars = { KnoxSurvivors = {
     WorldPopulation = 6,

@@ -2931,3 +2931,31 @@ Pending live: on one disposable save, leave the option off and recruit an eligib
 survivor immediately. On another, enable it and verify low trust refuses, the refusal cooldown is
 bounded, and 50 trust permits recruitment. Confirm grouped/hostile survivors remain unavailable in
 both cases. No Java or launcher protocol changed, so no launcher patch is required.
+
+## 2026-09-01 — Balanced public-playtest sandbox defaults
+
+Status: implemented and automatically verified; encounter frequency and performance remain pending
+live playtest evidence.
+
+- Raised the whole-map persistent population from 32 to 48 and the active-body ceiling from 12 to
+  16. These are separate limits: the active value remains a ceiling and does not force a crowd near
+  the player.
+- Reduced first-materialization distance from 60 to 40 tiles. Existing hidden-square and line-of-sight
+  safety remains authoritative, so this improves encounter opportunity without visible pop-in.
+- Slowed one-at-a-time population replacement from three to five in-game days so survivors remain
+  consequential rather than instantly replenished.
+- NPC factions and hostile encounters remain enabled for the intended living-world loop. Automatic
+  faction raids now default off, their earliest opt-in day is 14, and unfinished human/faction
+  systems are plainly labeled Work in Progress or Experimental in the sandbox UI.
+- Companion count, recruitment policy, HUD, speech, nameplates and normal cap enforcement retain
+  their established defaults. Internal AI timings and distances remain out of the player menu.
+- These defaults affect newly created sandbox rules. Existing saves can retain previously stored
+  values and require manual adjustment or a fresh playtest save.
+- All 69 standalone Lua tests, all 74 mod Lua syntax checks and
+  `:java:build prepareWorkshopUpload` pass. The three changed Workshop runtime/content files match
+  their staged copies byte-for-byte.
+
+Pending live: start a normal new urban save and record time to first survivor, encounters over the
+first seven in-game days, peak active count and any frame-time impact. The intended result is an
+encounter during ordinary exploration without repeated crowds or obvious materialization. No Java
+or launcher protocol changed, so no launcher patch is required.
