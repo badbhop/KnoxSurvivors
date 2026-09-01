@@ -646,6 +646,14 @@ identity/gear, use the existing native reload/firearm path rather than appearing
 loaded state, execute the bounded secure-area objective, and depart through the existing event-only
 lifecycle. Save/reload must not duplicate clothing, firearms, magazines or ammunition.
 
+For the Scavenger real-loot gate, use a disposable day-7-or-later save and choose **Schedule
+Scavenger Search Here** on a loaded square near several ordinary world containers. Three persistent
+Scavengers should enter, search only the bounded nearby area through existing looting behavior,
+and withdraw after six completed transfers, three exhausted searches per member, or two in-game
+hours. Inspect their real inventories: only items physically transferred from real containers may
+be retained. Empty/no-op transfers, containers outside 18 tiles and other survivors' inventories
+must not count. Save/reload during the objective and verify receipt/item identity is not duplicated.
+
 Live named-entry gate: on a disposable day-one-or-later save, enable **Developer Tools** and
 **Allow Destructive Tests**, then right-click a loaded ground square and choose **Schedule Police
 Entry Here**. The feed should report one event ID. Confirm three Police identities enter from a

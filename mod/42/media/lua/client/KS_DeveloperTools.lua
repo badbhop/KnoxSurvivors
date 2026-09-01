@@ -111,6 +111,10 @@ function DeveloperTools.scheduleMilitaryEntry(playerNum, worldObjects)
     scheduleNamedEntry(worldObjects, "military", "secure_area", 3, "Military")
 end
 
+function DeveloperTools.scheduleScavengerEntry(playerNum, worldObjects)
+    scheduleNamedEntry(worldObjects, "scavengers", "scavenge_world", 3, "Scavengers")
+end
+
 local function onFill(playerNum, context, worldObjects, test)
     if not KnoxSettings.developerToolsEnabled() then
         return
@@ -150,6 +154,8 @@ local function onFill(playerNum, context, worldObjects, test)
             DeveloperTools.scheduleScientistsEntry, worldObjects)
         menu:addOption("Schedule Military Exit Test Here", playerNum,
             DeveloperTools.scheduleMilitaryEntry, worldObjects)
+        menu:addOption("Schedule Scavenger Search Here", playerNum,
+            DeveloperTools.scheduleScavengerEntry, worldObjects)
     end
 
     menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)

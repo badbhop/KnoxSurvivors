@@ -905,6 +905,16 @@ walkie-talkie. Knox does not prefill the magazine, chamber a round or alter weap
 existing native reload/firearm controllers must establish all usable gun state. Capture remains
 the one-time handoff to normal persistent appearance and inventory ownership.
 
+Scavenger `scavenge_world` entries reuse the raid objective's real-transfer evidence instead of
+creating abstract loot. At objective start, each member receives the existing `loot_area` search
+bounded to 18 tiles around the persisted target. Only a completed native transfer from a real
+world container into that member's real inventory creates a durable item-ID receipt. Containers
+outside the area, other characters' inventories, queued/no-op transfers and duplicate receipts do
+not count. Six items at most complete the search; three exhausted searches per member or the
+two-hour deadline produce an honest partial/no-supplies outcome. Persistent Scavengers retain the
+actual carried items and return to ordinary world life after withdrawal. Boss spawning remains
+disabled and no automatic Scavenger trigger exists.
+
 The first faction-specific objective is Police `secure_area`. Its event record owns only bounded
 observation evidence: next scan time, same-floor loaded-zombie count, clear-window start and final
 outcome. Every 0.02 world hours at most, the runtime counts living zombies within 18 tiles of the

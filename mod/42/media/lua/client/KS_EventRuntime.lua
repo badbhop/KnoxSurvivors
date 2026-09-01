@@ -301,6 +301,19 @@ function Runtime.reviewObjective(event, hours)
                 end
             end
         end
+        if event.objective.kind == "scavenge_world" then
+            local count, exhausted = KnoxEvents.objectiveCount(event), true
+            for _, id in ipairs(event.memberIds) do
+                if (tonumber(event.objective.misses[id]) or 0) < 3 then exhausted = false end
+            end
+            if count >= event.objective.requiredItems or exhausted
+                or hours >= event.objective.deadlineHours then
+                local outcome = count >= event.objective.requiredItems and "supplies_taken"
+                    or (count > 0 and "partial_supplies" or "no_supplies")
+                KnoxEvents.finishFactionEntryObjective(event.id, event.revision, hours, outcome)
+            end
+            return
+        end
         if hours >= event.objective.deadlineHours then
             KnoxEvents.finishFactionEntryObjective(event.id, event.revision, hours, "elapsed")
         end
@@ -328,6 +341,15 @@ function Runtime.beginObjectiveWork(controller, ticks)
         return true
     end
     if event.kind == "faction_entry" then
+        if event.policyId == "scavengers" and event.objective.kind == "scavenge_world" then
+            local target = event.targetLocation
+            local directive = { kind = "loot_area", eventId = event.id,
+                minX = target.x - 18, minY = target.y - 18,
+                maxX = target.x + 18, maxY = target.y + 18, z = target.z }
+            if ticks >= (controller.nextExplorationSearch or 0)
+                and (tonumber(event.objective.misses[controller.id]) or 0) < 3
+                and controller:beginExploration(ticks, directive) then return true end
+        end
         controller.state = "EVENT_WAIT"
         controller.nextThink = math.max(controller.nextThink or 0, ticks + 90)
         return true
@@ -353,11 +375,22 @@ function Runtime.captureLootContext(character, source, destination)
         or source:isInCharacterInventory(character) then return nil end
     local duty = KnoxPersistence.getSurvivorDuty(id)
     local event = duty ~= nil and duty.eventId ~= nil and KnoxEvents.get(duty.eventId) or nil
-    if event == nil or event.kind ~= "faction_raid" or event.phase ~= "objective"
+    if event == nil or event.phase ~= "objective"
         or not objectiveValid(event) then return nil end
     local square, parent = source:getSourceGrid(), source:getParent()
-    if square == nil or parent == nil or instanceof(parent, "IsoGameCharacter")
-        or not KnoxBaseManager.containsSquare(KnoxPersistence.getBase(event.targetBaseId), square) then return nil end
+    if square == nil or parent == nil or instanceof(parent, "IsoGameCharacter") then return nil end
+    if event.kind == "faction_raid" then
+        if not KnoxBaseManager.containsSquare(KnoxPersistence.getBase(event.targetBaseId), square) then
+            return nil
+        end
+    elseif event.kind == "faction_entry" and event.policyId == "scavengers"
+        and event.objective.kind == "scavenge_world" then
+        local target = event.targetLocation
+        local dx, dy = square:getX() - target.x, square:getY() - target.y
+        if square:getZ() ~= target.z or dx * dx + dy * dy > 18 * 18 then return nil end
+    else
+        return nil
+    end
     return { eventId = event.id, memberId = id, x = square:getX(), y = square:getY(), z = square:getZ() }
 end
 

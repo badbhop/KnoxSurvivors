@@ -255,4 +255,79 @@ local departedFaction = assert(P.getFaction(scientistFactionId))
 assert(departedFaction.lifecycle == "departed" and #departedFaction.memberIds == 0,
     "departed event faction remains as history without active members")
 
-print("Named event runtime PASS scheduled=true atomic_entry=true no_duplicate=true distinct=true objective=true withdrawal=true persistence=true offscreen_travel=true bounded_retry=true event_departure=true")
+hours = hours + 1
+local scavengers = assert(E.scheduleFactionEntry("scavengers", "scavenge_world",
+    { x = 200, y = 200, z = 0 }, 3, hours, 0))
+assert(R.dispatch(scavengers, {}, hours))
+scavengers = E.get(scavengers.id)
+for _, id in ipairs(scavengers.memberIds) do
+    local destination = assert(R.destination(scavengers, id))
+    local body = { x = destination.x, y = destination.y, z = destination.z }
+    function body:getCurrentSquare() return square(self.x, self.y, self.z) end
+    function body:getX() return self.x end
+    function body:getY() return self.y end
+    function body:isDead() return false end
+    bodies[id] = body
+    controllers[id] = { character = body, state = "IDLE", eventMoveFailures = 0 }
+end
+R.update(controllers, hours)
+R.update(controllers, hours)
+scavengers = E.get(scavengers.id)
+assert(scavengers.phase == "objective" and scavengers.objective.kind == "scavenge_world"
+    and scavengers.objective.requiredItems == 6 and E.objectiveCount(scavengers) == 0,
+    "Scavenger search starts with no fabricated loot evidence")
+assert(E.finishFactionEntryObjective(scavengers.id, scavengers.revision, hours, "no_supplies") == nil,
+    "Scavenger search cannot finish before real completion/exhaustion/deadline evidence")
+
+local scavengerId = scavengers.memberIds[1]
+local scavengerBody = bodies[scavengerId]
+local searchDirective = nil
+controllers[scavengerId].eventAssignment = { id = scavengers.id }
+controllers[scavengerId].beginExploration = function(_, _, directive)
+    searchDirective = directive
+    return true
+end
+assert(R.beginObjectiveWork(controllers[scavengerId], 100)
+    and searchDirective.kind == "loot_area" and searchDirective.eventId == scavengers.id
+    and searchDirective.minX == 182 and searchDirective.maxX == 218,
+    "Scavengers reuse the bounded existing loot-area controller")
+local carried = {}
+function scavengerBody:getInventory() return carried end
+KnoxSurvivorRuntime.idForCharacter = function(character)
+    return character == scavengerBody and scavengerId or nil
+end
+instanceof = function() return false end
+local source = {
+    getSourceGrid = function() return square(201, 200, 0) end,
+    getParent = function() return {} end,
+    isInCharacterInventory = function() return false end,
+}
+assert(R.captureLootContext(scavengerBody, source, carried) ~= nil,
+    "real world container inside the bounded search area is eligible")
+source.getSourceGrid = function() return square(240, 200, 0) end
+assert(R.captureLootContext(scavengerBody, source, carried) == nil,
+    "containers outside the bounded search area cannot count")
+
+hours = hours + 0.1
+assert(E.recordLoot(scavengers.id, scavengerId,
+    { itemId = "real-scavenged-item", fullType = "Base.Crisps", x = 201, y = 200, z = 0 }, hours))
+for _, id in ipairs(scavengers.memberIds) do
+    for _ = 1, 3 do assert(E.recordEmptySearch(scavengers.id, id)) end
+end
+R.reviewObjective(scavengers, hours)
+scavengers = E.get(scavengers.id)
+assert(scavengers.phase == "withdrawing" and scavengers.objective.outcome == "partial_supplies"
+    and E.objectiveCount(scavengers) == 1,
+    "only durable real-transfer evidence produces a partial Scavenger outcome: "
+        .. tostring(scavengers.phase) .. "/" .. tostring(scavengers.objective.outcome))
+for _, id in ipairs(scavengers.memberIds) do
+    local destination = assert(R.destination(scavengers, id))
+    bodies[id].x, bodies[id].y, bodies[id].z = destination.x, destination.y, destination.z
+end
+R.update(controllers, hours)
+scavengers = E.get(scavengers.id)
+assert(scavengers.phase == "completed"
+    and #P.getFaction(scavengers.sourceFactionId).memberIds == 3,
+    "persistent Scavengers rejoin ordinary world life after the evidenced transfer")
+
+print("Named event runtime PASS scheduled=true atomic_entry=true no_duplicate=true distinct=true objective=true withdrawal=true persistence=true offscreen_travel=true bounded_retry=true event_departure=true scavenging=true")

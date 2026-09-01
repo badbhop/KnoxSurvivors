@@ -2870,3 +2870,35 @@ entrants wear stable army clothing, own exactly one M9/magazine and 15 rounds ea
 through native behavior, hold/clear the selected area, and depart at their real entry anchor. Save
 and reload while present; no item or identity may duplicate and no departed member may reactivate.
 No Java or launcher protocol changed, so this increment requires no launcher patch.
+
+## 2026-09-01 — Evidence-backed Scavenger world search
+
+Status: implemented and automatically verified; live container search, transfer animation and
+save/reload evidence remain required. This is one explicit Scavenger objective, not automatic
+scheduling, base theft, a boss encounter or a completed faction.
+
+- Named `scavenge_world` objectives now reuse the existing real-item event transaction. Each
+  loaded member receives the current `loot_area` directive bounded to 18 tiles around the persisted
+  target; no second looting controller or abstract stockpile was added.
+- A source must be a real world container on the target floor and inside that radius. Character
+  inventories, outside containers, queued actions and transfers that leave the original in place
+  cannot count. The existing post-transfer observer records the actual item ID/type only after it
+  is present in the member's real inventory.
+- The objective requires at most six unique receipts. Three exhausted searches per member, the
+  two-hour deadline, or the real-item target produces honest `no_supplies`, `partial_supplies` or
+  `supplies_taken` evidence. Malformed/duplicate receipts remain rejected by the shared validator.
+- Scavengers remain varied ordinary survivors rather than receiving a forced profession or magic
+  gear. Because their policy persists after the event, the same identities and actually carried
+  items rejoin normal world life. The boss hook remains disabled.
+- Added the destructive, sandbox-gated **Schedule Scavenger Search Here** live harness. It invokes
+  the normal entry transaction and is not an automatic trigger.
+- Focused named-runtime coverage verifies zero initial loot, bounded controller delegation,
+  inside/outside container eligibility, one durable real-item receipt, evidence-backed partial
+  outcome, withdrawal and persistent faction membership. Existing raid objective and runtime
+  suites also pass unchanged. All 69 standalone Lua tests, all 74 mod Lua syntax checks and
+  `:java:build prepareWorkshopUpload` pass the full Java 25 verification/staging gate.
+
+Pending live: schedule the search near real containers on a disposable day-7-or-later save. Confirm
+the three members visibly travel/search, real items leave their source containers and enter their
+inventories, the search ends without fabricated loot, and save/reload neither repeats a receipt nor
+duplicates an item. No Java or launcher protocol changed, so no launcher patch is required.

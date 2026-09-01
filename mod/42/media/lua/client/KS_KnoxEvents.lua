@@ -191,9 +191,8 @@ function KnoxEvents.objectiveCount(event)
     return count
 end
 
-function KnoxEvents.isValidRaidObjective(event)
-    local objective = type(event) == "table" and event.objective or nil
-    local valid = type(objective) == "table" and objective.kind == "take_supplies"
+local function validSupplyObjective(event, objective, kind)
+    local valid = type(objective) == "table" and objective.kind == kind
         and type(objective.receipts) == "table" and type(objective.misses) == "table"
         and serial(objective.requiredItems) and objective.requiredItems <= 6
         and finite(objective.startedAtHours) and finite(objective.deadlineHours)
@@ -217,10 +216,18 @@ function KnoxEvents.isValidRaidObjective(event)
     return true
 end
 
+function KnoxEvents.isValidRaidObjective(event)
+    return validSupplyObjective(event,
+        type(event) == "table" and event.objective or nil, "take_supplies")
+end
+
 local function objectiveMember(id, memberId)
     local event = records()[id]
-    if type(event) ~= "table" or event.phase ~= "objective"
-        or not KnoxEvents.isValidRaidObjective(event) then return nil end
+    local valid = type(event) == "table" and event.phase == "objective"
+        and (event.kind == "faction_raid" and KnoxEvents.isValidRaidObjective(event)
+            or event.kind == "faction_entry" and event.policyId == "scavengers"
+                and KnoxEvents.isValidFactionEntryObjective(event))
+    if not valid then return nil end
     if type(memberId) ~= "string" or not KnoxPersistence.isSurvivorAlive(memberId) then return nil end
     local duty = KnoxPersistence.getSurvivorDuty(memberId)
     if duty == nil or duty.eventId ~= id then return nil end
@@ -396,10 +403,15 @@ function KnoxEvents.beginFactionEntryObjective(id, revision, hours)
     local changed, reason = KnoxEvents.transition(id, revision, "objective", hours, "event_objective_active")
     if changed == nil then return nil, reason end
     event.objective = { kind = event.objectiveKind, startedAtHours = hours,
-        deadlineHours = math.min(event.deadlineHours, hours + 1) }
+        deadlineHours = math.min(event.deadlineHours,
+            hours + (event.objectiveKind == "scavenge_world" and 2 or 1)) }
     if event.objectiveKind == "secure_area" then
         event.objective.nextScanAtHours = hours
         event.objective.lastThreatCount = 0
+    elseif event.objectiveKind == "scavenge_world" then
+        event.objective.requiredItems = math.min(6, #event.memberIds * 2)
+        event.objective.receipts = {}
+        event.objective.misses = {}
     end
     return copy(event), "started"
 end
@@ -424,6 +436,9 @@ function KnoxEvents.isValidFactionEntryObjective(event)
                 or finite(objective.clearSinceHours)
                     and objective.clearSinceHours >= objective.startedAtHours
                     and objective.clearSinceHours <= objective.deadlineHours)
+    elseif objective.kind == "scavenge_world" then
+        return event.policyId == "scavengers"
+            and validSupplyObjective(event, objective, "scavenge_world")
     end
     return true
 end
@@ -454,7 +469,22 @@ function KnoxEvents.finishFactionEntryObjective(id, revision, hours, outcome)
         return nil, "missing_objective_evidence"
     end
     outcome = outcome or "elapsed"
-    if outcome == "area_secure" then
+    if event.objective.kind == "scavenge_world" then
+        local count = KnoxEvents.objectiveCount(event)
+        local exhausted = true
+        for _, memberId in ipairs(event.memberIds) do
+            if (tonumber(event.objective.misses[memberId]) or 0) < 3 then exhausted = false end
+        end
+        if (count < event.objective.requiredItems and not exhausted
+                and hours < event.objective.deadlineHours)
+            or (outcome == "supplies_taken" and count < event.objective.requiredItems)
+            or (outcome == "partial_supplies" and count == 0)
+            or (outcome == "no_supplies" and count > 0)
+            or (outcome ~= "supplies_taken" and outcome ~= "partial_supplies"
+                and outcome ~= "no_supplies") then
+            return nil, "missing_objective_evidence"
+        end
+    elseif outcome == "area_secure" then
         if event.objective.kind ~= "secure_area"
             or event.objective.lastThreatCount ~= 0
             or not finite(event.objective.clearSinceHours)
@@ -467,7 +497,11 @@ function KnoxEvents.finishFactionEntryObjective(id, revision, hours, outcome)
     event.objective.outcome = outcome
     event.objective.finishedAtHours = hours
     return KnoxEvents.transition(id, revision, "withdrawing", hours,
-        outcome == "area_secure" and "area_secured" or "event_objective_elapsed")
+        outcome == "area_secure" and "area_secured"
+            or outcome == "supplies_taken" and "supplies_taken"
+            or outcome == "partial_supplies" and "partial_supplies"
+            or outcome == "no_supplies" and "no_supplies"
+            or "event_objective_elapsed")
 end
 
 function KnoxEvents.isTravelEvent(event)
