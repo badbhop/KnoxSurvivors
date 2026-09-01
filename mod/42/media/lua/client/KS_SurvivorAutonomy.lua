@@ -746,7 +746,10 @@ update = function()
     end
     if ticks >= nextPopulationUpdate then
         nextPopulationUpdate = ticks + POPULATION_INTERVAL_TICKS
-        KnoxEvents.maintain(getGameTime():getWorldAgeHours())
+        local hours = getGameTime():getWorldAgeHours()
+        KnoxEvents.maintain(hours)
+        KnoxEvents.scheduleAutomaticRaid(hours, KnoxSettings.allowFactionRaids(),
+            KnoxSettings.factionRaidMinimumDays(), KnoxSettings.factionRaidIntervalDays())
         reconcileWorldPopulation(bridge)
     end
     KnoxZombieAwareness.update(controllers, activeIds, ticks)

@@ -4,6 +4,7 @@ require "KS_Settings"
 require "KS_SurvivorAutonomy"
 require "KS_ActivityFeed"
 require "KS_CombatTestScenarios"
+require "KS_KnoxEvents"
 
 local DeveloperTools = rawget(_G, "KnoxDeveloperTools") or {}
 _G.KnoxDeveloperTools = DeveloperTools
@@ -61,6 +62,20 @@ function DeveloperTools.dispatchScout(playerNum, worldObjects)
         or ("Scout dispatch failed: " .. tostring(result) .. "."))
 end
 
+function DeveloperTools.scheduleEligibleRaid()
+    if not KnoxSettings.allowDestructiveDeveloperTests() then
+        KnoxActivityFeed.event("Raid test requires Allow Destructive Tests.")
+        return
+    end
+    local hours = getGameTime():getWorldAgeHours()
+    local event, result = KnoxEvents.scheduleAutomaticRaid(hours, true, 0, 1, true)
+    KnoxActivityFeed.event(event ~= nil
+        and ("Faction raid scheduled: " .. tostring(event.id) .. ".")
+        or ("Raid scheduling failed: " .. tostring(result) .. "."))
+    print("[KnoxSurvivors][DeveloperTools] raid=" .. tostring(event ~= nil and event.id or "none")
+        .. " result=" .. tostring(result))
+end
+
 local function onFill(playerNum, context, worldObjects, test)
     if not KnoxSettings.developerToolsEnabled() then
         return
@@ -90,6 +105,11 @@ local function onFill(playerNum, context, worldObjects, test)
 
     menu:addOption("Dispatch Loaded Faction Scout Here", playerNum,
         DeveloperTools.dispatchScout, worldObjects)
+
+    if KnoxSettings.allowDestructiveDeveloperTests() then
+        menu:addOption("Schedule Eligible Faction Raid Now", nil,
+            DeveloperTools.scheduleEligibleRaid)
+    end
 
     menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)
     menu:addOption("Write Combat Snapshot to Log", nil, KnoxCombatTestScenarios.writeSnapshot)

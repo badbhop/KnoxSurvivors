@@ -2527,3 +2527,49 @@ whole party without partial duty claims, and a later-ready party departs once. R
 departure and during stored travel. Automatic scheduling remains disabled; the next common
 event dependency is a conservative scheduler using the existing proposal/cooldown system and
 convenient development scenarios, before any faction-specific event rollout.
+
+## 2026-08-31 — Conservative automatic faction-raid scheduling
+
+Status: implemented — automated policy/integration checks pass; live verification required.
+This activates only the generic real-faction raid path. Police, Scientists, Military,
+Scavengers, PMC contracts and Black Division remain unimplemented.
+
+### Missing boundary and implementation
+
+- Raids previously required a direct API call even when two established factions were explicitly
+  hostile. The existing event ledger, proposal, dispatcher and real supply objective were never
+  selected by normal world updates.
+- The population interval now invokes one persisted scheduler. It waits for the configured world
+  age, evaluates only existing non-player factions and existing hostile target bases, rejects
+  source/target distances over 600 tiles, and permits only one automatic event at a time.
+- Candidate rotation and next-check time persist under `knoxEvents.automatic`. A successful check
+  defaults to seven in-game days before another; a world with no eligible pair retries after six
+  hours rather than scanning every tick. Selection is deterministic and bounded.
+- Scheduling still calls the existing `proposeRaid`/`scheduleRaid` boundary: at most 40% of living
+  members leave, at least two eligible defenders stay home, base workers/Away Teams/event members
+  are excluded, and no survivor, relationship, item, weapon or ammunition is created.
+- New sandbox settings control whether new faction raids may be scheduled, the first possible
+  raid day and the global scheduling interval. Disabling factions or hostile encounters also
+  disables new automatic raids. Active parties retain their return/cleanup ownership.
+- A destructive developer context action schedules the next eligible raid immediately through
+  the same policy. It does not create a test faction, force hostility or bypass roster strength.
+
+### Verification
+
+- `tools/test-event-automatic-scheduler.lua` covers settings/world-age gates, neutral rejection,
+  hostile real-roster scheduling, no duty/inventory/identity mutation, due-time bounds, one-active
+  policy, persisted interval/cursor, reload, faction cooldown, distance rejection and corrupt
+  scheduler-state normalization.
+- `tools/test-sandbox-settings.lua` covers defaults, dependency gates and integer clamps.
+- All 64 standalone Lua tests and 73 mod Lua syntax checks pass. `:java:build
+  prepareWorkshopUpload` passes, including the full Java 25 shell/transformer/inventory suite.
+
+### Pending live and next work
+
+On a disposable save with two hostile based factions, enable destructive developer tools and use
+**Schedule Eligible Faction Raid Now**. Verify one real minority party is announced, departs with
+the same IDs/loadout, navigates and loots real supplies, withdraws, returns and releases its event
+duty across save/reload. Then test natural scheduling after the configured day without using the
+developer command. The staged package is not a Steam upload or local subscribed-install update.
+Faction-specific event policies must wait for this common live gate; the next safe independent
+dependency is defining the reusable event-faction identity/policy records without spawning them.

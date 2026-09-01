@@ -816,6 +816,15 @@ persisted virtual route reaches home. Death or a replaced duty resolves only tha
 a removed/lost home fails the event and retains faction identity under autonomous duty.
 Malformed deployed records remain reserved for recovery rather than pretending to return.
 
-Actual raid combat/loot objectives, readiness-based dispatch of already-stored residents,
-automatic triggers, and the other Knox Event faction policies remain unfinished. Native
-human combat remains the existing authority and still needs its documented live evidence.
+Stored residents use fresh persisted physiology/home state plus a read-only decode of their
+real equipped native item before an all-member event claim; this never reconstructs a body or
+defaults equipment. Automatic scheduling runs only at the existing population interval and
+uses a persisted next-check/cursor. It considers established explicitly hostile factions with
+real bases and eligible real rosters, permits one automatic event at a time, rejects targets
+over 600 tiles away, and then enters the same proposal/dispatch/objective path. Default sandbox
+policy allows the first check after day seven and spaces successful checks by seven days.
+Disabling automatic raids prevents new schedules but does not erase a deployed party.
+
+Actual live raid combat/loot/return evidence and the other Knox Event faction policies remain
+unfinished. Native human combat remains the existing authority and still needs its documented
+live evidence. Named event factions may not bypass this common persistent-survivor lifecycle.

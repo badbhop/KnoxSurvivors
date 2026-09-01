@@ -18,6 +18,8 @@ local NEXT = {
 local RAID_COOLDOWN_HOURS = 24
 local RETAIN_HOURS = 168
 local HISTORY_LIMIT = 128
+local AUTOMATIC_RETRY_HOURS = 6
+local AUTOMATIC_MAX_DISTANCE = 600
 local MAX_SERIAL = 9007199254740990 -- leave room for an exact integer increment
 
 local function finite(value)
@@ -309,6 +311,103 @@ function KnoxEvents.scheduleRaid(factionId, baseId, hours, delayHours)
     proposal.reason = "awaiting_dispatch"
     state.records[proposal.id] = proposal
     return copy(proposal), "scheduled"
+end
+
+local function baseCenter(base)
+    local home = type(base) == "table" and base.home or nil
+    if type(home) ~= "table" or not finite(home.minX) or not finite(home.minY)
+        or not finite(home.width) or not finite(home.height) then return nil end
+    return home.minX + (home.width - 1) / 2, home.minY + (home.height - 1) / 2
+end
+
+local function automaticCandidates(hours)
+    local candidates = {}
+    for factionId, faction in pairs(KnoxPersistence.getFactions()) do
+        if type(factionId) == "string" and type(faction) == "table" and faction.kind ~= "player" then
+            local home = KnoxPersistence.getBaseForOwner("faction", factionId)
+            local homeX, homeY = baseCenter(home)
+            if homeX ~= nil then
+                for baseId, target in pairs(KnoxPersistence.getBases()) do
+                    if type(baseId) == "string" and type(target) == "table"
+                        and not (target.ownerKind == "faction" and target.ownerId == factionId) then
+                        local targetX, targetY = baseCenter(target)
+                        local proposal = targetX ~= nil and KnoxEvents.proposeRaid(factionId, baseId, hours) or nil
+                        if proposal ~= nil then
+                            local dx, dy = targetX - homeX, targetY - homeY
+                            local distance = math.sqrt(dx * dx + dy * dy)
+                            if distance <= AUTOMATIC_MAX_DISTANCE then
+                                candidates[#candidates + 1] = {
+                                    sourceFactionId = factionId,
+                                    targetBaseId = baseId,
+                                    distance = distance,
+                                    key = factionId .. ":" .. baseId,
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(candidates, function(first, second)
+        if first.distance ~= second.distance then return first.distance < second.distance end
+        return first.key < second.key
+    end)
+    return candidates
+end
+
+local function automaticActive()
+    for _, event in pairs(records()) do
+        if type(event) == "table" and event.trigger == "automatic" and not terminal(event) then return true end
+    end
+    return false
+end
+
+-- This chooses from already-hostile, already-based factions only. It never creates
+-- people, hostility, bases or equipment; scheduleRaid revalidates the real roster.
+function KnoxEvents.scheduleAutomaticRaid(hours, enabled, minimumDays, intervalDays, force)
+    if enabled ~= true then return nil, "automatic_raids_disabled" end
+    if not finite(hours) or hours < 0 or not finite(minimumDays) or not finite(intervalDays)
+        or minimumDays < 0 or minimumDays > 90 or intervalDays < 1 or intervalDays > 30 then
+        return nil, "invalid_automatic_policy"
+    end
+    local automatic = KnoxPersistence.getKnoxEventState().automatic
+    if type(automatic) ~= "table" then return nil, "automatic_state_unavailable" end
+    local earliest = minimumDays * 24
+    if hours < earliest then
+        automatic.nextCheckHours = math.max(tonumber(automatic.nextCheckHours) or 0, earliest)
+        return nil, "world_too_young"
+    end
+    if force ~= true and hours < (tonumber(automatic.nextCheckHours) or 0) then
+        return nil, "automatic_check_not_due"
+    end
+    if automaticActive() then
+        automatic.nextCheckHours = math.max(tonumber(automatic.nextCheckHours) or 0, hours + 1)
+        return nil, "automatic_event_active"
+    end
+    local candidates = automaticCandidates(hours)
+    local intervalHours = intervalDays * 24
+    if #candidates == 0 then
+        automatic.nextCheckHours = hours + math.min(AUTOMATIC_RETRY_HOURS, intervalHours)
+        return nil, "no_eligible_raid"
+    end
+    local cursor = math.max(0, math.floor(tonumber(automatic.cursor) or 0))
+    for offset = 1, #candidates do
+        local index = (cursor + offset - 1) % #candidates + 1
+        local candidate = candidates[index]
+        local delay = force == true and 0 or 1 + ((math.floor(hours) + index) % 4)
+        local event = KnoxEvents.scheduleRaid(candidate.sourceFactionId, candidate.targetBaseId, hours, delay)
+        if event ~= nil then
+            local stored = records()[event.id]
+            stored.trigger = "automatic"
+            stored.triggerDistance = candidate.distance
+            automatic.cursor = index
+            automatic.nextCheckHours = hours + intervalHours
+            return KnoxEvents.get(event.id), "automatic_raid_scheduled"
+        end
+    end
+    automatic.nextCheckHours = hours + math.min(AUTOMATIC_RETRY_HOURS, intervalHours)
+    return nil, "eligibility_changed"
 end
 
 function KnoxEvents.isValidRecord(event)

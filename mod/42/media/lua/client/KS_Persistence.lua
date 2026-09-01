@@ -94,6 +94,13 @@ local function root()
     if type(data.knoxEvents) ~= "table" then data.knoxEvents = {} end
     if type(data.knoxEvents.records) ~= "table" then data.knoxEvents.records = {} end
     if type(data.knoxEvents.cooldowns) ~= "table" then data.knoxEvents.cooldowns = {} end
+    if type(data.knoxEvents.automatic) ~= "table" then data.knoxEvents.automatic = {} end
+    local automaticNext = tonumber(data.knoxEvents.automatic.nextCheckHours)
+    local automaticCursor = tonumber(data.knoxEvents.automatic.cursor)
+    data.knoxEvents.automatic.nextCheckHours = finiteCoordinate(automaticNext)
+        and automaticNext >= 0 and automaticNext or 0
+    data.knoxEvents.automatic.cursor = finiteCoordinate(automaticCursor)
+        and automaticCursor >= 0 and math.floor(automaticCursor) or 0
     data.knoxEvents.nextId = tonumber(data.knoxEvents.nextId) or 1
     if type(data.players) ~= "table" then
         data.players = {}

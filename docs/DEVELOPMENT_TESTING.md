@@ -597,6 +597,13 @@ boundary. It checks fresh persisted physiology and home position, read-only nati
 weapon readiness, active-body exclusion, atomic all-member qualification, bounded retry,
 save reconstruction, and dispatch without materializing or manufacturing survivors/items.
 
+Run `lua tools/test-event-automatic-scheduler.lua .` to verify automatic proposal policy:
+world-age/settings gates, explicit hostility, persistent scan timing, real minority rosters,
+one active automatic event, source/target distance, faction cooldown, reload, and poisoned-state
+normalization. With Developer Tools and Allow Destructive Tests enabled, **Schedule Eligible
+Faction Raid Now** invokes this same scheduler without waiting for the calendar gate; it still
+requires two real hostile bases and an eligible five-member source faction.
+
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe
 that as a successful live raid. `lua tools/test-event-runtime.lua .` additionally runs
@@ -608,9 +615,9 @@ mixed-loaded waiting, casualties, malformed roster recovery, and lost-home clean
 
 Pending live dispatch gate: use five equipped residents of an established hostile faction
 and an existing target base. Explicitly schedule its proposal through `KnoxEvents.scheduleRaid`
-in development tooling. Verify only the selected party leaves, native movement/obstacles
+or the developer context command. Verify only the selected party leaves, native movement/obstacles
 and group regrouping work, combat/self-care can interrupt it, the same IDs and gear persist
 across hibernation/reload, and withdrawal returns/releases survivors without duplication.
 Inspect `[KnoxSurvivors][Events]` transitions; timers must not claim combat victories.
-Combat/loot objectives and automatic triggers are still unfinished and must not be presented
-as a release-ready raid feature. No substitute NPCs or free equipment are permitted.
+Automatic scheduling and real supply objectives are implemented but not live-proven and must
+not be presented as a release-ready raid feature. No substitute NPCs or free equipment are permitted.

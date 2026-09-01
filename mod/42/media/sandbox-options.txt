@@ -36,6 +36,18 @@ option KnoxSurvivors.AllowHostileEncounters = {
     type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowHostileEncounters,
 }
 
+option KnoxSurvivors.AllowFactionRaids = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowFactionRaids,
+}
+
+option KnoxSurvivors.FactionRaidMinimumDays = {
+    type = integer, min = 1, max = 90, default = 7, page = KnoxSurvivors_Main, translation = KnoxSurvivors_FactionRaidMinimumDays,
+}
+
+option KnoxSurvivors.FactionRaidIntervalDays = {
+    type = integer, min = 1, max = 30, default = 7, page = KnoxSurvivors_Main, translation = KnoxSurvivors_FactionRaidIntervalDays,
+}
+
 option KnoxSurvivors.ShowCompanionHUD = {
     type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ShowCompanionHUD,
 }

@@ -11,6 +11,9 @@ local DEFAULTS = {
     CompanionLimit = 4,
     AllowNPCFactions = true,
     AllowHostileEncounters = true,
+    AllowFactionRaids = true,
+    FactionRaidMinimumDays = 7,
+    FactionRaidIntervalDays = 7,
     ShowCompanionHUD = true,
     ShowActivityFeed = true,
     ShowSurvivorSpeech = true,
@@ -94,6 +97,19 @@ end
 
 function Settings.allowHostileEncounters()
     return value("AllowHostileEncounters") ~= false
+end
+
+function Settings.allowFactionRaids()
+    return Settings.enabled() and Settings.allowNPCFactions()
+        and Settings.allowHostileEncounters() and value("AllowFactionRaids") ~= false
+end
+
+function Settings.factionRaidMinimumDays()
+    return integer("FactionRaidMinimumDays", 1, 90)
+end
+
+function Settings.factionRaidIntervalDays()
+    return integer("FactionRaidIntervalDays", 1, 30)
 end
 
 function Settings.showCompanionHUD()

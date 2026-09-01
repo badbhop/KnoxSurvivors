@@ -12,6 +12,9 @@ assert(KnoxSettings.activationBudget(11) == 1 and KnoxSettings.activationBudget(
     "construction budget respects configured active cap")
 assert(KnoxSettings.allowNPCFactions(), "factions default")
 assert(KnoxSettings.allowHostileEncounters(), "hostility default")
+assert(KnoxSettings.allowFactionRaids(), "resource-backed faction raids default")
+assert(KnoxSettings.factionRaidMinimumDays() == 7, "raid world-age default")
+assert(KnoxSettings.factionRaidIntervalDays() == 7, "raid interval default")
 assert(KnoxSettings.showCompanionHUD(), "HUD default")
 assert(KnoxSettings.showActivityFeed(), "feed default")
 assert(not KnoxSettings.developerToolsEnabled(), "developer tools must default off")
@@ -22,6 +25,9 @@ SandboxVars = { KnoxSurvivors = {
     CompanionLimit = 99,
     AllowNPCFactions = false,
     AllowHostileEncounters = false,
+    AllowFactionRaids = true,
+    FactionRaidMinimumDays = 0,
+    FactionRaidIntervalDays = 99,
     EnableDeveloperTools = true,
     DeveloperScenario = 6,
     DeveloperSpawnDistance = 2,
@@ -31,6 +37,9 @@ SandboxVars = { KnoxSurvivors = {
 assert(KnoxSettings.companionLimit() == 12, "companion limit upper clamp")
 assert(not KnoxSettings.allowNPCFactions(), "factions configured off")
 assert(not KnoxSettings.allowHostileEncounters(), "hostility configured off")
+assert(not KnoxSettings.allowFactionRaids(), "raids require factions and hostile encounters")
+assert(KnoxSettings.factionRaidMinimumDays() == 1, "raid age lower clamp")
+assert(KnoxSettings.factionRaidIntervalDays() == 30, "raid interval upper clamp")
 assert(KnoxSettings.developerToolsEnabled(), "developer tools configured on")
 assert(KnoxSettings.developerScenario() == "faction_base", "enum mapping")
 assert(KnoxSettings.developerSpawnDistance() == 6, "spawn distance lower clamp")
