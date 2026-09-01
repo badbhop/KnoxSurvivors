@@ -2685,3 +2685,45 @@ duplicate or movement storm. This is not a completed Police faction feature: the
 real Police equipment, disposition/reputation behavior, automatic triggers and meaningful Police
 objectives are still unimplemented. Scientists, Military, Scavengers, PMC contracts and Black
 Division remain policy-only. No Java/launcher protocol changed in this pass.
+
+## 2026-09-01 — Police first-materialization identity and equipment
+
+Status: implemented and automatically verified; live appearance/equipment persistence remains
+required. Police encounters are still explicit developer schedules with the bounded common
+presence objective, not a completed automatic law-enforcement event.
+
+### Missing boundary and implementation
+
+- Named Police entrants previously materialized through the ordinary randomized profession and
+  starter-item path, so their persisted faction policy had no visible or mechanical identity.
+- `KS_EventFactions.materializationPolicy` now derives a defensive policy from the survivor's
+  canonical faction identity only when its persistent origin is `knox_event`. It allocates no
+  actor/item and cannot retheme ordinary or previously materialized survivors.
+- First materialization asks the existing capability generator for Build 42's real
+  `base:policeofficer` profession. The normal vanilla-point balancing still chooses compatible
+  traits, the existing appearance path consequently applies
+  `ClothingSelectionDefinitions.policeofficer`, and the resulting profession/traits/clothing are
+  captured by the normal survivor snapshot.
+- The existing starter-gear service applies a restrained `police` theme: one real
+  `Base.Nightstick`, one real `Base.WalkieTalkie4`, and the ordinary bounded food/water/medical
+  rolls. Existing equipment selection equips the owned useful weapon. No firearm, ammunition,
+  artificial skill, accuracy, health or damage multiplier is granted.
+- A survivor with an existing capability/native record is restored normally; policy arguments
+  cannot rewrite its profession or reissue the starter kit. Temporary materialization failure
+  still follows the existing body removal/retry path.
+
+### Verification and remaining evidence
+
+- `tools/test-survivor-capabilities.lua` covers strict preferred-profession selection, vanilla
+  point balance, explicit missing-definition failure and persisted-profile non-rewrite.
+- `tools/test-survivor-starting-gear.lua` covers exact real Police items and unchanged ordinary
+  starter behavior. `tools/test-event-entry.lua` covers canonical/defensive policy lookup.
+- All 68 standalone Lua tests and all 74 mod Lua syntax checks pass. `:java:build
+  prepareWorkshopUpload` passes the full Java 25 shell/transformer/inventory suite and stages the
+  current payload.
+
+Pending live: schedule Police entry on a disposable day-one-or-later save. Confirm entrants wear
+recognizable ordinary Police clothing, own/equip a nightstick, carry a Police radio, retain the
+same profession/clothing/items after save/reload and do not receive the kit twice. Disposition,
+automatic triggers and meaningful Police objectives remain unfinished. No Java or launcher
+protocol changed, so this increment requires no launcher patch.

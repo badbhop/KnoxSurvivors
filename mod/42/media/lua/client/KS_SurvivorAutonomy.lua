@@ -153,7 +153,15 @@ local function createSurvivorAt(bridge, id, square, developerKit)
         bridge:removeNpc(id)
         return nil, "spawned_character_unavailable"
     end
-    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(id, character, true)
+    local eventPolicy = KnoxEventFactions ~= nil
+        and KnoxEventFactions.materializationPolicy(id)
+        or nil
+    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(
+        id,
+        character,
+        true,
+        eventPolicy ~= nil and eventPolicy.professionId or nil
+    )
     if capabilities == nil then
         bridge:removeNpc(id)
         return nil, "capabilities_failed=" .. tostring(capabilityResult)
@@ -176,7 +184,8 @@ local function createSurvivorAt(bridge, id, square, developerKit)
         equipmentOk, equipped = KnoxSurvivorStartingGear.initialize(
             id,
             character,
-            bridge
+            bridge,
+            eventPolicy ~= nil and eventPolicy.loadoutTheme or nil
         )
     end
     KnoxPersistence.ensureSurvivorIdentityFromCharacter(

@@ -869,6 +869,11 @@ behavior or items. Withdrawal returns toward the saved entry anchor, releases te
 and leaves every surviving identity in the ordinary faction/world population.
 
 The destructive developer action **Schedule Police Entry Here** is the first explicit live harness.
-It is not an automatic Police event and does not yet apply themed appearance/loadouts. Automatic
-named triggers, real faction objectives, disposition realization, loadout realization and
-persist-after-event policy differences remain later event-runtime responsibilities.
+It is not an automatic Police event. On the ordinary first-materialization path only, a canonical
+`knox_event` Police member derives `base:policeofficer` from its faction policy. Existing capability
+generation still balances real vanilla profession/trait points; existing appearance code applies
+the native Police creator clothing definition; existing starter gear grants only a real nightstick,
+Police walkie-talkie and bounded ordinary survival supplies. Capture then makes those normal
+profession, clothing and inventory states authoritative, so restore never reapplies the theme.
+Automatic named triggers, real faction objectives, disposition realization, other faction
+loadouts and persist-after-event policy differences remain later event-runtime responsibilities.

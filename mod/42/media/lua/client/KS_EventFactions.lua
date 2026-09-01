@@ -12,6 +12,7 @@ local DEFINITIONS = {
         minimumWorldDays = 1,
         defaultDisposition = "neutral",
         loadoutTheme = "police",
+        professionId = "base:policeofficer",
         objectives = { "assist", "secure_area" },
         persistsAfterEvent = true,
     },
@@ -77,6 +78,8 @@ local function valid(definition)
         or type(definition.minimumWorldDays) ~= "number" or definition.minimumWorldDays < 0
         or (definition.defaultDisposition ~= "neutral" and definition.defaultDisposition ~= "hostile")
         or type(definition.loadoutTheme) ~= "string" or definition.loadoutTheme == ""
+        or (definition.professionId ~= nil and (type(definition.professionId) ~= "string"
+            or not definition.professionId:match("^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$")))
         or type(definition.objectives) ~= "table" or #definition.objectives == 0
         or type(definition.persistsAfterEvent) ~= "boolean" then return false end
     local seen = {}
@@ -109,6 +112,18 @@ function EventFactions.isWorldAgeEligible(id, worldAgeHours)
     local definition = type(id) == "string" and DEFINITIONS[id] or nil
     local hours = tonumber(worldAgeHours)
     return definition ~= nil and hours ~= nil and hours == hours and hours >= definition.minimumWorldDays * 24
+end
+
+-- First materialization may consume this policy once.  The event remains an
+-- ordinary faction/population identity; this lookup creates no gear or body and
+-- returns a defensive copy so appearance code cannot mutate faction state.
+function EventFactions.materializationPolicy(survivorId)
+    local origin = KnoxPersistence.getSurvivorOrigin(survivorId)
+    if type(origin) ~= "table" or origin.source ~= "knox_event" then return nil end
+    local faction = KnoxPersistence.getFactionForSurvivor(survivorId)
+    local identity = type(faction) == "table" and faction.eventIdentity or nil
+    local definition = type(identity) == "table" and DEFINITIONS[identity.policyId] or nil
+    return definition ~= nil and copy(definition) or nil
 end
 
 function EventFactions.bindExistingFaction(factionId, policyId, sourceEventId, worldAgeHours)

@@ -221,7 +221,7 @@ local function profileForProfession(id, profession, allTraits)
     }
 end
 
-function Capabilities.generate(id)
+function Capabilities.generate(id, preferredProfessionId)
     if type(id) ~= "string" or id == "" then
         return nil, "invalid_survivor_id"
     end
@@ -235,6 +235,16 @@ function Capabilities.generate(id)
     professions = ranked(professions, id, "profession", professionId)
     local allTraits = orderedDefinitions(CharacterTraitDefinition.getTraits(), traitId)
     local lastPoints = nil
+    if preferredProfessionId ~= nil then
+        local preferred = findProfession(preferredProfessionId)
+        if preferred == nil then
+            return nil, "preferred_profession_missing=" .. tostring(preferredProfessionId)
+        end
+        local profile, remaining = profileForProfession(id, preferred, allTraits)
+        if profile ~= nil then return profile, "generated_preferred" end
+        return nil, "unable_to_balance_preferred_profession="
+            .. tostring(preferredProfessionId) .. " points=" .. tostring(remaining)
+    end
     for _, profession in ipairs(professions) do
         local profile, remaining = profileForProfession(id, profession, allTraits)
         if profile ~= nil then
@@ -312,11 +322,11 @@ local function restoreSkills(character, skills)
     end
 end
 
-function Capabilities.ensure(id, character, initializeNew)
+function Capabilities.ensure(id, character, initializeNew, preferredProfessionId)
     local profile = KnoxPersistence.getSurvivorCapabilities(id)
     local result = "existing"
     if profile == nil then
-        profile, result = Capabilities.generate(id)
+        profile, result = Capabilities.generate(id, preferredProfessionId)
         if profile == nil or not KnoxPersistence.setSurvivorCapabilities(id, profile) then
             return nil, result
         end

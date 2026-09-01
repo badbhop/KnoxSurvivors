@@ -623,6 +623,11 @@ atomic event duty, no duplicate retry, local-player entry separation, distinct a
 real-position arrival, the bounded common objective, entry-anchor withdrawal, identity/faction
 retention, fully stored cohort travel and persisted retry cooldown when no safe origin exists.
 
+Run `lua tools/test-survivor-capabilities.lua .`, `lua tools/test-survivor-starting-gear.lua .`
+and `lua tools/test-event-entry.lua .` for Police first materialization. Together they verify the
+canonical event-policy lookup, real `base:policeofficer` selection with balanced vanilla points,
+native Police starter items, and protection against rewriting an existing persisted profile.
+
 Live named-entry gate: on a disposable day-one-or-later save, enable **Developer Tools** and
 **Allow Destructive Tests**, then right-click a loaded ground square and choose **Schedule Police
 Entry Here**. The feed should report one event ID. Confirm three Police identities enter from a
@@ -630,8 +635,10 @@ believable offscreen anchor rather than beside the player, approach distinct nea
 remain ordinary neutral survivors during the initial bounded objective, withdraw toward that same
 anchor, and keep one identity/faction record each after save/reload. Inspect
 `[KnoxSurvivors][Events]` for `spawning`, `active`, and `completed`; no phase may create a second
-party. Appearance/loadout theming, automatic Police triggers and actual Police objectives are not
-part of this gate.
+party. On first appearance, Police members should use recognizable ordinary Build 42 Police
+clothing, own/equip a nightstick and carry a Police walkie-talkie. Save/reload must preserve the
+same profession, clothing and items without issuing a second kit. Automatic Police triggers,
+disposition behavior and actual Police objectives are not part of this gate.
 
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe

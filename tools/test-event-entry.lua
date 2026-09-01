@@ -43,6 +43,9 @@ local group = P.getTravelGroupFor(faction.memberIds[1])
 assert(group ~= nil and group.factionId == faction.id and #group.memberIds == 3,
     "event party reuses ordinary travel group and faction state")
 for _, id in ipairs(faction.memberIds) do
+    local policy = assert(F.materializationPolicy(id))
+    assert(policy.professionId == "base:policeofficer" and policy.loadoutTheme == "police",
+        "first materialization derives Police identity from canonical faction policy")
     assert(P.getRecord(id) == nil and P.getSurvivorOrigin(id).source == "knox_event")
     assert(P.getSurvivorAffiliation(id).factionId == faction.id
         and P.getSurvivorDuty(id).mode == "autonomous")
@@ -53,6 +56,10 @@ for _, id in ipairs(faction.memberIds) do
     assert(not moved and why == "event_entry_waiting" and state.virtualX == x and state.virtualY == y,
         "unmaterialized event party cannot scatter into independent itineraries")
 end
+local policyCopy = F.materializationPolicy(faction.memberIds[1])
+policyCopy.professionId = "changed"
+assert(F.materializationPolicy(faction.memberIds[1]).professionId == "base:policeofficer",
+    "materialization policy is defensive")
 local activatable = {}; for _, id in ipairs(P.getActivatableSurvivorIds()) do activatable[id] = true end
 for _, id in ipairs(faction.memberIds) do assert(activatable[id], "entry survivor uses normal activation catalog") end
 
