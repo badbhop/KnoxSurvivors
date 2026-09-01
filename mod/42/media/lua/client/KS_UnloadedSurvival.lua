@@ -320,6 +320,7 @@ function Simulation.captureLoaded(id, snapshot, hours)
     state.lastHours = tonumber(hours) or nowHours()
     state.status = "loaded"
     state.pendingMaterialization = nil
+    state.eventEntryId = nil
     state.travelTarget, state.departAtHours = nil, nil
     state.currentTravelKey, state.previousTravelKey, state.travelSequence = nil, nil, nil
     state.travelPhase, state.restMode = nil, nil

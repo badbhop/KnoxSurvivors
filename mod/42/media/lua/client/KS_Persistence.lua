@@ -1796,6 +1796,116 @@ local function copyIds(ids)
     return copied
 end
 
+local function nextUnusedSerial(data, field, prefix, values)
+    local value = tonumber(data[field])
+    if not finiteCoordinate(value) or value < 1 then value = 1 end
+    value = math.floor(value)
+    local id = prefix .. tostring(value)
+    while values[id] ~= nil do
+        value = value + 1
+        if not finiteCoordinate(value) then return nil end
+        id = prefix .. tostring(value)
+    end
+    return id, value
+end
+
+-- Atomic persistence-only entry for named event parties. Participants are the
+-- same population-managed world identities used everywhere else; no body or
+-- item is created until ordinary first materialization succeeds.
+function KnoxPersistence.createEventFactionPopulation(
+    policyId,
+    displayName,
+    sourceEventId,
+    basePolicy,
+    origins,
+    worldAgeHours
+)
+    local hours = tonumber(worldAgeHours)
+    if type(policyId) ~= "string" or not policyId:match("^[a-z][a-z0-9_]*$") or #policyId > 40
+        or type(displayName) ~= "string" or displayName == "" or #displayName > 64
+        or type(sourceEventId) ~= "string" or sourceEventId == "" or #sourceEventId > 80
+        or (basePolicy ~= "event_only" and basePolicy ~= "optional")
+        or not finiteCoordinate(hours) or hours < 0
+        or type(origins) ~= "table" or #origins < 2 or #origins > 6 then
+        return nil, "invalid_event_entry"
+    end
+    local data = root()
+    for _, faction in pairs(data.factions) do
+        local identity = type(faction) == "table" and faction.eventIdentity or nil
+        if type(identity) == "table" and identity.sourceEventId == sourceEventId then
+            if identity.policyId == policyId then return copySerializable(faction), "existing" end
+            return nil, "event_source_already_bound"
+        end
+    end
+    local used, normalized, seen = KnoxPersistence.getUsedWorldOriginKeys(), {}, {}
+    local count = 0
+    for index, origin in pairs(origins) do
+        if type(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > #origins
+            or type(origin) ~= "table" then return nil, "invalid_event_origin" end
+        count = count + 1
+    end
+    if count ~= #origins then return nil, "invalid_event_origin" end
+    for index, origin in ipairs(origins) do
+        local x, y, z = tonumber(origin.x), tonumber(origin.y), tonumber(origin.z) or 0
+        if not finiteCoordinate(x) or not finiteCoordinate(y) or not finiteCoordinate(z)
+            or z % 1 ~= 0 or z < 0 or z > 7 then return nil, "invalid_event_origin" end
+        x, y, z = math.floor(x), math.floor(y), math.floor(z)
+        local key = tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
+        if seen[key] or used[key] then return nil, used[key] and "origin_already_used" or "duplicate_event_origin" end
+        seen[key] = true
+        normalized[index] = {
+            x = x, y = y, z = z, key = key,
+            region = tostring(origin.region or "Knox Event"),
+            regionKey = tostring(origin.regionKey or origin.region or "Knox Event"),
+            source = "knox_event",
+        }
+    end
+
+    local previousWorldId = data.nextWorldSurvivorId
+    local allocated = {}
+    for _, origin in ipairs(normalized) do
+        local id, reason = KnoxPersistence.allocateWorldSurvivor(origin, hours)
+        if id == nil then
+            for _, createdId in ipairs(allocated) do data.survivors[createdId] = nil end
+            data.nextWorldSurvivorId = previousWorldId
+            return nil, reason or "event_allocation_failed"
+        end
+        allocated[#allocated + 1] = id
+    end
+
+    local groupId, groupSerial = nextUnusedSerial(data, "nextTravelGroupId", "travel-group-", data.travelGroups)
+    local factionId, factionSerial = nextUnusedSerial(data, "nextFactionId", "faction-", data.factions)
+    if groupId == nil or factionId == nil then
+        for _, createdId in ipairs(allocated) do data.survivors[createdId] = nil end
+        data.nextWorldSurvivorId = previousWorldId
+        return nil, "event_serial_exhausted"
+    end
+    data.nextTravelGroupId, data.nextFactionId = groupSerial + 1, factionSerial + 1
+    local members, joined = copyIds(allocated), {}
+    for _, id in ipairs(members) do joined[id] = hours end
+    local group = { id = groupId, leaderId = members[1], memberIds = members,
+        formedAtHours = hours, memberJoinedAtHours = copySerializable(joined), factionId = factionId }
+    local faction = { id = factionId, name = displayName, kind = "npc", leaderId = members[1],
+        memberIds = copyIds(members), memberJoinedAtHours = copySerializable(joined),
+        formedAtHours = hours, homeSafehouse = nil,
+        eventIdentity = { policyId = policyId, sourceEventId = sourceEventId,
+            basePolicy = basePolicy, boundAtHours = hours } }
+    data.travelGroups[groupId], data.factions[factionId] = group, faction
+    for _, id in ipairs(members) do
+        local survivor = data.survivors[id]
+        survivor.eventManaged, survivor.eventSourceId = true, sourceEventId
+        survivor.affiliation = { kind = "faction", ownerId = nil, factionId = factionId }
+        survivor.unloadedSurvival.eventEntryId = sourceEventId
+        survivor.unloadedSurvival.activity = "event_entry_waiting"
+    end
+    for first = 1, #members do
+        for second = first + 1, #members do
+            KnoxPersistence.setRelationshipDisposition(members[first], members[second], "allied", hours)
+        end
+    end
+    return copySerializable(faction), "created"
+end
+
 function KnoxPersistence.addFactionMember(factionId, survivorId, worldAgeHours)
     local faction = KnoxPersistence.getFaction(factionId)
     local survivor = ensureSurvivorState(survivorId)

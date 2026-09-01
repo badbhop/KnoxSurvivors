@@ -118,6 +118,16 @@ function EventFactions.bindExistingFaction(factionId, policyId, sourceEventId, w
         sourceEventId, definition.basePolicy, worldAgeHours)
 end
 
+function EventFactions.createEntry(policyId, sourceEventId, origins, worldAgeHours)
+    local definition = EventFactions.get(policyId)
+    if definition == nil then return nil, "unknown_event_faction" end
+    if not EventFactions.isWorldAgeEligible(policyId, worldAgeHours) then
+        return nil, "event_faction_too_early"
+    end
+    return KnoxPersistence.createEventFactionPopulation(policyId, definition.displayName,
+        sourceEventId, definition.basePolicy, origins, worldAgeHours)
+end
+
 for id, definition in pairs(DEFINITIONS) do
     assert(type(id) == "string" and id:match("^[a-z][a-z0-9_]*$") and valid(definition),
         "Invalid Knox event faction policy: " .. tostring(id))

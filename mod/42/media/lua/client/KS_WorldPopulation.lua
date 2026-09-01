@@ -230,6 +230,76 @@ function WorldPopulation.spawnCatalog()
     return catalog, result
 end
 
+local EVENT_ENTRY_OFFSETS = {
+    { 0, 0 }, { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 }, { 2, 2 },
+}
+
+local function farEnoughFromPlayers(x, y, z, players, minimum)
+    for _, player in ipairs(players or {}) do
+        local square = player ~= nil and player:getCurrentSquare() or nil
+        if square ~= nil and square:getZ() == z then
+            local dx, dy = x - square:getX(), y - square:getY()
+            if dx * dx + dy * dy < minimum * minimum then return false end
+        end
+    end
+    return true
+end
+
+-- Selects a compact, unused party origin near an existing world anchor. No
+-- square/body is loaded here; normal first-materialization safety remains final.
+function WorldPopulation.eventEntryOrigins(target, count, seed, options)
+    local x, y = type(target) == "table" and tonumber(target.x) or nil,
+        type(target) == "table" and tonumber(target.y) or nil
+    count = math.floor(tonumber(count) or 0)
+    if not finite(x) or not finite(y) or count < 2 or count > #EVENT_ENTRY_OFFSETS then
+        return nil, "invalid_event_entry"
+    end
+    options = type(options) == "table" and options or {}
+    local minimum = math.max(60, math.min(300, tonumber(options.minimumTargetDistance) or 100))
+    local maximum = math.max(minimum, math.min(1200, tonumber(options.maximumTargetDistance) or 600))
+    local playerMinimum = math.max(60, math.min(300, tonumber(options.minimumPlayerDistance) or 100))
+    local catalog, reason = WorldPopulation.spawnCatalog()
+    if catalog == nil then return nil, reason end
+    local used, candidates = KnoxPersistence.getUsedWorldOriginKeys(), {}
+    for _, anchor in ipairs(catalog.origins) do
+        local dx, dy = anchor.x - x, anchor.y - y
+        local distance = math.sqrt(dx * dx + dy * dy)
+        if anchor.z == 0 and distance >= minimum and distance <= maximum
+            and farEnoughFromPlayers(anchor.x, anchor.y, 0, options.players, playerMinimum) then
+            candidates[#candidates + 1] = {
+                anchor = anchor,
+                order = stableHash(tostring(seed or "event") .. ":" .. anchor.key),
+                distance = distance,
+            }
+        end
+    end
+    table.sort(candidates, function(first, second)
+        if first.order ~= second.order then return first.order < second.order end
+        return first.anchor.key < second.anchor.key
+    end)
+    for _, candidate in ipairs(candidates) do
+        local origins, valid = {}, true
+        for index = 1, count do
+            local offset = EVENT_ENTRY_OFFSETS[index]
+            local ox, oy = candidate.anchor.x + offset[1], candidate.anchor.y + offset[2]
+            local key = coordinateKey(ox, oy, 0)
+            if used[key] or not farEnoughFromPlayers(ox, oy, 0, options.players, playerMinimum) then
+                valid = false
+                break
+            end
+            origins[index] = {
+                x = ox, y = oy, z = 0, key = key,
+                region = candidate.anchor.region,
+                regionKey = candidate.anchor.regionKey,
+                source = "knox_event",
+                eventAnchorKey = candidate.anchor.key,
+            }
+        end
+        if valid then return origins, "selected" end
+    end
+    return nil, "no_safe_event_entry_origin"
+end
+
 local function regionCounts()
     local counts = {}
     for _, id in ipairs(KnoxPersistence.getAllWorldSurvivorIds()) do
@@ -366,6 +436,11 @@ function WorldPopulation.advanceOriginTravel(id, hours)
         KnoxPersistence.setUnloadedSurvivalState(id, state)
     end
     if state.pendingMaterialization ~= true then return false, "survival_ledger_owns_travel" end
+    if type(state.eventEntryId) == "string" and state.eventEntryId ~= "" then
+        state.activity, state.lastHours, state.virtualAtHours = "event_entry_waiting", now, now
+        KnoxPersistence.setUnloadedSurvivalState(id, state)
+        return false, "event_entry_waiting"
+    end
     local advanced, result = WorldPopulation.advanceItinerary(id, state, tonumber(state.lastHours) or now, now)
     if not advanced then return false, result end
     state.activity = state.travelPhase == "moving" and "origin_travel" or "origin_shelter"

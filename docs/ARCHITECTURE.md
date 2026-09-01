@@ -837,3 +837,18 @@ to one policy, `faction.eventIdentity` records the policy/source event on that s
 faction; survivor affiliation, duty, inventory and relationships remain in their existing domains.
 Malformed identity metadata is dropped during save normalization and a faction cannot be rebound
 to a different event identity. The catalog does not yet spawn or trigger a named faction.
+
+Named-event entry preparation reuses the cached world population catalog. It chooses one unused
+ground-floor player/building-spawn anchor within a bounded ring of the event target, rejects points
+within 60 tiles of any supplied local player, and derives up to six compact distinct origins around
+that anchor. `createEventFactionPopulation` preflights the full batch, allocates ordinary
+population-managed `ks-world-*` identities, one normal travel group and one normal NPC faction in
+one non-yielding persistence transaction. A failed allocation removes every new identity and
+restores its world-ID serial; retrying the same source event returns the existing faction.
+
+Before first real materialization, event entrants retain `pendingMaterialization` and wait at the
+entry anchor rather than independently advancing the ordinary roaming itinerary. Normal hidden,
+loaded, distance and standability gates still decide when each body may appear. The first real
+capture clears entry waiting and transfers physiology/location ownership to the existing native
+snapshot path. This layer does not create bodies/items, apply loadout themes or schedule named
+events; those remain later event-runtime responsibilities.

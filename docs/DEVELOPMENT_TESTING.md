@@ -610,6 +610,13 @@ combat multipliers, disabled Scavenger boss, future PMC contract role, canonical
 idempotency/rebind rejection, malformed-save cleanup and no survivor/inventory/duty creation.
 This is policy/persistence coverage only; it does not prove a Police/Military/etc. encounter.
 
+Run `lua tools/test-event-entry.lua .` for the named-party entry transaction. It checks bounded
+cached-world origins, compact party placement, local-player separation, ordinary persistent
+world identities, canonical group/faction ownership, no pre-body itinerary scattering, normal
+activation eligibility, idempotent retry, injected mid-batch rollback, world-age policy, and
+entry-wait cleanup after a real-state capture. It does not materialize an IsoPlayer or validate
+the themed appearance/loadout that later event runtime work must request.
+
 This is not an end-to-end raid scenario. The runtime can now dispatch explicitly scheduled
 plans, but no random scheduler is enabled. Do not manually advance phases and describe
 that as a successful live raid. `lua tools/test-event-runtime.lua .` additionally runs

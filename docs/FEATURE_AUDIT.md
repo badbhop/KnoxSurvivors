@@ -2602,3 +2602,41 @@ appearance/loadout realization, objective execution, withdrawal/persistence outc
 encounters are all unimplemented. The next architecture dependency is an event-entry transaction
 that allocates ordinary persistent survivor identities at a validated world location, binds one
 ordinary faction once, and rolls back atomically if materialization/loadout preparation fails.
+
+## 2026-08-31 — Atomic named-event party entry
+
+Status: persistence/world-entry transaction implemented and automatically verified. No named
+event trigger, body materialization or themed loadout is enabled yet.
+
+### Boundary implemented
+
+- The existing cached player-spawn/native-building catalog now selects a compact party anchor in
+  a bounded target ring. Candidate origins are unused, ground-floor and at least 60 tiles from
+  supplied local players. The selector never loads squares or places a party beside the player;
+  existing first-materialization visibility/standability/distance checks remain final.
+- One non-yielding transaction preflights 2–6 distinct origins, then allocates ordinary
+  population-managed `ks-world-*` identities, one existing-format travel group and one canonical
+  NPC faction with the selected event policy. It creates no IsoPlayer, inventory item, skill,
+  relationship domain or combat controller.
+- A mid-batch allocation failure removes all new identities and restores the world survivor serial
+  before returning. Group/faction state is committed only after all identities exist. Repeating
+  the same source event returns the existing faction rather than duplicating people after reload.
+- Unmaterialized event members retain normal origin records but wait together at their event entry
+  instead of taking separate independent itineraries. They remain visible to the ordinary
+  activation catalog. First real body capture clears the wait marker and hands location/needs to
+  the existing native capture path.
+
+### Verification and corrected limit
+
+`tools/test-event-entry.lua` covers cached origin selection, compact/distinct positions, local
+player distance, real persistent identity/group/faction ownership, activation eligibility,
+no-scatter behavior, idempotent retry, injected second-member failure rollback, serial restoration,
+world-age policy and first-capture cleanup. The transaction intentionally does not roll back a
+durable identity because a later engine materialization attempt is temporarily unavailable; normal
+activation retries are safer than deleting persistent people. The earlier audit wording implying
+materialization/loadout rollback is therefore corrected at this boundary.
+
+Remaining: create a persisted named-event record before entry, call this transaction exactly once
+at its due transition, apply an archetype loadout through real first materialization, then give the
+party a common approach/objective/withdrawal duty. Until that runtime path exists, the transaction
+is not called by normal gameplay or developer menus and no Police/Military/etc. encounter occurs.
