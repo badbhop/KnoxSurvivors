@@ -4423,6 +4423,31 @@ patch is required.
   pass. No launcher protocol/API change; no launcher release was created.
   No live test was run for this correction.
 
+### Scoped native human eligibility — 2026-09-05
+
+- Added exact-descriptor/offset redirects for the three installed 42.20.4
+  CombatManager checkPVP callers. Mismatched call shapes fail closed. The native
+  checkPVP implementation remains available for unrelated objects and multiplayer.
+- Existing accepted live human combat registers a short-lived exact body pair;
+  reverse direction allows self-defense, not damage to unrelated bystanders.
+  Reset/replacement/failed startup revoke ownership. Lease expiry provides a
+  fallback if ordinary cleanup is missed. Godmode/dead/unloaded victims are
+  rejected. No synthetic damage or global player-setting changes.
+- Lua disengagement now rejects former hostile humans before stale target intent
+  can retain combat; ordinary local players are also classified as humans rather
+  than accidentally evaluated as zombies after hostility clears.
+- Verification: all 85 Lua tests, affected Lua syntax, all Java checks, exact
+  transformer shape checks, Java 25 transformed-class verification, build,
+  checksum generation and Workshop staging pass. Regressions cover pair scope,
+  reversal, replacement, cleanup, expiry, godmode/death/unload and multiplayer
+  exclusion, plus newly friendly target disengagement.
+- **Implemented, live-unverified:** NPC-initiated human combat and self-defense.
+  Test hostile NPC/player and NPC/NPC with coop PvP off; verify native damage,
+  protected friendly bystanders, godmode and post-fight movement.
+  Player-first aggression on neutral NPCs remains incomplete; no claim of full
+  human combat parity. No save schema or launcher protocol change. Updated agent
+  is staged locally; no launcher release or Workshop publication was performed.
+
 ### Unarmed combat rejection recovery (2026-09-05)
 
 - Follow-up menu inspection: party/survivor/trade construction passes explicit

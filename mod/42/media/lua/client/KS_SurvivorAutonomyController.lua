@@ -602,6 +602,9 @@ local function evaluateThreat(self, zombie, ticks)
     local runtime = rawget(_G, "KnoxSurvivorRuntime")
     local isHuman = humanThreat or (runtime ~= nil and runtime.idForCharacter ~= nil
         and runtime.idForCharacter(zombie) ~= nil)
+    for playerNum = 0, math.max(0, (getNumActivePlayers ~= nil and getNumActivePlayers() or 1) - 1) do
+        if getSpecificPlayer(playerNum) == zombie then isHuman = true; break end
+    end
     if isHuman and not humanThreat then return nil end
     local target = targetOf(zombie)
     local targetingSelf = target == self.character
@@ -754,6 +757,15 @@ end
 
 local function shouldDropCombatTarget(self, ticks)
     local target = self.combatTarget
+    local runtime = rawget(_G, "KnoxSurvivorRuntime")
+    local human = target ~= nil and runtime ~= nil and runtime.idForCharacter ~= nil
+        and runtime.idForCharacter(target) ~= nil
+    for playerNum = 0, math.max(0, (getNumActivePlayers ~= nil and getNumActivePlayers() or 1) - 1) do
+        if target ~= nil and getSpecificPlayer(playerNum) == target then human = true; break end
+    end
+    -- Recruitment/peace or a sandbox change can invalidate hostility mid-fight.
+    -- Check before the target's stale attack intent grants continued self-defense.
+    if human and not hostileHuman(self, target) then return true end
     local survivorSquare = self.character:getCurrentSquare()
     local targetSquare = target ~= nil and target:getCurrentSquare() or nil
     if target == nil or target:isDead() or survivorSquare == nil or targetSquare == nil

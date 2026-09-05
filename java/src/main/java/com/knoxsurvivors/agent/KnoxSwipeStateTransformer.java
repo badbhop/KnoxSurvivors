@@ -43,8 +43,8 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
         }
         if (IMPACT_CLASS.equals(className)) {
             try {
-                byte[] patched = patchImpactForVerification(classfileBuffer);
-                KnoxAgent.writeLog("combat impact sound patch PASS calls=1");
+                byte[] patched = patchHumanForVerification(patchImpactForVerification(classfileBuffer));
+                KnoxAgent.writeLog("combat impact sound patch PASS calls=1 human-pair gates=3");
                 return patched;
             } catch (IOException exception) {
                 KnoxAgent.writeLog("ERROR combat impact sound patch " + exception.getMessage());
@@ -99,11 +99,22 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
     }
 
     private static PatchResult patch(byte[] original, boolean impact) throws IOException {
+        return patch(original, impact, false);
+    }
+
+    static byte[] patchHumanForVerification(byte[] original) throws IOException {
+        PatchResult result = patch(original, false, true);
+        if (result.count != 3) throw new IOException("Expected three human eligibility gates, got " + result.count);
+        return result.bytes;
+    }
+
+    private static PatchResult patch(byte[] original, boolean impact, boolean human) throws IOException {
         ConstantPool pool = ConstantPool.read(original);
         int originalMethodRef = pool.findMethodRef(
-            ORIGINAL_OWNER,
-            ORIGINAL_NAME,
-            impact ? "()Z" : ORIGINAL_DESCRIPTOR
+            human ? "zombie/CombatManager" : ORIGINAL_OWNER,
+            human ? "checkPVP" : ORIGINAL_NAME,
+            human ? "(Lzombie/iso/IsoMovingObject;Lzombie/iso/IsoMovingObject;Z)Z"
+                : impact ? "()Z" : ORIGINAL_DESCRIPTOR
         );
         if (originalMethodRef < 0) {
             throw new IOException("IsoPlayer.isLocalPlayer combat gate was not found");
@@ -117,11 +128,11 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             int nameUtf8 = pool.count + 2;
             int descriptorUtf8 = pool.count + 3;
             int nameAndType = pool.count + 4;
-            writeUtf8(output, HELPER_OWNER);
+            writeUtf8(output, human ? "com/knoxsurvivors/agent/KnoxHumanCombatGate" : HELPER_OWNER);
             output.writeByte(7);
             output.writeShort(ownerUtf8);
-            writeUtf8(output, HELPER_NAME);
-            writeUtf8(output, HELPER_DESCRIPTOR);
+            writeUtf8(output, human ? "checkPVP" : HELPER_NAME);
+            writeUtf8(output, human ? "(Ljava/lang/Object;Ljava/lang/Object;Z)Z" : HELPER_DESCRIPTOR);
             output.writeByte(12);
             output.writeShort(nameUtf8);
             output.writeShort(descriptorUtf8);
@@ -150,7 +161,7 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             pool.endOffset + appended.length,
             originalMethodRef,
             helperMethodRef,
-            impact
+            impact, human
         );
         return new PatchResult(expanded, count);
     }
@@ -161,7 +172,7 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
         int classBodyOffset,
         int originalMethodRef,
         int helperMethodRef,
-        boolean impact
+        boolean impact, boolean human
     ) throws IOException {
         int cursor = classBodyOffset + 6;
         int interfaceCount = readU2(bytes, cursor);
@@ -179,6 +190,7 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             cursor += 2;
             int nameIndex = readU2(bytes, cursor);
             cursor += 2;
+            int descriptorIndex = readU2(bytes, cursor);
             cursor += 2;
             int attributeCount = readU2(bytes, cursor);
             cursor += 2;
@@ -187,11 +199,22 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
                 int attributeNameIndex = readU2(bytes, cursor);
                 long attributeLength = readU4(bytes, cursor + 2);
                 int content = cursor + 6;
-                if ((impact ? "attackCollisionCheck".equals(methodName) : PATCHED_METHODS.contains(methodName))
+                int humanOffset = humanGateOffset(methodName, pool.utf8(descriptorIndex));
+                if ((human ? humanOffset >= 0 : impact ? "attackCollisionCheck".equals(methodName) : PATCHED_METHODS.contains(methodName))
                     && "Code".equals(pool.utf8(attributeNameIndex))) {
                     int codeLength = (int) readU4(bytes, content + 4);
                     int codeStart = content + 8;
                     int codeEnd = codeStart + codeLength;
+                    if (human) {
+                        int offset = codeStart + humanOffset;
+                        if (offset + 2 < codeEnd && (bytes[offset] & 0xff) == 0xb8
+                            && readU2(bytes, offset + 1) == originalMethodRef) {
+                            writeU2(bytes, offset + 1, helperMethodRef);
+                            patched++;
+                        }
+                        cursor = content + Math.toIntExact(attributeLength);
+                        continue;
+                    }
                     if (impact) {
                         // Exact 42.20.3 audio-only branch: aload 6; isLocalPlayer;
                         // ifeq end-of-impact-sound; aload_2; HandWeapon.isRanged.
@@ -224,6 +247,16 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             }
         }
         return patched;
+    }
+
+    private static int humanGateOffset(String name, String descriptor) {
+        if (name.equals("calcValidTarget") && descriptor.equals(
+            "(Lzombie/characters/IsoLivingCharacter;Lzombie/inventory/types/HandWeapon;Lzombie/iso/IsoMovingObject;F)Lzombie/network/fields/hit/HitInfo;")) return 66;
+        if (name.equals("calcHitListShove") && descriptor.equals(
+            "(Lzombie/characters/IsoGameCharacter;Lzombie/network/fields/hit/AttackVars;Lzombie/util/list/PZArrayList;)V")) return 213;
+        if (name.equals("removeTargetObjects") && descriptor.equals(
+            "(Lzombie/iso/IsoMovingObject;Lzombie/characters/IsoGameCharacter;Z)Z")) return 100;
+        return -1;
     }
 
     private static int skipMember(byte[] bytes, int cursor) {

@@ -295,6 +295,7 @@ public final class KnoxNpcRegistry {
                 ? runtime.combat().beginLive(runtime.npc(), zombie, approachSquare)
                 : runtime.combat().begin(runtime.npc(), zombie, approachSquare);
         } catch (Throwable throwable) {
+            runtime.combat().reset();
             return failure("COMBAT_FAILED", throwable);
         }
     }

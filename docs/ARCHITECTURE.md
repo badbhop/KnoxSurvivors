@@ -414,6 +414,17 @@ through the same live native-combat owner used for zombies, while the controlled
 remains zombie-only. Human target routing and cleanup are focused-test verified, but lethal
 human PvP remains behind a live Build 42 animation/collision/BodyDamage verification gate.
 
+The installed 42.20.4 CombatManager eligibility gate is now adapted at exactly three
+verified checkPVP call sites (calcValidTarget, calcHitListShove, removeTargetObjects).
+Only a live Knox combat owner's exact accepted human pair receives single-player
+eligibility, in both directions so the target can defend itself. Ownership reset,
+target replacement and failed startup revoke it; an unrefreshed lease expires after
+five seconds. Godmode, dead/detached actors, unrelated pairs and multiplayer do not
+gain this exception. Native checkPVP itself is unmodified, as are hit calculation,
+damage and ammunition. No player/global PvP settings are changed. This is not a
+general permission to attack neutral humans: player-initiated first aggression
+still needs a separate pre-hit relationship boundary and live proof.
+
 Purposeful exploration considers useful nearby supplies before undirected roaming. A
 survivor searches reachable containers for stronger melee weapons, better protective clothing,
 a wearable bag, limited food/water/medical stock, and missing essential tools. They play

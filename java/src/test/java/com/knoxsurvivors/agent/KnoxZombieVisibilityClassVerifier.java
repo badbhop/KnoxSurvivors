@@ -39,7 +39,8 @@ public final class KnoxZombieVisibilityClassVerifier {
             byte[] impact = gameJar.getInputStream(gameJar.getEntry("zombie/CombatManager.class")).readAllBytes();
             ClassLoader impactLoader = new PatchedIsoZombieLoader(
                 KnoxZombieVisibilityClassVerifier.class.getClassLoader(), "zombie.CombatManager",
-                KnoxSwipeStateTransformer.patchImpactForVerification(impact));
+                KnoxSwipeStateTransformer.patchHumanForVerification(
+                    KnoxSwipeStateTransformer.patchImpactForVerification(impact)));
             Class<?> impactClass = Class.forName("zombie.CombatManager", false, impactLoader);
             if (impactClass.getClassLoader() != impactLoader) throw new AssertionError("Impact patch not defined");
             System.out.println("combat impact transformed class verified runtime=" + Runtime.version().feature());

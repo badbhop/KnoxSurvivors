@@ -263,6 +263,12 @@ assert(c:evaluateCombatThreat(crawler, 100).downed == false,
 c.combatTarget = current
 current:setDead(true)
 assert(c:shouldDropCombatTarget(100), "dead current target is dropped")
+local formerHostile = zombieAt(1, 0, character)
+runtimeIds[formerHostile] = "new-ally"
+c.combatTarget = formerHostile
+assert(c:shouldDropCombatTarget(100), "new ally is dropped even with stale attack intent")
+runtimeIds[formerHostile] = nil
+c.combatTarget = current
 current:setDead(false)
 current:setCurrentSquare(nil)
 assert(c:shouldDropCombatTarget(100), "unloaded current target is dropped")

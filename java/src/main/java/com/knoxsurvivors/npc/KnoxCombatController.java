@@ -2,6 +2,7 @@ package com.knoxsurvivors.npc;
 
 import com.knoxsurvivors.agent.KnoxAgent;
 import com.knoxsurvivors.agent.KnoxCombatGate;
+import com.knoxsurvivors.agent.KnoxHumanCombatGate;
 import java.util.Map;
 
 /** Drives one controlled melee encounter through IsoPlayer's normal attack entry point. */
@@ -220,6 +221,7 @@ final class KnoxCombatController {
         npc.setCombatActive(true);
         body.getClass().getMethod("setSneaking", boolean.class).invoke(body, false);
         beginLiveApproach();
+        if (humanTarget) KnoxHumanCombatGate.refresh(this, body, target);
         phase = "APPROACHING";
         String result = "COMBAT_STARTED mode=" + (controlledGate ? "gate" : "live")
             + " targetHealth=" + initialTargetHealth
@@ -236,6 +238,8 @@ final class KnoxCombatController {
         }
 
         ticks++;
+        if (liveCombat && inherits(target, "zombie.characters.IsoPlayer"))
+            KnoxHumanCombatGate.refresh(this, npc.getBody(), target);
         float currentHealth = health(target);
         if (currentHealth < lastTargetHealth) {
             damageObserved = true;
@@ -616,6 +620,7 @@ final class KnoxCombatController {
     }
 
     void reset() {
+        KnoxHumanCombatGate.clear(this);
         if (npc != null) {
             npc.setCombatActive(false);
             try {
