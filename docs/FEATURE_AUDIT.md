@@ -6222,3 +6222,14 @@ residents cannot indefinitely retain an invalid automatic claim.
   detach, corpse pickup, overhead bubbles, companion need containment, and both
   directions of human combat require the next live run. Lua/UI only; no launcher
   patch is required.
+
+### Persistent companion Hold/Guard state — 2026-09-05
+
+- Hold and Guard no longer fall back to `IDLE` every 90 ticks. They retain their
+  authoritative directive and refresh only their observation deadline until a
+  command explicitly replaces/releases it. Combat and immediate-threat preemption
+  remains ahead of this state and returns to the same directive afterward.
+- This removes planner churn and prevents guards from wandering simply because a
+  refresh timer elapsed. Focused controller regressions cover both directives;
+  Lua syntax and the full Java verification suite remain clean. Live combat,
+  guard positioning and save/reload acceptance remain pending. No launcher change.

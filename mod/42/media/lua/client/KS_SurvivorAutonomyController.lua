@@ -6059,9 +6059,18 @@ function Controller:tick(ticks)
         return
     end
 
-    if self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD"
-        or self.state == "COMPANION_GUARD"
-        or self.state == "COMPANION_PATROL_WAIT" then
+    if self.state == "COMPANION_HOLD" or self.state == "COMPANION_GUARD" then
+        -- Hold/Guard are persistent directives, not timed idle states. Keep the
+        -- survivor anchored until the directive is explicitly replaced/released.
+        -- Threat/combat preemption runs before this block and returns here after
+        -- combat, so this does not make guards ignore nearby danger.
+        if ticks >= self.nextThink then
+            self.nextThink = ticks + 90
+        end
+        return
+    end
+
+    if self.state == "COMPANION_WAIT" or self.state == "COMPANION_PATROL_WAIT" then
         if ticks >= self.nextThink then
             self.state = "IDLE"
         end

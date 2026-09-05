@@ -160,6 +160,20 @@ local function controller(id)
     }, Controller)
 end
 
+-- Persistent Hold/Guard directives must not time out into planner churn.
+do
+    local held = controller("held")
+    held.state, held.nextThink, held.companionOrder = "COMPANION_HOLD", 0, "hold"
+    held:tick(500)
+    assert(held.state == "COMPANION_HOLD" and held.nextThink > 500,
+        "Hold remains authoritative after its refresh interval")
+    local guarded = controller("guarded")
+    guarded.state, guarded.nextThink, guarded.companionOrder = "COMPANION_GUARD", 0, "guard"
+    guarded:tick(500)
+    assert(guarded.state == "COMPANION_GUARD" and guarded.nextThink > 500,
+        "Guard remains authoritative after its refresh interval")
+end
+
 local function meleeWeapon(condition, reach, skill)
     return {
         isBroken = function() return condition <= 0 end,
