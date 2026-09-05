@@ -174,6 +174,9 @@ function KnoxPanel:prerender()
     y = y + 4
     sectionHeader("Current Job")
     local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil
+    if KnoxOrderCatalog ~= nil and KnoxOrderCatalog.normalizeBasePreference ~= nil then
+        job = KnoxOrderCatalog.normalizeBasePreference(job)
+    end
     if job ~= nil and job ~= "" and job ~= "auto" then
         keyValue("Job", job:sub(1,1):upper() .. job:sub(2))
     else
@@ -281,6 +284,12 @@ local function ensureViews(window)
         view.char = survivor
         view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
         view.knoxWindow = window
+        -- These vanilla menus own local-player UI panels and crash when their
+        -- callback is invoked for an off-slot survivor. The survivor card is
+        -- read-only; disable the callbacks as well as hiding their buttons.
+        view.hairMenu = function() end
+        view.beardMenu = function() end
+        view.literatureMenu = function() end
         if survivor ~= nil then
             view.bFemale = survivor:isFemale()
             view.refreshNeeded = true
@@ -318,6 +327,9 @@ local function ensureViews(window)
             kv("Trust", trustVal ~= nil and tostring(trustVal) or "Unknown")
             kv("Group", snap.affiliation and snap.affiliation.kind or "independent")
             local job = snap.duty and snap.duty.jobPreference or nil
+            if KnoxOrderCatalog ~= nil and KnoxOrderCatalog.normalizeBasePreference ~= nil then
+                job = KnoxOrderCatalog.normalizeBasePreference(job)
+            end
             if job ~= nil and job ~= "" and job ~= "auto" then kv("Base Job", job:sub(1,1):upper()..job:sub(2)) end
             kv("Base / Activity", trimText(UIFont.Small, snap.locationLabel .. " — " .. (snap.orderLabel or ""), w - 70))
             local act = snap.activity or "Idle"
@@ -424,6 +436,9 @@ local function ensureViews(window)
         if window.infoView.char ~= survivor then
             window.infoView.char = survivor
             window.infoView.playerNum = survivor:getPlayerNum()
+            window.infoView.hairMenu = function() end
+            window.infoView.beardMenu = function() end
+            window.infoView.literatureMenu = function() end
             window.infoView.bFemale = survivor:isFemale()
             window.infoView.refreshNeeded = true
             pcall(function() window.infoView:loadTraits() end)

@@ -1,0 +1,157 @@
+local Planner = rawget(_G, "KnoxBaseSupplyPlanner") or {}
+_G.KnoxBaseSupplyPlanner = Planner
+
+local function safe(call, fallback)
+    local ok, value = pcall(call)
+    return ok and value or fallback
+end
+
+-- This deliberately answers only whether an existing world item can satisfy a
+-- declared base-task requirement.  It does not count, create, reserve, or move
+-- anything; the controller and native transfer action retain those ownership
+-- boundaries.
+function Planner.matchesRequirement(item, requirements)
+    if item == nil or type(requirements) ~= "table" then return false end
+    local items = requirements.items
+    if type(items) ~= "table" then return false end
+    local fullType = safe(function() return item:getFullType() end, nil)
+    return type(fullType) == "string" and (tonumber(items[fullType]) or 0) > 0
+end
+
+local function inventoryCount(inventory, fullType)
+    if inventory == nil or inventory.getItemCount == nil then return 0 end
+    return math.max(0, tonumber(safe(function()
+        return inventory:getItemCount(tostring(fullType), true)
+    end, 0)) or 0)
+end
+
+-- Return only the outstanding part of a task's declared item requirements.
+-- A worker may already carry tools or part of a material stack when a base job
+-- starts.  World search must not spend its bounded attempts collecting another
+-- copy of an item that is already satisfied while a different requirement is
+-- still missing.
+function Planner.missingRequirements(requirements, inventory)
+    local missing = {}
+    for fullType, count in pairs(type(requirements) == "table"
+        and type(requirements.items) == "table" and requirements.items or {}) do
+        local required = math.max(0, math.floor(tonumber(count) or 0))
+        local outstanding = required - inventoryCount(inventory, fullType)
+        if type(fullType) == "string" and fullType ~= "" and outstanding > 0 then
+            missing[fullType] = outstanding
+        end
+    end
+    return missing
+end
+
+function Planner.matchesMissingRequirement(item, requirements, inventory)
+    if item == nil then return false end
+    local fullType = safe(function() return item:getFullType() end, nil)
+    if type(fullType) ~= "string" then return false end
+    return (Planner.missingRequirements(requirements, inventory)[fullType] or 0) > 0
+end
+
+function Planner.requirementTypes(requirements)
+    local result = {}
+    for fullType, count in pairs(type(requirements) == "table"
+        and type(requirements.items) == "table" and requirements.items or {}) do
+        if type(fullType) == "string" and fullType ~= ""
+            and (tonumber(count) or 0) > 0 then
+            result[#result + 1] = fullType
+        end
+    end
+    table.sort(result)
+    return result
+end
+
+-- One shared reserve definition for both automatic supply decisions and the
+-- player-facing settlement status. Keeping the thresholds here prevents the
+-- Notebook from describing a base as healthy while the resident controller is
+-- simultaneously sending somebody out for supplies.
+function Planner.reserveStatus(totals, residentCount)
+    totals = type(totals) == "table" and totals or {}
+    local residents = math.max(1, math.floor(tonumber(residentCount) or 1))
+    local definitions = {
+        { kind = "find_food", category = "food", target = residents * 2 },
+        { kind = "find_water", category = "water", target = residents * 2 },
+        { kind = "find_medical", category = "medical", target = 1 },
+        { kind = "find_weapon", category = "weapons", target = 1 },
+        { kind = "find_tools", category = "tools", target = 1 },
+    }
+    local result = {}
+    for _, definition in ipairs(definitions) do
+        local current = math.max(0, tonumber(totals[definition.category]) or 0)
+        result[#result + 1] = {
+            kind = definition.kind,
+            category = definition.category,
+            current = current,
+            target = definition.target,
+            missing = math.max(0, definition.target - current),
+        }
+    end
+    return result
+end
+
+-- Pick the first meaningful settlement shortage using the same conservative
+-- per-resident reserve targets used by the loaded autonomy controller. This is
+-- a pure decision helper; claims, movement, and item transfers remain owned by
+-- their existing systems.
+function Planner.shortages(totals, residentCount)
+    local result = {}
+    for _, status in ipairs(Planner.reserveStatus(totals, residentCount)) do
+        if status.missing > 0 then result[#result + 1] = status.kind end
+    end
+    return result
+end
+
+function Planner.chooseShortage(totals, residentCount)
+    return Planner.shortages(totals, residentCount)[1]
+end
+
+-- Claims are maintained by the base controller. Select the first shortage
+-- that is either unowned or already owned by this resident, allowing food and
+-- water runs to coexist without ever assigning two workers to the same kind.
+function Planner.chooseAvailableShortage(totals, residentCount, claims, survivorId)
+    claims = type(claims) == "table" and claims or {}
+    local current = Planner.shortages(totals, residentCount)
+    -- Reconstruction may evaluate the worker after another, higher-priority
+    -- lease expires. Finish the worker's existing kind instead of letting one
+    -- resident accumulate two simultaneous leases.
+    for _, kind in ipairs(current) do
+        local claim = claims[kind]
+        if type(claim) == "table"
+            and tostring(claim.survivorId or "") == tostring(survivorId or "") then
+            return kind
+        end
+    end
+    for _, kind in ipairs(current) do
+        if claims[kind] == nil then return kind end
+    end
+    return nil
+end
+
+-- Select one ready resident for an automatic shortage run. Candidate discovery
+-- remains owned by the loaded controller; this helper only provides stable,
+-- persisted rotation so controller iteration order cannot always send the same
+-- survivor. Explicit player orders are excluded by the caller.
+function Planner.chooseWorker(candidates, shortageKind)
+    local eligible = {}
+    for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
+        if type(candidate) == "table" and candidate.ready == true
+            and candidate.resting ~= true and candidate.hasTask ~= true
+            and candidate.explicitOrder ~= true then
+            eligible[#eligible + 1] = candidate
+        end
+    end
+    table.sort(eligible, function(first, second)
+        local firstAt = tonumber(first.lastSupplyRunAtHours) or -math.huge
+        local secondAt = tonumber(second.lastSupplyRunAtHours) or -math.huge
+        if firstAt ~= secondAt then return firstAt < secondAt end
+        local firstRepeated = first.lastSupplyKind == shortageKind and 1 or 0
+        local secondRepeated = second.lastSupplyKind == shortageKind and 1 or 0
+        if firstRepeated ~= secondRepeated then return firstRepeated < secondRepeated end
+        return tostring(first.id or "") < tostring(second.id or "")
+    end)
+    return eligible[1] ~= nil and eligible[1].id or nil
+end
+
+return Planner

@@ -79,6 +79,17 @@ assert(not ghostRecruit and ghostRecruitResult == "survivor_not_persisted")
 
 assert(KnoxPersistence.setRecord("independent", "record-independent"))
 KnoxPersistence.ensureSurvivorIdentity("independent", "June", "Reed", 24)
+assert(KnoxPersistence.setSurvivorLifeIntent("independent", {
+    kind = "find_food", phase = "traveling", targetKey = "building:12",
+    targetX = 100, targetY = 120, targetZ = 0,
+}, 24), "autonomous life intent persists")
+local lifeIntent = assert(KnoxPersistence.getSurvivorLifeIntent("independent"))
+assert(lifeIntent.kind == "find_food" and lifeIntent.phase == "traveling"
+        and lifeIntent.targetX == 100,
+    "life intent round trips without runtime action ownership")
+assert(not KnoxPersistence.setSurvivorLifeIntent("independent", {
+    kind = "invented_plan", phase = "traveling",
+}, 24), "unknown life intent is rejected")
 local relation = KnoxPersistence.getPlayerRelationship(playerId, "independent")
 relation.trust = 60
 local refusal = assert(KnoxPersistence.recordPlayerRecruitRefusal(
@@ -95,6 +106,8 @@ local recruited, recruitResult = KnoxPersistence.setPlayerCompanion(
     24
 )
 assert(recruited and recruitResult == "companion", tostring(recruitResult))
+assert(KnoxPersistence.getSurvivorLifeIntent("independent") == nil,
+    "companion duty clears incompatible autonomous intent")
 assert(KnoxPersistence.getSurvivorDuty("independent").mode == "companion")
 assert(KnoxPersistence.getSurvivorDuty("independent").combatStance == "defensive",
     "new companions receive a defensive stance")
@@ -172,6 +185,80 @@ assert(KnoxPersistence.getSurvivorDuty("independent").jobPreference == "farming"
 assert(not KnoxPersistence.setBaseJobPreference(
     "independent", playerId, base.id, "not-a-job", 24
 ), "unknown preference rejected")
+assert(KnoxPersistence.setBaseSupplyOrder(
+    "independent", playerId, base.id, "find_tools", 24, 12
+), "player can assign a bounded supply run to their base resident")
+local supplyDuty = KnoxPersistence.getSurvivorDuty("independent")
+assert(supplyDuty.baseSupplyOrder.kind == "find_tools"
+    and supplyDuty.baseSupplyOrder.expiresAtHours == 36
+    and supplyDuty.baseSupplyOrder.attempts == 0,
+    "base supply order round trips through the resident duty")
+assert(KnoxPersistence.recordBaseSupplyOrderAttempt(
+    "independent", base.id, 24.5
+) == 1, "base supply retry count persists")
+assert(KnoxPersistence.getSurvivorDuty("independent").baseSupplyOrder.attempts == 1,
+    "base supply retry count survives controller reconstruction")
+assert(KnoxPersistence.beginBaseSupplyRun(
+    "independent", base.id, "find_tools", 24.75
+), "loaded supply work receives one durable in-flight owner")
+local activeSupplyDuty = KnoxPersistence.getSurvivorDuty("independent")
+assert(activeSupplyDuty.activeSupplyRun.kind == "find_tools"
+    and activeSupplyDuty.lastSupplyOutcome == "started",
+    "active supply run and rotation history persist together")
+local activeOrderedSupplyStatus = assert(KnoxPersistence.getBaseResidentWorkStatus(
+    "independent", base.id
+))
+assert(activeOrderedSupplyStatus.state == "supply_run"
+    and activeOrderedSupplyStatus.taskType == "find_tools",
+    "an in-flight supply run must outrank its retained explicit request in the roster")
+assert(KnoxPersistence.finishBaseSupplyRun(
+    "independent", base.id, "find_tools", "collected", 25
+), "supply completion releases its durable in-flight owner")
+local completedSupplyDuty = KnoxPersistence.getSurvivorDuty("independent")
+assert(completedSupplyDuty.activeSupplyRun == nil
+    and completedSupplyDuty.lastSupplyKind == "find_tools"
+    and completedSupplyDuty.lastSupplyOutcome == "collected"
+    and completedSupplyDuty.lastSupplyRunAtHours == 25,
+    "completion history supports fair selection after reconstruction")
+local supplyStatus = assert(KnoxPersistence.getBaseResidentWorkStatus(
+    "independent", base.id
+))
+assert(supplyStatus.state == "supply_order"
+    and supplyStatus.taskType == "find_tools" and supplyStatus.attempts == 1,
+    "base roster exposes the active supply run instead of reporting idle")
+assert(KnoxPersistence.setSurvivorLifeIntent("independent", {
+    kind = "find_tools", phase = "traveling", targetKey = "container:tools",
+    targetX = 12, targetY = 22, targetZ = 0,
+}, 24), "base resident supply-search intent persists")
+assert(KnoxPersistence.setSurvivorLifeIntent("independent", {
+    kind = "base_supply_deposit", phase = "returning", targetKey = "Base.Hammer",
+}, 25), "base resident return/deposit handoff persists")
+local depositIntent = assert(KnoxPersistence.getSurvivorLifeIntent("independent"))
+assert(depositIntent.kind == "base_supply_deposit"
+    and depositIntent.phase == "returning",
+    "base supply return survives the persistence boundary")
+assert(KnoxPersistence.beginBaseSupplyRun(
+    "independent", base.id, "find_tools", 25
+), "replacement-order cancellation fixture starts an active run")
+assert(KnoxPersistence.clearBaseSupplyOrder(
+    "independent", playerId, base.id, 25
+), "completed base supply order clears through ownership validation")
+local clearedSupplyDuty = KnoxPersistence.getSurvivorDuty("independent")
+assert(clearedSupplyDuty.baseSupplyOrder == nil
+    and clearedSupplyDuty.activeSupplyRun == nil,
+    "cleared base supply order cannot restart an in-flight search")
+assert(KnoxPersistence.beginBaseSupplyRun(
+    "independent", base.id, "find_food", 25.25
+), "automatic supply runs use the same durable ownership boundary")
+local automaticSupplyStatus = assert(KnoxPersistence.getBaseResidentWorkStatus(
+    "independent", base.id
+))
+assert(automaticSupplyStatus.state == "supply_run"
+    and automaticSupplyStatus.taskType == "find_food",
+    "automatic supply work is visible to the resident roster")
+assert(KnoxPersistence.finishBaseSupplyRun(
+    "independent", base.id, "find_food", "empty", 25.5
+), "automatic supply ownership releases after an empty search")
 
 local zone = assert(KnoxPersistence.addBaseZone(base.id, "guard", {
     x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
@@ -190,9 +277,24 @@ local activeTask = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
     autoZoneId = activeZone.id, x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
 }, {}, 50))
 assert(KnoxPersistence.claimBaseTask(base.id, activeTask.id, "independent", 24))
+local loadedTaskStatus = assert(KnoxPersistence.getBaseResidentWorkStatus(
+    "independent", base.id
+))
+assert(loadedTaskStatus.state == "claimed" and loadedTaskStatus.offscreen == false,
+    "a fresh loaded task claim must not be presented as off-screen work")
+activeTask.offscreenWorkHours = 2
+local offscreenTaskStatus = assert(KnoxPersistence.getBaseResidentWorkStatus(
+    "independent", base.id
+))
+assert(offscreenTaskStatus.offscreen == true
+    and offscreenTaskStatus.offscreenHours == 2,
+    "actual off-screen work time must remain visible to the resident roster")
 local removedActive, activeReason = KnoxPersistence.removeBaseZone(base.id, activeZone.id)
 assert(not removedActive and activeReason == "zone_has_active_task"
     and base.zones[activeZone.id] ~= nil, "active work areas are protected")
+assert(KnoxPersistence.requeueBaseTasksForSurvivor(
+    "independent", base.id, "test_release"
+) == 1, "test claimant must release its active task before claiming another")
 
 local policy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     key = "container-stable-1",
@@ -236,6 +338,15 @@ local unclaimedFinish, unclaimedFinishResult = KnoxPersistence.finishBaseTask(
     24
 )
 assert(unclaimedFinish == nil and unclaimedFinishResult == "not_claimed_by_survivor")
+assert(KnoxPersistence.claimBaseTask(base.id, firstTask.id, "independent", 24))
+local duplicateClaim, duplicateReason = KnoxPersistence.claimBaseTask(
+    base.id, secondTask.id, "independent", 24
+)
+assert(duplicateClaim == nil and duplicateReason == "already_claimed_task",
+    "one resident cannot own two active base tasks")
+assert(KnoxPersistence.requeueBaseTasksForSurvivor(
+    "independent", base.id, "test_release_again"
+) == 1)
 local claimed, claimResult = KnoxPersistence.claimBaseTask(
     base.id,
     firstTask.id,
@@ -287,15 +398,48 @@ assert(KnoxPersistence.finishBaseTask(
     "completed_guard",
     25
 ))
-assert(transferredTask.state == "complete" and transferredTask.retryAtHours == 25)
+assert(transferredTask.state == "complete" and transferredTask.retryAtHours == 25.50)
 local reopenedTask, reopenedTaskResult = KnoxPersistence.requeueBaseTask(
     base.id,
     transferredTask.id,
-    25
+    25.50
 )
 assert(reopenedTask == transferredTask and reopenedTaskResult == "requeued")
 assert(transferredTask.state == "queued" and transferredTask.runs == 1,
     "recurring base work should reopen the same persisted task")
+local blockedTask = assert(KnoxPersistence.queueBaseTask(base.id, "repair", {
+    x = 18, y = 20, z = 0,
+}, {}, 50))
+assert(KnoxPersistence.claimBaseTask(base.id, blockedTask.id, "resident-two", 25))
+assert(KnoxPersistence.finishBaseTask(
+    base.id, blockedTask.id, "resident-two", false, "missing_material", 25
+))
+assert(blockedTask.state == "blocked" and blockedTask.failureStreak == 1
+    and blockedTask.retryAtHours == 25.25,
+    "blocked work should enter a bounded retry cooldown")
+assert(KnoxPersistence.requeueBaseTask(base.id, blockedTask.id, 25) == nil,
+    "blocked work must not reopen during its cooldown")
+assert(KnoxPersistence.requeueBaseTask(base.id, blockedTask.id, 25.25) == blockedTask,
+    "blocked work should reopen after its cooldown")
+assert(blockedTask.state == "queued" and blockedTask.runs == 1,
+    "blocked work should retain its durable task record")
+local retryHour = 25.25
+for _ = 1, 6 do
+    assert(KnoxPersistence.claimBaseTask(base.id, blockedTask.id, "resident-two", retryHour))
+    assert(KnoxPersistence.finishBaseTask(
+        base.id, blockedTask.id, "resident-two", false, "still_blocked", retryHour
+    ))
+    retryHour = blockedTask.retryAtHours
+    assert(KnoxPersistence.requeueBaseTask(base.id, blockedTask.id, retryHour) == blockedTask)
+end
+assert(blockedTask.failureStreak == 6 and blockedTask.retryAtHours == nil,
+    "bounded retry sequence should retain its cap after reopening")
+assert(KnoxPersistence.claimBaseTask(base.id, blockedTask.id, "resident-two", retryHour))
+assert(KnoxPersistence.finishBaseTask(
+    base.id, blockedTask.id, "resident-two", true, "recovered", retryHour
+))
+assert(blockedTask.failureStreak == 0,
+    "successful work should reset the persisted failure streak")
 local cancelledTask, cancelledResult = KnoxPersistence.cancelBaseTask(
     base.id, transferredTask.id, 26
 )
@@ -309,13 +453,57 @@ local resumedTask, resumedResult = KnoxPersistence.resumeBaseTask(
 assert(resumedTask == transferredTask and resumedResult == "resumed"
     and transferredTask.state == "queued",
     "player-cancelled work resumes on the same durable task record")
+
+local recoveredHigh = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
+    x = 13, y = 20, z = 0,
+}, {}, 80))
+local recoveredLow = assert(KnoxPersistence.queueBaseTask(base.id, "patrol", {
+    x = 14, y = 20, z = 0,
+}, {}, 40))
+recoveredHigh.state, recoveredHigh.claimedBy, recoveredHigh.claimedAtHours =
+    "claimed", "resident-two", 27
+recoveredLow.state, recoveredLow.claimedBy, recoveredLow.claimedAtHours =
+    "claimed", "resident-two", 27
+local recoveredClaim = KnoxPersistence.getClaimedBaseTaskForSurvivor(
+    "resident-two", base.id
+)
+assert(recoveredClaim == recoveredHigh,
+    "controller restoration should recover the resident's authoritative claim")
+assert(recoveredLow.state == "queued" and recoveredLow.claimedBy == nil
+    and recoveredLow.interruptedReason == "duplicate_survivor_claim",
+    "duplicate task ownership should be repaired before scheduling")
+assert(KnoxPersistence.finishBaseTask(
+    base.id, recoveredHigh.id, "resident-two", true, "restored", 27
+))
+
+local orphaned = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
+    x = 15, y = 20, z = 0,
+}, {}, 35))
+orphaned.state, orphaned.claimedBy, orphaned.claimedAtHours =
+    "claimed", "missing-resident", 27
+KnoxPersistence.getClaimedBaseTaskForSurvivor("resident-two", base.id)
+assert(orphaned.state == "queued" and orphaned.claimedBy == nil
+    and orphaned.interruptedReason == "claimant_missing",
+    "orphaned task claims should return to the queue safely")
+
 local inProgressTask = assert(KnoxPersistence.queueBaseTask(base.id, "patrol", {
     x = 16, y = 20, z = 0,
 }, {}, 50))
 assert(KnoxPersistence.claimBaseTask(base.id, inProgressTask.id, "resident-two", 27))
+inProgressTask.patrolStep = 2
+inProgressTask.patrolStopsCompleted = 2
 assert(KnoxPersistence.cancelBaseTask(base.id, inProgressTask.id, 27) == nil
     and inProgressTask.state == "claimed",
     "cancelling never interrupts a resident-owned world action")
+assert(KnoxPersistence.finishBaseTask(
+    base.id, inProgressTask.id, "resident-two", false, "combat_interrupt", 27
+))
+assert(KnoxPersistence.requeueBaseTask(
+    base.id, inProgressTask.id, inProgressTask.retryAtHours
+) == inProgressTask)
+assert(inProgressTask.patrolStep == 2 and inProgressTask.patrolStopsCompleted == 2,
+    "a patrol should resume persisted route progress after interruption")
+assert(KnoxPersistence.claimBaseTask(base.id, inProgressTask.id, "resident-two", 28))
 
 local blockedMove, blockedMoveResult = KnoxPersistence.relocateBase(base.id, {
     buildingId = "new-player-home", x = 105, y = 205, z = 0,

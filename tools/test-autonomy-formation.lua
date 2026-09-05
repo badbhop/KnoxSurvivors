@@ -39,11 +39,39 @@ KnoxPersistence = {
 KnoxSurvivorNeeds = {
     wakeForDanger = function() return false end,
 }
+local supportPlan = nil
+KnoxGroupSupport = {
+    plan = function() return supportPlan end,
+    queue = function() return {}, "queued" end,
+    verify = function() return true end,
+    mostUrgentNeed = function() return nil end,
+}
 
 local controllerPath = projectRoot
     .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua"
 assert(loadfile(controllerPath))()
 local Controller = assert(KnoxAutonomyController)
+
+assert(Controller.shouldAssistGroupObjective({
+    kind = "investigate_building", phase = "arrived",
+}, 36), "nearby group members may help search a reached building")
+assert(Controller.shouldAssistGroupObjective({
+    kind = "scavenge", phase = "traveling",
+}, 64), "nearby group members may share a scavenging objective")
+assert(not Controller.shouldAssistGroupObjective({
+    kind = "find_food", phase = "traveling",
+}, 4), "one member's personal survival need is not assigned to the whole group")
+assert(not Controller.shouldAssistGroupObjective({
+    kind = "investigate_building", phase = "traveling",
+}, 4), "followers stay cohesive while the leader is still approaching a building")
+assert(not Controller.shouldAssistGroupObjective({
+    kind = "scavenge", phase = "traveling",
+}, 65), "followers do not split away from a distant leader to assist")
+assert(Controller.shouldDelegateNeedToGroup("find_water", 64),
+    "nearby follower delegates a missing survival resource to its leader")
+assert(not Controller.shouldDelegateNeedToGroup("find_water", 65)
+    and not Controller.shouldDelegateNeedToGroup("find_weapon", 4),
+    "distant and nonessential goals remain individually owned")
 
 assert(Controller.travelPaceFor(49, false, "urgent") == "walk",
     "short urgent movement remains a walk")
@@ -162,6 +190,9 @@ local follower = {
     getX = function() return 0.5 end,
     getY = function() return 0.5 end,
     getCurrentSquare = function() return followerSquare end,
+    getCharacterActions = function()
+        return { isEmpty = function() return true end }
+    end,
 }
 local captured = {}
 local moveCount = 0
@@ -225,6 +256,29 @@ assert((captured.rear:getX() ~= captured.left:getX()
     "three group followers retain distinct targets")
 assert(captured["left:pace"] == "sprint",
     "distant follower requests sprint catch-up")
+
+local recipient, supportItem = {}, {}
+supportPlan = { recipient = recipient, item = supportItem, kind = "find_water" }
+local supportController = followerController("support", 1)
+supportController.reservations = { supportRecipients = {}, supportItems = {} }
+supportController.groupMembers = { leader }
+supportController.groupLeader = leader
+supportController.companionOrder = nil
+supportController.baseId, supportController.campId = nil, nil
+supportController.nextGroupSupportAt = 0
+assert(supportController:beginGroupSupport(20)
+    and supportController.state == "GROUP_SUPPORT",
+    "one real ally-support transfer owns the controller")
+assert(supportController.reservations.supportRecipients[recipient] == "support"
+    and supportController.reservations.supportItems[supportItem] == "support",
+    "recipient and real item are reserved during support")
+assert(supportController:completeGroupSupport(21),
+    "verified support transfer completes")
+assert(supportController.pendingGroupSupport == nil
+    and supportController.reservations.supportRecipients[recipient] == nil
+    and supportController.reservations.supportItems[supportItem] == nil,
+    "support completion releases all transient ownership")
+supportPlan = nil
 
 leaderSquare = square(12, 10, 0)
 assert(left:refreshFormationFollow(60), "moving leader refreshes formation path")

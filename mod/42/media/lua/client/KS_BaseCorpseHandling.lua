@@ -132,7 +132,8 @@ local function candidateDropSquare(cell, zone, character, corpseSquare)
                         local square = cell:getGridSquare(
                             point[1] + dx, point[2] + dy, z
                         )
-                        if canStand(square) and square ~= corpseSquare then
+                        if insideZone(zone, square) and canStand(square)
+                            and square ~= corpseSquare then
                             local centerDistance = (square:getX() - centerX) ^ 2
                                 + (square:getY() - centerY) ^ 2
                             local originDistance = distanceSquared(square, origin)
@@ -230,6 +231,9 @@ function CorpseHandling.findTask(base, character)
             or math.floor((zoneMinX + zoneMaxX) / 2)
         local centerY = origin ~= nil and origin:getY()
             or math.floor((zoneMinY + zoneMaxY) / 2)
+        -- Sources are outside the drop zone, so all bodies can share this
+        -- bounded destination search during one discovery pass.
+        local zoneDropSquare = candidateDropSquare(cell, zone, character, nil)
         -- Search outward from the worker so a very large player-drawn base remains
         -- bounded per decision. Patrol and ordinary base movement naturally expose
         -- other loaded sections later instead of scanning the whole territory at once.
@@ -244,9 +248,7 @@ function CorpseHandling.findTask(base, character)
                             and firstHaulableBody(square) or nil
                         if body ~= nil then
                             local approach = approachSquare(square, character)
-                            local dropSquare = candidateDropSquare(
-                                cell, zone, character, square
-                            )
+                            local dropSquare = zoneDropSquare
                             if approach ~= nil and dropSquare ~= nil
                                 and distanceSquared(square, dropSquare) > 1 then
                                 local distance = distanceSquared(square, origin)
@@ -309,13 +311,12 @@ function CorpseHandling.resolveTarget(base, target, character)
         return nil, "corpse_unloaded_or_moved"
     end
     local approach = approachSquare(corpseSquare, character)
-    local zone = base.zones[target.zoneId]
-    local dropSquare = zone ~= nil and candidateDropSquare(
+    local zone = base.zones ~= nil and base.zones[target.zoneId] or nil
+    if zone == nil or zone.enabled == false or zone.type ~= "corpse" then
+        return nil, "corpse_zone_unavailable"
+    end
+    local dropSquare = candidateDropSquare(
         cell, zone, character, corpseSquare
-    ) or cell:getGridSquare(
-        tonumber(target.dropX) or 0,
-        tonumber(target.dropY) or 0,
-        tonumber(target.dropZ) or 0
     )
     if approach == nil or dropSquare == nil then
         return nil, "corpse_path_unavailable"
@@ -397,6 +398,20 @@ function CorpseHandling.requestGrabRetry(character, target)
     end
     if CorpseHandling.isDragging(character) then
         return true, "already_dragging"
+    end
+    if not haulable(target.body) then
+        return false, "corpse_removed_or_reanimated"
+    end
+    if CorpseHandling.grabTransitionState(character) == "transitioning" then
+        return true, "native_pickup_in_progress"
+    end
+    -- Match the timed action's reach check. A retry must not bypass a door,
+    -- floor change, or corpse movement that invalidated the original action.
+    local characterSquare = safeCall(character, "getCurrentSquare")
+    local corpseSquare = safeCall(target.body, "getSquare")
+    if characterSquare == nil or corpseSquare == nil
+        or safeCall(characterSquare, "canReachTo", corpseSquare) ~= true then
+        return false, "corpse_no_longer_reachable"
     end
     local success = pcall(function()
         character:pickUpCorpse(target.body, "BwdDrag")

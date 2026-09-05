@@ -120,10 +120,30 @@ local function treeAt(square)
     return safeCall(square, "getTree")
 end
 
-local function orderedZones(base)
+local function orderedZones(base, purpose)
     local zones = {}
     for _, zone in pairs(base ~= nil and base.zones or {}) do
-        if zone ~= nil and zone.enabled ~= false and zone.type == "woodcutting" then
+        -- A wood lot is for harvesting trees; a log-processing area is for the
+        -- saw recipe. They share one native executor, but keeping the boundaries
+        -- distinct prevents a saw bench from becoming an accidental chop area.
+        local isWood = zone ~= nil and zone.type == "woodcutting"
+        local isLogs = zone ~= nil and zone.type == "log_processing"
+        local selected = purpose == "saw" and isLogs or purpose ~= "saw" and isWood
+        -- Preserve the original behavior for existing bases that only have a
+        -- woodcutting area: it remains a valid fallback saw location.
+        if purpose == "saw" and isWood and not selected then
+            local hasLogZone = false
+            for _, candidate in pairs(base ~= nil and base.zones or {}) do
+                if candidate ~= nil and candidate.enabled ~= false
+                    and candidate.type == "log_processing" then
+                    hasLogZone = true
+                    break
+                end
+            end
+            selected = not hasLogZone
+        end
+        if zone ~= nil and zone.enabled ~= false
+            and selected then
             zones[#zones + 1] = zone
         end
     end
@@ -172,9 +192,9 @@ function Woodcutting.findTask(base, character)
     local log = logItem(character)
     local saw = sawItem(character)
     local recipe, containers = canSaw(character, log, saw)
-    local zones = orderedZones(base)
-    if recipe ~= nil and #zones > 0 then
-        local zone = zones[1]
+    local sawZones = orderedZones(base, "saw")
+    if recipe ~= nil and #sawZones > 0 then
+        local zone = sawZones[1]
         local minX, minY, maxX, maxY, z = zoneBounds(zone)
         local logId = log.getID ~= nil and log:getID() or log:getFullType()
         return {
@@ -193,7 +213,7 @@ function Woodcutting.findTask(base, character)
     if axe == nil then
         return nil, "missing_axe"
     end
-    for _, zone in ipairs(zones) do
+    for _, zone in ipairs(orderedZones(base, "chop")) do
         local minX, minY, maxX, maxY, z = zoneBounds(zone)
         maxX = math.min(maxX, minX + 96)
         maxY = math.min(maxY, minY + 96)

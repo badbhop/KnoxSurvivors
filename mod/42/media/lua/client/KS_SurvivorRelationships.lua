@@ -8,8 +8,14 @@ local Relationships = rawget(_G, "KnoxSurvivorRelationships") or {}
 _G.KnoxSurvivorRelationships = Relationships
 
 local TAG = "[KnoxSurvivors][Relationships]"
-local AWARENESS_RADIUS = 14
-local CAUTIOUS_APPROACH_RADIUS = 10
+-- Social awareness reaches a little beyond arm's length so independent
+-- survivors can converge before they pass one another. Native LOS, same-floor
+-- checks and the existing cooldown still gate every encounter.
+-- Human contact needs a little more lead time than combat range.  Keep this
+-- bounded and same-floor/LOS-gated so survivors can converge naturally without
+-- gaining wall- or map-wide awareness.
+local AWARENESS_RADIUS = 32
+local CAUTIOUS_APPROACH_RADIUS = 20
 local NEUTRAL_AVOID_COOLDOWN_HOURS = 1.5
 local GREETING_COOLDOWN_HOURS = 6
 local ABORT_COOLDOWN_HOURS = 0.5
@@ -62,11 +68,28 @@ local function encounterLine(meeting, response)
     return pair[response and 2 or 1]
 end
 
-local function availableForNpcSocial(id)
+local function availableForNpcSocial(id, controller)
     local affiliation = KnoxPersistence.getSurvivorAffiliation(id)
     local duty = KnoxPersistence.getSurvivorDuty(id)
-    return (affiliation == nil or affiliation.kind ~= "player")
-        and (duty == nil or (duty.mode ~= "companion" and duty.mode ~= "base"))
+    if affiliation ~= nil and affiliation.kind == "player" then
+        return false
+    end
+    if duty == nil or duty.mode == nil then
+        return true
+    end
+    if duty.mode == "companion" then
+        return false
+    end
+    if duty.mode == "base" then
+        -- NPC faction residents may make a bounded human contact while they
+        -- are genuinely idle. Active work, security and player-owned base
+        -- duties remain authoritative and cannot be pulled into encounters.
+        return affiliation ~= nil and affiliation.kind == "faction"
+            and controller ~= nil
+            and (controller.state == "BASE_IDLE"
+                or controller.state == "BASE_AMBIENT_REST")
+    end
+    return true
 end
 
 local function pairKey(firstId, secondId)
@@ -172,9 +195,27 @@ local function decideEncounterOutcome(firstId, secondId, record)
     local sharedActivity = record ~= nil and ((tonumber(record.sharedRoam) or 0)
         + (tonumber(record.sharedLoot) or 0) + (tonumber(record.sharedCombat) or 0))
         or 0
-    local joinChance = hasFamiliarity and sharedActivity > 0
-        and clamp(32 + (sociability - 50) * 0.35, 20, 50)
-        or 0
+    -- A faction leader may recruit an eligible loner on first contact.  The
+    -- old shared-activity gate made this impossible: a loner could never
+    -- have shared activity with the group before joining it.  Keep the chance
+    -- modest and only enable it for an established faction group; ordinary
+    -- two-person groups still need familiarity/shared survival first.
+    local firstGroup = KnoxPersistence.getTravelGroupFor(firstId)
+    local secondGroup = KnoxPersistence.getTravelGroupFor(secondId)
+    local factionGroup = firstGroup ~= nil and firstGroup.factionId ~= nil
+        and secondGroup == nil and firstGroup
+        or secondGroup ~= nil and secondGroup.factionId ~= nil
+        and firstGroup == nil and secondGroup
+        or nil
+    local nowHours = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local factionRecruitment = factionGroup ~= nil
+        and nowHours >= (tonumber(factionGroup.recruitmentNextHours) or 0)
+    local joinChance = factionRecruitment
+        and clamp(24 + (sociability - 50) * 0.22
+            + math.min(6, math.max(0, #(factionGroup.memberIds or {}) - 3) * 0.8), 18, 42)
+        or (hasFamiliarity and sharedActivity > 0
+            and clamp(32 + (sociability - 50) * 0.35, 20, 50)
+            or 0)
     local roll = pairRoll(firstId, secondId, record ~= nil and record.meetings or 0)
     if KnoxSettings.allowHostileEncounters() and roll < hostileChance then
         return "hostile"
@@ -231,6 +272,15 @@ local function coordinateFactionBaseScouting(controllers, orderedIds, ticks)
             local leader = controllers[faction.leaderId]
             if faction.homeBase == nil and leader ~= nil and leader.character ~= nil then
                 local candidate = KnoxPersistence.getFactionBaseCandidate(faction.id)
+                if candidate ~= nil and KnoxPersistence.expireFactionBaseCandidate(
+                    faction.id,
+                    getGameTime():getWorldAgeHours(),
+                    72
+                ) then
+                    candidate = nil
+                    leader:clearFactionBaseCandidate()
+                    print(TAG .. " faction-base-candidate-expired=" .. faction.id)
+                end
                 if candidate == nil then
                     local found = KnoxFactionBaseScouting.findBestCandidate(
                         leader.character,
@@ -359,13 +409,23 @@ local function observePair(first, second, worldAge, ticks, participants)
         and socialInitiator(first.id) and socialInitiator(second.id) then
         local firstGroup = KnoxPersistence.getTravelGroupFor(first.id)
         local secondGroup = KnoxPersistence.getTravelGroupFor(second.id)
-        local canMeet = (firstGroup == nil and secondGroup == nil)
-            or (firstGroup ~= nil and secondGroup == nil)
-            or (firstGroup == nil and secondGroup ~= nil)
+        -- Only group leaders initiate social contact.  Different groups may
+        -- still meet, but this pass must not silently merge two established
+        -- groups; group/faction progression owns that decision later.
+        local sameGroup = firstGroup ~= nil and secondGroup ~= nil
+            and firstGroup.id == secondGroup.id
+        local oneGroupOnly = (firstGroup ~= nil) ~= (secondGroup ~= nil)
+        local canMeet = not sameGroup
         local record = KnoxPersistence.getRelationship(first.id, second.id)
         local cooldownComplete = Relationships.isEncounterCooldownComplete(record, worldAge)
         if canMeet and cooldownComplete then
             local outcome = decideEncounterOutcome(first.id, second.id, record)
+            if firstGroup ~= nil and secondGroup ~= nil and outcome == "join" then
+                -- Joining is defined for a loner joining an existing group.
+                -- Keep two established groups as a bounded greeting here so
+                -- we never pass an invalid group/loner pair to resolution.
+                outcome = "greet"
+            end
             if outcome == "avoid" or outcome == "avoid_hostile" then
                 local disposition = outcome == "avoid_hostile" and "hostile" or "neutral"
                 recordEncounterCooldown(
@@ -382,6 +442,14 @@ local function observePair(first, second, worldAge, ticks, participants)
             elseif outcome ~= "none" then
                 local aggressorId = aggressionFor(first.id) >= aggressionFor(second.id)
                     and first.id or second.id
+                local joinGroupId = oneGroupOnly
+                    and (firstGroup ~= nil and firstGroup.id
+                        or (secondGroup ~= nil and secondGroup.id or nil))
+                    or nil
+                local lonerId = oneGroupOnly
+                    and (firstGroup ~= nil and second.id
+                        or (secondGroup ~= nil and first.id or nil))
+                    or nil
                 pendingMeetings[key] = {
                     firstId = first.id,
                     secondId = second.id,
@@ -389,10 +457,10 @@ local function observePair(first, second, worldAge, ticks, participants)
                     startedAt = ticks,
                     outcome = outcome,
                     aggressorId = aggressorId,
-                    joinGroupId = firstGroup ~= nil and firstGroup.id
-                        or (secondGroup ~= nil and secondGroup.id or nil),
-                    lonerId = firstGroup ~= nil and second.id
-                        or (secondGroup ~= nil and first.id or nil),
+                    firstGroupId = firstGroup ~= nil and firstGroup.id or nil,
+                    secondGroupId = secondGroup ~= nil and secondGroup.id or nil,
+                    joinGroupId = joinGroupId,
+                    lonerId = lonerId,
                 }
                 participants[first.id] = true
                 participants[second.id] = true
@@ -425,13 +493,13 @@ function Relationships.observe(controllers, orderedIds, ticks)
     for index = 1, #orderedIds do
         local first = controllers[orderedIds[index]]
         if first ~= nil and first.character ~= nil
-            and availableForNpcSocial(first.id) then
+            and availableForNpcSocial(first.id, first) then
             local forename, surname = fullName(first.character)
             KnoxPersistence.ensureSurvivorIdentity(first.id, forename, surname, worldAge)
             for otherIndex = index + 1, #orderedIds do
                 local second = controllers[orderedIds[otherIndex]]
                 if second ~= nil and second.character ~= nil
-                    and availableForNpcSocial(second.id) then
+                    and availableForNpcSocial(second.id, second) then
                     local secondForename, secondSurname = fullName(second.character)
                     KnoxPersistence.ensureSurvivorIdentity(
                         second.id,
@@ -480,16 +548,26 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
         return
     end
     lastGroupAssignmentTick = ticks
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     for _, id in ipairs(orderedIds) do
         local controller = controllers[id]
         if controller ~= nil then
-            if not availableForNpcSocial(id) then
+            if not availableForNpcSocial(id, controller) then
                 controller:clearGroupLeader()
                 controller:setGroupMembers({})
             else
             local group = KnoxPersistence.getTravelGroupFor(id)
+            local objective = group ~= nil
+                and KnoxPersistence.getTravelGroupObjective(group.id) or nil
             if group ~= nil and group.leaderId ~= id then
                 local leader = controllers[group.leaderId]
+                local members = {}
+                for _, memberId in ipairs(group.memberIds or {}) do
+                    local member = controllers[memberId]
+                    if member ~= nil and member.character ~= nil then
+                        members[#members + 1] = member.character
+                    end
+                end
                 local formationSlot = 1
                 local nextSlot = 0
                 for _, memberId in ipairs(group.memberIds or {}) do
@@ -505,10 +583,22 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
                     group.leaderId,
                     leader ~= nil and leader.character or nil,
                     formationSlot,
-                    #(group.memberIds or {})
+                    #(group.memberIds or {}),
+                    objective
                 )
-                controller:setGroupMembers({})
+                controller:setGroupMembers(members)
             elseif group ~= nil then
+                if controller.lifeIntent ~= nil then
+                    KnoxPersistence.setTravelGroupObjective(
+                        group.id,
+                        id,
+                        controller.lifeIntent,
+                        now
+                    )
+                else
+                    KnoxPersistence.clearTravelGroupObjective(group.id, id)
+                end
+                objective = KnoxPersistence.getTravelGroupObjective(group.id)
                 local members = {}
                 for _, memberId in ipairs(group.memberIds or {}) do
                     local member = controllers[memberId]
@@ -518,6 +608,7 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
                 end
                 controller:clearGroupLeader()
                 controller:setGroupMembers(members)
+                controller:setGroupObjective(objective)
             else
                 controller:clearGroupLeader()
                 controller:setGroupMembers({})
@@ -534,13 +625,14 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
         lastFactionEvaluationTick = ticks
         local evaluated = {}
         for _, id in ipairs(orderedIds) do
-            if availableForNpcSocial(id) then
+            if availableForNpcSocial(id, controllers[id]) then
             local group = KnoxPersistence.getTravelGroupFor(id)
             if group ~= nil and not evaluated[group.id] then
                 evaluated[group.id] = true
                 local faction, result = KnoxPersistence.evaluateTravelGroupFaction(
                     group.id,
-                    getGameTime():getWorldAgeHours()
+                    getGameTime():getWorldAgeHours(),
+                    KnoxSettings.npcFactionMinimumMembers()
                 )
                 if faction ~= nil and result == "created" then
                     local leader = controllers[faction.leaderId]
@@ -548,7 +640,10 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         and leader.state ~= "COMBAT" then
                         KnoxActivityFeed.speak(leader.character, "We should find somewhere to settle.")
                     end
-                    KnoxActivityFeed.event("A new survivor faction has formed.")
+                    KnoxActivityFeed.event(
+                        tostring(faction.name or faction.id or "A survivor faction")
+                            .. " has formed."
+                    )
                     print(
                         TAG .. " faction-formed=" .. faction.id
                             .. " group=" .. group.id
@@ -565,20 +660,24 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
         local second = controllers[meeting.secondId]
         local firstGroup = first ~= nil and KnoxPersistence.getTravelGroupFor(first.id) or nil
         local secondGroup = second ~= nil and KnoxPersistence.getTravelGroupFor(second.id) or nil
-        local invalidMembership = meeting.joinGroupId == nil
-            and (firstGroup ~= nil or secondGroup ~= nil)
-            or meeting.joinGroupId ~= nil
-                and ((firstGroup ~= nil and firstGroup.id ~= meeting.joinGroupId)
-                    or (secondGroup ~= nil and secondGroup.id ~= meeting.joinGroupId)
-                    or (meeting.lonerId == meeting.firstId and firstGroup ~= nil)
-                    or (meeting.lonerId == meeting.secondId and secondGroup ~= nil)
-                    or (firstGroup == nil and secondGroup == nil))
+        local currentFirstGroupId = firstGroup ~= nil and firstGroup.id or nil
+        local currentSecondGroupId = secondGroup ~= nil and secondGroup.id or nil
+        local invalidMembership
+        if meeting.joinGroupId == nil then
+            invalidMembership = currentFirstGroupId ~= meeting.firstGroupId
+                or currentSecondGroupId ~= meeting.secondGroupId
+        else
+            invalidMembership = (currentFirstGroupId ~= meeting.joinGroupId
+                    and not (meeting.lonerId == meeting.firstId and currentFirstGroupId == nil))
+                or (currentSecondGroupId ~= meeting.joinGroupId
+                    and not (meeting.lonerId == meeting.secondId and currentSecondGroupId == nil))
+        end
         if first == nil or second == nil then
             resumeMeetingController(first, ticks)
             resumeMeetingController(second, ticks)
             pendingMeetings[key] = nil
-        elseif not availableForNpcSocial(first.id)
-            or not availableForNpcSocial(second.id) then
+        elseif not availableForNpcSocial(first.id, first)
+            or not availableForNpcSocial(second.id, second) then
             abortMeeting(key, meeting, first, second, ticks, "player_recruited")
         elseif invalidMembership then
             abortMeeting(key, meeting, first, second, ticks, "membership_changed")
@@ -637,6 +736,7 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
             end
             if ticks - meeting.greetingAt >= 240 then
                 local group = nil
+                local joinResult = nil
                 local worldAge = getGameTime():getWorldAgeHours()
                 if meeting.outcome == "hostile" then
                     local aggressor = meeting.aggressorId == first.id and first or second
@@ -683,10 +783,16 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                     print(TAG .. " encounter-outcome=greet " .. first.id .. "," .. second.id)
                     KnoxActivityFeed.event("Two survivors exchange a few cautious words.")
                 elseif meeting.joinGroupId ~= nil then
-                    group = KnoxPersistence.addTravelGroupMember(
+                    group, joinResult = KnoxPersistence.addTravelGroupMember(
                         meeting.joinGroupId,
                         meeting.lonerId
                     )
+                    if group ~= nil and group.factionId ~= nil then
+                        -- Keep faction growth organic. The cooldown is stored on
+                        -- the existing travel-group record, so reloads do not
+                        -- reset it and no second social system is introduced.
+                        group.recruitmentNextHours = worldAge + 12
+                    end
                 else
                     group = KnoxPersistence.createTravelGroup(
                         { first.id, second.id },
@@ -694,6 +800,31 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                     )
                 end
                 if meeting.outcome == "join" then
+                    if group == nil then
+                        -- A faction can reach its configured size, lose its
+                        -- leader, or otherwise become unavailable while a
+                        -- greeting is in progress. Do not report a join or
+                        -- mark the pair allied when the membership mutation
+                        -- was rejected.
+                        recordEncounterCooldown(
+                            first.id,
+                            second.id,
+                            "neutral",
+                            worldAge,
+                            ABORT_COOLDOWN_HOURS
+                        )
+                        first:resumeAfterGreeting(ticks)
+                        second:resumeAfterGreeting(ticks)
+                        pendingMeetings[key] = nil
+                        print(
+                            TAG .. " encounter-outcome=join-rejected "
+                                .. first.id .. "," .. second.id
+                                .. " reason=" .. tostring(joinResult)
+                        )
+                        KnoxActivityFeed.event("The survivors decide to keep travelling separately.")
+                        meeting.outcome = "join_rejected"
+                    end
+                    if meeting.outcome == "join" then
                     KnoxPersistence.setRelationshipDisposition(
                         first.id,
                         second.id,
@@ -707,10 +838,13 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         TAG .. " travel-group=" .. tostring(group ~= nil and group.id or "none")
                             .. " members=" .. first.id .. "," .. second.id
                             .. " faction=" .. tostring(group ~= nil and group.factionId or false)
-                            .. (group ~= nil and group.factionId == nil and " requires=3" or "")
+                            .. (group ~= nil and group.factionId == nil
+                                and " requires=" .. tostring(KnoxSettings.npcFactionMinimumMembers())
+                                or "")
                     )
                     KnoxActivityFeed.event("Survivors have agreed to travel together.")
                     lastGroupAssignmentTick = ticks - 60
+                    end
                 end
             end
         end

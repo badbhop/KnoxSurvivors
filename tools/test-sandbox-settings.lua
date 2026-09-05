@@ -31,10 +31,20 @@ assert(trustOptionAt ~= nil
 assert(string.find(sandboxEnglish, "Sandbox_KnoxSurvivors_RequireTrustForRecruitment", 1, true),
     "trust recruitment setting has player-facing English text")
 assertDefault("WorldPopulation", 48)
+assertDefault("InitialGroupChance", 65)
+assertDefault("InitialGroupMaxSize", 4)
+assertDefault("InitialGroupCount", 3)
 assertDefault("MaxActiveSurvivors", 16)
 assertDefault("PopulationRefillDays", 5)
 assertDefault("MinimumSpawnDistance", 40)
+assertDefault("SurvivorEncounterDistance", 280)
+assertDefault("ActivationsPerUpdate", 2)
+assertDefault("NPCFactionMinimumMembers", 4)
+assertDefault("NPCFactionMaxMembers", 8)
 assertDefault("AllowFactionRaids", false)
+assertDefault("EnableKnoxEvents", false)
+assertDefault("AllowSurvivorFleeing", false)
+assertDefault("ShowDeveloperDiagnostics", false)
 assertDefault("FactionRaidMinimumDays", 14)
 assert(string.find(sandboxEnglish, "Allow NPC Factions (Work in Progress)", 1, true)
     and string.find(sandboxEnglish, "Allow Faction Raids (Experimental)", 1, true),
@@ -55,8 +65,14 @@ assert(KnoxSettings.activationBudget(0) == 2, "activation has a bounded construc
 assert(KnoxSettings.activationBudget(15) == 1 and KnoxSettings.activationBudget(16) == 0,
     "construction budget respects configured active cap")
 assert(KnoxSettings.allowNPCFactions(), "factions default")
+assert(KnoxSettings.npcFactionMinimumMembers() == 4,
+    "travelling groups need four members before normal faction promotion")
+assert(KnoxSettings.npcFactionMaxMembers() == 8,
+    "NPC factions default to a bounded readable size")
 assert(KnoxSettings.allowHostileEncounters(), "hostility default")
+assert(not KnoxSettings.allowSurvivorFleeing(), "experimental fleeing defaults off")
 assert(not KnoxSettings.allowFactionRaids(), "experimental faction raids default off")
+assert(not KnoxSettings.enableKnoxEvents(), "experimental events default off")
 assert(KnoxSettings.factionRaidMinimumDays() == 14, "raid world-age balanced default")
 assert(KnoxSettings.factionRaidIntervalDays() == 7, "raid interval default")
 assert(KnoxSettings.showCompanionHUD(), "HUD default")
@@ -69,8 +85,12 @@ SandboxVars = { KnoxSurvivors = {
     CompanionLimit = 99,
     RequireTrustForRecruitment = true,
     AllowNPCFactions = false,
+    NPCFactionMinimumMembers = 99,
+    NPCFactionMaxMembers = 99,
     AllowHostileEncounters = false,
+    AllowSurvivorFleeing = true,
     AllowFactionRaids = true,
+    EnableKnoxEvents = true,
     FactionRaidMinimumDays = 0,
     FactionRaidIntervalDays = 99,
     EnableDeveloperTools = true,
@@ -82,8 +102,14 @@ SandboxVars = { KnoxSurvivors = {
 assert(KnoxSettings.companionLimit() == 12, "companion limit upper clamp")
 assert(KnoxSettings.requireTrustForRecruitment(), "trust requirement explicit opt-in")
 assert(not KnoxSettings.allowNPCFactions(), "factions configured off")
+assert(KnoxSettings.npcFactionMinimumMembers() == 8,
+    "faction minimum has a bounded upper clamp")
+assert(KnoxSettings.npcFactionMaxMembers() == 24,
+    "faction maximum has a bounded upper clamp")
 assert(not KnoxSettings.allowHostileEncounters(), "hostility configured off")
+assert(KnoxSettings.allowSurvivorFleeing(), "fleeing remains an explicit sandbox opt-in")
 assert(not KnoxSettings.allowFactionRaids(), "raids require factions and hostile encounters")
+assert(KnoxSettings.enableKnoxEvents(), "events can be enabled explicitly")
 assert(KnoxSettings.factionRaidMinimumDays() == 1, "raid age lower clamp")
 assert(KnoxSettings.factionRaidIntervalDays() == 30, "raid interval upper clamp")
 assert(KnoxSettings.developerToolsEnabled(), "developer tools configured on")

@@ -52,6 +52,10 @@ KnoxSurvivorRuntime = {
 KnoxActivityFeed = {
     speak = function() end,
 }
+local fleeingEnabled = true
+KnoxSettings = {
+    allowSurvivorFleeing = function() return fleeingEnabled end,
+}
 KnoxFirearmSupport = {
     prepareForThreat = function() return "ready", "MELEE" end,
 }
@@ -306,6 +310,11 @@ local capable = controller("capable")
 local shouldFlee, capableRisk = capable:assessFlee()
 assert(not shouldFlee and capableRisk.zombies == 3,
     "a healthy skilled armed survivor may fight three spaced zombies")
+fleeingEnabled = false
+assert(not capable:assessFlee()
+        and not capable:beginFlee(1, { health = 1, endurance = 1 }),
+    "sandbox flee switch prevents both assessment and direct retreat ownership")
+fleeingEnabled = true
 
 zombies = {
     zombieAt(1, 0, character),
@@ -506,10 +515,23 @@ weapon = nil
 zombies = { postRetreat }
 assert(not unarmed:beginCombat(postRetreat) and unarmed.unarmedCombatBlocked,
     "native no-weapon rejection records a survival fallback rather than a long generic combat retry")
+local rejectedCalls = 0
+unarmed.bridge.beginNpcLiveCombat = function()
+    rejectedCalls = rejectedCalls + 1
+    return "COMBAT_FAILED NO_EQUIPPED_WEAPON"
+end
+unarmed.currentTicks = 20
+unarmed:beginCombat(postRetreat)
+unarmed:beginCombat(zombieAt(2, 0, character))
+assert(rejectedCalls == 0,
+    "missing weapon does not repeatedly retry native combat even when target changes")
 local unarmedFlee, unarmedRisk = unarmed:assessFlee()
 assert(unarmedFlee and unarmedRisk.reason == "no_usable_weapon",
     "unarmed actor escapes instead of repeatedly chasing a zombie it cannot attack")
 weapon = meleeWeapon(10, 1.5, 5)
+unarmed:beginCombat(postRetreat)
+assert(rejectedCalls == 1,
+    "newly equipped weapon permits immediate reevaluation before the cooldown expires")
 assert(not unarmed:assessFlee(), "finding a usable weapon removes unarmed-only retreat pressure")
 weapon, zombies = nil, surrounding
 
@@ -581,4 +603,48 @@ assert(selfCare.state == "IDLE" and selfCare.companionOrder == "follow"
         and selfCare.selfCareInterrupted == "eat",
     "interruption preserves the durable Follow order for later resume")
 
+local closeRange = controller("close-range")
+closeRange.bridge = {
+    beginNpcLiveCombat = function() return "COMBAT_FAILED TEST_ROUTE" end,
+    resetNpcCombat = function() end,
+}
+closeRange.currentTicks = 100
+closeRange.rangedFallbackUntil = { [postRetreat] = 200 }
+local prepared, melee = 0, 0
+KnoxFirearmSupport.prepareForThreat = function()
+    prepared = prepared + 1
+    return "ready", "FIREARM"
+end
+KnoxFirearmSupport.fallbackToMelee = function()
+    melee = melee + 1
+    return "EQUIPPED Base.BaseballBat"
+end
+closeRange:beginCombat(postRetreat)
+assert(melee == 1 and prepared == 0,
+    "close-range fallback survives the next threat scan without selecting the gun again")
+closeRange.currentTicks = 200
+closeRange.failedThreats = {}
+closeRange:beginCombat(postRetreat)
+assert(melee == 1 and prepared == 1,
+    "expired close-range fallback allows normal firearm selection again")
+
+local relaxFinished = 0
+local relaxKind = "roam"
+KnoxSurvivorNeeds.decide = function() return { kind = relaxKind } end
+local relaxing = setmetatable({ companionOrder = "relax", nextThink = 100,
+    character = {}, selfCareRetryAt = {},
+    finishDecision = function() relaxFinished = relaxFinished + 1 end }, Controller)
+relaxing:updateCompanionRelax(100)
+relaxing:updateCompanionRelax(280)
+assert(relaxFinished == 0, "ordinary relax rechecks must not force standing and resitting")
+relaxKind = "find_food"
+relaxing:updateCompanionRelax(460)
+assert(relaxFinished == 0, "missing supplies must not restart the relaxed posture")
+relaxKind = "eat"
+relaxing:updateCompanionRelax(640)
+assert(relaxFinished == 1 and relaxing.nextThink == 640,
+    "usable self-care interrupts relax for the ordinary needs owner")
+relaxing.companionOrder = "follow"
+relaxing:updateCompanionRelax(641)
+assert(relaxFinished == 2, "replacement order ends relax immediately")
 print("combat intelligence focused tests passed")

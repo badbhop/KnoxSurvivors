@@ -33,6 +33,12 @@ assert(Controller.shouldInterruptRoamingForNeed("eat")
 assert(not Controller.shouldInterruptRoamingForNeed("roam")
         and not Controller.shouldInterruptRoamingForNeed("fight"),
     "ordinary roaming and combat decisions are handled by their own owners")
+assert(Controller.roamIntentKind("building") == "investigate_building",
+    "a building destination has a readable durable purpose")
+assert(Controller.roamIntentKind("area") == "travel_area",
+    "ordinary onward travel has a readable durable purpose")
+assert(Controller.roamIntentKind("building", "find_food") == "find_food",
+    "travel cannot overwrite an unresolved survival purpose")
 
 local handle = assert(io.open(controllerPath, "r"))
 local source = handle:read("*a")
@@ -45,6 +51,30 @@ assert(string.find(source, 'self.nextThink = ticks + ROAM_NO_GOAL_RETRY_TICKS', 
     "no-goal recovery must schedule a bounded new decision")
 assert(string.find(source, 'rememberRoamDestination(', 1, true),
     "completed and failed destinations must enter short-term memory")
+assert(string.find(source, 'roamingBuildingValue', 1, true),
+    "roaming should score plausible buildings with safe native metadata")
+assert(string.find(source, 'definition:getRoomsNumber', 1, true)
+    and string.find(source, 'building:hasWater', 1, true),
+    "roaming building value should consider rooms and water when available")
+assert(string.find(source, 'self:setLifeIntent(goal, "seeking"', 1, true),
+    "world supply search persists its reason before selecting an action")
+assert(string.find(source, 'self:clearLifeIntent()', 1, true),
+    "completed or superseded autonomous purpose can be cleared")
+assert(string.find(source, 'baseSupplyClaimsByBase', 1, true)
+    and string.find(source, 'supplyClaimsFor', 1, true),
+    "base supply searches use one shared loaded-controller claim table")
+assert(string.find(source, 'untilHours = nowHours + 1.5', 1, true),
+    "base supply claims have a bounded lease")
+assert(string.find(source, 'claim.survivorId ~= self.id', 1, true),
+    "residents do not duplicate an active supply search")
+assert(string.find(source, 'self.baseSupplyTrip = true', 1, true)
+    and string.find(source, 'local returnToBase = self.baseSupplyTrip == true', 1, true),
+    "base supply trips return through the existing home-duty path")
+assert(Controller.baseIdleJitter("resident-a") ~= Controller.baseIdleJitter("resident-b"),
+    "base residents receive distinct deterministic idle phases")
+assert(Controller.baseIdleChoice(0, "resident-a", 3) ~= nil
+    and Controller.baseIdleChoice(90, "resident-a", 3) ~= nil,
+    "base idle schedule remains bounded across decision ticks")
 
 local function square(x, y, building, room)
     return { getX = function() return x end, getY = function() return y end,

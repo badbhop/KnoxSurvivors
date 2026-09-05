@@ -7,6 +7,8 @@ require "KS_FirearmSupport"
 require "KS_SurvivorInventoryActions"
 require "KS_Persistence"
 require "KS_ActivityFeed"
+require "KS_SurvivorDialogue"
+require "KS_GroupSupport"
 require "KS_SurvivorLooting"
 require "KS_EquipmentIntelligence"
 require "KS_FactionBaseScouting"
@@ -14,6 +16,7 @@ require "KS_FactionSafehouse"
 require "KS_BaseManager"
 require "KS_BaseTaskBoard"
 require "KS_BaseJobs"
+require "KS_BaseSupplyPlanner"
 require "KS_BaseStorage"
 require "KS_BaseBarricades"
 require "KS_BaseFarming"
@@ -22,12 +25,43 @@ require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
 require "KS_BaseRepairs"
 require "KS_BaseConstruction"
+require "KS_BaseSupplyPlanner"
+require "KS_CompanionPatrol"
+require "KS_AwayTeamExecutor"
 require "KS_FactionCamps"
 require "KS_SurvivorRuntime"
 
 local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
 Controller.__index = Controller
+
+local function sayDialogue(character, survivorId, event, ticks, cooldown, lines)
+    local dialogue = rawget(_G, "KnoxSurvivorDialogue")
+    if dialogue == nil then return false end
+    if lines ~= nil and dialogue.sayLines ~= nil then
+        return dialogue.sayLines(character, survivorId, event, lines, ticks, cooldown)
+    end
+    if dialogue.say ~= nil then
+        return dialogue.say(character, survivorId, event, ticks, cooldown)
+    end
+    return false
+end
+
+-- A task can enter the loaded controller from an older save, a restored claim,
+-- or a direct developer/UI call. Persistence normally migrates these records,
+-- but the controller is the final execution boundary and must never dispatch
+-- legacy vocabulary to the concrete executors below. Normalize the existing
+-- task in place so every downstream branch continues to use one authoritative
+-- task object and no second task manager is needed.
+local function canonicalBaseTask(task)
+    if type(task) ~= "table" then return task end
+    local catalog = rawget(_G, "KnoxOrderCatalog")
+    if catalog ~= nil and catalog.normalizeTaskType ~= nil then
+        local normalized = catalog.normalizeTaskType(task.type)
+        if normalized ~= nil then task.type = normalized end
+    end
+    return task
+end
 
 local THINK_MIN_TICKS = 30
 local THINK_JITTER_TICKS = 45
@@ -68,7 +102,7 @@ local SLEEP_RECOVERY_TIMEOUT_TICKS = 36000
 local RECOVERY_SEAT_SCAN_RADIUS = 8
 local RECOVERY_POSTURE_TIMEOUT_TICKS = 180
 local SELF_CARE_RETRY_TICKS = 300
-local BASE_AMBIENT_REST_TICKS = 180
+local BASE_AMBIENT_REST_TICKS = 1800
 local CAMP_DECISION_TICKS = 180
 local CAMP_EXCURSION_COOLDOWN_TICKS = 1800
 local CAMP_POSITION_FAILURE_TICKS = 300
@@ -77,6 +111,11 @@ local ACTION_TIMEOUT_TICKS = 1200
 local GROUP_SOFT_LEASH_SQUARED = 100
 local GROUP_RETRIEVE_LEASH_SQUARED = 196
 local FORMATION_ARRIVAL_TOLERANCE_SQUARED = 0
+local GROUP_OBJECTIVE_ASSIST_RADIUS_SQUARED = 64
+local GROUP_OBJECTIVE_ASSIST_RETRY_TICKS = 300
+local GROUP_OBJECTIVE_ASSIST_COOLDOWN_TICKS = 1800
+local GROUP_SUPPORT_RETRY_TICKS = 600
+local GROUP_SUPPORT_COOLDOWN_TICKS = 1800
 local FORMATION_REPATH_SHIFT_SQUARED = 2
 local FORMATION_REFRESH_TICKS = 30
 local FORMATION_BOTTLENECK_WAIT_TICKS = 90
@@ -98,6 +137,36 @@ local FLEE_DISENGAGE_TICKS = 600
 -- not a mission or a world-state change that should survive save/load.
 local fleePlans = rawget(_G, "KnoxFleePlans") or {}
 _G.KnoxFleePlans = fleePlans
+
+-- Supply-search leases coordinate loaded controllers only. The survivor duty's
+-- `activeSupplyRun` is the durable owner; container reservations, lease expiry,
+-- and which loaded controller currently searches must never enter base ModData.
+local baseSupplyClaimsByBase = {}
+
+local function supplyClaimsFor(baseId)
+    local key = tostring(baseId or "")
+    if key == "" then return nil end
+    local claims = baseSupplyClaimsByBase[key]
+    if type(claims) ~= "table" then
+        claims = {}
+        baseSupplyClaimsByBase[key] = claims
+    end
+    return claims
+end
+
+local function restoreSupplyClaim(baseId, kind, survivorId)
+    if kind == nil or survivorId == nil then return false end
+    local claims = supplyClaimsFor(baseId)
+    if claims == nil then return false end
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local current = claims[kind]
+    if type(current) ~= "table" or current.survivorId == survivorId
+        or (tonumber(current.untilHours) or 0) <= now then
+        claims[kind] = { survivorId = survivorId, untilHours = now + 1.5 }
+        return true
+    end
+    return false
+end
 
 local function distanceSquared(first, second)
     local dx = first:getX() - second:getX()
@@ -311,6 +380,11 @@ local function release(reservations, kind, value, id)
 end
 
 local function threatUnavailable(self, zombie, ticks)
+    if self.unarmedRejectedTarget == zombie and self.unarmedRetryUntil ~= nil
+        and self.character:getPrimaryHandItem() ~= self.rejectedCombatItem then
+        self.failedThreats[zombie] = nil
+        return false
+    end
     local unavailableUntil = self.failedThreats[zombie]
     if unavailableUntil ~= nil and unavailableUntil <= ticks then
         self.failedThreats[zombie] = nil
@@ -943,6 +1017,13 @@ local function openEscapeLaneCount(origin, threats)
 end
 
 local function fleeAssessment(self)
+    local settings = rawget(_G, "KnoxSettings")
+    if settings ~= nil and settings.allowSurvivorFleeing ~= nil
+        and not settings.allowSurvivorFleeing() then
+        return false, { reason = "disabled", zombies = 0, allies = 1,
+            health = 100, endurance = 1, risk = 0, immediate = 0,
+            escapeLanes = 0, nearestDistanceSquared = math.huge }
+    end
     local square = self.character:getCurrentSquare()
     local threats = nearbyZombies(self, FLEE_SCAN_RADIUS)
     local count = #threats
@@ -1247,6 +1328,16 @@ local function itemMatchesGoal(item, goal, character)
             or item:getFullType() == "Base.Sheet"
             or (item:IsClothing() and item:getFabricType() == "Cotton")
     end
+    if goal == "find_weapon" then
+        return KnoxEquipmentIntelligence ~= nil
+            and KnoxEquipmentIntelligence.isMeaningfulWeaponUpgrade ~= nil
+            and KnoxEquipmentIntelligence.isMeaningfulWeaponUpgrade(character, item) == true
+    end
+    if goal == "find_tools" then
+        return KnoxSurvivorLooting ~= nil
+            and KnoxSurvivorLooting.isEssentialTool ~= nil
+            and KnoxSurvivorLooting.isEssentialTool(item) == true
+    end
     return false
 end
 
@@ -1291,7 +1382,7 @@ local function markPendingAreaBlocked(self, ticks, reason)
     )
 end
 
-local function findSupply(self, goal, ticks)
+local function findSupply(self, goal, ticks, matcher)
     local origin = self.character:getCurrentSquare()
     if origin == nil or getCell() == nil then
         return nil
@@ -1317,7 +1408,9 @@ local function findSupply(self, goal, ticks)
                                     local items = container:getItems()
                                     for itemIndex = 0, items:size() - 1 do
                                         local item = items:get(itemIndex)
-                                        if itemMatchesGoal(item, goal, self.character)
+                                        if (matcher ~= nil and matcher(item) == true
+                                                or matcher == nil
+                                                    and itemMatchesGoal(item, goal, self.character))
                                             and not reservedByOther(
                                                 self.reservations,
                                                 "items",
@@ -1552,6 +1645,26 @@ local CARDINAL_OFFSETS = {
     { x = 0, y = -1 },
 }
 
+-- Keep roaming destination selection useful without scanning inventories or
+-- creating a second planner. Optional native building metadata is queried
+-- defensively so modded/partial building objects fail back to distance only.
+local function roamingBuildingValue(building)
+    if building == nil then return 0 end
+    local value = 0
+    local definition = building.getDef ~= nil and building:getDef() or nil
+    if definition ~= nil then
+        local okRooms, rooms = pcall(function() return definition:getRoomsNumber() end)
+        if okRooms then value = value + math.min(18, math.max(0, tonumber(rooms) or 0) * 2) end
+        local okArea, area = pcall(function() return definition:getArea() end)
+        if okArea then value = value + math.min(14, math.max(0, tonumber(area) or 0) / 40) end
+    end
+    local okResidential, residential = pcall(function() return building:isResidential() end)
+    if okResidential and residential == true then value = value + 12 end
+    local okWater, hasWater = pcall(function() return building:hasWater() end)
+    if okWater and hasWater == true then value = value + 10 end
+    return value
+end
+
 local function findRoamTarget(self, ticks)
     local character = self.character
     local origin = character:getCurrentSquare()
@@ -1582,7 +1695,7 @@ local function findRoamTarget(self, ticks)
                             key = key,
                             kind = "building",
                             distance = radius,
-                            score = 100 - radius,
+                            score = 100 - radius + roamingBuildingValue(building),
                         }
                     end
                 end
@@ -1640,10 +1753,19 @@ local REST_QUALITY = {
     badChair = 1,
 }
 
-local function furnitureQuality(object)
+local function furnitureQuality(object, sleeping)
     local properties = object ~= nil and object:getProperties() or nil
     local bedType = properties ~= nil and properties:get("BedType") or nil
-    return REST_QUALITY[tostring(bedType)] or 3, tostring(bedType or "seat")
+    local quality = REST_QUALITY[tostring(bedType)] or 3
+    if not sleeping then
+        local name = properties ~= nil and string.lower(tostring(properties:get("CustomName") or "")) or ""
+        if string.find(name, "sofa", 1, true) or string.find(name, "couch", 1, true) then
+            quality = quality + 4
+        elseif string.find(string.lower(tostring(bedType)), "bed", 1, true) then
+            quality = quality - 3
+        end
+    end
+    return quality, tostring(bedType or "seat")
 end
 
 local function usableSeat(self, object)
@@ -1713,7 +1835,7 @@ local function findBestRestSpot(self, sleeping, squareAllowed)
                                 )
                                 if approach ~= nil
                                     and (squareAllowed == nil or squareAllowed(approach)) then
-                                    local quality, bedType = furnitureQuality(object)
+                                    local quality, bedType = furnitureQuality(object, sleeping)
                                     local sleepFurniture = string.find(
                                         string.lower(bedType),
                                         "bed",
@@ -1927,6 +2049,23 @@ local function perceptionScanOffset(id)
     return value
 end
 
+local function carriedItemByType(character, fullType)
+    if character == nil or type(fullType) ~= "string" or fullType == "" then
+        return nil
+    end
+    local inventory = character:getInventory()
+    local items = inventory ~= nil and inventory:getItems() or nil
+    if items == nil then return nil end
+    for index = 0, items:size() - 1 do
+        local item = items:get(index)
+        local ok, value = pcall(function() return item:getFullType() end)
+        if ok and tostring(value or "") == fullType then
+            return item
+        end
+    end
+    return nil
+end
+
 function Controller.perceptionScanOffset(id)
     return perceptionScanOffset(id)
 end
@@ -1939,9 +2078,26 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.reservations = reservations
     self.state = "IDLE"
     self.pendingSupply = nil
+    self.pendingDepositTrip = nil
+    self.pendingBaseSupplyDeposit = nil
+    self.baseSupplyOrder = nil
+    self.baseSupplyOrderAttempts = 0
+    self.baseSupplyKind = nil
     self.activeDecision = nil
+    self.lifeIntent = KnoxPersistence ~= nil
+        and KnoxPersistence.getSurvivorLifeIntent ~= nil
+        and KnoxPersistence.getSurvivorLifeIntent(id) or nil
+    if self.lifeIntent ~= nil and self.lifeIntent.kind == "base_supply_deposit" then
+        local recovered = carriedItemByType(self.character, self.lifeIntent.targetKey)
+        if recovered ~= nil then
+            self.pendingBaseSupplyDeposit = { item = recovered }
+        else
+            self:clearLifeIntent()
+        end
+    end
     self.combatTarget = nil
     self.failedThreats = {}
+    self.rangedFallbackUntil = setmetatable({}, { __mode = "k" })
     self.perceivedThreats = setmetatable({}, { __mode = "k" })
     self.nextThink = ticks + 15 + ZombRand(30)
     -- Spread independent survivor scans across the interval so a group does not
@@ -1949,6 +2105,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.nextThreatScan = ticks + perceptionScanOffset(id)
     self.lastCombatRetarget = -COMBAT_RETARGET_COOLDOWN_TICKS
     self.nextWorldSearch = 0
+    self.nextBaseSupplySearch = 0
     self.nextExplorationSearch = 0
     self.recoveryStarted = 0
     self.recoveryPostureStarted = 0
@@ -1977,11 +2134,18 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.observedState = self.state
     self.entryDetour = nil
     self.nextNeedCallout = 0
+    self.nextActionCallout = 0
     self.groupLeaderId = nil
     self.groupLeader = nil
     self.groupFormationSlot = 1
     self.groupSize = 1
     self.groupMembers = {}
+    self.groupObjective = nil
+    self.groupObjectiveRevision = nil
+    self.groupObjectiveChanged = false
+    self.nextGroupObjectiveAssist = 0
+    self.pendingGroupSupport = nil
+    self.nextGroupSupportAt = 0
     self.companionOwnerId = nil
     self.companionTarget = nil
     self.companionOrder = nil
@@ -2006,6 +2170,8 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskStartedAt = nil
     self.baseTaskTransfer = nil
     self.baseTaskSupplyTransfer = nil
+    self.baseResupplyAttempts = 0
+    self.baseTaskRetryAt = 0
     self.baseTaskActionQueued = false
     self.baseTaskBarricadeTarget = nil
     self.baseTaskBarricadeBefore = 0
@@ -2025,6 +2191,9 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.baseTaskRepairBefore = nil
     self.baseTaskConstructionTarget = nil
     self.factionId = nil
+    self.awayTeamId = nil
+    self.awayCollected = false
+    self.awaySearchMisses = 0
     self.factionBaseCandidate = nil
     self.announcedFactionBaseCandidate = nil
     self.pendingRobbery = nil
@@ -2046,6 +2215,58 @@ function Controller.new(id, character, bridge, reservations, ticks)
     }
     character:setZombiesDontAttack(false)
     return self
+end
+
+local function currentWorldAgeHours()
+    return getGameTime ~= nil and getGameTime() ~= nil
+        and getGameTime():getWorldAgeHours() or 0
+end
+
+function Controller.roamIntentKind(destinationKind, existingKind)
+    if existingKind == "find_food" or existingKind == "find_water"
+        or existingKind == "find_medical" then
+        return existingKind
+    end
+    return destinationKind == "building" and "investigate_building" or "travel_area"
+end
+
+function Controller:setLifeIntent(kind, phase, square, targetKey)
+    local nextIntent = {
+        kind = kind,
+        phase = phase,
+        targetKey = targetKey,
+        targetX = square ~= nil and square:getX() or nil,
+        targetY = square ~= nil and square:getY() or nil,
+        targetZ = square ~= nil and square:getZ() or nil,
+        startedAtHours = self.lifeIntent ~= nil
+            and self.lifeIntent.kind == kind
+            and self.lifeIntent.startedAtHours or currentWorldAgeHours(),
+    }
+    local current = self.lifeIntent
+    if current ~= nil and current.kind == nextIntent.kind
+        and current.phase == nextIntent.phase
+        and current.targetKey == nextIntent.targetKey
+        and current.targetX == nextIntent.targetX
+        and current.targetY == nextIntent.targetY
+        and current.targetZ == nextIntent.targetZ then
+        return false
+    end
+    self.lifeIntent = nextIntent
+    if KnoxPersistence ~= nil and KnoxPersistence.setSurvivorLifeIntent ~= nil then
+        KnoxPersistence.setSurvivorLifeIntent(
+            self.id, nextIntent, currentWorldAgeHours()
+        )
+    end
+    return true
+end
+
+function Controller:clearLifeIntent()
+    if self.lifeIntent == nil then return false end
+    self.lifeIntent = nil
+    if KnoxPersistence ~= nil and KnoxPersistence.clearSurvivorLifeIntent ~= nil then
+        KnoxPersistence.clearSurvivorLifeIntent(self.id)
+    end
+    return true
 end
 
 function Controller:recordFailure(reason, ticks, cooldown)
@@ -2141,11 +2362,18 @@ function Controller:updateFormationMovementPace(anchor)
 end
 
 
-function Controller:setGroupLeader(id, character, formationSlot, groupSize)
+function Controller:setGroupLeader(id, character, formationSlot, groupSize, objective)
     self.groupLeaderId = id
     self.groupLeader = character
     self.groupFormationSlot = math.max(1, tonumber(formationSlot) or 1)
     self.groupSize = math.max(1, tonumber(groupSize) or 1)
+    local objectiveRevision = objective ~= nil and objective.revision or nil
+    if objectiveRevision ~= self.groupObjectiveRevision then
+        self.groupObjectiveChanged = true
+        self.groupObjectiveRevision = objectiveRevision
+    end
+    self.groupObjective = objective
+    if id ~= nil then self:clearLifeIntent() end
 end
 
 function Controller:clearGroupLeader()
@@ -2153,10 +2381,39 @@ function Controller:clearGroupLeader()
     self.groupLeader = nil
     self.groupFormationSlot = 1
     self.groupSize = 1
+    self.groupObjective = nil
+    self.groupObjectiveRevision = nil
+    self.groupObjectiveChanged = false
+    self.nextGroupObjectiveAssist = 0
 end
 
 function Controller:setGroupMembers(members)
     self.groupMembers = members or {}
+end
+
+function Controller:setGroupObjective(objective)
+    self.groupObjective = objective
+    self.groupObjectiveRevision = objective ~= nil and objective.revision or nil
+end
+
+function Controller.shouldAssistGroupObjective(objective, leaderDistanceSquared)
+    if type(objective) ~= "table"
+        or tonumber(leaderDistanceSquared) == nil
+        or leaderDistanceSquared > GROUP_OBJECTIVE_ASSIST_RADIUS_SQUARED then
+        return false
+    end
+    if objective.kind == "scavenge" then
+        return objective.phase == "seeking" or objective.phase == "traveling"
+            or objective.phase == "arrived" or objective.phase == "reassess"
+    end
+    return objective.kind == "investigate_building"
+        and (objective.phase == "arrived" or objective.phase == "reassess")
+end
+
+function Controller.shouldDelegateNeedToGroup(kind, leaderDistanceSquared)
+    return (kind == "find_food" or kind == "find_water" or kind == "find_medical")
+        and tonumber(leaderDistanceSquared) ~= nil
+        and leaderDistanceSquared <= GROUP_OBJECTIVE_ASSIST_RADIUS_SQUARED
 end
 
 function Controller:interruptForDirective()
@@ -2169,13 +2426,16 @@ function Controller:interruptForDirective()
         or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
         or self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD"
-        or self.state == "COMPANION_GUARD"
+        or self.state == "COMPANION_GUARD" or self.state == "COMPANION_RELAX"
         or self.state == "MOVING_TO_COMPANION_POINT"
+        or self.state == "MOVING_TO_COMPANION_PATROL"
+        or self.state == "COMPANION_PATROL_WAIT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_IDLE" or self.state == "BASE_AMBIENT_REST"
         or self.state == "CAMP_IDLE" or self.state == "CAMP_AMBIENT_REST"
         or self.state == "CAMP_RETURN" or self.state == "CAMP_REPOSITION"
         or self.state == "BASE_TASK_MOVE" or self.state == "BASE_TASK_WORK"
+        or self.state == "BASE_TASK_PATROL_WAIT"
         or self.state == "BASE_TASK_ACTION"
         or self.state == "BASE_TASK_SUPPLY_MOVE"
         or self.state == "BASE_TASK_SUPPLY_TRANSFER"
@@ -2206,7 +2466,8 @@ function Controller:interruptForDirective()
 end
 
 function Controller:setCompanionOrder(ownerId, player, order, formationSlot)
-    local normalized = order == "hold" and "hold" or "follow"
+    local normalized = order == "hold" and "hold"
+        or (order == "relax" and "relax" or "follow")
     local normalizedSlot = math.max(1, tonumber(formationSlot) or 1)
     local changed = self.companionOwnerId ~= ownerId
         or self.companionTarget ~= player
@@ -2217,6 +2478,7 @@ function Controller:setCompanionOrder(ownerId, player, order, formationSlot)
     self.companionOrder = normalized
     self.companionFormationSlot = normalizedSlot
     if changed then
+        self:clearLifeIntent()
         self:interruptForDirective()
     end
 end
@@ -2332,11 +2594,73 @@ function Controller:clearCompanionOrder()
     self.companionDirective = nil
 end
 
+function Controller:syncBaseSupplyOrder()
+    local duty = KnoxPersistence ~= nil and KnoxPersistence.getSurvivorDuty ~= nil
+        and KnoxPersistence.getSurvivorDuty(self.id) or nil
+    local request = duty ~= nil and duty.mode == "base"
+        and tostring(duty.baseId or "") == tostring(self.baseId or "")
+        and type(duty.baseSupplyOrder) == "table"
+        and duty.baseSupplyOrder or nil
+    local current = self.baseSupplyOrder
+    local changed = (current == nil) ~= (request == nil)
+        or (current ~= nil and request ~= nil
+            and (current.kind ~= request.kind
+                or current.issuedAtHours ~= request.issuedAtHours
+                or current.expiresAtHours ~= request.expiresAtHours))
+    if changed then
+        self.baseSupplyOrder = request
+        self.baseSupplyOrderAttempts = request ~= nil
+            and math.max(0, math.floor(tonumber(request.attempts) or 0)) or 0
+        self.nextThink = 0
+    elseif request ~= nil then
+        self.baseSupplyOrderAttempts = math.max(
+            tonumber(self.baseSupplyOrderAttempts) or 0,
+            math.max(0, math.floor(tonumber(request.attempts) or 0))
+        )
+    end
+    return changed
+end
+
+function Controller:syncBaseSupplyRun()
+    local duty = KnoxPersistence ~= nil and KnoxPersistence.getSurvivorDuty ~= nil
+        and KnoxPersistence.getSurvivorDuty(self.id) or nil
+    local active = duty ~= nil and duty.mode == "base"
+        and tostring(duty.baseId or "") == tostring(self.baseId or "")
+        and type(duty.activeSupplyRun) == "table"
+        and duty.activeSupplyRun or nil
+    local kind = active ~= nil and tostring(active.kind or "") or nil
+    local changed = kind ~= self.baseSupplyKind
+        or (active ~= nil) ~= (self.baseSupplyTrip == true)
+    if active ~= nil then
+        self.baseSupplyTrip = true
+        self.baseSupplyKind = kind
+        restoreSupplyClaim(self.baseId, kind, self.id)
+    elseif self.pendingBaseSupplyDeposit == nil then
+        self.baseSupplyTrip = nil
+        self.baseSupplyKind = nil
+    end
+    return changed
+end
+
 function Controller:setBaseAssignment(baseId, base)
     local changed = self.baseId ~= baseId or self.base ~= base
     self.baseId = baseId
     self.base = base
+    local supplyOrderChanged = self:syncBaseSupplyOrder()
+    self:syncBaseSupplyRun()
+    local continuingSupplyOrder = self.baseSupplyOrder ~= nil
+        and self.baseSupplyTrip == true
+        and self.baseSupplyOrder.kind == self.baseSupplyKind
+    if supplyOrderChanged and not continuingSupplyOrder then
+        self:releaseSupply()
+        self:clearLifeIntent()
+        self:interruptForDirective()
+    end
     if changed then
+        if baseId ~= nil and self.baseSupplyTrip ~= true
+            and self.pendingBaseSupplyDeposit == nil then
+            self:clearLifeIntent()
+        end
         self:interruptForDirective()
     end
 end
@@ -2345,8 +2669,74 @@ function Controller:clearBaseAssignment()
     if self.baseId ~= nil then
         self:interruptForDirective()
     end
+    if self.baseSupplyKind ~= nil then
+        self:releaseBaseSupplyClaim(self.baseSupplyKind)
+    end
     self.baseId = nil
     self.base = nil
+    self.baseSupplyTrip = nil
+    self.baseSupplyKind = nil
+end
+
+-- Persistence is authoritative when an order or base preference changes. The
+-- runtime notification clears only a stale automatic task pointer immediately;
+-- manual Notebook work remains active until its normal completion/cancellation
+-- boundary. This keeps the loaded controller aligned with the task board in the
+-- same tick as the player-facing change.
+function Controller:onDutyChanged()
+    local duty = KnoxPersistence ~= nil and KnoxPersistence.getSurvivorDuty ~= nil
+        and KnoxPersistence.getSurvivorDuty(self.id) or nil
+    if duty == nil or duty.mode ~= "base" then
+        local hadBaseSupply = self.baseSupplyOrder ~= nil
+            or self.baseSupplyTrip == true
+            or self.pendingBaseSupplyDeposit ~= nil
+        -- Manual work is protected from preference changes while the resident
+        -- remains in the same base, but ownership ends when the survivor leaves
+        -- base duty altogether. Never carry a stale base task into companion or
+        -- independent autonomy.
+        if self.baseTask ~= nil then
+            self:releaseSupply()
+            self.baseTask = nil
+            self.baseTaskStartedAt = nil
+            self.baseTaskRetryAt = 0
+            self:interruptForDirective()
+        end
+        self.baseSupplyOrder = nil
+        self.baseSupplyOrderAttempts = 0
+        if hadBaseSupply then
+            if self.baseSupplyKind ~= nil then
+                self:releaseBaseSupplyClaim(self.baseSupplyKind)
+            end
+            self:releaseSupply()
+            self.pendingBaseSupplyDeposit = nil
+            self:clearLifeIntent()
+            self:interruptForDirective()
+        end
+        return true
+    end
+    local supplyOrderChanged = self:syncBaseSupplyOrder()
+    self:syncBaseSupplyRun()
+    local continuingSupplyOrder = self.baseSupplyOrder ~= nil
+        and self.baseSupplyTrip == true
+        and self.baseSupplyOrder.kind == self.baseSupplyKind
+    if supplyOrderChanged and not continuingSupplyOrder then
+        self:releaseSupply()
+        self:clearLifeIntent()
+        self:interruptForDirective()
+    end
+    if self.baseTask ~= nil and self.baseTask.manual ~= true then
+        local claimed = KnoxPersistence.getClaimedBaseTaskForSurvivor ~= nil
+            and KnoxPersistence.getClaimedBaseTaskForSurvivor(self.id, duty.baseId) or nil
+        if claimed == nil or tostring(claimed.id or "") ~= tostring(self.baseTask.id or "") then
+            self:releaseSupply()
+            self.baseTask = nil
+            self.baseTaskStartedAt = nil
+            self.baseTaskRetryAt = 0
+            self:interruptForDirective()
+        end
+    end
+    self.nextThink = 0
+    return true
 end
 
 function Controller:setEventAssignment(assignment)
@@ -2449,6 +2839,7 @@ function Controller:setCampAssignment(campId, camp, slot)
         self.campExcursion = false
         self.campExcursionExplored = false
         self.nextCampExcursion = 0
+        if campId ~= nil then self:clearLifeIntent() end
         self:interruptForDirective()
     end
 end
@@ -2465,6 +2856,160 @@ function Controller:clearCampAssignment()
     self.campExcursion = false
     self.campExcursionExplored = false
     self:interruptForDirective()
+end
+
+function Controller:setAwayTeam(teamId)
+    self.awayTeamId = type(teamId) == "string" and teamId ~= "" and teamId or nil
+    self.awayCollected = false
+    self.awaySearchMisses = 0
+    if self.awayTeamId ~= nil then
+        self.activeDecision = "away_mission"
+        self.state = "IDLE"
+        self.nextThink = 0
+    end
+end
+
+function Controller:beginAwayReturn(ticks)
+    if self.awayTeamId == nil then return false end
+    local target = KnoxAwayTeamExecutor.returnDestination(self.awayTeamId)
+    if target == nil or getCell == nil or getCell() == nil then
+        self:recordFailure("away_return_target_unavailable", ticks, EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    local square = getCell():getGridSquare(
+        math.floor(tonumber(target.x) or 0),
+        math.floor(tonumber(target.y) or 0),
+        math.floor(tonumber(target.z) or 0)
+    )
+    local canStand = square ~= nil
+    if canStand and square.canStand ~= nil then
+        local ok, value = pcall(square.canStand, square)
+        canStand = ok and value == true
+    end
+    if not canStand then
+        self:recordFailure("away_return_square_unloaded", ticks, EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    local current = self.character:getCurrentSquare()
+    if current ~= nil and navigationDistanceSquared(current, square) <= 2.25 then
+        local result = KnoxPersistence.completeAwayTeamMember(
+            self.awayTeamId, self.id, true, "returned_to_owner", currentWorldAgeHours()
+        )
+        if result ~= nil then
+            self.awayTeamId = nil
+            self.awayCollected = false
+            self.activeDecision = nil
+            self.state = "IDLE"
+            self.nextThink = ticks + THINK_MIN_TICKS
+            return true
+        end
+    end
+    local movement = tostring(moveWithTravelPace(
+        self.bridge, self.id, self.character, square, "return_home"
+    ))
+    if string.find(movement, "MOVE_STARTED", 1, true) ~= 1 then
+        self:recordMovementFailure("away_return", movement, ticks, EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    self.activeDecision = "away_return"
+    self.state = "AWAY_RETURN"
+    return true
+end
+
+function Controller:beginAwayMission(ticks)
+    if self.awayTeamId == nil then return false end
+    local team = KnoxPersistence.getAwayTeam(self.awayTeamId)
+    if team == nil then
+        self.awayTeamId = nil
+        return false
+    end
+    if team.state == "returning" then
+        return self:beginAwayReturn(ticks)
+    end
+    if team.state ~= "awaiting_collection" and team.state ~= "collecting" then
+        return false
+    end
+    if self.awayCollected then
+        self.activeDecision = "away_waiting_for_team"
+        self.state = "GROUP_WAIT"
+        self.nextThink = ticks + 120
+        return true
+    end
+    local _, beginResult = KnoxAwayTeamExecutor.beginCollection(
+        self.awayTeamId, currentWorldAgeHours()
+    )
+    if beginResult == "not_collectible" then return false end
+    local directive = KnoxAwayTeamExecutor.destinationDirective(team)
+    if directive == nil then
+        self:recordFailure("away_destination_unavailable", ticks, EXPLORATION_RETRY_TICKS)
+        return true
+    end
+    if self:beginExploration(ticks, directive) then
+        self.awaySearchMisses = 0
+        return true
+    end
+    self.awaySearchMisses = (self.awaySearchMisses or 0) + 1
+    if self.awaySearchMisses >= 3 then
+        KnoxAwayTeamExecutor.recordCollection(
+            self.awayTeamId, self.id, {}, self.character, currentWorldAgeHours()
+        )
+        self.awayCollected = true
+        self.awaySearchMisses = 0
+        self.nextThink = ticks + 120
+    end
+    return true
+end
+
+-- A loaded away member acknowledges a destination only after the ordinary
+-- search/transfer action has finished.  This keeps mission results tied to
+-- real inventory state and lets the persistence layer hold the group until
+-- every member has completed the same boundary.
+function Controller:finishAwayCollection(ticks)
+    if self.awayTeamId == nil then return false end
+    local supply = self.pendingSupply
+    local recorded, detail = KnoxAwayTeamExecutor.recordCollection(
+        self.awayTeamId,
+        self.id,
+        supply,
+        self.character,
+        currentWorldAgeHours()
+    )
+    self:releaseSupply()
+    if recorded == nil then
+        self:recordFailure(
+            "away_collection_record:" .. tostring(detail),
+            ticks,
+            EXPLORATION_RETRY_TICKS
+        )
+        self.state = "IDLE"
+        self.activeDecision = "away_collection_retry"
+        self.nextThink = ticks + EXPLORATION_RETRY_TICKS
+        return true
+    end
+    self.awayCollected = true
+    self.awaySearchMisses = 0
+    if KnoxAwayTeamExecutor.collectionReady(self.awayTeamId) then
+        local _, returnResult = KnoxAwayTeamExecutor.beginReturn(
+            self.awayTeamId,
+            currentWorldAgeHours()
+        )
+        if returnResult == "returning" then
+            self.awayCollected = false
+            self.activeDecision = "away_return_pending"
+            self.state = "IDLE"
+            self.nextThink = ticks
+            return true
+        end
+        self:recordFailure(
+            "away_return_begin:" .. tostring(returnResult),
+            ticks,
+            EXPLORATION_RETRY_TICKS
+        )
+    end
+    self.activeDecision = "away_waiting_for_team"
+    self.state = "GROUP_WAIT"
+    self.nextThink = ticks + 120
+    return true
 end
 
 function Controller:setFactionBaseCandidate(factionId, candidate)
@@ -2543,6 +3088,15 @@ function Controller:sayNeedIfGrouped(decision, ticks)
     end
 end
 
+function Controller:sayAction(lines, ticks, cooldown)
+    local spoken = sayDialogue(self.character, self.id, "action",
+        ticks, cooldown, lines)
+    if spoken then
+        self.nextActionCallout = ticks + math.max(900, tonumber(cooldown) or 1800)
+    end
+    return spoken
+end
+
 function Controller:canInterruptForMeeting()
     return self.state == "IDLE"
         or self.state == "ROAMING"
@@ -2551,6 +3105,8 @@ function Controller:canInterruptForMeeting()
         or self.state == "WAITING_TO_RECOVER"
         or self.state == "GROUP_WAIT"
         or self.state == "GROUP_FOLLOW"
+        or self.state == "BASE_IDLE"
+        or self.state == "BASE_AMBIENT_REST"
 end
 
 function Controller:beginTrade(action)
@@ -2748,7 +3304,7 @@ function Controller:beginGroupRegroup(member, ticks)
     self.state = "GROUP_REGROUP"
     self.stateStartedAt = ticks
     if ticks >= self.nextRegroupCallout then
-        KnoxActivityFeed.speak(self.character, "Hold up. We're missing someone.")
+        sayDialogue(self.character, self.id, "regroup", ticks, 1800)
         self.nextRegroupCallout = ticks + 1800
     end
     print(
@@ -2962,6 +3518,7 @@ function Controller:finishBaseTask(succeeded, reason)
     self.baseTaskStartedAt = nil
     self.baseTaskTransfer = nil
     self.baseTaskSupplyTransfer = nil
+    self.baseResupplyAttempts = 0
     self.baseTaskActionQueued = false
     self.baseTaskBarricadeTarget = nil
     self.baseTaskBarricadeBefore = 0
@@ -2999,8 +3556,46 @@ function Controller:abandonBaseTask(reason)
     return abandoned
 end
 
+-- Combat and retreat are temporary preemptions, not task failures. Keep the
+-- claimed task attached to this controller so the resident can resume it once
+-- danger clears; the persisted claim is still recovered normally if the body
+-- unloads or dies. Explicit cancellation, invalid targets, and real action
+-- failures continue through abandonBaseTask/finishBaseTask as before.
+function Controller:suspendBaseTaskForThreat(reason)
+    if self.baseTask == nil then return false end
+    self:releaseSupply()
+    self.baseTaskTransfer = nil
+    self.baseTaskRetryAt = 0
+    self.baseTaskStartedAt = nil
+    self.baseTaskActionQueued = false
+    if self.character ~= nil and KnoxBaseCorpseHandling.isDragging(self.character) then
+        pcall(function() self.character:setDoGrappleLetGo() end)
+    end
+    self.baseTaskBarricadeTarget = nil
+    self.baseTaskFarmingTarget = nil
+    self.baseTaskFarmingBefore = nil
+    self.baseTaskWoodcuttingTarget = nil
+    self.baseTaskWoodcuttingBefore = nil
+    self.baseTaskCorpseTarget = nil
+    self.baseTaskCorpsePhase = nil
+    self.baseTaskCorpseGrabVerifyUntil = nil
+    self.baseTaskCorpseGrabRetryIssued = nil
+    self.baseTaskCorpseDropVerifyUntil = nil
+    self.baseTaskCorpseDropRetryIssued = nil
+    self.baseTaskAnimalTarget = nil
+    self.baseTaskAnimalBefore = nil
+    self.baseTaskRepairTarget = nil
+    self.baseTaskRepairBefore = nil
+    self.baseTaskConstructionTarget = nil
+    if self.baseTask ~= nil then
+        self.baseTask.interruptedReason = tostring(reason or "threat")
+    end
+    return true
+end
+
 function Controller:beginBaseTaskWorkMove(ticks)
-    local task = self.baseTask
+    local task = canonicalBaseTask(self.baseTask)
+    self.baseTask = task
     local target = task ~= nil and KnoxBaseJobs.resolveTaskSquare(task, self.character) or nil
     if target == nil then
         self:finishBaseTask(false, "no_loaded_work_square")
@@ -3035,6 +3630,16 @@ function Controller:beginBaseTaskSupplyOrWork(ticks)
         if result == "requirements_ready" then
             return self:beginBaseTaskWorkMove(ticks)
         end
+        if self:beginBaseResourceRun(ticks, tostring(result)) then
+            return true
+        end
+        if (self.baseResupplyAttempts or 0) < 3 then
+            self.baseTaskRetryAt = ticks + SUPPLY_RETRY_TICKS
+            self.activeDecision = "base_task_supply_wait"
+            self.state = "BASE_TASK_SUPPLY_WAIT"
+            self.nextThink = self.baseTaskRetryAt
+            return true
+        end
         self:finishBaseTask(false, tostring(result))
         KnoxActivityFeed.speak(self.character, "We're missing supplies for that job.")
         KnoxActivityFeed.event("Base job blocked: " .. tostring(result) .. ".")
@@ -3060,17 +3665,140 @@ function Controller:beginBaseTaskSupplyOrWork(ticks)
     return true
 end
 
+-- A blocked task may make a short local supply run before it is marked failed.
+-- It searches only real loaded containers for an exact declared requirement,
+-- keeps the existing task claimed, and returns through the ordinary task supply
+-- path after native transfer completes.  This is intentionally not an abstract
+-- resource mission and never creates materials.
+function Controller:beginBaseResourceRun(ticks, reason)
+    local task = self.baseTask
+    if task == nil or self.base == nil or (self.baseResupplyAttempts or 0) >= 3 then
+        return false
+    end
+    local requirements = task.requirements or {}
+    local inventory = self.character ~= nil and self.character:getInventory() or nil
+    local supply = findSupply(self, "base_supply", ticks, function(item)
+        return KnoxBaseSupplyPlanner ~= nil
+            and KnoxBaseSupplyPlanner.matchesMissingRequirement ~= nil
+            and KnoxBaseSupplyPlanner.matchesMissingRequirement(
+                item, requirements, inventory
+            )
+    end)
+    if supply == nil or not reserve(self.reservations, "items", supply.item, self.id) then
+        self.baseResupplyAttempts = (self.baseResupplyAttempts or 0) + 1
+        self.nextWorldSearch = math.max(self.nextWorldSearch or 0, ticks + SUPPLY_RETRY_TICKS)
+        return false
+    end
+    local moved = tostring(moveWithTravelPace(
+        self.bridge, self.id, self.character, supply.approach, "local"
+    ))
+    if string.find(moved, "MOVE_STARTED", 1, true) ~= 1 then
+        release(self.reservations, "items", supply.item, self.id)
+        self.baseResupplyAttempts = (self.baseResupplyAttempts or 0) + 1
+        self:recordMovementFailure("base_resupply_move", moved, ticks, SUPPLY_RETRY_TICKS)
+        return false
+    end
+    supply.baseResupply = true
+    supply.baseResupplyReason = reason
+    self.pendingSupply = supply
+    self.activeDecision = "base_task_find_supplies"
+    self.state = "MOVING_TO_SUPPLY"
+    sayDialogue(self.character, self.id, "search", ticks, 1800)
+    return true
+end
+
+function Controller:continueBaseResourceRun(ticks, succeeded)
+    self:releaseSupply()
+    if not succeeded then
+        self.baseResupplyAttempts = (self.baseResupplyAttempts or 0) + 1
+    end
+    if self.baseTask == nil then
+        self:finishDecision(ticks)
+        return false
+    end
+    if (self.baseResupplyAttempts or 0) >= 3 then
+        self:finishBaseTask(false, "missing_required_materials_after_search")
+        KnoxActivityFeed.speak(self.character, "I couldn't find the supplies for that job.")
+        self:finishDecision(ticks)
+        return false
+    end
+    if self:beginBaseTaskSupplyOrWork(ticks) then return true end
+    self:finishDecision(ticks)
+    return false
+end
+
 function Controller:beginBaseTask(ticks)
     if self.base == nil or self.baseId == nil
-        or self.base.settings == nil or self.base.settings.automaticJobs == false
-        or self.baseTask ~= nil then
+        or self.base.settings == nil
+        then
+        return false
+    end
+    local duty = KnoxPersistence.getSurvivorDuty(self.id) or {}
+    local profile = KnoxPersistence.getSurvivorCapabilities(self.id) or {}
+    local preference = KnoxBaseJobs.effectivePreference ~= nil
+        and KnoxBaseJobs.effectivePreference(duty, profile)
+        or duty.jobPreference
+    -- Restore an existing claim before evaluating Rest. Explicit player
+    -- assignments carry `manual=true` and remain authoritative; automatic
+    -- claims are still released when the resident is intentionally rested.
+    if self.baseTask == nil then
+        local restored = KnoxPersistence.getClaimedBaseTaskForSurvivor ~= nil
+            and KnoxPersistence.getClaimedBaseTaskForSurvivor(self.id, self.baseId) or nil
+        if restored ~= nil then
+            self.baseTask = canonicalBaseTask(restored)
+            self.baseTask.baseId = self.baseId
+            -- The resident is loaded again, so the physical task has a fresh
+            -- opportunity to run natively. Do not carry an old streamed-out
+            -- wait budget into the next unload cycle.
+            self.baseTask.offscreenWaitHours = 0
+            self.baseResupplyAttempts = 0
+            self.baseTaskRetryAt = 0
+        end
+    end
+    if preference == "rest" and not (self.baseTask ~= nil and self.baseTask.manual == true) then
+        if self.baseTask ~= nil then
+            self:releaseSupply()
+            self:interruptForDirective()
+            self.baseTask = nil
+        end
+        -- A resident can be switched to Rest while a persisted task claim is
+        -- still present (for example after a menu change or a reload).  Do
+        -- not merely drop the loaded pointer: that would leave the task
+        -- permanently owned by a resting survivor.  Requeue the claim through
+        -- the existing persistence boundary so another resident can perform
+        -- it and the original task identity/requirements remain intact.
+        local requeueRestTask = KnoxPersistence.requeueAutomaticBaseTasksForSurvivor
+            or KnoxPersistence.requeueBaseTasksForSurvivor
+        if requeueRestTask ~= nil then
+            requeueRestTask(
+                self.id,
+                self.baseId,
+                "resident_requested_rest"
+            )
+        end
+        self.activeDecision = "base_recover"
+        return false
+    end
+    if self.baseTask ~= nil then
+        if ticks >= (self.baseTaskRetryAt or 0) then
+            self:beginBaseTaskSupplyOrWork(ticks)
+        end
+        return true
+    end
+    if self.baseTask ~= nil and self.baseTask.manual == true then
+        return self:beginBaseTaskSupplyOrWork(ticks)
+    end
+    -- Automatic scheduling is optional, but it must not block a task the
+    -- player explicitly assigned through the Notebook. At this point there is
+    -- no restored/active claim, so only automatic selection should be gated.
+    if self.base.settings.automaticJobs == false then
         return false
     end
     local task, result = KnoxBaseJobs.ensureAutomaticTask(
         self.base,
         self.character,
         self.id,
-        (KnoxPersistence.getSurvivorDuty(self.id) or {}).jobPreference
+        preference
     )
     if task == nil then
         return false
@@ -3097,9 +3825,205 @@ function Controller:beginBaseTask(ticks)
     if task == nil then
         return false
     end
-    self.baseTask = task
+    self.baseTask = canonicalBaseTask(task)
     task.baseId = self.baseId
+    task.offscreenWaitHours = 0
+    sayDialogue(self.character, self.id, "base_work", ticks, 2400)
     return self:beginBaseTaskSupplyOrWork(ticks)
+end
+
+-- A resident with no executable base task may still be useful outside the
+-- property when shared stores are genuinely short on essentials. Keep this a
+-- small bridge into the existing real-item search rather than creating a
+-- second mission system: the survivor searches nearby containers, takes only
+-- an actual matching item, and returns to the same persisted base duty.
+function Controller:baseSupplyNeed(ticks)
+    if self.base == nil or self.baseId == nil
+        or ticks < (self.nextBaseSupplySearch or 0) then
+        return nil
+    end
+    if KnoxBaseStorage == nil or KnoxBaseStorage.summarize == nil then
+        return nil
+    end
+    local success, summary = pcall(function()
+        return KnoxBaseStorage.summarize(self.base)
+    end)
+    if not success or type(summary) ~= "table" then
+        self.nextBaseSupplySearch = ticks + SUPPLY_RETRY_TICKS
+        return nil
+    end
+    local totals = summary.totals or {}
+    local residentIds = KnoxPersistence.getBaseResidentIds ~= nil
+        and KnoxPersistence.getBaseResidentIds(self.baseId) or {}
+    local residents = math.max(1, type(residentIds) == "table" and #residentIds or 1)
+    local nowHours = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    -- Remove a development-era persisted copy if this base came from an older
+    -- save. Loaded lease ownership lives only in `baseSupplyClaimsByBase`.
+    self.base.supplySearchClaims = nil
+    local claims = supplyClaimsFor(self.baseId)
+    if claims == nil then return nil end
+    -- Supply trips are shared settlement work.  Keep one short-lived claimant
+    -- per shortage type so every resident does not leave the property to hunt
+    -- for the same food, water, or medicine.  Claims expire naturally if the
+    -- worker fails, unloads, or the shortage remains after a trip.
+    for kind, claim in pairs(claims) do
+        local claimantDuty = type(claim) == "table"
+            and KnoxPersistence.getSurvivorDuty ~= nil
+            and KnoxPersistence.getSurvivorDuty(claim.survivorId) or nil
+        local claimantStillBelongs = claimantDuty ~= nil
+            and claimantDuty.mode == "base"
+            and tostring(claimantDuty.baseId or "") == tostring(self.baseId or "")
+            and (KnoxPersistence.isSurvivorAlive == nil
+                or KnoxPersistence.isSurvivorAlive(claim.survivorId))
+        if type(claim) ~= "table"
+            or (tonumber(claim.untilHours) or 0) <= nowHours
+            or not claimantStillBelongs then
+            claims[kind] = nil
+        end
+    end
+    local goal = nil
+    if KnoxBaseSupplyPlanner.chooseAvailableShortage ~= nil then
+        goal = KnoxBaseSupplyPlanner.chooseAvailableShortage(
+            totals, residents, claims, self.id
+        )
+    elseif KnoxBaseSupplyPlanner.chooseShortage ~= nil then
+        goal = KnoxBaseSupplyPlanner.chooseShortage(totals, residents)
+    end
+    if goal ~= nil then
+        local claim = claims[goal]
+        if claim ~= nil and claim.survivorId ~= self.id then
+            self.nextBaseSupplySearch = ticks + 600
+            return nil
+        end
+        if claim == nil and KnoxBaseSupplyPlanner.chooseWorker ~= nil
+            and KnoxSurvivorRuntime ~= nil then
+            local candidates = {}
+            for _, residentId in ipairs(residentIds) do
+                local duty = KnoxPersistence.getSurvivorDuty ~= nil
+                    and KnoxPersistence.getSurvivorDuty(residentId) or nil
+                local character = KnoxSurvivorRuntime.getCharacter ~= nil
+                    and KnoxSurvivorRuntime.getCharacter(residentId) or nil
+                local snapshot = KnoxSurvivorRuntime.snapshot ~= nil
+                    and KnoxSurvivorRuntime.snapshot(residentId) or nil
+                local square = character ~= nil and character:getCurrentSquare() or nil
+                local state = snapshot ~= nil and tostring(snapshot.state or "") or ""
+                local claimedTask = duty ~= nil
+                    and KnoxPersistence.getClaimedBaseTaskForSurvivor ~= nil
+                    and KnoxPersistence.getClaimedBaseTaskForSurvivor(
+                        residentId, self.baseId
+                    ) or nil
+                candidates[#candidates + 1] = {
+                    id = residentId,
+                    ready = duty ~= nil and duty.mode == "base"
+                        and tostring(duty.baseId or "") == tostring(self.baseId or "")
+                        and duty.eventId == nil
+                        and snapshot ~= nil and snapshot.loaded == true
+                        and (state == "IDLE" or state == "BASE_IDLE")
+                        and square ~= nil
+                        and KnoxBaseManager.containsSquare(self.base, square),
+                    resting = duty ~= nil and duty.jobPreference == "rest",
+                    hasTask = claimedTask ~= nil,
+                    explicitOrder = duty ~= nil
+                        and type(duty.baseSupplyOrder) == "table",
+                    lastSupplyRunAtHours = duty ~= nil
+                        and duty.lastSupplyRunAtHours or nil,
+                    lastSupplyKind = duty ~= nil and duty.lastSupplyKind or nil,
+                }
+            end
+            local selected = KnoxBaseSupplyPlanner.chooseWorker(candidates, goal)
+            if selected ~= self.id then
+                self.nextBaseSupplySearch = ticks + 600
+                return nil
+            end
+        end
+        claims[goal] = {
+            survivorId = self.id,
+            untilHours = nowHours + 1.5,
+        }
+        self.baseSupplyTrip = true
+        self.baseSupplyKind = goal
+        if KnoxPersistence.recordBaseSupplyRun ~= nil then
+            KnoxPersistence.recordBaseSupplyRun(
+                self.id, self.baseId, goal, "selected", nowHours
+            )
+        end
+    else
+        -- Once the stores are healthy, let another shortage claim immediately
+        -- instead of waiting for the previous worker's lease to expire.
+        for kind, claim in pairs(claims) do
+            if type(claim) == "table" and claim.survivorId == self.id then
+                claims[kind] = nil
+            end
+        end
+    end
+    self.nextBaseSupplySearch = ticks + (goal ~= nil and 1800 or 600)
+    return goal
+end
+
+function Controller:releaseBaseSupplyClaim(kind)
+    local claims = supplyClaimsFor(self.baseId)
+    local claim = type(claims) == "table" and claims[kind] or nil
+    if type(claim) == "table" and claim.survivorId == self.id then
+        claims[kind] = nil
+        return true
+    end
+    return false
+end
+
+function Controller:beginBaseSupplyRun(kind)
+    self.baseSupplyTrip = true
+    self.baseSupplyKind = kind
+    if KnoxPersistence.beginBaseSupplyRun ~= nil then
+        return KnoxPersistence.beginBaseSupplyRun(
+            self.id, self.baseId, kind, currentWorldAgeHours()
+        )
+    end
+    return true
+end
+
+function Controller:finishBaseSupplyRun(outcome)
+    local kind = self.baseSupplyKind
+        or (self.baseSupplyOrder ~= nil and self.baseSupplyOrder.kind or nil)
+    if kind == nil then return false end
+    self:releaseBaseSupplyClaim(kind)
+    local saved = KnoxPersistence.finishBaseSupplyRun ~= nil
+        and KnoxPersistence.finishBaseSupplyRun(
+            self.id, self.baseId, kind, outcome, currentWorldAgeHours()
+        ) or false
+    return saved
+end
+
+function Controller:clearExplicitBaseSupplyOrder()
+    if self.baseSupplyOrder == nil then return false end
+    local duty = KnoxPersistence.getSurvivorDuty(self.id) or {}
+    local cleared = KnoxPersistence.clearBaseSupplyOrder ~= nil
+        and KnoxPersistence.clearBaseSupplyOrder(
+            self.id, duty.ownerId, self.baseId, currentWorldAgeHours()
+        ) or false
+    if cleared then
+        self.baseSupplyOrder = nil
+        self.baseSupplyOrderAttempts = 0
+    end
+    return cleared
+end
+
+function Controller:recordExplicitBaseSupplyFailure(ticks)
+    if self.baseSupplyOrder == nil then return false end
+    local attempts = KnoxPersistence.recordBaseSupplyOrderAttempt ~= nil
+        and KnoxPersistence.recordBaseSupplyOrderAttempt(
+            self.id, self.baseId, currentWorldAgeHours()
+        ) or nil
+    self.baseSupplyOrderAttempts = tonumber(attempts)
+        or ((tonumber(self.baseSupplyOrderAttempts) or 0) + 1)
+    if self.baseSupplyOrderAttempts < 3 then
+        self.nextThink = math.max(self.nextThink or 0, ticks + SUPPLY_RETRY_TICKS)
+        return false
+    end
+    self:clearExplicitBaseSupplyOrder()
+    self.baseSupplyTrip = nil
+    self:clearLifeIntent()
+    sayDialogue(self.character, self.id, "base_supply_failed", ticks, 2400)
+    return true
 end
 
 function Controller:releaseSupply()
@@ -3111,7 +4035,78 @@ function Controller:releaseSupply()
         release(self.reservations, "containers", self.pendingSupply.container, self.id)
         self.pendingSupply = nil
     end
+    self.baseSupplyTrip = nil
+    self.baseSupplyKind = nil
     self.entryDetour = nil
+end
+
+function Controller:releaseGroupSupport()
+    local plan = self.pendingGroupSupport
+    if plan ~= nil then
+        release(self.reservations, "supportRecipients", plan.recipient, self.id)
+        release(self.reservations, "supportItems", plan.item, self.id)
+    end
+    self.pendingGroupSupport = nil
+end
+
+function Controller:beginGroupSupport(ticks)
+    if ticks < (self.nextGroupSupportAt or 0) or self.companionOrder ~= nil
+        or self.baseId ~= nil or self.campId ~= nil
+        or (self.groupLeader == nil and #(self.groupMembers or {}) <= 1)
+        or not self.character:getCharacterActions():isEmpty() then
+        return false
+    end
+    self.reservations.supportRecipients = self.reservations.supportRecipients or {}
+    self.reservations.supportItems = self.reservations.supportItems or {}
+    local recipients = {}
+    if self.groupLeader ~= nil then recipients[#recipients + 1] = self.groupLeader end
+    for _, member in ipairs(self.groupMembers or {}) do
+        recipients[#recipients + 1] = member
+    end
+    local plan = KnoxGroupSupport.plan(
+        self.character,
+        recipients,
+        self.reservations.supportRecipients,
+        self.reservations.supportItems
+    )
+    if plan == nil
+        or not reserve(self.reservations, "supportRecipients", plan.recipient, self.id)
+        or not reserve(self.reservations, "supportItems", plan.item, self.id) then
+        if plan ~= nil then
+            release(self.reservations, "supportRecipients", plan.recipient, self.id)
+        end
+        self.nextGroupSupportAt = ticks + GROUP_SUPPORT_RETRY_TICKS
+        return false
+    end
+    local action, result = KnoxGroupSupport.queue(self.character, plan)
+    if action == nil then
+        release(self.reservations, "supportRecipients", plan.recipient, self.id)
+        release(self.reservations, "supportItems", plan.item, self.id)
+        self.nextGroupSupportAt = ticks + GROUP_SUPPORT_RETRY_TICKS
+        self:recordFailure("group_support:" .. tostring(result), ticks,
+            GROUP_SUPPORT_RETRY_TICKS)
+        return false
+    end
+    self.pendingGroupSupport = plan
+    self.activeDecision = "share_" .. tostring(plan.kind)
+    self.state = "GROUP_SUPPORT"
+    self.stateStartedAt = ticks
+    self.nextGroupSupportAt = ticks + GROUP_SUPPORT_COOLDOWN_TICKS
+    sayDialogue(self.character, self.id, "share_supply", ticks, 1800)
+    return true
+end
+
+function Controller:completeGroupSupport(ticks)
+    local plan = self.pendingGroupSupport
+    local completed = KnoxGroupSupport.verify(plan)
+    if not completed then
+        self.nextGroupSupportAt = ticks + GROUP_SUPPORT_RETRY_TICKS
+        self:recordFailure("group_support_no_transfer", ticks,
+            GROUP_SUPPORT_RETRY_TICKS)
+    end
+    self:releaseGroupSupport()
+    self:finishDecision(ticks)
+    return completed
 end
 
 function Controller:beginWindowDetour(ticks, resumeState)
@@ -3307,6 +4302,15 @@ function Controller:beginExploration(ticks, directive)
         or (target.items ~= nil and #target.items > 0
             and "loot_useful_items_" .. tostring(#target.items)
             or "inspect_container")
+    if directive == nil and self.companionOrder == nil
+        and self.groupLeaderId == nil and self.baseId == nil and self.campId == nil then
+        self:setLifeIntent(
+            "scavenge",
+            "traveling",
+            target.approach,
+            roamDestinationKey(target.container:getSourceGrid())
+        )
+    end
     self.state = "MOVING_TO_EXPLORE"
     print(
         "[KnoxSurvivors][Autonomy] id=" .. self.id
@@ -3354,6 +4358,34 @@ function Controller:beginCompanionPointDirective(ticks, directive)
     end
     self.activeDecision = directive.kind == "guard" and "guard_location" or "go_to_location"
     self.state = "MOVING_TO_COMPANION_POINT"
+    return true
+end
+
+function Controller:beginCompanionPatrolDirective(ticks, directive)
+    local current = self.character ~= nil and self.character:getCurrentSquare() or nil
+    local point = KnoxCompanionPatrol ~= nil
+        and KnoxCompanionPatrol.nextWaypoint(directive, current, self.id) or nil
+    local cell = getCell()
+    local target = point ~= nil and cell ~= nil
+        and cell:getGridSquare(point.x, point.y, point.z) or nil
+    if target == nil or target.canStand == nil or not target:canStand() then
+        self.directiveMisses = (self.directiveMisses or 0) + 1
+        self:recordFailure("companion_patrol_target_unavailable", ticks,
+            EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    local result = tostring(moveWithTravelPace(
+        self.bridge, self.id, self.character, target, "directed"
+    ))
+    if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
+        self.directiveMisses = (self.directiveMisses or 0) + 1
+        self:recordMovementFailure("companion_patrol_move", result, ticks,
+            EXPLORATION_RETRY_TICKS)
+        return false
+    end
+    self.directiveMisses = 0
+    self.activeDecision = "patrol_area"
+    self.state = "MOVING_TO_COMPANION_PATROL"
     return true
 end
 
@@ -3433,8 +4465,9 @@ function Controller:startRecoveryPosture(ticks, useFurniture, ambient)
     end
     ISTimedActionQueue.add(action)
     self.state = ambient == true
-        and (self.activeDecision == "camp_ambient_rest"
-            and "CAMP_AMBIENT_REST" or "BASE_AMBIENT_REST")
+        and (self.activeDecision == "camp_ambient_rest" and "CAMP_AMBIENT_REST"
+            or (self.activeDecision == "companion_relax" and "COMPANION_RELAX"
+                or "BASE_AMBIENT_REST"))
         or "WAITING_TO_RECOVER"
     self.recoveryStarted = ticks
     self.recoveryPostureStarted = ticks
@@ -3469,6 +4502,46 @@ function Controller:beginAmbientBaseRest(ticks)
     end
     self:startRecoveryPosture(ticks, false, true)
     return true
+end
+
+function Controller:beginCompanionRelax(ticks)
+    self.activeDecision = "companion_relax"
+    self.ambientRest = true
+    local spot = findBestRestSpot(self)
+    if spot ~= nil and reserve(self.reservations, "restSpots", spot.object, self.id) then
+        self.pendingRest = spot
+        if spot.approach == self.character:getCurrentSquare() then
+            self:startRecoveryPosture(ticks, true, true)
+            return true
+        end
+        local result = tostring(self.bridge:moveNpc(self.id, spot.approach))
+        if string.find(result, "MOVE_STARTED", 1, true) == 1 then
+            self.state = "MOVING_TO_REST"
+            return true
+        end
+        self:releaseRestSpot()
+    end
+    self:startRecoveryPosture(ticks, false, true)
+    return true
+end
+
+function Controller:updateCompanionRelax(ticks)
+    if self.companionOrder ~= "relax" then
+        self:finishDecision(ticks)
+        return
+    end
+    if ticks < self.nextThink then return end
+    self.nextThink = ticks + RECOVERY_RECHECK_TICKS
+    local decision = KnoxSurvivorNeeds.decide(self.character, nil)
+    local kind = decision.kind
+    if (kind == "eat" or kind == "drink" or kind == "bandage"
+        or kind == "improvise_medical" or kind == "sleep")
+        and Controller.selfCareReady(self.selfCareRetryAt, kind, ticks) then
+        self:finishDecision(ticks)
+        self.nextThink = ticks
+    end
+    -- Sitting is persistent native posture, not a timed action to restart.
+    -- Combat is checked before this state; ordinary rechecks leave it intact.
 end
 
 function Controller:beginRecovery(decision, ticks)
@@ -3507,11 +4580,13 @@ function Controller:beginRecovery(decision, ticks)
 end
 
 function Controller:finishDecision(ticks)
+    self:releaseGroupSupport()
     self.pendingCleanup = nil
     self.pendingDepositTrip = nil
     if self.activeDecision == "rest" or self.activeDecision == "sleep"
         or self.activeDecision == "base_ambient_rest"
-        or self.activeDecision == "camp_ambient_rest" then
+        or self.activeDecision == "camp_ambient_rest"
+        or self.activeDecision == "companion_relax" then
         self:leaveRecoveryPosture()
     end
     self.ambientRest = nil
@@ -3556,6 +4631,7 @@ function Controller:recoverFromDetached(ticks)
     self:abandonBaseTask("detached_recovered")
     self:releaseCombat()
     self:releaseSupply()
+    self:releaseGroupSupport()
     self:releaseRestSpot()
     self.selfCareIntent = nil
     self.pendingCleanup = nil
@@ -3611,6 +4687,19 @@ function Controller:beginCombat(target)
     if target == nil or target:getCurrentSquare() == nil then
         return false
     end
+    local now = self.currentTicks or self.nextThreatScan or 0
+    local heldItem = self.character:getPrimaryHandItem()
+    if self.unarmedRetryUntil ~= nil then
+        if heldItem == self.rejectedCombatItem and now < self.unarmedRetryUntil then
+            return false
+        end
+        self.unarmedRetryUntil = nil
+        self.rejectedCombatItem = nil
+        if self.unarmedRejectedTarget ~= nil then
+            self.failedThreats[self.unarmedRejectedTarget] = nil
+            self.unarmedRejectedTarget = nil
+        end
+    end
     self:cancelTrade("combat")
     if awareness == nil then
         awareness = evaluateThreat(self, target, self.nextThreatScan or 0)
@@ -3627,12 +4716,18 @@ function Controller:beginCombat(target)
     -- Firearms use the game's timed reload action.  Do this before clearing other
     -- actions so an already-running reload is allowed to finish instead of being
     -- cancelled and restarted every threat scan.
-    local firearmState, firearmResult = KnoxFirearmSupport.prepareForThreat(
-        self.id,
-        self.character,
-        self.bridge,
-        target
-    )
+    local firearmState, firearmResult
+    if self.rangedFallbackUntil ~= nil
+        and (self.rangedFallbackUntil[target] or 0) > (self.currentTicks or 0) then
+        -- Keep the close-range fallback long enough to finish a melee attempt.
+        -- Otherwise the next threat scan immediately selects the same gun again.
+        firearmState = "melee"
+        firearmResult = KnoxFirearmSupport.fallbackToMelee(self.id, self.bridge)
+    else
+        firearmState, firearmResult = KnoxFirearmSupport.prepareForThreat(
+            self.id, self.character, self.bridge, target
+        )
+    end
     if firearmState == "reloading" then
         releaseThreat(self.reservations, target, self.id)
         self.nextThreatScan = self.nextThreatScan + THREAT_SCAN_TICKS
@@ -3646,7 +4741,8 @@ function Controller:beginCombat(target)
     if not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
     end
-    self:abandonBaseTask("combat_interrupt")
+    self:releaseGroupSupport()
+    self:suspendBaseTaskForThreat("combat_interrupt")
     if self.activeDecision == "rest" or self.activeDecision == "sleep" then
         self:leaveRecoveryPosture()
     end
@@ -3659,8 +4755,13 @@ function Controller:beginCombat(target)
     if string.find(result, "COMBAT_STARTED", 1, true) ~= 1 then
         self.bridge:resetNpcCombat(self.id)
         local noWeapon = string.find(result, "NO_EQUIPPED_WEAPON", 1, true) ~= nil
-        if noWeapon then self.unarmedCombatBlocked = true end
-        local retry = noWeapon and THREAT_SCAN_TICKS or THREAT_FAILURE_COOLDOWN_TICKS
+        if noWeapon then
+            self.unarmedCombatBlocked = true
+            self.rejectedCombatItem = self.character:getPrimaryHandItem()
+            self.unarmedRejectedTarget = target
+            self.unarmedRetryUntil = now + THREAT_FAILURE_COOLDOWN_TICKS
+        end
+        local retry = THREAT_FAILURE_COOLDOWN_TICKS
         self.failedThreats[target] = self.nextThreatScan + retry
         releaseThreat(self.reservations, target, self.id)
         self:recordFailure(
@@ -3675,6 +4776,7 @@ function Controller:beginCombat(target)
     self.combatTarget = target
     self.activeDecision = "fight"
     self.state = "COMBAT"
+    sayDialogue(self.character, self.id, "combat", self.nextThreatScan or 0, 900)
     awareness = awareness or {}
     print(
         "[KnoxSurvivors][Autonomy] id=" .. self.id .. " state=COMBAT " .. result
@@ -3686,6 +4788,7 @@ function Controller:beginCombat(target)
 end
 
 function Controller:beginWorldSearch(goal, ticks)
+    self:setLifeIntent(goal, "seeking", nil, nil)
     if ticks < self.nextWorldSearch then
         return false
     end
@@ -3710,11 +4813,70 @@ function Controller:beginWorldSearch(goal, ticks)
     self.pendingSupply = supply
     self.activeDecision = goal
     self.state = "MOVING_TO_SUPPLY"
+    self:setLifeIntent(
+        goal,
+        "traveling",
+        supply.approach,
+        roamDestinationKey(supply.container:getSourceGrid())
+    )
+    local dialogueEvent = goal == "find_food" and "need_food"
+        or (goal == "find_water" and "need_water"
+            or (goal == "find_medical" and "need_medical" or "search"))
+    sayDialogue(self.character, self.id, dialogueEvent, ticks, 1800)
     print(
         "[KnoxSurvivors][Autonomy] id=" .. self.id
             .. " state=MOVING_TO_SUPPLY goal=" .. goal
             .. " item=" .. tostring(supply.item:getFullType())
     )
+    return true
+end
+
+function Controller:beginCompanionNeedDirective(ticks, directive)
+    local kind = tostring(directive ~= nil and directive.kind or "")
+    if kind ~= "find_food" and kind ~= "find_water" and kind ~= "find_medical"
+        and kind ~= "find_weapon" and kind ~= "find_tools" and kind ~= "clean_inventory" then
+        return false
+    end
+    if kind == "clean_inventory" then
+        if self:beginInventoryCleanup(ticks) then return true end
+        self.directiveMisses = (self.directiveMisses or 0) + 1
+        if self.directiveMisses >= 3 then
+            KnoxPersistence.clearCompanionDirective(
+                self.id, self.companionOwnerId, currentWorldAgeHours()
+            )
+            self.companionDirective = nil
+            self.directiveMisses = 0
+            KnoxActivityFeed.speak(self.character, "My pack is in order.")
+        else
+            self.nextThink = math.max(self.nextThink or 0, ticks + SUPPLY_RETRY_TICKS)
+        end
+        return true
+    end
+    if self:beginWorldSearch(kind, ticks) then
+        return true
+    end
+    if ticks >= (self.nextWorldSearch or 0) then
+        self.directiveMisses = (self.directiveMisses or 0) + 1
+        if self.directiveMisses >= 3 then
+            KnoxPersistence.clearCompanionDirective(
+                self.id,
+                self.companionOwnerId,
+                currentWorldAgeHours()
+            )
+            self.companionDirective = nil
+            self.directiveMisses = 0
+            KnoxActivityFeed.speak(self.character,
+                kind == "find_food" and "I couldn't find food here."
+                    or (kind == "find_water" and "I couldn't find water here."
+                        or (kind == "find_medical"
+                            and "I couldn't find medical supplies here."
+                            or (kind == "find_tools"
+                                and "I couldn't find any useful tools here."
+                                or "I couldn't find a better weapon here."))))
+        else
+            self.nextThink = math.max(self.nextThink or 0, ticks + SUPPLY_RETRY_TICKS)
+        end
+    end
     return true
 end
 
@@ -3730,6 +4892,28 @@ function Controller.campIdleChoice(ticks, slot, canExcursion)
     if phase <= 5 and canExcursion then
         return "excursion"
     end
+    return "wait"
+end
+
+-- Keep idle residents from making identical random choices on the same tick.
+-- The phase is deterministic per survivor, so save/load and controller refresh
+-- do not synchronize an entire base into simultaneous pacing or resting.
+function Controller.baseIdleJitter(id)
+    local value = 17
+    local text = tostring(id or "")
+    for index = 1, #text do
+        value = (value * 31 + string.byte(text, index)) % 2147483647
+    end
+    return value % 120
+end
+
+function Controller.baseIdleChoice(ticks, id, residentCount)
+    local phase = math.floor((tonumber(ticks) or 0) / 90)
+        + Controller.baseIdleJitter(id)
+        + math.max(0, tonumber(residentCount) or 0) * 2
+    phase = phase % 10
+    if phase <= 3 then return "move" end
+    if phase <= 6 then return "rest" end
     return "wait"
 end
 
@@ -3786,6 +4970,9 @@ function Controller:beginCampMovement(ticks, returning)
     end
     self.activeDecision = returning and "return_to_camp" or "camp_reposition"
     self.state = returning and "CAMP_RETURN" or "CAMP_REPOSITION"
+    if returning then
+        sayDialogue(self.character, self.id, "camp", ticks, 3600)
+    end
     return true
 end
 
@@ -3829,7 +5016,7 @@ function Controller:beginCampExcursion(ticks)
     return false
 end
 
-function Controller:beginRoam(ticks)
+function Controller:beginRoam(ticks, inheritedIntent)
     local current = self.character:getCurrentSquare()
     if current ~= nil then
         rememberRoamDestination(
@@ -3856,6 +5043,15 @@ function Controller:beginRoam(ticks)
     self.state = "ROAMING"
     self.roamGoalKey = key
     self.roamGoalKind = kind
+    self:setLifeIntent(
+        Controller.roamIntentKind(
+            kind,
+            inheritedIntent or (self.lifeIntent ~= nil and self.lifeIntent.kind or nil)
+        ),
+        "traveling",
+        target,
+        key
+    )
     self.nextRoamNeedsCheck = ticks + ROAM_NEEDS_RECHECK_TICKS
     self.forceTravel = false
     local dx, dy = target:getX() - current:getX(), target:getY() - current:getY()
@@ -3866,6 +5062,8 @@ function Controller:beginRoam(ticks)
             .. " state=ROAMING goal=" .. tostring(kind)
             .. " target=" .. target:getX() .. "," .. target:getY()
     )
+    sayDialogue(self.character, self.id,
+        kind == "building" and "roam_building" or "roam_area", ticks, 3600)
     return true
 end
 
@@ -3887,6 +5085,11 @@ function Controller:recoverFleeMovement(result, ticks)
 end
 
 function Controller:beginFlee(ticks, assessment)
+    local settings = rawget(_G, "KnoxSettings")
+    if settings ~= nil and settings.allowSurvivorFleeing ~= nil
+        and not settings.allowSurvivorFleeing() then
+        return false
+    end
     self:cancelTrade("danger")
     self.combatDisengageUntil = ticks + FLEE_DISENGAGE_TICKS
     local target, hadGroupPlan = groupFleeTarget(self, ticks)
@@ -3928,7 +5131,7 @@ function Controller:beginFlee(ticks, assessment)
     end
     self.bridge:cancelNpcMove(self.id)
     self.bridge:resetNpcCombat(self.id)
-    self:abandonBaseTask("survival_flee")
+    self:suspendBaseTaskForThreat("survival_flee")
     self:interruptSelfCareForDanger(ticks)
     if not self.character:getCharacterActions():isEmpty() then
         ISTimedActionQueue.clear(self.character)
@@ -3961,6 +5164,7 @@ function Controller:beginFlee(ticks, assessment)
     self.state = "FLEEING"
     self.stateStartedAt = ticks
     self.nextThink = ticks + FLEE_RECHECK_TICKS
+    sayDialogue(self.character, self.id, "flee", ticks, 900)
     print("[KnoxSurvivors][Autonomy] id=" .. self.id
         .. " state=FLEEING reason=" .. tostring(assessment and assessment.reason)
         .. " zombies=" .. tostring(assessment and assessment.zombies or 0)
@@ -4113,6 +5317,54 @@ function Controller:completeDepositTrip(ticks)
     return false
 end
 
+-- A base-supply run is different from ordinary inventory cleanup: the item was
+-- deliberately recovered for the settlement, so it must be handed to the
+-- assigned storage even when it is not considered personal surplus. Keep the
+-- transfer on the same native inventory path and clear the marker only after
+-- the destination contains the real item.
+function Controller:beginBaseSupplyDeposit(ticks)
+    local pending = self.pendingBaseSupplyDeposit
+    local base = self.base
+    if pending == nil or pending.item == nil or base == nil
+        or self.baseId == nil or self.character == nil
+        or not KnoxBaseManager.containsSquare(base, self.character:getCurrentSquare())
+        or not self.character:getCharacterActions():isEmpty()
+        or KnoxBaseStorage.findNearbyDeposit == nil then
+        return false
+    end
+    local item = pending.item
+    local inventory = self.character:getInventory()
+    if inventory == nil or not inventory:contains(item) then
+        self.pendingBaseSupplyDeposit = nil
+        self:clearLifeIntent()
+        return false
+    end
+    local storage = KnoxBaseStorage.findNearbyDeposit(base, self.character, item)
+    if storage == nil then
+        self.nextThink = math.max(self.nextThink or 0, ticks + 600)
+        return false
+    end
+    local action, result = KnoxInventoryActions.queueTransfer(
+        self.character, item, inventory, storage.container, nil
+    )
+    if action == nil then
+        self.nextThink = math.max(self.nextThink or 0, ticks + 180)
+        self:recordFailure("base_supply_deposit:" .. tostring(result), ticks, 180)
+        return false
+    end
+    self.pendingCleanup = {
+        item = item,
+        source = inventory,
+        destination = storage.container,
+        reason = "base_supply",
+        baseSupply = true,
+    }
+    self.activeDecision = "base_supply_deposit"
+    self.state = "INVENTORY_CLEANUP"
+    self.stateStartedAt = ticks
+    return true
+end
+
 function Controller:beginInventoryCleanup(ticks)
     if rawget(_G, "KnoxSurvivorLooting") == nil or KnoxSurvivorLooting.cleanupPlan == nil then return false end
     if self.state ~= "IDLE" or ticks < (self.nextCleanupAt or 0) or self.baseTask ~= nil
@@ -4164,8 +5416,20 @@ function Controller:updateInventoryCleanup(ticks)
         self.nextCleanupAt = ticks + 600
         self:recordFailure("cleanup_transfer_not_completed", ticks, 60)
     else
+        if transfer ~= nil and transfer.baseSupply == true then
+            self.pendingBaseSupplyDeposit = nil
+            self:clearLifeIntent()
+        end
         print("[KnoxSurvivors][Autonomy] id=" .. self.id .. " inventory-cleanup="
             .. tostring(self.activeDecision) .. " reason=" .. tostring(transfer.reason))
+    end
+    if self.companionDirective ~= nil
+        and self.companionDirective.kind == "clean_inventory" then
+        KnoxPersistence.clearCompanionDirective(
+            self.id, self.companionOwnerId, currentWorldAgeHours()
+        )
+        self.companionDirective = nil
+        self.directiveMisses = 0
     end
     self:finishDecision(ticks)
 end
@@ -4188,7 +5452,9 @@ function Controller:think(ticks)
     end
     if (decision.kind == "eat" or decision.kind == "drink"
         or decision.kind == "bandage" or decision.kind == "improvise_medical"
-        or decision.kind == "rest" or decision.kind == "sleep")
+        or decision.kind == "rest" or decision.kind == "sleep"
+        or decision.kind == "find_food" or decision.kind == "find_water"
+        or decision.kind == "find_medical")
         and not Controller.selfCareReady(
             self.selfCareRetryAt,
             decision.kind,
@@ -4228,18 +5494,80 @@ function Controller:think(ticks)
     if decision.kind == "find_food" or decision.kind == "find_water"
         or decision.kind == "find_medical" then
         self:sayNeedIfGrouped(decision.kind, ticks)
+        if self.companionOrder ~= nil and self.companionDirective == nil then
+            -- A companion may use supplies already carried, but must not drop
+            -- Follow/Hold and wander into the world because one is missing.
+            -- The callout tells the player what is needed; explicit Find Food,
+            -- Find Water, or Find Medical orders still authorize a supply run.
+            self.selfCareRetryAt[decision.kind] = ticks + SELF_CARE_RETRY_TICKS
+            decision = { kind = "roam", state = decision.state }
+        else
+        if self.groupLeader ~= nil and self.groupLeader:getCurrentSquare() ~= nil
+            and Controller.shouldDelegateNeedToGroup(
+                decision.kind,
+                navigationDistanceSquared(
+                self.character:getCurrentSquare(),
+                self.groupLeader:getCurrentSquare()
+                )
+            ) then
+            -- The leader will either share a real spare or own one group search.
+            -- A nearby follower must not split off and create a competing route.
+            self.activeDecision = "await_group_" .. decision.kind
+            self.state = "GROUP_WAIT"
+            self.nextThink = ticks + 60
+            return
+        end
         if not self:beginWorldSearch(decision.kind, ticks) then
-            self:beginRoam(ticks)
+            self:beginRoam(ticks, decision.kind)
         end
         return
+        end
     end
     if decision.kind == "rest" or decision.kind == "sleep" then
         self:sayNeedIfGrouped(decision.kind, ticks)
         self:beginRecovery(decision.kind, ticks)
         return
     end
+    if self.lifeIntent ~= nil
+        and (self.lifeIntent.kind == "find_food"
+            or self.lifeIntent.kind == "find_water"
+            or self.lifeIntent.kind == "find_medical") then
+        -- The real need evaluator no longer requests this resource. End the
+        -- durable purpose here instead of letting a satisfied survivor keep
+        -- searching because an older intent survived an interruption/reload.
+        self:clearLifeIntent()
+    end
+    if self:beginGroupSupport(ticks) then return end
+    if self.groupLeader == nil and #(self.groupMembers or {}) > 1 then
+        local groupNeed = KnoxGroupSupport.mostUrgentNeed(
+            self.character,
+            self.groupMembers
+        )
+        if groupNeed ~= nil then
+            if not self:beginWorldSearch(groupNeed.kind, ticks) then
+                self:beginRoam(ticks, groupNeed.kind)
+            end
+            return
+        end
+    end
     if self:beginInventoryCleanup(ticks) then return end
     if self:beginEventTravel(ticks) then return end
+    if self.awayTeamId ~= nil then
+        local awayTeam = KnoxPersistence.getAwayTeam(self.awayTeamId)
+        if awayTeam ~= nil and (awayTeam.state == "awaiting_collection"
+            or awayTeam.state == "collecting" or awayTeam.state == "returning") then
+            if self:beginAwayMission(ticks) then
+                return
+            end
+            -- A mission-owned survivor must not fall through into roaming,
+            -- companion or base logic when its destination is temporarily
+            -- unavailable. Keep the durable away duty authoritative and retry
+            -- through this same bounded boundary.
+            self.nextThink = math.max(self.nextThink or 0,
+                ticks + EXPLORATION_RETRY_TICKS)
+            return
+        end
+    end
     if self.companionOrder ~= nil then
         if self.companionDirective ~= nil then
             local kind = self.companionDirective.kind
@@ -4248,6 +5576,29 @@ function Controller:think(ticks)
                     return
                 end
                 self.nextThink = math.max(self.nextThink or 0, ticks + EXPLORATION_RETRY_TICKS)
+                return
+            end
+            if kind == "patrol_area" then
+                if self:beginCompanionPatrolDirective(ticks, self.companionDirective) then
+                    return
+                end
+                if self.directiveMisses >= 3 then
+                    KnoxPersistence.clearCompanionDirective(
+                        self.id, self.companionOwnerId,
+                        getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+                    )
+                    self.companionDirective = nil
+                    self.directiveMisses = 0
+                    KnoxActivityFeed.speak(self.character,
+                        "I can't patrol that area safely.")
+                end
+                self.nextThink = math.max(self.nextThink or 0,
+                    ticks + EXPLORATION_RETRY_TICKS)
+                return
+            end
+            if kind == "find_food" or kind == "find_water" or kind == "find_medical"
+                or kind == "find_weapon" or kind == "find_tools" then
+                self:beginCompanionNeedDirective(ticks, self.companionDirective)
                 return
             end
             if self:beginExploration(ticks, self.companionDirective) then
@@ -4262,6 +5613,10 @@ function Controller:think(ticks)
             self.activeDecision = "hold_position"
             self.state = "COMPANION_HOLD"
             self.nextThink = ticks + 90
+            return
+        end
+        if self.companionOrder == "relax" then
+            self:beginCompanionRelax(ticks)
             return
         end
         if self.companionTarget == nil
@@ -4292,22 +5647,101 @@ function Controller:think(ticks)
         return
     end
     if self.baseId ~= nil and self.base ~= nil then
+        self:syncBaseSupplyRun()
         local atBase = KnoxBaseManager.containsSquare(
             self.base,
             self.character:getCurrentSquare()
         )
-        if not atBase then
+        if self.baseSupplyTrip == true and self.pendingBaseSupplyDeposit == nil
+            and self.baseSupplyKind ~= nil then
+            local resumedKind = self.baseSupplyKind
+            if self:beginWorldSearch(resumedKind, ticks) then
+                self:beginBaseSupplyRun(resumedKind)
+                return
+            end
+            self:finishBaseSupplyRun("unavailable")
+            if self.baseSupplyOrder ~= nil then
+                self:recordExplicitBaseSupplyFailure(ticks)
+            end
+            self:releaseSupply()
+            if not atBase then
+                self:beginBaseMovement(ticks, true)
+            else
+                self.activeDecision = "base_supply_retry"
+                self.state = "BASE_IDLE"
+                self.nextThink = ticks + SUPPLY_RETRY_TICKS
+            end
+            return
+        elseif not atBase then
             self:beginBaseMovement(ticks, true)
+        elseif self.pendingBaseSupplyDeposit ~= nil
+            and self:beginBaseSupplyDeposit(ticks) then
+            return
+        elseif self.baseTask == nil then
+            local explicit = self.baseSupplyOrder
+            local explicitKind = explicit ~= nil and tostring(explicit.kind or "") or nil
+            local explicitExpired = explicit ~= nil
+                and tonumber(explicit.expiresAtHours) ~= nil
+                and tonumber(explicit.expiresAtHours) <= currentWorldAgeHours()
+            if explicitExpired then
+                if KnoxPersistence.clearBaseSupplyOrder ~= nil then
+                    local duty = KnoxPersistence.getSurvivorDuty(self.id) or {}
+                    KnoxPersistence.clearBaseSupplyOrder(
+                        self.id, duty.ownerId, self.baseId, currentWorldAgeHours()
+                    )
+                end
+                self.baseSupplyOrder = nil
+                self.baseSupplyOrderAttempts = 0
+                explicit = nil
+                explicitKind = nil
+            end
+            if explicitKind ~= nil and explicitKind ~= "" then
+                self.baseSupplyTrip = true
+                self.baseSupplyKind = explicitKind
+                if self:beginWorldSearch(explicitKind, ticks) then
+                    self:beginBaseSupplyRun(explicitKind)
+                    return
+                end
+                self:recordExplicitBaseSupplyFailure(ticks)
+                self:releaseSupply()
+                self.nextThink = ticks + SUPPLY_RETRY_TICKS
+                return
+            end
+            -- A resident without an already-claimed native task should answer
+            -- a real settlement shortage before accepting ordinary work. This
+            -- keeps food/water/medical recovery aligned with the existing
+            -- priority model without interrupting a job already in progress.
+            local supplyGoal = self:baseSupplyNeed(ticks)
+            if supplyGoal ~= nil then
+                if self:beginWorldSearch(supplyGoal, ticks) then
+                    self:beginBaseSupplyRun(supplyGoal)
+                    return
+                end
+                self:finishBaseSupplyRun("unavailable")
+                self:releaseSupply()
+                self.nextBaseSupplySearch = ticks + SUPPLY_RETRY_TICKS
+            end
+            if self:beginBaseTask(ticks) then
+                return
+            end
+            local residentIds = KnoxPersistence.getBaseResidentIds ~= nil
+                and KnoxPersistence.getBaseResidentIds(self.baseId) or {}
+            local choice = Controller.baseIdleChoice(
+                ticks,
+                self.id,
+                type(residentIds) == "table" and #residentIds or 1
+            )
+            if choice == "move" then
+                self:beginBaseMovement(ticks, false)
+            elseif choice == "rest" then
+                self:beginAmbientBaseRest(ticks)
+            else
+                self.activeDecision = "base_idle"
+                self.state = "BASE_IDLE"
+                self.nextThink = ticks + 90 + Controller.baseIdleJitter(self.id)
+            end
         elseif self:beginBaseTask(ticks) then
             return
-        elseif ZombRand(100) < 45 then
-            self:beginBaseMovement(ticks, false)
-        elseif ZombRand(100) < 55 then
-            self:beginAmbientBaseRest(ticks)
-        else
-            self.activeDecision = "base_idle"
-            self.state = "BASE_IDLE"
-            self.nextThink = ticks + 90 + ZombRand(120)
         end
         return
     end
@@ -4384,6 +5818,30 @@ function Controller:think(ticks)
         else
             self:resetMovementRecovery()
             self.formationMovementPace = nil
+            if self.groupObjectiveChanged then
+                self.groupObjectiveChanged = false
+                self.nextGroupObjectiveAssist = math.max(
+                    self.nextGroupObjectiveAssist or 0,
+                    ticks + self.groupFormationSlot * 45
+                )
+            elseif ticks >= (self.nextGroupObjectiveAssist or 0)
+                and Controller.shouldAssistGroupObjective(
+                    self.groupObjective,
+                    navigationDistanceSquared(
+                        self.character:getCurrentSquare(),
+                        self.groupLeader:getCurrentSquare()
+                    )
+                ) then
+                self.nextGroupObjectiveAssist = ticks
+                    + GROUP_OBJECTIVE_ASSIST_COOLDOWN_TICKS
+                    + self.groupFormationSlot * 120
+                if self:beginExploration(ticks) then
+                    return
+                end
+                self.nextGroupObjectiveAssist = ticks
+                    + GROUP_OBJECTIVE_ASSIST_RETRY_TICKS
+                    + self.groupFormationSlot * 30
+            end
             self.state = "GROUP_WAIT"
             self.nextThink = ticks + 60
         end
@@ -4411,6 +5869,7 @@ function Controller:think(ticks)
 end
 
 function Controller:tick(ticks)
+    self.currentTicks = ticks
     if self.tradeAction ~= nil and self.state ~= "TRADING" then self:cancelTrade("behavior_changed") end
     if self.character == nil or self.character:getCurrentSquare() == nil then
         self:cancelTrade("detached")
@@ -4422,6 +5881,25 @@ function Controller:tick(ticks)
     end
 
     if self:recoverFromDetached(ticks) then
+        return
+    end
+
+    -- Sandbox settings can be changed between sessions while a survivor was
+    -- captured in retreat. Release that temporary ownership immediately; the
+    -- durable Follow/Hold/group/camp intent remains intact and will resume.
+    local settings = rawget(_G, "KnoxSettings")
+    if self.state == "FLEEING" and settings ~= nil
+        and settings.allowSurvivorFleeing ~= nil
+        and not settings.allowSurvivorFleeing() then
+        self.bridge:cancelNpcMove(self.id)
+        self:resetMovementRecovery()
+        self.fleeRecoveryUntil = nil
+        self.fleeTarget = nil
+        self.failedFleeTarget = nil
+        self.fleeSafeScans = 0
+        self.combatDisengageUntil = 0
+        self:finishDecision(ticks)
+        self.nextThink = ticks + 5
         return
     end
 
@@ -4446,6 +5924,7 @@ function Controller:tick(ticks)
         or self.state == "GROUP_FOLLOW" or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
         or self.state == "MOVING_TO_COMPANION_POINT"
+        or self.state == "MOVING_TO_COMPANION_PATROL"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_TASK_MOVE"
         or self.state == "BASE_TASK_SUPPLY_MOVE"
@@ -4455,6 +5934,7 @@ function Controller:tick(ticks)
         or self.state == "MOVING_TO_REST"
         or self.state == "MOVING_TO_BASE_CANDIDATE"
         or self.state == "CAMP_RETURN" or self.state == "CAMP_REPOSITION"
+        or self.state == "AWAY_RETURN"
         or self.state == "FLEEING"
     local actionState = self.state == "LOOTING"
         or self.state == "INVENTORY_CLEANUP"
@@ -4464,6 +5944,7 @@ function Controller:tick(ticks)
         or self.state == "BASE_TASK_WORK"
         or self.state == "BASE_TASK_ACTION"
         or self.state == "BASE_TASK_SUPPLY_TRANSFER"
+        or self.state == "GROUP_SUPPORT"
     if (movementState and stateAge > MOVEMENT_TIMEOUT_TICKS)
         or (actionState and stateAge > ACTION_TIMEOUT_TICKS)
         or (self.state == "BREAKING_LOCKED_DOOR"
@@ -4472,7 +5953,7 @@ function Controller:tick(ticks)
             self:recoverFleeMovement("state_timeout", ticks)
             return
         elseif self.state == "COMPANION_FOLLOW" or self.state == "BASE_RETURN"
-            or self.state == "BASE_PATROL" then
+            or self.state == "BASE_PATROL" or self.state == "AWAY_RETURN" then
             self.bridge:cancelNpcMove(self.id)
             self.activeDecision = nil
             self.state = "IDLE"
@@ -4567,7 +6048,8 @@ function Controller:tick(ticks)
     end
 
     if self.state == "COMPANION_WAIT" or self.state == "COMPANION_HOLD"
-        or self.state == "COMPANION_GUARD" then
+        or self.state == "COMPANION_GUARD"
+        or self.state == "COMPANION_PATROL_WAIT" then
         if ticks >= self.nextThink then
             self.state = "IDLE"
         end
@@ -4604,6 +6086,29 @@ function Controller:tick(ticks)
         return
     end
 
+    if self.state == "COMPANION_RELAX" then
+        self:updateCompanionRelax(ticks)
+        return
+    end
+
+    if self.state == "BASE_TASK_SUPPLY_WAIT" then
+        if self.baseTask == nil then
+            self:finishDecision(ticks)
+        elseif ticks >= (self.nextThink or 0) then
+            self:beginBaseTaskSupplyOrWork(ticks)
+        end
+        return
+    end
+
+    if self.state == "BASE_TASK_PATROL_WAIT" then
+        if self.baseTask == nil then
+            self:finishDecision(ticks)
+        elseif ticks >= (self.nextThink or 0) then
+            self:beginBaseTaskWorkMove(ticks)
+        end
+        return
+    end
+
     if self.state == "BASE_TASK_WORK" then
         if self.baseTask == nil then
             self.state = "IDLE"
@@ -4615,8 +6120,18 @@ function Controller:tick(ticks)
         if ticks - started >= KnoxBaseJobs.workDuration(self.baseTask) then
             local taskType = self.baseTask.type
             self:finishBaseTask(true, "completed_" .. tostring(taskType))
+            local completionLines = {
+                guard = "All clear here.", patrol = "Patrol route is clear.",
+                barricade = "That opening is secured.", construct_defense = "The defense work is done.",
+                repair = "That repair is finished.", sort_depot = "The supplies are sorted.",
+                haul_corpse = "The body is out of the way.", animal_water = "The animals have water.",
+                animal_feed = "The animals are fed.", farm_water = "The crops are watered.",
+                farm_harvest = "The harvest is gathered.", farm_plow = "The soil is ready.",
+                farm_seed = "The plot is planted.", chop_tree = "The tree is down.",
+                saw_logs = "The logs are cut.",
+            }
             KnoxActivityFeed.speak(self.character,
-                taskType == "guard" and "All clear here." or "Patrol done."
+                completionLines[taskType] or "That job is finished."
             )
             self:finishDecision(ticks)
         end
@@ -5249,6 +6764,12 @@ function Controller:tick(ticks)
                 )
             end
         elseif string.find(result, "COMBAT_FIREARM_FALLBACK", 1, true) == 1 then
+            if self.combatTarget ~= nil then
+                self.rangedFallbackUntil = self.rangedFallbackUntil
+                    or setmetatable({}, { __mode = "k" })
+                self.rangedFallbackUntil[self.combatTarget] = ticks
+                    + THREAT_FAILURE_COOLDOWN_TICKS
+            end
             self.bridge:resetNpcCombat(self.id)
             local fallbackResult = KnoxFirearmSupport.fallbackToMelee(
                 self.id,
@@ -5298,6 +6819,13 @@ function Controller:tick(ticks)
 
     if self.state == "INVENTORY_CLEANUP" then
         self:updateInventoryCleanup(ticks)
+        return
+    end
+
+    if self.state == "GROUP_SUPPORT" then
+        if self.character:getCharacterActions():isEmpty() then
+            self:completeGroupSupport(ticks)
+        end
         return
     end
 
@@ -5352,6 +6880,7 @@ function Controller:tick(ticks)
         or self.state == "GROUP_REGROUP"
         or self.state == "COMPANION_FOLLOW"
         or self.state == "MOVING_TO_COMPANION_POINT"
+        or self.state == "MOVING_TO_COMPANION_PATROL"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_TASK_MOVE"
         or self.state == "MEETING_APPROACH"
@@ -5359,6 +6888,7 @@ function Controller:tick(ticks)
         or self.state == "CROSSING_WINDOW_ENTRY" or self.state == "MOVING_TO_REST"
         or self.state == "MOVING_TO_BASE_CANDIDATE"
         or self.state == "CAMP_RETURN" or self.state == "CAMP_REPOSITION"
+        or self.state == "AWAY_RETURN"
         or self.state == "FLEEING" then
         if (self.state == "GROUP_FOLLOW" or self.state == "COMPANION_FOLLOW")
             and self:refreshFormationFollow(ticks) then
@@ -5395,6 +6925,33 @@ function Controller:tick(ticks)
                 self.nextThink = ticks + CAMP_DECISION_TICKS
                 return
             end
+            if self.state == "AWAY_RETURN" then
+                local completed, detail = KnoxPersistence.completeAwayTeamMember(
+                    self.awayTeamId,
+                    self.id,
+                    true,
+                    "returned_to_owner",
+                    currentWorldAgeHours()
+                )
+                if completed ~= nil then
+                    KnoxActivityFeed.speak(self.character, "Back home.")
+                    self.awayTeamId = nil
+                    self.awayCollected = false
+                    self.awaySearchMisses = 0
+                    self.activeDecision = nil
+                    self:finishDecision(ticks)
+                    self.nextThink = ticks
+                else
+                    self:recordFailure(
+                        "away_return_complete:" .. tostring(detail),
+                        ticks,
+                        EXPLORATION_RETRY_TICKS
+                    )
+                    self.state = "IDLE"
+                    self.nextThink = ticks + EXPLORATION_RETRY_TICKS
+                end
+                return
+            end
             if self.state == "MOVING_TO_BASE_CANDIDATE" then
                 local candidate = self.factionBaseCandidate
                 local worldAge = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
@@ -5427,6 +6984,12 @@ function Controller:tick(ticks)
                     )
                 else
                     self.counts.failures = self.counts.failures + 1
+                    -- Confirmation can fail after the route itself succeeds
+                    -- (ownership conflict, stale building metadata, or a
+                    -- changed safehouse). Keep this candidate in the existing
+                    -- bounded rejection memory so the next scouting pass does
+                    -- not immediately select the same unusable shelter.
+                    self:rejectFactionBaseCandidate(ticks, result)
                     print(
                         "[KnoxSurvivors][Autonomy] id=" .. self.id
                             .. " faction-base-selection-failed=" .. tostring(result)
@@ -5516,6 +7079,21 @@ function Controller:tick(ticks)
                 end
                 return
             end
+            if self.state == "MOVING_TO_COMPANION_PATROL" then
+                self.activeDecision = "patrol_area"
+                self.state = "COMPANION_PATROL_WAIT"
+                self.nextThink = ticks + 120
+                return
+            end
+            if self.state == "AWAY_RETURN" then
+                self:recordMovementFailure("away_return", movement, ticks,
+                    EXPLORATION_RETRY_TICKS)
+                self.bridge:cancelNpcMove(self.id)
+                self.state = "IDLE"
+                self.activeDecision = "away_return_retry"
+                self.nextThink = ticks + EXPLORATION_RETRY_TICKS
+                return
+            end
             if self.state == "BASE_RETURN" or self.state == "BASE_PATROL" then
                 self:finishDecision(ticks)
                 return
@@ -5549,6 +7127,25 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "BASE_TASK_MOVE" then
+                if self.baseTask ~= nil and self.baseTask.type == "patrol" then
+                    local complete, _, stopCount = KnoxCompanionPatrol.recordTaskArrival(
+                        self.baseTask
+                    )
+                    if complete then
+                        self:finishBaseTask(true, "completed_patrol")
+                        KnoxActivityFeed.speak(self.character, "Patrol done.")
+                        self:finishDecision(ticks)
+                    else
+                        self.activeDecision = "base_task_patrol"
+                        self.state = "BASE_TASK_PATROL_WAIT"
+                        self.nextThink = ticks + 90
+                        print("[KnoxSurvivors][BaseJobs] id=" .. tostring(self.id)
+                            .. " patrol-stop="
+                            .. tostring(self.baseTask.patrolStopsCompleted)
+                            .. "/" .. tostring(stopCount))
+                    end
+                    return
+                end
                 if self.baseTask ~= nil and self.baseTask.type == "haul_corpse" then
                     if self.baseTaskCorpsePhase == "drop" then
                         self.baseTaskStartedAt = ticks
@@ -5767,6 +7364,13 @@ function Controller:tick(ticks)
                         or (supply.items ~= nil and #supply.items > 0))
                         and "LOOTING"
                         or "SEARCHING"
+                    if self.state == "LOOTING" then
+                        self:sayAction({ "I'll take what we can use.",
+                            "Found something useful.", "I'll grab a few things." }, ticks, 1800)
+                    else
+                        self:sayAction({ "Let me check this.", "I'll have a quick look.",
+                            "Give me a second to search this." }, ticks, 1800)
+                    end
                 else
                     self:recordFailure("loot_action_queue", ticks, 180)
                     self:releaseSupply()
@@ -5774,6 +7378,14 @@ function Controller:tick(ticks)
                 end
             else
                 if self.state == "ROAMING" then
+                    if self.lifeIntent ~= nil then
+                        self:setLifeIntent(
+                            self.lifeIntent.kind,
+                            "arrived",
+                            nil,
+                            self.roamGoalKey
+                        )
+                    end
                     rememberRoamDestination(
                         self,
                         self.roamGoalKey,
@@ -5816,7 +7428,8 @@ function Controller:tick(ticks)
                 self:finishDecision(ticks)
                 return
             end
-            if self.state == "MOVING_TO_COMPANION_POINT" then
+            if self.state == "MOVING_TO_COMPANION_POINT"
+                or self.state == "MOVING_TO_COMPANION_PATROL" then
                 self.directiveMisses = self.directiveMisses + 1
                 if self.directiveMisses >= 3 then
                     KnoxPersistence.clearCompanionDirective(
@@ -5866,6 +7479,12 @@ function Controller:tick(ticks)
                 self:finishDecision(ticks)
                 return
             end
+            if self.state == "MOVING_TO_SUPPLY" and self.pendingSupply ~= nil
+                and self.pendingSupply.baseResupply == true then
+                self.inspectedContainers[self.pendingSupply.container] = ticks + SUPPLY_RETRY_TICKS
+                self:continueBaseResourceRun(ticks, false)
+                return
+            end
             if Controller.isEntryTraversalFailure(movement)
                 and (self.state == "MOVING_TO_SUPPLY"
                     or self.state == "MOVING_TO_EXPLORE") then
@@ -5901,6 +7520,9 @@ function Controller:tick(ticks)
                 )
                 self.roamGoalKey = nil
                 self.roamGoalKind = nil
+                if self.lifeIntent ~= nil then
+                    self:setLifeIntent(self.lifeIntent.kind, "reassess", nil, nil)
+                end
             end
             self:releaseSupply()
             self:finishDecision(ticks)
@@ -5910,6 +7532,14 @@ function Controller:tick(ticks)
 
     if self.state == "LOOTING" then
         if self.character:getCharacterActions():isEmpty() then
+            if self.pendingSupply ~= nil and self.pendingSupply.baseResupply == true then
+                self:continueBaseResourceRun(ticks, true)
+                return
+            end
+            if self.awayTeamId ~= nil then
+                self:finishAwayCollection(ticks)
+                return
+            end
             self.counts.loot = self.counts.loot + 1
             local changed, equipment = KnoxEquipmentIntelligence.reconsider(
                 self.id, self.character, self.bridge, ticks, true
@@ -5922,8 +7552,50 @@ function Controller:tick(ticks)
             )
             self.nextExplorationSearch = ticks + LOOT_TRAVEL_COOLDOWN_TICKS
             self.forceTravel = true
+            if self.lifeIntent ~= nil and self.lifeIntent.kind == "scavenge" then
+                self:clearLifeIntent()
+            elseif self.lifeIntent ~= nil then
+                self:setLifeIntent(self.lifeIntent.kind, "reassess", nil, nil)
+            end
+            if self.companionDirective ~= nil
+                and (self.companionDirective.kind == "find_food"
+                    or self.companionDirective.kind == "find_water"
+                    or self.companionDirective.kind == "find_medical"
+                    or self.companionDirective.kind == "find_weapon"
+                    or self.companionDirective.kind == "find_tools") then
+                KnoxPersistence.clearCompanionDirective(
+                    self.id, self.companionOwnerId, currentWorldAgeHours()
+                )
+                self.companionDirective = nil
+                self.directiveMisses = 0
+            end
+            local returnToBase = self.baseSupplyTrip == true
+            local explicitBaseSupply = self.baseSupplyOrder ~= nil
+            local recoveredBaseItem = returnToBase
+                and self.pendingSupply ~= nil and self.pendingSupply.item or nil
+            if returnToBase then
+                self:finishBaseSupplyRun(
+                    recoveredBaseItem ~= nil and "collected" or "empty"
+                )
+            end
+            if explicitBaseSupply then self:clearExplicitBaseSupplyOrder() end
             self:releaseSupply()
+            if returnToBase and recoveredBaseItem ~= nil then
+                self.pendingBaseSupplyDeposit = { item = recoveredBaseItem }
+                local ok, recoveredType = pcall(function()
+                    return recoveredBaseItem:getFullType()
+                end)
+                if ok and type(recoveredType) == "string" and recoveredType ~= "" then
+                    self:setLifeIntent("base_supply_deposit", "returning", nil, recoveredType)
+                end
+            end
             self:finishDecision(ticks)
+            if returnToBase then
+                -- The next normal decision sees the resident outside its
+                -- assigned territory and uses the existing native base-return
+                -- movement path. No second mission/order is created.
+                self.nextThink = ticks
+            end
         end
         return
     end
@@ -5931,6 +7603,14 @@ function Controller:tick(ticks)
 
     if self.state == "SEARCHING" then
         if self.character:getCharacterActions():isEmpty() then
+            if self.pendingSupply ~= nil and self.pendingSupply.baseResupply == true then
+                self:continueBaseResourceRun(ticks, false)
+                return
+            end
+            if self.awayTeamId ~= nil then
+                self:finishAwayCollection(ticks)
+                return
+            end
             if self.pendingSupply ~= nil and self.pendingSupply.eventId ~= nil then
                 KnoxEvents.recordEmptySearch(self.pendingSupply.eventId, self.id)
             end
@@ -5941,8 +7621,34 @@ function Controller:tick(ticks)
             )
             self.nextExplorationSearch = ticks + EMPTY_SEARCH_COOLDOWN_TICKS
             self.forceTravel = true
+            if self.lifeIntent ~= nil and self.lifeIntent.kind == "scavenge" then
+                self:clearLifeIntent()
+            end
+            if self.companionDirective ~= nil
+                and (self.companionDirective.kind == "find_food"
+                    or self.companionDirective.kind == "find_water"
+                    or self.companionDirective.kind == "find_medical"
+                    or self.companionDirective.kind == "find_weapon"
+                    or self.companionDirective.kind == "find_tools") then
+                KnoxPersistence.clearCompanionDirective(
+                    self.id, self.companionOwnerId, currentWorldAgeHours()
+                )
+                self.companionDirective = nil
+                self.directiveMisses = 0
+            end
+            local returnToBase = self.baseSupplyTrip == true
+            local explicitBaseSupply = self.baseSupplyOrder ~= nil
+            if returnToBase then
+                self:finishBaseSupplyRun("empty")
+            end
+            if explicitBaseSupply then
+                self:recordExplicitBaseSupplyFailure(ticks)
+            end
             self:releaseSupply()
             self:finishDecision(ticks)
+            if returnToBase then
+                self.nextThink = ticks
+            end
         end
         return
     end

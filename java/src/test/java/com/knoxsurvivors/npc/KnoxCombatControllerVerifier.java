@@ -99,7 +99,6 @@ public final class KnoxCombatControllerVerifier {
         require(!KnoxCombatController.shouldRepositionRanged(
             false, 0.5f, minimumRange, 61, 0, false
         ), "melee positioning is not changed by firearm policy");
-
         Method requestAttack = KnoxCombatController.class.getDeclaredMethod(
             "requestAttack", Object.class, boolean.class, boolean.class
         );
@@ -111,6 +110,13 @@ public final class KnoxCombatControllerVerifier {
             "firearm request does not authorize shove/stomp");
         require(body.pressedAttackCount == 0,
             "Java firearm request yields to native Lua attack hook");
+        Method clearAttack = KnoxCombatController.class.getDeclaredMethod("clearAttackIntent");
+        clearAttack.setAccessible(true);
+        npcField.set(controller, npc);
+        clearAttack.invoke(controller);
+        require(!body.isAiming && !body.controlVars.aiming
+                && !body.controlVars.initiateAttack && !body.initiateAttack,
+            "ranged reposition can clear every native attack input before movement");
         require(!KnoxCombatController.allowsDirectSwipeFallback(true),
             "ranged attack cannot fall through to the melee SwipeState fallback");
         require(KnoxCombatController.allowsDirectSwipeFallback(false),

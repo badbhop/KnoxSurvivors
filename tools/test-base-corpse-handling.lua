@@ -42,6 +42,7 @@ local function square(x, y, z)
         function value:getY() return self.y end
         function value:getZ() return self.z end
         function value:canStand() return true end
+        function value:canReachTo(other) return other ~= nil and other:getZ() == self.z end
         function value:getStaticMovingObjects() return list(self.bodies) end
         squares[key] = value
     end
@@ -147,6 +148,10 @@ local requested, retryResult = handling.requestGrabRetry(character, resolved)
 assert(requested and retryResult == "native_retry_requested"
         and character.pickupRequests == 1 and character.grappling,
     "fallback invokes the real Build 42 corpse pickup without synchronous failure")
+local alreadyRequested, activeReason = handling.requestGrabRetry(character, resolved)
+assert(alreadyRequested and activeReason == "native_pickup_in_progress"
+    and character.pickupRequests == 1,
+    "an active native pickup handshake must not receive another pickup request")
 step, transition, deadline = handling.nextGrabStep(character, true, deadline, 160)
 assert(step == "wait" and transition == "transitioning",
     "an active grapple handshake is not cancelled before attachment")
@@ -176,8 +181,34 @@ assert(step == "ready" and transition == "released",
     "native grapple release completes the corpse job")
 
 body.index = -1
+local retryRemoved, removedReason = handling.requestGrabRetry(character, resolved)
+assert(not retryRemoved and removedReason == "corpse_removed_or_reanimated",
+    "pickup retry must abandon a corpse removed during the native handshake")
 bodySquare.bodies = { animalBody }
 local missing = handling.resolveTarget(base, target, character)
 assert(missing == nil, "moved corpse must not resolve by stale coordinates")
+
+body.index = 3
+bodySquare.bodies = { body }
+local originalReach = approach.canReachTo
+approach.canReachTo = function() return false end
+local unreachable, unreachableReason = handling.requestGrabRetry(character, resolved)
+assert(not unreachable and unreachableReason == "corpse_no_longer_reachable",
+    "retry must retain native reach restrictions after the timed action ends")
+approach.canReachTo = originalReach
+local zone = base.zones.cleanup
+base.zones.cleanup = nil
+assert(handling.resolveTarget(base, target, character) == nil,
+    "removed drop zone cannot survive through stale persisted coordinates")
+base.zones.cleanup = zone
+zone.enabled = false
+assert(handling.resolveTarget(base, target, character) == nil,
+    "disabled drop zone cannot accept another hauling job")
+zone.enabled = true
+for x = 12, 14 do for y = 12, 14 do
+    square(x, y, 0).canStand = function() return false end
+end end
+assert(handling.resolveTarget(base, target, character) == nil,
+    "blocked zone must fail instead of depositing outside the designated area")
 
 print("Base corpse handling PASS discovery=true animal_filter=true identity=true async_grab_drop=true")

@@ -50,6 +50,17 @@ local character = {
 local container = { getItems = function() return list({ javaNull, unknownItem }) end }
 
 local looting = dofile(rootPath .. "/mod/42/media/lua/client/KS_SurvivorLooting.lua")
+local hammer = {
+    getFullType = function() return "Base.Hammer" end,
+    isBroken = function() return false end,
+}
+local brokenHammer = {
+    getFullType = function() return "Base.Hammer" end,
+    isBroken = function() return true end,
+}
+assert(looting.isEssentialTool(hammer), "usable essential tool should be recognized")
+assert(not looting.isEssentialTool(brokenHammer), "broken tool should not satisfy tool order")
+assert(not looting.isEssentialTool(unknownItem), "unknown modded item must fail safely")
 local ok, result = pcall(function() return looting.plan(character, container, 2) end)
 assert(ok, "loot planner must tolerate missing isAmmo(): " .. tostring(result))
 assert(type(result) == "table" and #result == 0, "ordinary/unknown item should not be selected")

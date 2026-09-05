@@ -65,6 +65,30 @@ assert(assignedCamp ~= nil and assignedCamp.id == camp.id
         and assignedCamp.value == camp and assignedCamp.slot == 1,
     "loaded camp members must recognize their persisted shelter even during combat")
 
+local createdLocation = nil
+KnoxPersistence.createFactionCamp = function(_, location)
+    createdLocation = location
+    return nil, "created"
+end
+assignedController.state = "IDLE"
+assignedController.character = {
+    getCurrentSquare = function()
+        return {
+            getX = function() return 30 end, getY = function() return 30 end,
+            getZ = function() return 0 end, isOutside = function() return true end,
+            getBuilding = function() return nil end,
+            canStand = function() return true end,
+        }
+    end,
+}
+KnoxPersistence.getFactionForSurvivor = function()
+    return { id = "faction-1", kind = "npc", leaderId = "one", homeBase = nil }
+end
+Camps.reconcile({ one = assignedController }, { "one" }, 20)
+assert(createdLocation ~= nil and createdLocation.name == "Temporary Camp"
+        and createdLocation.x == 30 and createdLocation.y == 30,
+    "a leader without a building should receive a bounded outdoor temporary camp")
+
 AdjacentFreeTileFinder = { Find = function(target) return target end }
 ISTimedActionQueue = { clear = function() end }
 KnoxSurvivorNeeds = {

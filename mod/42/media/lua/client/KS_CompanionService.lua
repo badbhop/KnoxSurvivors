@@ -3,6 +3,7 @@ require "KS_SurvivorRuntime"
 require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_CompanionVehicles"
+require "KS_OrderCatalog"
 
 local CompanionService = rawget(_G, "KnoxCompanionService") or {}
 _G.KnoxCompanionService = CompanionService
@@ -30,6 +31,77 @@ local TALK_LINES = {
 
 local function worldAge()
     return getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+end
+
+-- Search-style orders are useful from more than the ground-selection menu
+-- (Notebook, party shortcuts, and future controller callers may only provide
+-- the order name).  Give those orders a small, bounded area around the person
+-- instead of making every caller duplicate square/radius construction.  Point
+-- and guard orders still require an explicit destination so an accidental
+-- click cannot send a survivor somewhere arbitrary.
+local SEARCH_DIRECTIVES = {
+    loot_area = true, loot_corpses = true, find_food = true, find_water = true,
+    find_medical = true, find_weapon = true, find_tools = true,
+    clean_inventory = true,
+}
+
+local BASE_SUPPLY_ORDERS = {
+    find_food = true,
+    find_water = true,
+    find_medical = true,
+    find_weapon = true,
+    find_tools = true,
+}
+
+local function isPlayerCompanion(player, survivorId)
+    if player == nil or survivorId == nil then return false end
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or KnoxPersistence.getCompanionIds == nil then return false end
+    for _, id in ipairs(KnoxPersistence.getCompanionIds(playerId) or {}) do
+        if tostring(id) == tostring(survivorId) then return true end
+    end
+    return false
+end
+
+local function defaultCompanionArea(player, survivorId, kind)
+    if kind ~= "guard" and kind ~= "patrol_area" and kind ~= "patrol" then
+        return nil
+    end
+    if not isPlayerCompanion(player, survivorId) then return nil end
+    local character = KnoxSurvivorRuntime ~= nil
+        and KnoxSurvivorRuntime.getCharacter ~= nil
+        and KnoxSurvivorRuntime.getCharacter(survivorId) or nil
+    local square = character ~= nil and character:getCurrentSquare() or nil
+    square = square or (player ~= nil and player:getCurrentSquare() or nil)
+    if square == nil then return nil end
+    local radius = kind == "guard" and 3 or 8
+    return {
+        kind = kind == "patrol" and "patrol_area" or kind,
+        minX = square:getX() - radius,
+        minY = square:getY() - radius,
+        maxX = square:getX() + radius,
+        maxY = square:getY() + radius,
+        z = square:getZ(),
+    }
+end
+
+local function defaultSearchDirective(player, survivorId, kind)
+    if not SEARCH_DIRECTIVES[kind] then return nil end
+    local character = KnoxSurvivorRuntime ~= nil
+        and KnoxSurvivorRuntime.getCharacter ~= nil
+        and KnoxSurvivorRuntime.getCharacter(survivorId) or nil
+    local square = character ~= nil and character:getCurrentSquare() or nil
+    square = square or (player ~= nil and player:getCurrentSquare() or nil)
+    if square == nil then return nil end
+    local radius = 12
+    return {
+        kind = kind,
+        minX = square:getX() - radius,
+        minY = square:getY() - radius,
+        maxX = square:getX() + radius,
+        maxY = square:getY() + radius,
+        z = square:getZ(),
+    }
 end
 
 local function displayName(id)
@@ -125,6 +197,50 @@ function CompanionService.talk(player, survivorId)
     return true, relation
 end
 
+function CompanionService.askNeeds(player, survivorId)
+    local character, availability = validateInteraction(player, survivorId)
+    if character == nil then return false, availability end
+    local needs = rawget(_G, "KnoxSurvivorNeeds")
+    if needs == nil then
+        pcall(require, "KS_SurvivorNeeds")
+        needs = rawget(_G, "KnoxSurvivorNeeds")
+    end
+    if needs == nil then return false, "needs_unavailable" end
+    local state = needs.snapshot(character)
+    local line
+    if state.bleedingParts > 0 then
+        line = "I'm bleeding. I need something clean for it."
+    elseif state.health < 65 then
+        line = "I'm hurt. I could use a safe place to recover."
+    elseif state.thirst >= needs.thresholds.thirst then
+        line = needs.findBestWater(character, false) ~= nil
+            and "I'm thirsty, but I have water." or "I need clean water."
+    elseif state.hunger >= needs.thresholds.hunger then
+        line = needs.findBestFood(character) ~= nil
+            and "I'm hungry. I have something to eat." or "I need food."
+    elseif state.fatigue >= needs.thresholds.fatigue then
+        line = "I need somewhere safe to sleep."
+    elseif state.endurance <= needs.thresholds.lowEndurance then
+        line = "I just need a minute to catch my breath."
+    else
+        line = "I'm all right for now."
+    end
+    KnoxActivityFeed.speak(character, line)
+    return true, line
+end
+
+function CompanionService.askNeedsAll(player)
+    local answered = 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.askNeeds(player, survivorId)
+        answered = answered + (success and 1 or 0)
+    end
+    if answered > 0 then
+        KnoxActivityFeed.event("Party needs check.")
+    end
+    return answered > 0, answered
+end
+
 function CompanionService.canRecruit(player, survivorId)
     if not KnoxSettings.enabled() then
         return false, "mod_disabled"
@@ -209,7 +325,8 @@ end
 
 function CompanionService.command(player, survivorId, order)
     local playerId = CompanionService.getPlayerId(player)
-    if playerId == nil or (order ~= "follow" and order ~= "hold") then
+    if playerId == nil or not KnoxOrderCatalog.isPrimaryOrder(order)
+        or (order ~= "follow" and order ~= "hold" and order ~= "relax") then
         return false, "invalid_command"
     end
     if not KnoxPersistence.updateCompanionOrder(
@@ -225,7 +342,8 @@ function CompanionService.command(player, survivorId, order)
     if character ~= nil then
         KnoxActivityFeed.speak(
             character,
-            order == "follow" and "Right behind you." or "I'll stay here."
+            order == "follow" and "Right behind you."
+                or (order == "relax" and "I'll take a breather." or "I'll stay here.")
         )
     end
     return true, order
@@ -239,11 +357,381 @@ function CompanionService.commandAll(player, order)
         changed = changed + (success and 1 or 0)
     end
     if changed > 0 then
-        KnoxActivityFeed.event(order == "follow"
-            and "Party order: regroup and follow."
-            or "Party order: hold position.")
+        local messages = {
+            follow = "Party order: regroup and follow.",
+            hold = "Party order: hold position.",
+            relax = "Party order: rest and recover.",
+        }
+        KnoxActivityFeed.event(messages[order] or "Party order updated.")
     end
     return changed > 0, changed
+end
+
+-- Single player-facing dispatch point.  The catalogue describes the order;
+-- existing persistence/directive services still own execution and state.
+-- Keeping this boundary small lets menus and future notebook controls use the
+-- same validation without introducing another task manager.
+function CompanionService.issueOrder(player, survivorId, kind, payload)
+    local resolved, resolveResult
+    if KnoxOrderCatalog.resolve ~= nil then
+        resolved, resolveResult = KnoxOrderCatalog.resolve(kind)
+    end
+    local normalizedKind = resolved ~= nil and resolved.kind
+        or KnoxOrderCatalog.normalize(kind)
+    if normalizedKind == nil or (resolved == nil and not KnoxOrderCatalog.isKnown(normalizedKind)) then
+        return false, resolveResult or "unknown_order"
+    end
+    -- Base residents use the same human-facing search labels as companions,
+    -- but their request must remain a durable base duty rather than becoming
+    -- a companion directive.  This branch deliberately precedes default area
+    -- construction, which would otherwise route the order through the wrong
+    -- ownership model.
+    if BASE_SUPPLY_ORDERS[normalizedKind]
+        and KnoxPersistence.getSurvivorDuty ~= nil
+        and KnoxPersistence.setBaseSupplyOrder ~= nil then
+        local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+        if duty.mode == "base" and duty.baseId ~= nil then
+            return CompanionService.setBaseSupplyOrder(player, survivorId, normalizedKind)
+        end
+    end
+    -- `patrol` is also the resident base preference.  When a caller supplies
+    -- an area payload, it is the concrete companion directive; converge that
+    -- familiar label here so the payload cannot be silently discarded by the
+    -- preference branch below.
+    if payload ~= nil and normalizedKind == "patrol" then
+        normalizedKind = "patrol_area"
+    end
+    if normalizedKind == "follow" or normalizedKind == "hold" or normalizedKind == "relax" then
+        return CompanionService.command(player, survivorId, normalizedKind)
+    end
+    if normalizedKind == "return_to_base" then
+        return CompanionService.sendToBase(player, survivorId)
+    end
+    if normalizedKind == "resume_normal_duty" then
+        local duty = KnoxPersistence.getSurvivorDuty ~= nil
+            and KnoxPersistence.getSurvivorDuty(survivorId) or {}
+        if duty.mode == "base" then
+            return CompanionService.clearBaseSupplyOrder(player, survivorId)
+        end
+        return CompanionService.clearDirective(player, survivorId)
+    end
+    -- Catalogue actions are thin adapters to their existing service owners.
+    -- Keeping them here gives every player-facing entry point one validation
+    -- boundary without introducing another executor or state store.
+    if normalizedKind == "recruit" then
+        return CompanionService.recruit(player, survivorId)
+    end
+    if normalizedKind == "dismiss" then
+        return CompanionService.dismiss(player, survivorId)
+    end
+    if normalizedKind == "check_needs" then
+        return CompanionService.askNeeds(player, survivorId)
+    end
+    if normalizedKind == "enter_vehicle" then
+        return CompanionService.boardPlayerVehicle(player, survivorId)
+    end
+    if normalizedKind == "exit_vehicle" then
+        return CompanionService.exitVehicle(player, survivorId)
+    end
+    if normalizedKind == "allow_climbing"
+        or normalizedKind == "disallow_climbing" then
+        return CompanionService.setClimbing(
+            player,
+            survivorId,
+            normalizedKind == "allow_climbing"
+        )
+    end
+    if normalizedKind == "combat_stance" then
+        local stance = type(payload) == "table" and payload.stance or payload
+        return CompanionService.setCombatStance(player, survivorId, stance)
+    end
+    if normalizedKind == "weapon_preference" then
+        local preference = type(payload) == "table" and payload.preference or payload
+        return CompanionService.setWeaponPreference(player, survivorId, preference)
+    end
+    -- A concrete task assignment is still owned by the existing task board.
+    -- Route it through the same catalogue boundary as every other player
+    -- order, but require the explicit base/task payload so a malformed menu
+    -- call cannot silently turn into an automatic preference change.
+    if normalizedKind == "assign_base_task" then
+        if type(payload) ~= "table" or payload.baseId == nil or payload.taskId == nil then
+            return false, "task_target_required"
+        end
+        local assigned, result = CompanionService.assignBaseTask(
+            player, survivorId, payload.baseId, payload.taskId
+        )
+        return assigned ~= nil, result
+    end
+    if payload == nil then
+        payload = defaultCompanionArea(player, survivorId, normalizedKind)
+            or defaultSearchDirective(player, survivorId, normalizedKind)
+    end
+    if payload ~= nil and normalizedKind == "patrol" then
+        normalizedKind = "patrol_area"
+    end
+    -- `guard` is intentionally shared by the catalogue as a base preference
+    -- and as a location directive. A payload means the player selected a
+    -- concrete guard post, so route it to the directive executor before the
+    -- preference branch; a payload-less order still sets the resident role.
+    if payload ~= nil and KnoxOrderCatalog.isDirective(normalizedKind) then
+        local directive, directiveResult = KnoxOrderCatalog.makeDirective(normalizedKind, payload)
+        if directive == nil then
+            return false, directiveResult == "invalid_directive"
+                and "directive_target_required" or directiveResult
+        end
+        return CompanionService.issueDirective(player, survivorId, directive)
+    end
+    if KnoxOrderCatalog.isBasePreference(normalizedKind) then
+        return CompanionService.setBaseJobPreference(player, survivorId, normalizedKind)
+    end
+    -- Concrete settlement task names are valid player-facing order vocabulary,
+    -- but the resident scheduler owns their execution. Route them to the
+    -- matching persisted preference instead of creating a second task path.
+    local taskPreference = KnoxOrderCatalog.preferenceForTask ~= nil
+        and KnoxOrderCatalog.preferenceForTask(normalizedKind) or nil
+    if taskPreference ~= nil then
+        return CompanionService.setBaseJobPreference(player, survivorId, taskPreference)
+    end
+    if KnoxOrderCatalog.isDirective(normalizedKind) then
+        local directive, directiveResult = KnoxOrderCatalog.makeDirective(normalizedKind, payload)
+        if directive == nil then
+            return false, directiveResult == "invalid_directive"
+                and "directive_target_required" or directiveResult
+        end
+        return CompanionService.issueDirective(player, survivorId, directive)
+    end
+    return false, "order_not_companion_executable"
+end
+
+-- Concrete settlement work is still a task-board concern, but the player-facing
+-- assignment enters through the same service boundary as every other order.
+-- This keeps ownership validation and runtime refresh in one place without
+-- creating a second command or scheduling system.
+function CompanionService.assignBaseTask(player, survivorId, baseId, taskId)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or baseId == nil or taskId == nil or survivorId == nil then
+        return nil, "invalid_assignment"
+    end
+    local taskBoard = rawget(_G, "KnoxBaseTaskBoard")
+    if taskBoard == nil then
+        taskBoard = require "KS_BaseTaskBoard"
+    end
+    local assigned, result = taskBoard.claimSpecific(
+        baseId, taskId, survivorId, playerId
+    )
+    if assigned == nil then return nil, result end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        KnoxActivityFeed.speak(character, "I'll handle that job.")
+    end
+    return assigned, result
+end
+
+-- Group-level counterpart to issueOrder.  Party commands used to call a
+-- mixture of commandAll(), issueDirectiveAll(), and direct persistence helpers,
+-- which meant the visible order vocabulary and validation could diverge.  Keep
+-- the same catalogue boundary for a whole party while preserving the existing
+-- per-system ownership rules.
+function CompanionService.issueOrderAll(player, kind, payload)
+    local resolved, resolveResult
+    if KnoxOrderCatalog.resolve ~= nil then
+        resolved, resolveResult = KnoxOrderCatalog.resolve(kind)
+    end
+    local normalizedKind = resolved ~= nil and resolved.kind
+        or KnoxOrderCatalog.normalize(kind)
+    if normalizedKind == nil or (resolved == nil and not KnoxOrderCatalog.isKnown(normalizedKind)) then
+        return false, 0, resolveResult or "unknown_order"
+    end
+    -- Keep payload-bearing patrol calls on the area-directive path.  Without
+    -- this, the shared `patrol` label is treated as a base preference and the
+    -- selected patrol area never reaches the party directive executor.
+    if payload ~= nil and normalizedKind == "patrol" then
+        normalizedKind = "patrol_area"
+    end
+    if normalizedKind == "follow" or normalizedKind == "hold" or normalizedKind == "relax" then
+        local success, changed = CompanionService.commandAll(player, normalizedKind)
+        return success, changed, success and "updated" or "no_companions"
+    end
+    if normalizedKind == "return_to_base" then
+        local changed = 0
+        for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+            local success = CompanionService.sendToBase(player, survivorId)
+            if success then changed = changed + 1 end
+        end
+        return changed > 0, changed, changed > 0 and "returned" or "no_companions"
+    end
+    if normalizedKind == "resume_normal_duty" then
+        local _, changed = CompanionService.clearDirectiveAll(player)
+        local playerId = CompanionService.getPlayerId(player)
+        local manager = rawget(_G, "KnoxBaseManager")
+        local base = manager ~= nil and playerId ~= nil
+            and manager.getForOwner("player", playerId) or nil
+        if base ~= nil and KnoxPersistence.getBaseResidentIds ~= nil then
+            for _, residentId in ipairs(KnoxPersistence.getBaseResidentIds(base.id) or {}) do
+                local success = CompanionService.clearBaseSupplyOrder(player, residentId)
+                if success then changed = changed + 1 end
+            end
+        end
+        return changed > 0, changed, changed > 0 and "cleared" or "no_directives"
+    end
+    -- Party actions reuse the existing per-member service methods. Recruit and
+    -- dismiss intentionally remain individual-only so a broad click cannot
+    -- change ownership for the whole party accidentally.
+    if normalizedKind == "check_needs" then
+        local success, changed = CompanionService.askNeedsAll(player)
+        return success, changed, success and "checked" or "no_companions"
+    end
+    if normalizedKind == "enter_vehicle" then
+        local success, changed = CompanionService.boardAllPlayerVehicle(player)
+        return success, changed, success and "boarded" or "no_companions"
+    end
+    if normalizedKind == "exit_vehicle" then
+        local success, changed = CompanionService.exitAllVehicles(player)
+        return success, changed, success and "exited" or "no_companions"
+    end
+    if normalizedKind == "allow_climbing"
+        or normalizedKind == "disallow_climbing" then
+        local success, changed = CompanionService.setClimbingAll(
+            player,
+            normalizedKind == "allow_climbing"
+        )
+        return success, changed, success and "updated" or "no_companions"
+    end
+    if normalizedKind == "combat_stance" then
+        local stance = type(payload) == "table" and payload.stance or payload
+        local success, changed = CompanionService.setCombatStanceAll(player, stance)
+        return success, changed, success and "updated" or "no_companions"
+    end
+    if normalizedKind == "weapon_preference" then
+        local preference = type(payload) == "table" and payload.preference or payload
+        local success, changed = CompanionService.setWeaponPreferenceAll(player, preference)
+        return success, changed, success and "updated" or "no_companions"
+    end
+    -- Without a selected area, resolve search orders per companion so each
+    -- survivor searches near its own current body.  A shared player-centred
+    -- directive would make a separated party converge on one stale square.
+    if payload == nil and SEARCH_DIRECTIVES[normalizedKind] then
+        local changed = 0
+        for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+            local success = CompanionService.issueOrder(player, survivorId, normalizedKind)
+            if success then changed = changed + 1 end
+        end
+        -- A party-wide resource order also reaches the player's base
+        -- residents. Their service path persists a base supply request rather
+        -- than converting them into companions, so both populations keep
+        -- their existing ownership models.
+        local playerId = CompanionService.getPlayerId(player)
+        local manager = rawget(_G, "KnoxBaseManager")
+        local base = manager ~= nil and playerId ~= nil
+            and manager.getForOwner("player", playerId) or nil
+        if base ~= nil and KnoxPersistence.getBaseResidentIds ~= nil
+            and KnoxPersistence.getSurvivorDuty ~= nil then
+            for _, survivorId in ipairs(KnoxPersistence.getBaseResidentIds(base.id) or {}) do
+                local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+                if duty.mode == "base" then
+                    local success = CompanionService.issueOrder(player, survivorId, normalizedKind)
+                    if success then changed = changed + 1 end
+                end
+            end
+        end
+        return changed > 0, changed, changed > 0 and "updated" or "no_companions"
+    end
+    -- Guard/Patrol are also valid base preferences, but a party-wide command
+    -- with no selected area should still reach travelling companions. Resolve
+    -- each companion locally; base residents continue through the preference
+    -- path below and keep their persistent settlement duty.
+    if payload == nil and (normalizedKind == "guard"
+        or normalizedKind == "patrol" or normalizedKind == "patrol_area") then
+        local changed = 0
+        for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+            local success = CompanionService.issueOrder(player, survivorId, normalizedKind)
+            if success then changed = changed + 1 end
+        end
+        if changed > 0 then
+            return true, changed, "updated"
+        end
+    end
+    if payload ~= nil and KnoxOrderCatalog.isDirective(normalizedKind) then
+        local directive, result = KnoxOrderCatalog.makeDirective(normalizedKind, payload)
+        if directive == nil then
+            return false, 0, result
+        end
+        local success, changed = CompanionService.issueDirectiveAll(player, directive)
+        return success, changed, success and "updated" or "no_companions"
+    end
+    if KnoxOrderCatalog.isBasePreference(normalizedKind) then
+        local playerId = CompanionService.getPlayerId(player)
+        local manager = rawget(_G, "KnoxBaseManager")
+        local base = manager ~= nil and playerId ~= nil
+            and manager.getForOwner("player", playerId) or nil
+        if base == nil or KnoxPersistence.getBaseResidentIds == nil then
+            return false, 0, "no_player_base"
+        end
+        local changed = 0
+        for _, survivorId in ipairs(KnoxPersistence.getBaseResidentIds(base.id) or {}) do
+            local success = CompanionService.setBaseJobPreference(
+                player, survivorId, normalizedKind
+            )
+            if success then changed = changed + 1 end
+        end
+        return changed > 0, changed, changed > 0 and "updated" or "no_residents"
+    end
+    local taskPreference = KnoxOrderCatalog.preferenceForTask ~= nil
+        and KnoxOrderCatalog.preferenceForTask(normalizedKind) or nil
+    if taskPreference ~= nil then
+        local playerId = CompanionService.getPlayerId(player)
+        local manager = rawget(_G, "KnoxBaseManager")
+        local base = manager ~= nil and playerId ~= nil
+            and manager.getForOwner("player", playerId) or nil
+        if base == nil or KnoxPersistence.getBaseResidentIds == nil then
+            return false, 0, "no_player_base"
+        end
+        local changed = 0
+        for _, residentId in ipairs(KnoxPersistence.getBaseResidentIds(base.id) or {}) do
+            local success = CompanionService.setBaseJobPreference(
+                player, residentId, taskPreference
+            )
+            if success then changed = changed + 1 end
+        end
+        return changed > 0, changed, changed > 0 and "updated" or "no_residents"
+    end
+    if KnoxOrderCatalog.isDirective(normalizedKind) then
+        local directive, result = KnoxOrderCatalog.makeDirective(normalizedKind, payload)
+        if directive == nil then
+            return false, 0, result
+        end
+        local success, changed = CompanionService.issueDirectiveAll(player, directive)
+        return success, changed, success and "updated" or "no_companions"
+    end
+    return false, 0, "order_not_party_executable"
+end
+
+function CompanionService.boardAllPlayerVehicle(player)
+    local boarded, waiting = 0, 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success, result = CompanionService.boardPlayerVehicle(player, survivorId)
+        boarded = boarded + (success and 1 or 0)
+        waiting = waiting + (result == "no_free_passenger_seat" and 1 or 0)
+    end
+    if boarded > 0 then
+        KnoxActivityFeed.event("Party order: get in the vehicle.")
+    elseif waiting > 0 then
+        KnoxActivityFeed.event("No passenger seats are available.")
+    end
+    return boarded > 0, boarded, waiting
+end
+
+function CompanionService.exitAllVehicles(player)
+    local exited = 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.exitVehicle(player, survivorId)
+        exited = exited + (success and 1 or 0)
+    end
+    if exited > 0 then
+        KnoxActivityFeed.event("Party order: get out of the vehicle.")
+    end
+    return exited > 0, exited
 end
 
 function CompanionService.setCombatStance(player, survivorId, stance)
@@ -358,6 +846,22 @@ end
 
 function CompanionService.issueDirective(player, survivorId, directive)
     local playerId = CompanionService.getPlayerId(player)
+    if type(directive) ~= "table" then
+        return false, "invalid_directive"
+    end
+    -- Keep direct callers on the same canonical boundary as issueOrder. This
+    -- accepts familiar legacy labels while persisting only the current Knox
+    -- directive vocabulary and preserves all caller-supplied target fields.
+    local normalizedKind = KnoxOrderCatalog.normalize(directive.kind)
+    if not KnoxOrderCatalog.isDirective(normalizedKind) then
+        return false, "invalid_directive"
+    end
+    if normalizedKind ~= directive.kind then
+        local canonical = {}
+        for key, value in pairs(directive) do canonical[key] = value end
+        canonical.kind = normalizedKind
+        directive = canonical
+    end
     if playerId == nil or not KnoxPersistence.setCompanionDirective(
         survivorId,
         playerId,
@@ -377,14 +881,35 @@ function CompanionService.issueDirectiveAll(player, directive)
         changed = changed + (success and 1 or 0)
     end
     if changed > 0 then
-        local labels = {
-            loot_area = "Loot the marked area.",
-            loot_building = "Search and loot this building.",
-            loot_corpses = "Search the bodies nearby.",
-            go_to = "Move to the marked location.",
-            guard = "Hold and guard this location.",
-        }
-        KnoxActivityFeed.event("Party order: " .. (labels[directive.kind] or "new task."))
+        local label = KnoxOrderCatalog.label(directive.kind, "New task.")
+        KnoxActivityFeed.event("Party order: " .. label .. ".")
+    end
+    return changed > 0, changed
+end
+
+function CompanionService.clearDirective(player, survivorId)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.clearCompanionDirective(
+        survivorId, playerId, worldAge()
+    ) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil then
+        KnoxActivityFeed.speak(character, "I'll get back to my usual orders.")
+    end
+    return true, "cleared"
+end
+
+function CompanionService.clearDirectiveAll(player)
+    local changed = 0
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.clearDirective(player, survivorId)
+        changed = changed + (success and 1 or 0)
+    end
+    if changed > 0 then
+        KnoxActivityFeed.event("Party order cleared: resume normal duty.")
     end
     return changed > 0, changed
 end
@@ -423,17 +948,103 @@ function CompanionService.sendToBase(player, survivorId)
 end
 
 function CompanionService.setBaseJobPreference(player, survivorId, preference)
+    local normalizedPreference = KnoxOrderCatalog.normalizeBasePreference ~= nil
+        and KnoxOrderCatalog.normalizeBasePreference(preference)
+        or KnoxOrderCatalog.normalize(preference)
+    if normalizedPreference == nil or not KnoxOrderCatalog.isBasePreference(normalizedPreference) then
+        return false, "unknown_base_preference"
+    end
     local playerId = CompanionService.getPlayerId(player)
     local manager = rawget(_G, "KnoxBaseManager")
     local base = manager ~= nil and manager.getForOwner ~= nil
         and manager.getForOwner("player", playerId) or nil
+    local previousDuty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+    local previousPreference = KnoxOrderCatalog.normalizeBasePreference ~= nil
+        and KnoxOrderCatalog.normalizeBasePreference(previousDuty.jobPreference)
+        or KnoxOrderCatalog.normalize(previousDuty.jobPreference)
     if base == nil or not KnoxPersistence.setBaseJobPreference(
-        survivorId, playerId, base.id, preference, worldAge()
+        survivorId, playerId, base.id, normalizedPreference, worldAge()
     ) then
         return false, "not_your_base_resident"
     end
+    if previousPreference ~= normalizedPreference
+        and normalizedPreference ~= "rest"
+        and KnoxPersistence.requeueAutomaticBaseTasksForSurvivor ~= nil then
+        KnoxPersistence.requeueAutomaticBaseTasksForSurvivor(
+            survivorId, base.id, "resident_preference_changed"
+        )
+    end
+    if normalizedPreference == "rest"
+        and KnoxPersistence.requeueAutomaticBaseTasksForSurvivor ~= nil then
+        KnoxPersistence.requeueAutomaticBaseTasksForSurvivor(
+            survivorId, base.id, "resident_requested_rest"
+        )
+    end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
-    return true, preference
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        local lines = {
+            auto = "I'll help wherever the base needs me.",
+            guard = "I'll keep watch.",
+            patrol = "I'll patrol the area.",
+            farming = "I'll take care of the garden.",
+            woodwork = "I'll handle repairs and timber.",
+            hauling = "I'll keep supplies moving.",
+            animal_care = "I'll look after the animals.",
+            repair = "I'll handle maintenance.",
+            rest = "I'll rest and recover for now.",
+        }
+        KnoxActivityFeed.speak(character, lines[normalizedPreference]
+            or ("I'll take the " .. KnoxOrderCatalog.label(normalizedPreference, "new") .. " duty."))
+    end
+    return true, normalizedPreference
+end
+
+function CompanionService.setBaseSupplyOrder(player, survivorId, kind)
+    local normalized = KnoxOrderCatalog.normalize(kind)
+    local playerId = CompanionService.getPlayerId(player)
+    local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+    if not BASE_SUPPLY_ORDERS[normalized] or playerId == nil
+        or duty.mode ~= "base" or duty.baseId == nil
+        or KnoxPersistence.setBaseSupplyOrder == nil then
+        return false, "not_your_base_resident"
+    end
+    local saved = KnoxPersistence.setBaseSupplyOrder(
+        survivorId, playerId, duty.baseId, normalized, worldAge(), 24
+    )
+    if not saved then return false, "not_your_base_resident" end
+    if KnoxPersistence.requeueAutomaticBaseTasksForSurvivor ~= nil then
+        KnoxPersistence.requeueAutomaticBaseTasksForSurvivor(
+            survivorId, duty.baseId, "resident_supply_ordered"
+        )
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        KnoxActivityFeed.speak(character, "I'll look for "
+            .. string.gsub(KnoxOrderCatalog.label(normalized), "^Find ", "") .. ".")
+    end
+    return true, "base_supply_ordered"
+end
+
+function CompanionService.clearBaseSupplyOrder(player, survivorId)
+    local playerId = CompanionService.getPlayerId(player)
+    local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+    if playerId == nil or duty.mode ~= "base" or duty.baseId == nil
+        or KnoxPersistence.clearBaseSupplyOrder == nil then
+        return false, "not_your_base_resident"
+    end
+    if duty.baseSupplyOrder == nil then return false, "no_supply_order" end
+    local cleared = KnoxPersistence.clearBaseSupplyOrder(
+        survivorId, playerId, duty.baseId, worldAge()
+    )
+    if not cleared then return false, "not_your_base_resident" end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        KnoxActivityFeed.speak(character, "I'll get back to my normal work.")
+    end
+    return true, "base_supply_cleared"
 end
 
 function CompanionService.activateFromBase(player, survivorId)

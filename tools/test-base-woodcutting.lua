@@ -106,6 +106,7 @@ tree.objectIndex = -1
 assert(woodcutting.isComplete(resolved), "removed tree should complete the task")
 table.insert(inventoryItems, log)
 table.insert(inventoryItems, saw)
+base.zones.timber.type = "log_processing"
 
 local sawTarget, sawResult = woodcutting.findTask(base, character)
 assert(sawTarget ~= nil and sawResult == "saw_logs")

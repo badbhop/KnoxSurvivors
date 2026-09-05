@@ -45,6 +45,32 @@ local secondGroup, secondFaction = prepareFaction({ "e", "f", "g" }, 72)
 assert(type(firstFaction.name) == "string" and firstFaction.name ~= "",
     "NPC factions receive a persisted player-facing name")
 
+assert(KnoxPersistence.setSurvivorLifeIntent("a", {
+    kind = "investigate_building",
+    phase = "traveling",
+    targetKey = "building:10:20:0",
+    targetX = 10,
+    targetY = 20,
+    targetZ = 0,
+}, 72))
+local leaderIntent = assert(KnoxPersistence.getSurvivorLifeIntent("a"))
+assert(KnoxPersistence.setTravelGroupObjective(
+    firstGroup.id, "a", leaderIntent, 72
+))
+local sharedObjective = assert(KnoxPersistence.getTravelGroupObjective(firstGroup.id))
+assert(sharedObjective.kind == "investigate_building"
+    and sharedObjective.leaderId == "a" and sharedObjective.revision == 1,
+    "travel groups persist one leader-owned shared purpose")
+sharedObjective.targetX = 999
+assert(KnoxPersistence.getTravelGroupObjective(firstGroup.id).targetX == 10,
+    "callers cannot mutate the persisted group objective by reference")
+assert(not KnoxPersistence.setTravelGroupObjective(
+    firstGroup.id, "a", leaderIntent, 73
+), "unchanged group objective must not churn revisions")
+assert(not KnoxPersistence.setTravelGroupObjective(
+    firstGroup.id, "b", leaderIntent, 73
+), "only the current group leader can replace shared purpose")
+
 assert(KnoxPersistence.areSurvivorsAllied("a", "b"),
     "same group/faction members must classify as allied")
 KnoxPersistence.setRelationshipDisposition("a", "b", "hostile", 96)
@@ -94,9 +120,30 @@ assert(not KnoxPersistence.isSurvivorAlive("a"), "death remains authoritative")
 assert(KnoxPersistence.getTravelGroupFor("a") == nil,
     "dead member leaves active travel membership")
 assert(firstGroup.leaderId == "b", "dead group leader receives stable replacement")
+assert(KnoxPersistence.getTravelGroupObjective(firstGroup.id) == nil,
+    "leader replacement clears the old leader's objective")
 assert(firstFaction.leaderId == "b", "dead faction leader receives stable replacement")
 assert(#KnoxPersistence.getFactionCamp(firstFaction.id).memberIds == 2,
     "dead camp member is removed from active occupancy")
+
+assert(KnoxPersistence.setSurvivorLifeIntent("e", {
+    kind = "scavenge",
+    phase = "traveling",
+    targetKey = "container:40:50:0",
+    targetX = 40,
+    targetY = 50,
+    targetZ = 0,
+}, 73))
+assert(KnoxPersistence.setTravelGroupObjective(
+    secondGroup.id,
+    secondGroup.leaderId,
+    KnoxPersistence.getSurvivorLifeIntent("e"),
+    73
+))
+firstGroup.objective = {
+    kind = "travel_area", phase = "traveling", leaderId = "removed-leader",
+    targetX = 1, targetY = 1, targetZ = 0,
+}
 
 -- Simulate Lua reload while retaining ModData. Relationship and leadership
 -- must come back from persistence without any runtime controller cache.
@@ -113,5 +160,12 @@ assert(KnoxPersistence.getFactionForSurvivor("b").leaderId == "b",
     "faction leadership survives reload")
 assert(KnoxPersistence.getFactionForSurvivor("b").name == firstFaction.name,
     "faction name survives reload and leader changes")
+assert(KnoxPersistence.getTravelGroupObjective(firstGroup.id) == nil,
+    "restore rejects an objective that is not owned by the current leader")
+local restoredObjective = assert(
+    KnoxPersistence.getTravelGroupObjective(secondGroup.id)
+)
+assert(restoredObjective.kind == "scavenge" and restoredObjective.leaderId == "e",
+    "valid shared purpose survives a Lua reload")
 
 print("Relationship coherence PASS canonical=true allies=true neutral=true hostile=true death=true reload=true")

@@ -1,11 +1,14 @@
 local Simulation = rawget(_G, "KnoxUnloadedSurvival") or {}
 _G.KnoxUnloadedSurvival = Simulation
+require "KS_BaseDutySimulation"
+require "KS_OrderCatalog"
 
 -- Hibernated survivors are not hidden active characters.  This module advances a
 -- small persisted survival ledger between body capture and reconstruction.  It
 -- never creates supplies: food and water are removed from the encoded portable
 -- inventory before the relief is recorded.
 local MAX_STEP_HOURS = 6
+local PHYSICAL_TASK_OFFSCREEN_WAIT_HOURS = 12
 local FOOD_TRIGGER = 0.60
 local WATER_TRIGGER = 0.60
 local FOOD_AFTER_MEAL = 0.22
@@ -25,6 +28,13 @@ local REST_ENDURANCE = 0.30
 local RESUME_ENDURANCE = 0.80
 local SLEEP_FATIGUE = 0.72
 local WAKE_FATIGUE = 0.35
+
+local function canonicalTaskType(taskType)
+    if KnoxOrderCatalog ~= nil and KnoxOrderCatalog.normalizeTaskType ~= nil then
+        return KnoxOrderCatalog.normalizeTaskType(taskType) or taskType
+    end
+    return taskType
+end
 
 local function clamp(value, low, high)
     return math.max(low, math.min(high, tonumber(value) or low))
@@ -220,7 +230,37 @@ local function advanceWorldActivity(id, state, elapsed, hours)
             y = minY + (math.floor(seed / width) % height)
             z = tonumber(area.z) or z
         end
-        setActivity(state, "base_life", hours)
+        local task = nil
+        if base ~= nil and type(base.tasks) == "table" then
+            for _, candidate in pairs(base.tasks) do
+                if candidate ~= nil and candidate.state == "claimed"
+                    and candidate.claimedBy == id then
+                    task = candidate
+                    break
+                end
+            end
+        end
+        local workingOffscreen = false
+        if task ~= nil and KnoxBaseDutySimulation ~= nil then
+            local completed = KnoxBaseDutySimulation.advance(task, elapsed)
+            workingOffscreen = true
+            if completed and persistence.finishBaseTask ~= nil then
+                persistence.finishBaseTask(
+                    duty.baseId, task.id, id, true,
+                    "offscreen_watch_shift_complete", hours
+                )
+                -- Guard and patrol are recurring zone duties. Requeue the
+                -- finished record after its normal retry window so another
+                -- resident can take relief while the base remains unloaded.
+                local taskType = canonicalTaskType(task.type)
+                if (taskType == "guard" or taskType == "patrol")
+                    and persistence.requeueBaseTask ~= nil then
+                    persistence.requeueBaseTask(duty.baseId, task.id, hours)
+                end
+            end
+            setActivity(state, completed and "base_life" or "base_working", hours)
+        end
+        if not workingOffscreen then setActivity(state, "base_life", hours) end
     elseif duty.mode == "companion" then
         -- Companions normally remain loaded. If streaming briefly stores one,
         -- preserve their exact last location for reliable reunion.
@@ -236,7 +276,16 @@ local function advanceWorldActivity(id, state, elapsed, hours)
                 local advanced, _, travelHours = population.advanceItinerary(id, state, hours - elapsed, hours)
                 if advanced then moving = tonumber(travelHours) or 0 end
             end
-            setActivity(state, moving > 0 and "surviving" or "sheltering", hours)
+            local intent = persistence.getSurvivorLifeIntent ~= nil
+                and persistence.getSurvivorLifeIntent(id) or nil
+            local seeking = intent ~= nil and (intent.kind == "find_food"
+                or intent.kind == "find_water" or intent.kind == "find_medical")
+            setActivity(
+                state,
+                moving > 0 and (seeking and "seeking_supplies" or "exploring")
+                    or "sheltering",
+                hours
+            )
             state.virtualAtHours = hours
             return moving
         end
@@ -580,9 +629,98 @@ local function advanceStoredGroup(group, active, hours)
                 if travel >= distance then shared.virtualZ = destination.z end
                 movingHours = travel / RETURN_TILES_PER_HOUR
             end
-        elseif population ~= nil and population.advanceItinerary ~= nil then
-            local advanced, _, travelHours = population.advanceItinerary(group.id, shared, atHours - span, atHours)
-            if advanced then movingHours = clamp(travelHours, 0, span) end
+        else
+            local objective = persistence.getTravelGroupObjective ~= nil
+                and persistence.getTravelGroupObjective(group.id) or nil
+            local faction = group.factionId ~= nil and persistence.getFaction ~= nil
+                and persistence.getFaction(group.factionId) or nil
+            local scoutingStop = shared.baseScoutStop == true
+                and faction ~= nil and faction.homeBase == nil
+            -- A stored faction pauses at a real-world handoff so its leader
+            -- can inspect the building when that cell streams in. If it stays
+            -- unloaded too long, release the pause and let the cohort choose a
+            -- different cached origin; otherwise one unavailable cell can
+            -- freeze an entire faction's off-screen life indefinitely.
+            if scoutingStop and tonumber(shared.baseScoutStopAtHours) ~= nil
+                and atHours >= tonumber(shared.baseScoutStopAtHours) then
+                shared.baseScoutStop = nil
+                shared.baseScoutStopAtHours = nil
+                scoutingStop = false
+                print("[KnoxSurvivors][Unloaded] faction-scout-timeout=" .. tostring(group.id))
+            end
+            if faction ~= nil and faction.kind == "npc" and faction.homeBase == nil
+                and objective == nil and not scoutingStop and anchor.id == group.leaderId
+                and population ~= nil and population.nearestScoutingOrigin ~= nil then
+                local origin = population.nearestScoutingOrigin(
+                    shared.virtualX, shared.virtualY, shared.virtualZ,
+                    group.id, shared.scoutOriginKey
+                )
+                if origin ~= nil and persistence.setTravelGroupObjective ~= nil then
+                    local scoutIntent = {
+                        kind = "investigate_building", phase = "traveling",
+                        targetKey = "faction-scout:" .. tostring(origin.key),
+                        targetX = origin.x, targetY = origin.y, targetZ = origin.z,
+                    }
+                    persistence.setSurvivorLifeIntent(anchor.id, scoutIntent, atHours)
+                    persistence.setTravelGroupObjective(group.id, anchor.id, scoutIntent, atHours)
+                    objective = persistence.getTravelGroupObjective(group.id)
+                    shared.scoutOriginKey = origin.key
+                    shared.baseScoutStop = nil
+                end
+            end
+            local objectiveOwnsTravel = objective ~= nil
+                and (objective.phase == "seeking" or objective.phase == "traveling")
+                and finite(objective.targetX) and finite(objective.targetY)
+                and finite(objective.targetZ) and objective.targetZ == shared.virtualZ
+            if objectiveOwnsTravel then
+                if shared.objectiveRevision ~= objective.revision then
+                    -- A new leader purpose supersedes a stale random itinerary.
+                    shared.travelTarget = nil
+                    shared.departAtHours = nil
+                    shared.objectiveRevision = objective.revision
+                end
+                local dx = objective.targetX - x
+                local dy = objective.targetY - y
+                local distance = math.sqrt(dx * dx + dy * dy)
+                local travel = math.min(distance, RETURN_TILES_PER_HOUR * span)
+                if distance > 0 then
+                    shared.virtualX = x + dx / distance * travel
+                    shared.virtualY = y + dy / distance * travel
+                end
+                movingHours = travel / RETURN_TILES_PER_HOUR
+                if travel >= distance then
+                    local factionScout = string.find(
+                        tostring(objective.targetKey or ""), "^faction%-scout:"
+                    ) ~= nil
+                    shared.virtualX = objective.targetX
+                    shared.virtualY = objective.targetY
+                    shared.virtualZ = objective.targetZ
+                    objective.phase = "reassess"
+                    objective.targetKey = nil
+                    objective.targetX, objective.targetY, objective.targetZ = nil, nil, nil
+                    objective.startedAtHours = objective.startedAtHours or atHours
+                    persistence.setSurvivorLifeIntent(anchor.id, objective, atHours)
+                    persistence.setTravelGroupObjective(group.id, anchor.id, objective, atHours)
+                    if factionScout then
+                        shared.baseScoutStop = true
+                        shared.baseScoutStopAtHours = atHours + 48
+                    end
+                    local updated = persistence.getTravelGroupObjective(group.id)
+                    shared.objectiveRevision = updated ~= nil and updated.revision
+                        or shared.objectiveRevision
+                    shared.departAtHours = atHours + 2
+                end
+            elseif scoutingStop then
+                movingHours = 0
+            elseif population ~= nil and population.advanceItinerary ~= nil then
+                local advanced, _, travelHours = population.advanceItinerary(
+                    group.id,
+                    shared,
+                    atHours - span,
+                    atHours
+                )
+                if advanced then movingHours = clamp(travelHours, 0, span) end
+            end
         end
         local dx, dy = shared.virtualX - x, shared.virtualY - y
         for _, member in ipairs(members) do
@@ -591,8 +729,13 @@ local function advanceStoredGroup(group, active, hours)
             if event then member.state.virtualZ = shared.virtualZ end
             moved[member.id] = movingHours
         end
+        local objective = not event and persistence.getTravelGroupObjective ~= nil
+            and persistence.getTravelGroupObjective(group.id) or nil
         setActivity(shared, event and (movingHours > 0 and "event_travel" or "event_waiting")
-            or (movingHours > 0 and "group_travel" or "sheltering"), atHours)
+            or (movingHours > 0 and objective ~= nil
+                    and (objective.phase == "seeking" or objective.phase == "traveling")
+                and "group_objective"
+                or (movingHours > 0 and "group_travel" or "sheltering")), atHours)
         return movingHours
     end
     cohort.apply = function(span, restMode, sleepEnabled, activity, atHours)
@@ -648,6 +791,7 @@ function Simulation.advanceAll(activeIds, hours)
     if persistence == nil then
         return 0, 0
     end
+    local targetHours = tonumber(hours) or nowHours()
     local advanced, notable = 0, 0
     local ids = persistence.getActivatableSurvivorIds()
     local groups, groupIds, handled = {}, {}, {}
@@ -672,7 +816,7 @@ function Simulation.advanceAll(activeIds, hours)
         end
     end
     for _, groupId in ipairs(groupIds) do
-        local results = advanceStoredGroup(groups[groupId], active, hours or nowHours())
+        local results = advanceStoredGroup(groups[groupId], active, targetHours)
         if results ~= nil and (groups[groupId].kind == "faction_raid"
             or groups[groupId].kind == "faction_entry") then
             events.saveUnloadedTravel(groups[groupId].id, groups[groupId].revision, groups[groupId].unloadedTravel)
@@ -687,24 +831,89 @@ function Simulation.advanceAll(activeIds, hours)
         end
     end
     for _, id in ipairs(ids) do
-        if not active[id] and persistence.getRecord(id) == nil then
+        local record = persistence.getRecord(id)
+        local duty = persistence.getSurvivorDuty ~= nil
+            and persistence.getSurvivorDuty(id) or nil
+        local state = persistence.getUnloadedSurvivalState ~= nil
+            and persistence.getUnloadedSurvivalState(id) or nil
+        local task = nil
+        if type(duty) == "table" and duty.mode == "base"
+            and type(duty.baseId) == "string" then
+            local base = persistence.getBase ~= nil
+                and persistence.getBase(duty.baseId) or nil
+            for _, candidate in pairs(base ~= nil and base.tasks or {}) do
+                if type(candidate) == "table"
+                    and candidate.state == "claimed"
+                    and candidate.claimedBy == id then
+                    task = candidate
+                    break
+                end
+            end
+        end
+        if not active[id] and record == nil then
             local population = rawget(_G, "KnoxWorldPopulation")
             if population ~= nil and population.advanceOriginTravel ~= nil then
                 local ok = population.advanceOriginTravel(id, hours or nowHours())
                 if ok then advanced = advanced + 1 end
             end
-        elseif not active[id] and not handled[id] and persistence.getRecord(id) ~= nil then
-            -- Away teams own travel, risk, and mission results, but they do
-            -- not suspend physiology.  Their durable ledger still advances
-            -- hunger, thirst, fatigue, endurance, inventory consumption, and
-            -- health while the mission is off-screen.
-            local ok, result = Simulation.advanceHibernated(id, hours)
+        elseif not active[id] and not handled[id] and record ~= nil then
+            -- A claimed base job does not suspend physiology.  The ordinary
+            -- stored-survivor path also advances the only jobs that are safe
+            -- to simulate without a loaded square (guard/patrol watch shifts).
+            -- Physical jobs remain native-only and are handled by the bounded
+            -- claim-wait policy below.
+            local ok, result = Simulation.advanceHibernated(id, targetHours)
             if ok then
                 advanced = advanced + 1
                 if result ~= "advanced" then
                     notable = notable + 1
                     print("[KnoxSurvivors][Unloaded] id=" .. id .. " event=" .. tostring(result))
                 end
+            end
+            state = persistence.getUnloadedSurvivalState ~= nil
+                and persistence.getUnloadedSurvivalState(id) or nil
+            local stillOwnsTask = task ~= nil and task.state == "claimed"
+                and task.claimedBy == id and survivorPresent(persistence, id)
+            local abstractable = stillOwnsTask and state ~= nil
+                and KnoxBaseDutySimulation ~= nil
+                and KnoxBaseDutySimulation.canAdvanceOffscreen ~= nil
+                and KnoxBaseDutySimulation.canAdvanceOffscreen(task)
+            if stillOwnsTask and not abstractable then
+                -- World-changing jobs stay native-only, but an automatic claim
+                -- must not reserve settlement work forever while its square is
+                -- streamed out. A missing survival ledger cannot strand the
+                -- claim either. Manual Notebook assignments remain intact.
+                local previousTaskHours = tonumber(task.offscreenLastHours)
+                    or tonumber(task.claimedAtHours) or targetHours
+                local taskElapsed = math.max(0, targetHours - previousTaskHours)
+                task.offscreenLastHours = targetHours
+                task.offscreenWaitHours = (tonumber(task.offscreenWaitHours) or 0)
+                    + taskElapsed
+                if task.offscreenWaitHours >= PHYSICAL_TASK_OFFSCREEN_WAIT_HOURS
+                    and task.manual ~= true
+                    and persistence.releaseBaseTaskClaim ~= nil then
+                    local released, releaseResult = persistence.releaseBaseTaskClaim(
+                        duty.baseId,
+                        task.id,
+                        id,
+                        "unloaded_execution_wait",
+                        targetHours
+                    )
+                    if released ~= nil then
+                        task = nil
+                        if state ~= nil then setActivity(state, "base_life", targetHours) end
+                    else
+                        print("[KnoxSurvivors][Unloaded] base-claim-release-failed id="
+                            .. tostring(id) .. " task=" .. tostring(task.id)
+                            .. " result=" .. tostring(releaseResult))
+                    end
+                end
+                if task ~= nil and state ~= nil then
+                    setActivity(state, "base_working", targetHours)
+                end
+            end
+            if state ~= nil and persistence.setUnloadedSurvivalState ~= nil then
+                persistence.setUnloadedSurvivalState(id, state)
             end
         end
     end

@@ -23,6 +23,22 @@ assert(#camp.memberIds == 2 and camp.memberIds[1] == "one" and camp.memberIds[2]
 assert(persistence.getCampForSurvivor("one") == camp
         and persistence.getCampForSurvivor("two") == camp,
     "save data should resolve each member back to the same camp")
+data.factions["faction-2"] = {
+    id = "faction-2", kind = "npc", leaderId = "two", memberIds = { "two", "one" },
+}
+local overlapping, overlapResult = persistence.createFactionCamp("faction-2", {
+    x = 10, y = 20, z = 0, buildingId = "building-1",
+}, 12)
+assert(overlapping == nil and overlapResult == "camp_location_claimed",
+    "different factions must not claim the same temporary shelter")
+data.bases["player-base"] = {
+    id = "player-base", territory = { minX = 40, minY = 40, maxX = 50, maxY = 50, z = 0 },
+}
+local baseOverlap, baseOverlapResult = persistence.createFactionCamp("faction-2", {
+    x = 45, y = 45, z = 0,
+}, 12)
+assert(baseOverlap == nil and baseOverlapResult == "camp_location_claimed",
+    "temporary camps must respect persisted base territory")
 assert(#persistence.syncFactionCampMembers("faction-1").memberIds == 2,
     "camp reconciliation must not duplicate membership")
 assert(persistence.getFactionCamp("faction-1").id == camp.id)

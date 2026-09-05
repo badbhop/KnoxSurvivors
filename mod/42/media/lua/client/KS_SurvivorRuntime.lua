@@ -128,7 +128,12 @@ function Runtime.snapshot(id)
 end
 
 function Runtime.notifyDutyChanged(id)
-    return getEntry(id) ~= nil
+    local entry = getEntry(id)
+    if entry == nil then return false end
+    if entry.controller ~= nil and entry.controller.onDutyChanged ~= nil then
+        entry.controller:onDutyChanged()
+    end
+    return true
 end
 
 -- Transient action lease only. Identity, orders and inventory stay in their

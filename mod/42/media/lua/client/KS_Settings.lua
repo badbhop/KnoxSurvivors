@@ -5,13 +5,22 @@ local DEFAULTS = {
     Enabled = true,
     DisableSurvivorCaps = false,
     WorldPopulation = 48,
+    InitialGroupChance = 65,
+    InitialGroupMaxSize = 4,
+    InitialGroupCount = 3,
     MaxActiveSurvivors = 16,
+    ActivationsPerUpdate = 2,
     PopulationRefillDays = 5,
     MinimumSpawnDistance = 40,
+    SurvivorEncounterDistance = 280,
     CompanionLimit = 4,
     RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
+    EnableKnoxEvents = false,
+    NPCFactionMinimumMembers = 4,
+    NPCFactionMaxMembers = 8,
     AllowHostileEncounters = true,
+    AllowSurvivorFleeing = false,
     AllowFactionRaids = false,
     FactionRaidMinimumDays = 14,
     FactionRaidIntervalDays = 7,
@@ -25,7 +34,8 @@ local DEFAULTS = {
     DeveloperScenario = 1,
     DeveloperSpawnDistance = 10,
     AllowDestructiveDeveloperTests = false,
-    ShowDeveloperDiagnostics = true,
+    ShowDeveloperDiagnostics = false,
+    AutoGenerateBaseWorkAreas = true,
 }
 
 local SCENARIOS = {
@@ -64,6 +74,18 @@ function Settings.worldPopulation()
     return integer("WorldPopulation", 0, 256)
 end
 
+function Settings.initialGroupChance()
+    return integer("InitialGroupChance", 0, 100)
+end
+
+function Settings.initialGroupMaxSize()
+    return integer("InitialGroupMaxSize", 2, 6)
+end
+
+function Settings.initialGroupCount()
+    return integer("InitialGroupCount", 1, 4)
+end
+
 function Settings.capsDisabled()
     return value("DisableSurvivorCaps") == true
 end
@@ -73,10 +95,15 @@ function Settings.maxActiveSurvivors()
     return integer("MaxActiveSurvivors", 1, 48)
 end
 
+function Settings.activationsPerUpdate()
+    return integer("ActivationsPerUpdate", 1, 4)
+end
+
 -- Rate limiting is not a lifetime population cap. Even without configured caps,
 -- streaming a busy settlement must not construct every body on a single update.
 function Settings.activationBudget(activeCount)
-    return math.min(2, math.max(0, Settings.maxActiveSurvivors() - math.max(0, activeCount or 0)))
+    return math.min(Settings.activationsPerUpdate(),
+        math.max(0, Settings.maxActiveSurvivors() - math.max(0, activeCount or 0)))
 end
 
 function Settings.populationRefillDays()
@@ -85,6 +112,10 @@ end
 
 function Settings.minimumSpawnDistance()
     return integer("MinimumSpawnDistance", 25, 150)
+end
+
+function Settings.survivorEncounterDistance()
+    return integer("SurvivorEncounterDistance", 120, 500)
 end
 
 function Settings.companionLimit()
@@ -100,8 +131,28 @@ function Settings.allowNPCFactions()
     return value("AllowNPCFactions") ~= false
 end
 
+function Settings.autoGenerateBaseWorkAreas()
+    return value("AutoGenerateBaseWorkAreas") ~= false
+end
+
+function Settings.enableKnoxEvents()
+    return Settings.enabled() and value("EnableKnoxEvents") == true
+end
+
+function Settings.npcFactionMinimumMembers()
+    return integer("NPCFactionMinimumMembers", 3, 8)
+end
+
+function Settings.npcFactionMaxMembers()
+    return integer("NPCFactionMaxMembers", 3, 24)
+end
+
 function Settings.allowHostileEncounters()
     return value("AllowHostileEncounters") ~= false
+end
+
+function Settings.allowSurvivorFleeing()
+    return Settings.enabled() and value("AllowSurvivorFleeing") == true
 end
 
 function Settings.allowFactionRaids()

@@ -1,3 +1,5 @@
+package.path = "mod/42/media/lua/client/?.lua;" .. package.path
+
 local function stubModule(name)
     package.preload[name] = function()
         return true
@@ -56,6 +58,9 @@ KnoxPersistence = {
     getPlayerRelationshipSnapshot = function()
         return { firstMetHours = 52, trust = 61, meetings = 4 }
     end,
+    getSurvivorLifeIntent = function()
+        return { kind = "find_food", phase = "traveling" }
+    end,
     getBase = function() return nil end,
 }
 KnoxCompanionService = {
@@ -105,6 +110,8 @@ assert(away.vitals.health == nil)
 assert(away.health == 1)
 assert(away.traits[1] == "Brave" and away.skills.Woodwork.level == 3)
 assert(away.trust == 61 and away.relationshipMeetings == 4)
+assert(away.lifeIntent ~= nil and away.lifeIntent.label == "Looking for food",
+    "stored autonomous purpose is readable in the survivor card model")
 
 liveCharacter = {
     getCurrentSquare = function() return {} end,
@@ -141,5 +148,21 @@ assert(duty.order == "follow")
 local party = viewModel.getForPlayer(0)
 assert(#party == 1)
 assert(party[1].id == "survivor-1")
+
+-- Base rows should expose the real claimed task even when the loaded runtime
+-- has not published a fresh activity snapshot yet.
+duty.mode = "base"
+duty.baseId = "base-1"
+duty.order = "survive"
+KnoxPersistence.getBase = function(id)
+    return id == "base-1" and {
+        tasks = {
+            { type = "farm_seed", state = "claimed", claimedBy = "survivor-1" },
+        },
+    } or nil
+end
+local resident = viewModel.getSurvivor("survivor-1", 0)
+assert(resident.orderLabel == "Plant Crops",
+    "base resident status should project the claimed canonical task")
 
 print("survivor view-model tests passed")

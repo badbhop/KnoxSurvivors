@@ -19,7 +19,27 @@ local function locationFor(character)
     local square = character ~= nil and character:getCurrentSquare() or nil
     local building = square ~= nil and square:getBuilding() or nil
     local definition = building ~= nil and building:getDef() or nil
-    if square == nil or definition == nil or safehouseOccupied(building) then
+    if definition ~= nil and (definition.getX == nil or definition.getY == nil
+        or definition.getX2 == nil or definition.getY2 == nil
+        or definition.getID == nil) then
+        definition = nil
+    end
+    if square == nil or safehouseOccupied(building) then
+        return nil
+    end
+    -- A faction can form before it has found a building. Preserve the same
+    -- temporary-camp lifecycle outdoors rather than leaving the group homeless
+    -- until a building happens to stream in. The radius-based camp geometry is
+    -- intentionally modest; permanent shelter scouting still owns buildings.
+    if definition == nil then
+        local outside = square.isOutside ~= nil and square:isOutside()
+            or (square.getRoom ~= nil and square:getRoom() == nil)
+        if outside and square.canStand ~= nil and square:canStand() then
+            return {
+                x = square:getX(), y = square:getY(), z = square:getZ(),
+                name = "Temporary Camp",
+            }
+        end
         return nil
     end
     return {

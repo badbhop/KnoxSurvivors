@@ -12,9 +12,19 @@ _G.KnoxWorldPopulation = WorldPopulation
 local catalogCache = nil
 local catalogCacheKey = nil
 local FIRST_SPAWN_SEARCH_RADIUS = 4
+-- Fresh saves may need dozens of durable identities, but creating the whole
+-- population inside one OnTick callback can keep the game thread unresponsive
+-- long enough for the operating system to treat Project Zomboid as hung.
+-- Population records do not need engine bodies, so spread only this initial
+-- bookkeeping across bounded maintenance passes. The final target, origin
+-- balance, and opening-group policy are unchanged.
+local INITIAL_ALLOCATION_BATCH = 6
 local TRAVEL_BUCKET_SIZE = 300
 local ORIGIN_TRAVEL_SPEED = 40 -- net tiles/game-hour, with separate shelter stops
 local ORIGIN_TRAVEL_RADIUS = 600
+local INITIAL_REGION_COHORT_MIN = 4
+local INITIAL_REGION_COHORT_MAX = 12
+local INITIAL_GROUP_MAX_SEPARATION = 64
 
 local function finite(value)
     value = tonumber(value)
@@ -354,6 +364,36 @@ local function chooseTravelOrigin(catalog, id, state)
     return choices[(stableHash(id .. ":" .. tostring(state.travelSequence or 0)) % #choices) + 1]
 end
 
+-- Faction scouting uses the same real origin catalogue as ordinary unloaded
+-- travel, but keeps the cohort at the chosen anchor until its leader can load
+-- the cell and inspect an actual building. This is only a rendezvous point;
+-- it never treats an origin as a shelter or creates an abstract base.
+function WorldPopulation.nearestScoutingOrigin(x, y, z, seed, previousKey)
+    if not finite(x) or not finite(y) or not finite(z) then return nil end
+    local catalog = WorldPopulation.spawnCatalog()
+    if catalog == nil then return nil end
+    local choices = {}
+    for _, origin in ipairs(catalog.origins or {}) do
+        if origin.z == z and origin.key ~= previousKey then
+            local dx, dy = origin.x - x, origin.y - y
+            local distance = dx * dx + dy * dy
+            if distance >= 24 * 24 and distance <= ORIGIN_TRAVEL_RADIUS * ORIGIN_TRAVEL_RADIUS then
+                choices[#choices + 1] = {
+                    origin = origin,
+                    distance = distance,
+                    order = stableHash(tostring(seed or "faction") .. ":" .. origin.key),
+                }
+            end
+        end
+    end
+    table.sort(choices, function(first, second)
+        if first.distance ~= second.distance then return first.distance < second.distance end
+        if first.order ~= second.order then return first.order < second.order end
+        return first.origin.key < second.origin.key
+    end)
+    return choices[1] ~= nil and choices[1].origin or nil
+end
+
 -- Shared coarse itinerary for a durable position. The caller owns physiology,
 -- duties and persistence. Return moving time so travel is not mistaken for rest.
 function WorldPopulation.advanceItinerary(id, state, startHours, endHours)
@@ -441,6 +481,60 @@ function WorldPopulation.advanceOriginTravel(id, hours)
         KnoxPersistence.setUnloadedSurvivalState(id, state)
         return false, "event_entry_waiting"
     end
+    local group = KnoxPersistence.getTravelGroupFor ~= nil
+        and KnoxPersistence.getTravelGroupFor(id) or nil
+    if group ~= nil then
+        if group.leaderId ~= id then return false, "origin_group_leader_owns_travel" end
+        local members = {}
+        for _, memberId in ipairs(group.memberIds or {}) do
+            local memberState = KnoxPersistence.getUnloadedSurvivalState(memberId)
+            if KnoxPersistence.getRecord(memberId) ~= nil or memberState == nil
+                or memberState.pendingMaterialization ~= true then
+                return false, "origin_group_waiting_for_materialization"
+            end
+            members[#members + 1] = { id = memberId, state = memberState }
+        end
+        if #members < 2 then return false, "origin_group_unavailable" end
+        local leaderState = nil
+        for _, member in ipairs(members) do
+            if member.id == group.leaderId then leaderState = member.state break end
+        end
+        if leaderState == nil then return false, "origin_group_leader_unavailable" end
+        local shared = type(group.unloadedTravel) == "table" and group.unloadedTravel or {
+            virtualX = leaderState.virtualX,
+            virtualY = leaderState.virtualY,
+            virtualZ = leaderState.virtualZ,
+            lastHours = leaderState.lastHours,
+            currentTravelKey = leaderState.currentTravelKey,
+            previousTravelKey = leaderState.previousTravelKey,
+            departAtHours = leaderState.departAtHours,
+            travelSequence = leaderState.travelSequence,
+        }
+        local oldX, oldY = shared.virtualX, shared.virtualY
+        local advanced, result = WorldPopulation.advanceItinerary(
+            group.id,
+            shared,
+            tonumber(shared.lastHours) or now,
+            now
+        )
+        if not advanced then return false, result end
+        local dx, dy = shared.virtualX - oldX, shared.virtualY - oldY
+        shared.lastHours = now
+        group.unloadedTravel = shared
+        for _, member in ipairs(members) do
+            local memberState = member.state
+            memberState.virtualX = memberState.virtualX + dx
+            memberState.virtualY = memberState.virtualY + dy
+            memberState.virtualAtHours = now
+            memberState.lastHours = now
+            memberState.currentTravelKey = shared.currentTravelKey
+            memberState.previousTravelKey = shared.previousTravelKey
+            memberState.activity = shared.travelPhase == "moving"
+                and "group_travel" or "group_waiting"
+            KnoxPersistence.setUnloadedSurvivalState(member.id, memberState)
+        end
+        return true, "origin_group_advanced"
+    end
     local advanced, result = WorldPopulation.advanceItinerary(id, state, tonumber(state.lastHours) or now, now)
     if not advanced then return false, result end
     state.activity = state.travelPhase == "moving" and "origin_travel" or "origin_shelter"
@@ -477,6 +571,194 @@ local function chooseBalancedOrigin(catalog, used, counts, cursor)
     return selected.origin, selected.region.key
 end
 
+local function primaryPlayerSquare(options)
+    local function currentSquare(player)
+        local success, square = pcall(function()
+            return player ~= nil and player:getCurrentSquare() or nil
+        end)
+        return success and square or nil
+    end
+    local supplied = type(options) == "table" and options.players or nil
+    if type(supplied) == "table" then
+        for _, player in ipairs(supplied) do
+            local square = currentSquare(player)
+            if square ~= nil then return square end
+        end
+    end
+    local countSuccess, count = pcall(function() return getNumActivePlayers() end)
+    if countSuccess then
+        for index = 0, math.max(0, tonumber(count) or 0) - 1 do
+            local playerSuccess, player = pcall(function() return getSpecificPlayer(index) end)
+            local square = playerSuccess and currentSquare(player) or nil
+            if square ~= nil then return square end
+        end
+    end
+    return nil
+end
+
+local function nearestStartingRegion(catalog, options)
+    local square = primaryPlayerSquare(options)
+    if square == nil then return nil end
+    local selected, selectedDistance = nil, math.huge
+    for _, region in ipairs(catalog.regions or {}) do
+        local dx, dy = region.anchorX - square:getX(), region.anchorY - square:getY()
+        local distance = dx * dx + dy * dy
+        if distance < selectedDistance then
+            selected, selectedDistance = region, distance
+        end
+    end
+    return selected
+end
+
+local function initialRegionCohortSize(target, regionCount)
+    if target <= 0 or regionCount <= 0 then return 0 end
+    local balancedShare = math.ceil(target / regionCount)
+    local presenceBonus = math.max(2, math.floor(target * 0.10 + 0.5))
+    return math.min(
+        target,
+        INITIAL_REGION_COHORT_MAX,
+        math.max(INITIAL_REGION_COHORT_MIN, balancedShare + presenceBonus)
+    )
+end
+
+local function allocateFromRegion(region, worldAgeHours, state, used, counts)
+    if region == nil then return nil, "starting_region_unavailable" end
+    local cursor = math.max(0, math.floor(tonumber(state.allocationCursor) or 0))
+    local origin = firstUnusedOrigin(region, used, cursor)
+    if origin == nil then return nil, "starting_region_origins_exhausted" end
+    local id, result = KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
+    if id == nil then return nil, result end
+    used[origin.key] = true
+    counts[region.key] = (counts[region.key] or 0) + 1
+    state.allocationCursor = cursor + 1
+    return id, "allocated"
+end
+
+local function removeSelectedIds(available, selected)
+    local removed = {}
+    for _, id in ipairs(selected) do removed[id] = true end
+    local retained = {}
+    for _, id in ipairs(available) do
+        if not removed[id] then retained[#retained + 1] = id end
+    end
+    return retained
+end
+
+local function compactGroup(available, size)
+    if #available < size then return nil end
+    table.sort(available)
+    for _, anchorId in ipairs(available) do
+        local anchor = KnoxPersistence.getSurvivorOrigin(anchorId)
+        if anchor ~= nil then
+            local nearby = {}
+            for _, candidateId in ipairs(available) do
+                if candidateId ~= anchorId then
+                    local candidate = KnoxPersistence.getSurvivorOrigin(candidateId)
+                    if candidate ~= nil and candidate.z == anchor.z then
+                        local dx, dy = candidate.x - anchor.x, candidate.y - anchor.y
+                        local distance = dx * dx + dy * dy
+                        if distance <= INITIAL_GROUP_MAX_SEPARATION^2 then
+                            nearby[#nearby + 1] = { id = candidateId, distance = distance }
+                        end
+                    end
+                end
+            end
+            table.sort(nearby, function(first, second)
+                if first.distance == second.distance then return first.id < second.id end
+                return first.distance < second.distance
+            end)
+            if #nearby >= size - 1 then
+                local selected = { anchorId }
+                for index = 1, size - 1 do selected[#selected + 1] = nearby[index].id end
+                table.sort(selected)
+                return selected
+            end
+        end
+    end
+    return nil
+end
+
+local function formInitialGroups(startingIds, worldAgeHours, state)
+    if state.initialGroupsCreated then return 0 end
+    local available = {}
+    for _, id in ipairs(startingIds or {}) do available[#available + 1] = id end
+    local chance = KnoxSettings.initialGroupChance ~= nil
+        and KnoxSettings.initialGroupChance() or 65
+    local maxSize = KnoxSettings.initialGroupMaxSize ~= nil
+        and KnoxSettings.initialGroupMaxSize() or 4
+    local requestedSizes = {}
+    -- Keep the opening world social without turning population allocation into
+    -- an army spawn.  A normal 48-person world can begin with up to three small
+    -- compact cohorts; tiny test populations still produce the original single
+    -- pair.  Each cohort gets its own deterministic roll so one failed roll does
+    -- not prevent later, independent groups from forming.
+    local configuredGroups = KnoxSettings.initialGroupCount ~= nil
+        and KnoxSettings.initialGroupCount() or 3
+    local maxGroups = math.min(configuredGroups, math.floor(#available / 6))
+    if #available >= 2 and maxGroups == 0 then maxGroups = 1 end
+    for groupIndex = 1, maxGroups do
+        local roll = stableHash(
+            tostring(worldAgeHours) .. ":cohort:" .. tostring(groupIndex)
+        ) % 100
+        if roll < chance then
+            local requested = groupIndex == 1 and (#available >= 3 and 3 or 2) or 2
+            requestedSizes[#requestedSizes + 1] = math.min(maxSize, requested)
+        end
+    end
+    local created = 0
+    for _, size in ipairs(requestedSizes) do
+        local members = compactGroup(available, size)
+        if members ~= nil then
+            local group = KnoxPersistence.createTravelGroup(members, worldAgeHours)
+            if group ~= nil then
+                group.originCohort = true
+                available = removeSelectedIds(available, members)
+                created = created + 1
+            end
+        end
+    end
+    state.initialGroupsCreated = true
+    state.initialGroupCount = created
+    return created
+end
+
+-- Replacements normally enter alone, but a world that has suffered deaths
+-- should not slowly lose all of its human clusters.  Give a new identity one
+-- modest, deterministic chance to join a nearby independent survivor.  This
+-- only links existing persisted identities; it never teleports or fabricates
+-- a body, and the normal encounter/faction rules still govern later growth.
+local function formRefillGroup(id, worldAgeHours)
+    if id == nil or KnoxPersistence.getSurvivorOrigin == nil
+        or KnoxPersistence.getAllWorldSurvivorIds == nil
+        or KnoxPersistence.getTravelGroupFor == nil
+        or KnoxPersistence.isIndependentSurvivor == nil
+        or KnoxPersistence.createTravelGroup == nil then
+        return nil
+    end
+    if stableHash(tostring(id) .. ":refill-group:" .. tostring(worldAgeHours or 0)) % 100 >= 40 then
+        return nil
+    end
+    local origin = KnoxPersistence.getSurvivorOrigin(id)
+    if origin == nil then return nil end
+    local nearest, nearestDistance = nil, 64 * 64 + 1
+    for _, otherId in ipairs(KnoxPersistence.getAllWorldSurvivorIds() or {}) do
+        if otherId ~= id and KnoxPersistence.isIndependentSurvivor(otherId)
+            and KnoxPersistence.getTravelGroupFor(otherId) == nil then
+            local other = KnoxPersistence.getSurvivorOrigin(otherId)
+            if other ~= nil and (tonumber(other.z) or 0) == (tonumber(origin.z) or 0) then
+                local dx = (tonumber(other.x) or 0) - (tonumber(origin.x) or 0)
+                local dy = (tonumber(other.y) or 0) - (tonumber(origin.y) or 0)
+                local distance = dx * dx + dy * dy
+                if distance < nearestDistance then
+                    nearest, nearestDistance = otherId, distance
+                end
+            end
+        end
+    end
+    if nearest == nil then return nil end
+    return KnoxPersistence.createTravelGroup({ id, nearest }, worldAgeHours)
+end
+
 local function allocateOne(catalog, worldAgeHours, state, used, counts)
     local cursor = math.max(0, math.floor(tonumber(state.allocationCursor) or 0))
     local origin, regionKey = chooseBalancedOrigin(catalog, used, counts, cursor)
@@ -495,7 +777,7 @@ end
 
 -- Creates the initial region-balanced population in one save transaction.
 -- Later deaths are replaced one survivor at a time, never as a catch-up burst.
-function WorldPopulation.maintain(worldAgeHours)
+function WorldPopulation.maintain(worldAgeHours, options)
     local now = math.max(0, tonumber(worldAgeHours) or 0)
     local target = KnoxSettings.worldPopulation()
     local uncapped = KnoxSettings.capsDisabled()
@@ -528,14 +810,54 @@ function WorldPopulation.maintain(worldAgeHours)
         end
         local used = KnoxPersistence.getUsedWorldOriginKeys()
         local counts = regionCounts()
-        while living < target do
+        local startingIds = {}
+        local allocationBudget = math.max(1, math.floor(tonumber(
+            type(options) == "table" and options.initialAllocationBudget or nil
+        ) or INITIAL_ALLOCATION_BATCH))
+        local allocatedThisPass = 0
+        local startingRegion = nearestStartingRegion(catalog, options)
+        local startingTarget = startingRegion ~= nil
+            and initialRegionCohortSize(target, #catalog.regions) or 0
+        state.initialRegionKey = startingRegion ~= nil and startingRegion.key or nil
+        state.initialRegionTarget = startingTarget
+        while living < target and startingRegion ~= nil
+            and (counts[startingRegion.key] or 0) < startingTarget
+            and allocatedThisPass < allocationBudget do
+            local id = allocateFromRegion(startingRegion, now, state, used, counts)
+            if id == nil then break end
+            result.addedIds[#result.addedIds + 1] = id
+            startingIds[#startingIds + 1] = id
+            living = living + 1
+            allocatedThisPass = allocatedThisPass + 1
+        end
+        while living < target and allocatedThisPass < allocationBudget do
             local id = allocateOne(catalog, now, state, used, counts)
             if id == nil then
                 break
             end
             result.addedIds[#result.addedIds + 1] = id
+            -- Keep the social pass aware of every identity created during the
+            -- opening population, not just the player's nearest cohort. This
+            -- lets compact spawn clusters elsewhere on the map begin as small
+            -- groups while still using the same distance/size/chance gates.
+            startingIds[#startingIds + 1] = id
             living = living + 1
+            allocatedThisPass = allocatedThisPass + 1
         end
+        result.living = living
+        -- More origins remain: yield to the game and continue on the next
+        -- population maintenance pass. Do not start refill timing or form
+        -- partial opening groups while initial allocation is still underway.
+        if living < target and allocatedThisPass > 0 then
+            result.status = "initializing"
+            result.nextRefillHours = 0
+            return result
+        end
+        -- The final pass may contain only part of the opening population.
+        -- Build groups from every living population-managed identity so batch
+        -- boundaries cannot change the social layout of the same fresh world.
+        startingIds = KnoxPersistence.getLivingWorldSurvivorIds()
+        formInitialGroups(startingIds, now, state)
         state.initialized = true
         state.lastTarget = target
         if living < target or uncapped then
@@ -546,7 +868,6 @@ function WorldPopulation.maintain(worldAgeHours)
             state.nextRefillHours = 0
         end
         result.status = #result.addedIds > 0 and "initialized" or "spawn_origins_exhausted"
-        result.living = living
         result.nextRefillHours = state.nextRefillHours
         return result
     end
@@ -589,8 +910,10 @@ function WorldPopulation.maintain(worldAgeHours)
     state.nextRefillHours = now + refillHours
     result.nextRefillHours = state.nextRefillHours
     if id ~= nil then
+        local refillGroup = formRefillGroup(id, now)
         result.status = uncapped and "arrived" or "refilled"
         result.addedIds[1] = id
+        result.groupId = refillGroup ~= nil and refillGroup.id or nil
         result.living = living + 1
         if result.living >= target and not uncapped then
             state.belowTargetSinceHours = nil
@@ -815,6 +1138,7 @@ local function materializeVirtualLocation(id, bridge, record, players, maximumDi
         and state.activity ~= "group_waiting"
         and state.activity ~= "group_regrouping"
         and state.activity ~= "base_life"
+        and state.activity ~= "base_working"
         and state.activity ~= "sleeping"
         and state.activity ~= "resting"
         and state.activity ~= "sheltering"
@@ -871,6 +1195,55 @@ end
 -- A saved record always wins over its origin. Restoration returns the exact
 -- recorded square or waits for that square to load; it never silently moves a
 -- persistent survivor back to their original spawn point.
+local function activationPriority(id)
+    local duty = KnoxPersistence.getSurvivorDuty(id)
+    if duty ~= nil and duty.mode == "companion" then return 0 end
+    if duty ~= nil and duty.mode == "base" and duty.ownerId ~= nil then
+        local affiliation = KnoxPersistence.getSurvivorAffiliation ~= nil
+            and KnoxPersistence.getSurvivorAffiliation(id) or nil
+        return affiliation ~= nil and affiliation.kind == "player" and 1 or 2
+    end
+    local group = KnoxPersistence.getTravelGroupFor ~= nil
+        and KnoxPersistence.getTravelGroupFor(id) or nil
+    return group ~= nil and 3 or 4
+end
+
+local AWAY_MEMBER_OFFSETS = {
+    { 0, 0 }, { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 },
+    { 2, 2 }, { -2, 2 }, { 2, -2 }, { -2, -2 },
+}
+
+local function awayDestinationSquare(team, survivorId, destination)
+    local cell = getCell()
+    if cell == nil then return nil end
+    local memberIndex = 1
+    for index, id in ipairs(team.memberIds or {}) do
+        if id == survivorId then memberIndex = index break end
+    end
+    local preferred = AWAY_MEMBER_OFFSETS[((memberIndex - 1)
+        % #AWAY_MEMBER_OFFSETS) + 1]
+    local attempts = { preferred }
+    for _, offset in ipairs(AWAY_MEMBER_OFFSETS) do
+        if offset ~= preferred then attempts[#attempts + 1] = offset end
+    end
+    for _, offset in ipairs(attempts) do
+        local square = cell:getGridSquare(
+            math.floor(destination.x) + offset[1],
+            math.floor(destination.y) + offset[2],
+            math.floor(destination.z)
+        )
+        if square ~= nil then
+            local canStand = true
+            if square.canStand ~= nil then
+                local ok, value = pcall(square.canStand, square)
+                canStand = ok and value == true
+            end
+            if canStand then return square end
+        end
+    end
+    return nil
+end
+
 function WorldPopulation.activationCandidate(id, bridge, options)
     if type(id) ~= "string" or id == "" or not KnoxPersistence.isSurvivorPresent(id) then
         return nil, "not_living"
@@ -878,9 +1251,53 @@ function WorldPopulation.activationCandidate(id, bridge, options)
     local duty = KnoxPersistence.getSurvivorDuty(id)
     -- An away team owns its members' off-world lifecycle until it finishes or
     -- blocks. Normal proximity activation must not pull them back into a loaded
-    -- engine shell just because the player passes their recorded origin.
+    -- engine shell just because the player passes their recorded origin. The
+    -- single explicit mission path may materialize a member at the persisted
+    -- destination (or return point) once that cell is genuinely relevant.
     if duty ~= nil and duty.mode == "away" then
-        return nil, "away_mission"
+        local allowAway = type(options) == "table"
+            and options.allowAwayMission == true
+        if not allowAway then
+            return nil, "away_mission"
+        end
+        local team = KnoxPersistence.getAwayTeamForSurvivor ~= nil
+            and KnoxPersistence.getAwayTeamForSurvivor(id) or nil
+        local missionState = team ~= nil and (team.state == "awaiting_collection"
+            or team.state == "collecting" or team.state == "returning")
+        local destination = nil
+        if missionState then
+            destination = team.state == "returning"
+                and team.returnDestination or team.destination
+        end
+        local record = KnoxPersistence.getRecord(id)
+        if not missionState or destination == nil or record == nil
+            or not finite(destination.x) or not finite(destination.y)
+            or not finite(destination.z) then
+            return nil, "away_destination_unavailable"
+        end
+        local players = playersFrom(options)
+        local maximumDistance = tonumber(options.maximumDistance)
+        local square = awayDestinationSquare(team, id, destination)
+        if square == nil then return nil, "away_square_not_loaded" end
+        local closeEnough, nearest = withinMaximumDistance(
+            square, players, maximumDistance
+        )
+        if not closeEnough then return nil, "outside_activation_distance" end
+        return {
+            id = id,
+            mode = "restore",
+            record = record,
+            square = square,
+            x = square:getX(),
+            y = square:getY(),
+            z = square:getZ(),
+            exact = true,
+            firstMaterialization = false,
+            distanceSquared = nearest,
+            activationPriority = 0,
+            awayMission = true,
+            awayTeamId = team.id,
+        }, "ready"
     end
     local players = playersFrom(options)
     local maximumDistance = type(options) == "table"
@@ -920,6 +1337,7 @@ function WorldPopulation.activationCandidate(id, bridge, options)
             exact = true,
             firstMaterialization = false,
             distanceSquared = nearest,
+            activationPriority = activationPriority(id),
         }, "ready"
     end
 
@@ -950,6 +1368,7 @@ function WorldPopulation.activationCandidate(id, bridge, options)
         exact = false,
         firstMaterialization = true,
         distanceSquared = WorldPopulation.nearestPlayerDistanceSquared(square, players),
+        activationPriority = activationPriority(id),
     }, "ready"
 end
 
@@ -984,6 +1403,11 @@ function WorldPopulation.activationCandidates(bridge, activeIds, limit, options)
         end
     end
     table.sort(candidates, function(first, second)
+        local firstPriority = tonumber(first.activationPriority) or 4
+        local secondPriority = tonumber(second.activationPriority) or 4
+        if firstPriority ~= secondPriority then
+            return firstPriority < secondPriority
+        end
         local firstDistance = tonumber(first.distanceSquared) or math.huge
         local secondDistance = tonumber(second.distanceSquared) or math.huge
         if firstDistance == secondDistance then
@@ -994,10 +1418,40 @@ function WorldPopulation.activationCandidates(bridge, activeIds, limit, options)
         end
         return firstDistance < secondDistance
     end)
-    while #candidates > maximum do
-        table.remove(candidates)
+    -- Prefer loading a complete nearby travel group when it fits the remaining
+    -- activation budget. This keeps persistent cohorts from appearing one body
+    -- at a time, while never exceeding the active-survivor cap.
+    local selected, selectedIds = {}, {}
+    for _, candidate in ipairs(candidates) do
+        if #selected >= maximum then break end
+        if not selectedIds[candidate.id] then
+            local group = KnoxPersistence.getTravelGroupFor ~= nil
+                and KnoxPersistence.getTravelGroupFor(candidate.id) or nil
+            local cohort = { candidate }
+            if group ~= nil and type(group.memberIds) == "table" then
+                local byId = {}
+                for _, sibling in ipairs(candidates) do byId[sibling.id] = sibling end
+                local complete = true
+                for _, memberId in ipairs(group.memberIds) do
+                    if memberId ~= candidate.id and not selectedIds[memberId] then
+                        if byId[memberId] == nil then complete = false break end
+                        cohort[#cohort + 1] = byId[memberId]
+                    end
+                end
+                if not complete or #selected + #cohort > maximum then
+                    cohort = { candidate }
+                end
+            end
+            for _, member in ipairs(cohort) do
+                if #selected >= maximum then break end
+                if not selectedIds[member.id] then
+                    selected[#selected + 1] = member
+                    selectedIds[member.id] = true
+                end
+            end
+        end
     end
-    return candidates, rejected
+    return selected, rejected
 end
 
 return WorldPopulation

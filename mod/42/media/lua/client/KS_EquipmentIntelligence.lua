@@ -48,6 +48,54 @@ local function meleeScore(item)
         + safe(function() return item:getCriticalChance() end, 0) * 0.02
 end
 
+function Equipment.isUsableMelee(item)
+    return meleeScore(item) ~= nil
+end
+
+function Equipment.isMeaningfulMeleeUpgrade(character, item)
+    local candidateScore = meleeScore(item)
+    if candidateScore == nil then return false end
+    local primary = character ~= nil and safe(function()
+        return character:getPrimaryHandItem()
+    end, nil) or nil
+    local primaryIsUsableGun = safe(function()
+        return primary ~= nil and primary:IsWeapon() and primary:isRanged()
+            and not primary:isBroken()
+    end, false)
+    if primaryIsUsableGun then return false end
+    local primaryScore = meleeScore(primary)
+    return primary == nil or candidateScore >= (primaryScore or -math.huge) + MELEE_SWITCH_MARGIN
+end
+
+-- Explicit weapon orders may also accept a firearm, but only when Build 42
+-- says the carried gun is ready. Ammo, magazine and chamber state stay native.
+function Equipment.isMeaningfulWeaponUpgrade(character, item)
+    if Equipment.isMeaningfulMeleeUpgrade(character, item) then return true end
+    if not usableItem(item) or not safe(function() return item:IsWeapon() end, false)
+        or not safe(function() return item:isRanged() end, false)
+        or safe(function() return item:isBroken() end, true) then
+        return false
+    end
+    local firearms = rawget(_G, "KnoxFirearmSupport")
+    if firearms == nil or firearms.isReady == nil
+        or not safe(function() return firearms.isReady(character, item) end, false) then
+        return false
+    end
+    local primary = character ~= nil and safe(function()
+        return character:getPrimaryHandItem()
+    end, nil) or nil
+    if primary == item then return false end
+    local score = function(gun)
+        return safe(function() return gun:getMaxRange() end, 0)
+            + safe(function() return gun:getMaxDamage() end, 0) * 8
+            + safe(function() return gun:getCondition() end, 0) * 0.1
+    end
+    local currentReady = primary ~= nil and safe(function()
+        return firearms.isReady(character, primary)
+    end, false) or false
+    return not currentReady or score(item) >= score(primary) + 1.5
+end
+
 local function wearableLocation(item)
     if not usableItem(item) then return nil end
     local location = safe(function() return item:getBodyLocation() end, nil)

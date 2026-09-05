@@ -15,6 +15,14 @@ require "KS_Persistence"
 local persistence = KnoxPersistence
 local population = require "KS_WorldPopulation"
 local simulation = require "KS_UnloadedSurvival"
+local populationSource = assert(io.open(
+    projectRoot .. "/mod/42/media/lua/client/KS_UnloadedSurvival.lua", "r"
+))
+local populationText = populationSource:read("*a")
+populationSource:close()
+assert(string.find(populationText, "baseScoutStop", 1, true)
+    and string.find(populationText, "faction-scout", 1, true),
+    "stored faction cohorts should pause at a scouting handoff")
 local sleepEnabled = true
 KnoxSurvivorNeeds = { sleepRequired = function() return sleepEnabled end }
 KnoxJavaBridge = { consumeNpcRecordSupply = function() return nil end }
@@ -37,6 +45,42 @@ local function edit(id, values)
     persistence.setUnloadedSurvivalState(id, current)
 end
 local group = reset()
+local rootData = data["KnoxSurvivors_IsoPlayer"]
+rootData.factions["faction-scout"] = {
+    id = "faction-scout", kind = "npc", leaderId = "a",
+    memberIds = { "a", "b", "c" }, homeBase = nil,
+}
+group.factionId = "faction-scout"
+simulation.advanceAll({}, 1)
+local scoutObjective = persistence.getTravelGroupObjective(group.id)
+assert(scoutObjective ~= nil and scoutObjective.kind == "investigate_building"
+    and string.find(scoutObjective.targetKey or "", "faction-scout:", 1, true),
+    "stored faction cohort receives a durable shelter-scout objective")
+simulation.advanceAll({}, 20)
+assert(group.unloadedTravel.baseScoutStop == true,
+    "stored faction cohort pauses at its scouting anchor")
+for _, id in ipairs({ "a", "b", "c" }) do edit(id, { hunger = .1, thirst = .1 }) end
+simulation.advanceAll({}, 80)
+assert(group.unloadedTravel.baseScoutStop ~= true,
+    "unloaded faction scouting pause must release after a bounded wait")
+group = reset()
+assert(persistence.setSurvivorLifeIntent("a", {
+    kind = "investigate_building", phase = "traveling",
+    targetKey = "building:180:100:0", targetX = 180, targetY = 100, targetZ = 0,
+}, 0))
+assert(persistence.setTravelGroupObjective(
+    group.id, "a", persistence.getSurvivorLifeIntent("a"), 0
+))
+simulation.advanceAll({}, 1)
+assert(near(state("a").virtualX, 140) and state("a").activity == "group_objective",
+    "stored group follows its leader's persisted purpose as one cohort")
+simulation.advanceAll({}, 2)
+assert(near(state("a").virtualX, 180)
+    and persistence.getTravelGroupObjective(group.id).phase == "reassess"
+    and persistence.getSurvivorLifeIntent("a").phase == "reassess",
+    "reaching an offscreen shared goal releases travel and preserves reassessment intent")
+
+group = reset()
 local itineraryCalls = 0
 local advanceItinerary = population.advanceItinerary
 population.advanceItinerary = function(...)

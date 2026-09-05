@@ -12,6 +12,7 @@ local sandbox = read(rootPath .. "/mod/42/media/sandbox-options.txt")
 local nameplates = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNameplates.lua")
 local relations = read(rootPath .. "/mod/42/media/lua/client/KS_HumanCombatRelations.lua")
 local autonomy = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua")
+local activity = read(rootPath .. "/mod/42/media/lua/client/KS_ActivityFeed.lua")
 
 assert(string.find(settings, "WorldPopulation = 48", 1, true)
     and string.find(sandbox, "max = 256, default = 48", 1, true),
@@ -30,5 +31,8 @@ assert(string.find(autonomy, "areSurvivorsHostile", 1, true)
     and string.find(autonomy, "allowSurvivorPlayerCombat", 1, true)
     and string.find(autonomy, "beginNpcLiveCombat", 1, true),
     "hostile human targets must route into the existing native combat owner")
+assert(string.find(activity, "showSurvivorSpeech", 1, true)
+    and string.find(activity, "addLineChatElement", 1, true),
+    "optional survivor speech must use the native overhead ChatElement")
 
 print("Player-facing survivors PASS population=true names=true human_combat=true")

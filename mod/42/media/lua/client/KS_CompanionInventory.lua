@@ -5,6 +5,9 @@ require "ISUI/ISInventoryPage"
 require "ISUI/ISInventoryPane"
 require "ISUI/ISInventoryPaneContextMenu"
 require "TimedActions/ISInventoryTransferUtil"
+require "TimedActions/ISEquipWeaponAction"
+require "TimedActions/ISUnequipAction"
+require "TimedActions/ISWearClothing"
 require "KS_SurvivorRuntime"
 require "KS_Persistence"
 
@@ -308,6 +311,111 @@ local function getSurvivorForItem(item)
         end
     end
     return nil, nil
+end
+
+local function isActiveSurvivor(character)
+    return character ~= nil
+        and KnoxSurvivorRuntime.idForCharacter(character) ~= nil
+end
+
+-- Build 42's player equip/wear actions correctly mutate the IsoPlayer shell,
+-- but their terminal callbacks also refresh that character's local inventory
+-- window. Knox survivors deliberately have no local player UI, so the refresh
+-- is the only invalid part of the otherwise-native action.
+local offslotInventoryPage = {
+    refreshBackpacks = function() end,
+    inventoryPane = nil,
+}
+
+local function withOffslotInventoryUi(character, callback)
+    if not isActiveSurvivor(character) then return callback() end
+    local playerNum = character:getPlayerNum()
+    local originalGetPlayerInventory = rawget(_G, "getPlayerInventory")
+    _G.getPlayerInventory = function(number)
+        if number == playerNum then return offslotInventoryPage end
+        return originalGetPlayerInventory ~= nil
+            and originalGetPlayerInventory(number) or nil
+    end
+    local ok, result = pcall(callback)
+    _G.getPlayerInventory = originalGetPlayerInventory
+    if not ok then error(result, 0) end
+    return result
+end
+
+local function wrapOffslotActionMethod(actionClass, methodName, originalKey)
+    if actionClass == nil or actionClass[methodName] == nil then return end
+    if CompanionInventory[originalKey] == nil then
+        CompanionInventory[originalKey] = actionClass[methodName]
+    end
+    local original = CompanionInventory[originalKey]
+    actionClass[methodName] = function(self, ...)
+        local args = { ... }
+        return withOffslotInventoryUi(self.character, function()
+            return original(self, unpack(args))
+        end)
+    end
+end
+
+wrapOffslotActionMethod(ISEquipWeaponAction, "complete", "_origEquipComplete")
+wrapOffslotActionMethod(ISEquipWeaponAction, "perform", "_origEquipPerform")
+wrapOffslotActionMethod(ISWearClothing, "complete", "_origWearComplete")
+wrapOffslotActionMethod(ISWearClothing, "perform", "_origWearPerform")
+wrapOffslotActionMethod(ISUnequipAction, "perform", "_origUnequipPerform")
+
+local function detachTransferredSurvivorItem(character, item)
+    if character == nil or item == nil then return end
+    pcall(function()
+        if character:getPrimaryHandItem() == item
+            or character:getSecondaryHandItem() == item then
+            character:removeFromHands(item)
+        end
+    end)
+    pcall(function()
+        if character:isEquipped(item) then
+            character:removeWornItem(item, false)
+        end
+    end)
+    pcall(function() triggerEvent("OnClothingUpdated", character) end)
+    pcall(function() character:resetModelNextFrame() end)
+end
+
+-- A loot-window transfer is performed by the real local player, so vanilla's
+-- transfer detaches equipment from that player rather than from the survivor
+-- who owns the source container. Decorate only survivor-source transfers.
+if ISInventoryTransferUtil ~= nil
+    and ISInventoryTransferUtil.newInventoryTransferAction ~= nil then
+    if CompanionInventory._origNewInventoryTransferAction == nil then
+        CompanionInventory._origNewInventoryTransferAction =
+            ISInventoryTransferUtil.newInventoryTransferAction
+    end
+    local originalNewTransfer = CompanionInventory._origNewInventoryTransferAction
+    ISInventoryTransferUtil.newInventoryTransferAction = function(character, item,
+            srcContainer, destContainer, ...)
+        local action = originalNewTransfer(character, item, srcContainer, destContainer, ...)
+        local sourceSurvivor = nil
+        for playerNum, _ in pairs(active) do
+            local belongs, owner = isSurvivorContainer(playerNum, srcContainer)
+            if belongs then sourceSurvivor = owner; break end
+        end
+        if action ~= nil and sourceSurvivor ~= nil
+            and sourceSurvivor ~= character and action.transferItem ~= nil then
+            local originalTransferItem = action.transferItem
+            action.transferItem = function(self, transferItem)
+                local wasPresent = sourceHasItem(srcContainer, transferItem)
+                local ok, result = pcall(originalTransferItem, self, transferItem)
+                -- Vanilla may decline the transfer (favorite/dontAdd/already
+                -- transferred). Only detach gear once it has actually left.
+                -- Also reconcile a transfer that moved the item before a later
+                -- native presentation callback raised an error.
+                if wasPresent and not sourceHasItem(srcContainer, transferItem) then
+                    detachTransferredSurvivorItem(sourceSurvivor, transferItem)
+                end
+                if not ok then error(result, 0) end
+                return result
+            end
+        end
+        return action
+    end
 end
 
 local inventoryLogLast = {}

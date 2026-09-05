@@ -1,6 +1,7 @@
 require "KS_Settings"
 require "KS_Persistence"
 require "KS_SurvivorRuntime"
+local SurvivorNames = require "KS_SurvivorNames"
 
 local Nameplates = rawget(_G, "KnoxSurvivorNameplates") or {}
 _G.KnoxSurvivorNameplates = Nameplates
@@ -16,9 +17,8 @@ local labels = {}
 
 local function fullName(id)
     local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
-    local name = tostring(identity.forename or "") .. " " .. tostring(identity.surname or "")
-    name = string.gsub(name, "^%s*(.-)%s*$", "%1")
-    return name ~= "" and name or "Survivor"
+    local _, _, name = SurvivorNames.resolve(id, identity, KnoxSurvivorRuntime.getCharacter(id))
+    return name
 end
 
 function Nameplates.classify(survivorId, playerId)

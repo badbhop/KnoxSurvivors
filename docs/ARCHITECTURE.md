@@ -63,10 +63,10 @@ body, movement request, traversal route, combat controller, and latest record. S
 captures all active runtimes rather than whichever NPC happened to act last. This key
 remains separate from legacy IsoZombie-era Knox data.
 
-The Lua domain has its own schema number. Schema 7 adds canonical profession and trait
+The Lua domain has its own schema number. Schema 16 includes canonical profession and trait
 IDs, perk levels and XP, player relationships, affiliation and duty, player factions,
-stable bases, work zones, storage policies, and task records. Java record versions and
-Lua domain versions are never advanced together by assumption. Migrations normalize
+stable bases, work zones, storage policies, task records, and validated autonomous life intent.
+Java record versions and Lua domain versions are never advanced together by assumption. Migrations normalize
 partial development saves in place and never erase an encoded person record.
 
 Profession and trait generation uses Build 42's live definitions, costs, granted traits,
@@ -86,9 +86,22 @@ until its cell loads; loading a cell activates the survivor at their recorded lo
 instead of relocating them toward the player.
 
 The production population core now maintains a configurable persistent target, defaults
-to 32 living identities, and limits physical materialization separately from world count.
-Initial allocation is region-balanced, preferring player starts for two allocations out of
-three and native building locations for the third when available. Metadata is cached once
+to 48 living identities, and limits physical materialization separately from world count.
+Fresh-world identity allocation is limited to six records per population maintenance pass so
+the full persistent target cannot monopolize Project Zomboid's game thread during initial load.
+The records remain lightweight and the same final target is reached over later slow reconciliation
+passes; physical body activation retains its separate, stricter budget. On a new world, allocation
+first reserves a bounded cohort of four to twelve durable identities
+in the player's actual starting region, then balances the remaining population across the map.
+This is an origin policy, not player-centered spawning: every identity still uses a real spawn or
+building origin, remains subject to hidden-square activation, and may begin elsewhere in the region.
+When that cohort contains sufficiently close origins, one compact pair is created; cohorts of eight
+or more may also contain one three-person group. These use the canonical travel-group and relationship
+records before first materialization. A shared location-only itinerary moves the whole unmaterialized
+group by the same delta, preserving member spacing; if any member materializes, the remaining pending
+members wait rather than independently scattering. Most starting-region identities remain solo.
+Allocation prefers player starts for two allocations out of three and native building locations
+for the third when available. Metadata is cached once
 per map; supplemental locations are thinned to one per 100-tile cell. Death is durable
 and does not trigger an immediate nearby replacement; after the configured refill interval,
 one new identity is allocated at a still-unused origin. Active world survivors hibernate
@@ -107,7 +120,7 @@ companions instead of deleting excess members. No infinity value is persisted in
 Before first materialization, an identity has a location-only `unloadedSurvival` ledger with
 `pendingMaterialization=true`. It stores a short itinerary between nearby catalog locations,
 departure/rest timestamps and lightweight destination memory. Population reconciliation advances
-that itinerary without allocating a character, changing the birth origin, or moving it toward a
+that itinerary without allocating a character, changing the birth origin, or steering it toward a
 player. First activation uses the progressed position with the same hidden/standable/safe-square
 requirements. This ledger contains no invented physiology or inventory and must never be applied
 as real character stats. The first successful body capture replaces it with real needs and record
@@ -415,6 +428,45 @@ rather than an arbitrary tile. Candidates near an obvious zombie concentration a
 bounded twelve-entry, loaded-session memory cools completed destinations briefly and failed ones
 longer, so the survivor leaves exhausted areas without creating permanent world knowledge.
 Container inspection memory also expires, allowing later reconsideration if the world changes.
+
+An independent survivor also stores one lightweight `lifeIntent`: the reason for the current
+autonomous activity (`find_food`, `find_water`, `find_medical`, `scavenge`,
+`investigate_building`, or `travel_area`) plus a coarse phase and optional destination. This is
+continuity, not another action owner or planner. Native movement, traversal, combat, reload and
+timed-action state remain runtime-only. Temporary interruption leaves the reason intact; satisfying
+the need, finishing the search, or accepting companion/base/camp duty clears or replaces it. Restore
+therefore starts from one durable purpose and a fresh runtime decision instead of reviving stale
+movement or combat ownership.
+
+Persistent travel groups additionally keep one validated `objective` copied from the current
+leader's autonomous `lifeIntent`. This is shared context, not shared movement ownership: the leader
+still owns the real destination request and other members use the existing formation/follow path.
+Only the current leader can replace the objective, an unchanged objective does not churn revisions,
+and leadership replacement clears it. While an entire group is hibernated, a coordinate-bearing
+objective moves the cohort through the existing coarse travel ledger; arrival changes both the
+leader and group intent to `reassess` before ordinary itinerary selection can resume. Thus unload
+does not split one purposeful trip into unrelated per-member decisions or restore an obsolete live
+path request.
+
+Once a loaded group reaches a shared building/scavenging objective, nearby followers may assist
+through the ordinary ranked exploration path. The existing container and item reservations keep
+members from choosing the same work, and slot-based delay/cooldown prevents a simultaneous search
+burst. Followers do not persist a duplicate personal intent, do not assist another member's food,
+water, or medical need, and return to formation behavior when too far from the leader.
+
+Loaded travel groups cooperate on critical carried supplies through `KS_GroupSupport`. A nearby
+member missing immediate bandaging material, clean water, or food can receive one real item from an
+ally through the existing native inventory-transfer action. The donor keeps a minimum personal
+reserve (and an additional reserve when sharing the same need); favorite and equipped items are
+never offered. Medical, then water, then food determine priority. Recipient and item reservations
+permit only one transfer at a time, completion is verified against the real source and destination
+containers, and combat/failure releases all temporary ownership.
+
+If no safe spare exists, a nearby follower waits with the group rather than starting an unrelated
+route. The leader evaluates nearby member shortages and owns one ordinary `find_food`, `find_water`,
+or `find_medical` world search. That intent flows through the persisted group objective above, so
+members follow and can assist at arrival. A separated follower remains free to solve its own urgent
+need. No resources are created, abstracted, or transferred while unloaded.
 
 Temporary camps remain lightweight faction shelter records rather than miniature bases. The camp
 stores one building identity, loaded bounds, and the current durable faction-member IDs. Runtime
@@ -925,3 +977,188 @@ persisted target (capped at 24). It never directs those zombies or Police actors
 combat and retreat systems retain ownership. A threat resets the clear window, while at least 0.05
 world hours of separated zero-threat observations permits `area_secure` withdrawal. The deadline
 records elapsed presence when positive clearance evidence is unavailable.
+
+Companion survival missions reuse the existing persisted directive boundary rather than adding a
+second planner or resource simulation. `find_food`, `find_water`, and `find_medical` are bounded
+nearby searches over real world containers and carried/native items. The controller keeps the
+companion's underlying order, interrupts it for the search, and restores that order when the
+mission completes or is interrupted. Three unproductive attempts clear the directive with a
+contextual failure message instead of looping forever. Automatic Knox events remain separately
+gated by `EnableKnoxEvents`, which is off by default.
+
+The player-facing menus call these **Survival Orders**. “Mission” remains an internal execution
+term for a bounded temporary directive; base work continues to use durable jobs, while larger
+long-distance expeditions can use the event/away-team domain later.
+
+Party controls are thin wrappers over the same durable companion state. Relax is the ordinary
+`relax` companion order applied to each selected member. Party vehicle controls call the existing
+per-companion native passenger-seat actions; they do not create a second vehicle ownership or
+teleport path.
+
+The Find Better Weapon survival order reuses the same bounded nearby-container search as other
+supply orders. It consults the equipment policy's safe usable-melee score and requires a meaningful
+upgrade; the order never fabricates an item or overrides a usable firearm.
+
+The general area order is presented as **Explore and Search Area**. It remains the existing bounded
+loot-area directive: the name reflects that survivors travel through nearby buildings/containers,
+search useful supplies, and leave when the local search is exhausted.
+### Automatic base-duty selection fairness
+
+`KS_BaseJobs.ensureAutomaticTask` discovers the existing task types and zones,
+then evaluates all queued work that the resident can actually perform.  The
+selection keeps role preference as the first pass and preserves task priority;
+it only subtracts a bounded score from a task whose persisted `lastClaimedBy`
+matches the resident.  This gives equal-priority recurring work a chance to
+rotate between residents without introducing parallel scheduler state.  The
+task board and native task execution remain unchanged.
+### Base-task retry policy
+
+The persisted task record owns retry timing for failed base actions.  A blocked
+run increments `failureStreak` and applies bounded exponential backoff (0.25 to
+8 world-hours); successful work resets that streak.  Controllers continue to
+release native action ownership immediately, and the task board reopens the
+same record only after `retryAtHours`.  This keeps temporary material or target
+failures from becoming per-tick action storms without inventing a second queue.
+### Initial cohort allocation
+
+The world-population allocator may seed up to three compact travel cohorts when
+enough identities exist.  Cohort count scales with population, uses nearby
+same-floor player-spawn origins, and is deterministic per world age/index.  The
+allocator removes selected identities from the solo pool, so no origin or member
+is duplicated.  Small test populations retain the original single-pair path;
+later relationship/faction systems remain responsible for additional grouping.
+### Automatic duty hints
+
+Base residents with an `auto` job preference use their persisted profession as a
+selection hint only.  The hint is computed at assignment time and never rewrites
+the player's duty preference.  Existing task eligibility, required materials,
+priority, and fairness selection remain authoritative, so a profession can
+prefer a role without claiming work it cannot perform.
+### Completion pacing for recurring work
+
+Base-task completion records a short `retryAtHours` interval before recurring
+work can reopen.  Normal duties use a half-hour interval and depot sorting uses
+a shorter queue-clearing interval.  This is persisted on the existing task
+record, so unload/reload cannot erase the pacing, while failed actions continue
+through their independent exponential backoff policy.
+### Companion tool acquisition
+
+`find_tools` is a bounded companion directive, not an abstract mission.  It
+filters real nearby containers through the existing essential-tool policy,
+reserves one unbroken item, and transfers it through the normal native inventory
+action.  Completion and bounded failure both clear only the temporary directive,
+leaving the companion's persistent Follow/Hold duty intact.
+
+### Base-task material resupply
+
+Base workers keep the claimed task as the authoritative intent.  When its
+requirements are not currently available, the autonomy controller may perform
+up to three bounded searches for an exact required full type in nearby real
+containers.  A selected item is reserved and moved through the existing native
+transfer action; after arrival, the controller re-evaluates the same task rather
+than creating a second task or an abstract resource pool.  Failed attempts use
+the task's existing persisted retry/backoff fields, and successful completion
+resets the failure streak.  The standalone `KnoxBaseSupplyPlanner` only performs
+safe requirement matching and never owns inventory, reservations, or task state.
+
+### Base-needs scheduling
+
+`KnoxBaseNeeds` is a small priority layer over the existing queued task list. It
+reads `KnoxBaseStorage.summarize` when a real loaded-container snapshot exists,
+keeps each task's original value in `basePriority`, and applies bounded bonuses
+for shortages or urgent cleanup. It never creates tasks, changes eligibility, or
+owns claims; `KnoxBaseJobs` and `KnoxBaseTaskBoard` remain the authoritative
+scheduler and fairness boundary. Missing snapshots leave priorities unchanged.
+
+### Persistent workforce rotation
+
+When a task is claimed, persistence records `lastClaimedAtHours`. Both automatic
+selection and the task-board fallback apply the same bounded recent-claim
+penalty, while the existing priority and eligibility rules remain authoritative.
+This keeps equal recurring work moving between eligible residents without adding
+another roster or scheduler state, and the timestamp survives save/load.
+
+### Off-screen base duty progression
+
+`KS_UnloadedSurvival` inspects the resident's existing claimed base task while
+advancing the persisted survival ledger. Only guard and patrol are abstracted as
+time-based watch shifts; after a bounded four-hour shift the existing
+`finishBaseTask` path records completion. World-changing tasks remain claimed and
+are never simulated as completed without a loaded square and native action.
+`KS_BaseDutySimulation` owns only this eligibility/time calculation, keeping
+task ownership and persistence in their existing modules.
+
+### Persistence normalization
+
+The persistence root sanitizes new fields in place when loading older records.
+Task priorities, retry counters, recency timestamps, off-screen shift time, and
+duty revisions receive bounded defaults. Existing unloaded-life fields are only
+clamped when present; a missing ledger remains missing until a real engine
+capture supplies it. This preserves the distinction between an initialized
+survivor and a record that has never had a valid body snapshot.
+
+Full graph normalization runs once at the real `OnGameStart` save boundary and
+again only if an authoritative top-level ModData domain table is replaced. Normal
+gameplay accessors reuse that completed graph instead of scanning every survivor,
+faction, camp, base, and task on each read. Persistence-owned mutation functions
+maintain their local invariants directly; small externally mutable domains such as
+the automatic event cursor and faction event identity validate only their own
+record on access. This keeps corrupt-save repair while preventing autonomy and
+combat ticks from turning persistence reads into repeated whole-world work.
+
+### Base-task claim restoration
+
+The task board owns a resident's durable claim while the autonomy controller
+owns only its loaded execution state. On controller reconstruction,
+`getClaimedBaseTaskForSurvivor` validates and returns that claim before any new
+work is selected. Invalid owners and duplicate claims are returned to the queue;
+the deterministic highest-priority claim survives. A one-time schema migration
+repairs old saves globally, while normal restores scan only the resident's base.
+
+### Companion patrol directive
+
+`patrol_area` is a persisted companion directive layered over the existing
+movement owner. `KS_CompanionPatrol` derives four inset waypoints from the saved
+area and selects the next point from the survivor's real current square. The
+controller moves through the normal directed path, pauses between points, and
+retains the directive across temporary behavior preemption. Repeated invalid
+targets clear the directive through the normal ownership-checked persistence
+path. Off-screen `base_working` locations are accepted by materialization so
+resident duty progress does not restore from a stale record square.
+
+### Guard and base patrol semantics
+
+Guard and Patrol share `KS_CompanionPatrol` only as an area-geometry helper;
+their ownership remains different. Guard resolves one deterministic post from
+the persistent task identity and then uses the existing timed watch duty.
+Patrol resolves the next indexed waypoint, records each arrival on the existing
+base-task record, enters a bounded pause, and requests the following stop
+through the normal movement owner. A complete route resets its progress before
+the task enters the existing recurring-work cooldown.
+
+The task record, not the loaded controller, owns `patrolStep` and
+`patrolStopsCompleted`. This lets interrupted or unloaded work resume without a
+parallel patrol registry. Companion patrols continue to derive their start from
+survivor identity so several companions do not intentionally select the same
+first point; base routes derive it from task identity so changing workers does
+not rotate a partially completed route.
+
+### Canonical player-facing orders
+
+`KS_OrderCatalog` is the vocabulary boundary for menus, notebook actions, and
+future migrated saves. Familiar labels are aliases only; they normalize to the
+existing Knox primary orders, companion directives, or base preferences before
+validation and persistence. `KnoxCompanionService.issueOrder` and
+`issueOrderAll` are the individual and party dispatch boundaries, while
+`KS_BaseTaskBoard` and `KS_BaseJobs` retain ownership of task claims and native
+world actions. This keeps broad survivor command coverage without adding a
+second task manager or allowing UI labels to create divergent saved state.
+
+### Resource away-team handoff
+
+Resource away teams remain persisted rather than silently materialized. Their
+state advances through outbound, awaiting_collection, collecting, returning,
+and complete/blocked. A future loaded-world executor must explicitly materialize
+the existing survivor record, reuse the normal autonomy and inventory-transfer
+owners, and return the shell through the same capture/removal boundary. No
+separate collector may create items or bodies outside that contract.

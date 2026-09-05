@@ -32,6 +32,12 @@ local function safe(call, fallback)
     return fallback
 end
 
+function Looting.isEssentialTool(item)
+    local fullType = item ~= nil and safe(function() return item:getFullType() end, nil) or nil
+    return fullType ~= nil and ESSENTIAL_TOOLS[fullType] == true
+        and not safe(function() return item:isBroken() end, false)
+end
+
 local function usableItem(item)
     return item ~= nil and tostring(item) ~= "null"
 end

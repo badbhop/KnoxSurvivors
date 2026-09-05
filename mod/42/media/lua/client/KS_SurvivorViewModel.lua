@@ -3,6 +3,8 @@ require "KS_Persistence"
 require "KS_SurvivorCapabilities"
 require "KS_SurvivorNeeds"
 require "KS_SurvivorRuntime"
+require "KS_OrderCatalog"
+local SurvivorNames = require "KS_SurvivorNames"
 
 local ViewModel = rawget(_G, "KnoxSurvivorViewModel") or {}
 _G.KnoxSurvivorViewModel = ViewModel
@@ -33,10 +35,13 @@ local ROLE_LABELS = {
     independent = "Independent",
 }
 
-local DIRECTIVE_LABELS = {
-    loot_area = "Looting marked area",
-    loot_building = "Looting marked building",
-    loot_corpses = "Searching nearby bodies",
+local LIFE_INTENT_LABELS = {
+    find_food = "Looking for food",
+    find_water = "Looking for water",
+    find_medical = "Looking for medical supplies",
+    scavenge = "Scavenging",
+    investigate_building = "Checking a building",
+    travel_area = "Travelling onward",
 }
 
 local function clamp01(value)
@@ -49,28 +54,7 @@ end
 
 local function identityFor(id, character)
     local stored = KnoxPersistence.getSurvivorIdentity(id) or {}
-    local forename = cleanNamePart(stored.forename)
-    local surname = cleanNamePart(stored.surname)
-
-    if character ~= nil and (forename == "" or surname == "") then
-        local success, descriptor = pcall(function()
-            return character:getDescriptor()
-        end)
-        if success and descriptor ~= nil then
-            if forename == "" then
-                forename = cleanNamePart(descriptor:getForename())
-            end
-            if surname == "" then
-                surname = cleanNamePart(descriptor:getSurname())
-            end
-        end
-    end
-
-    local displayName = cleanNamePart(forename .. " " .. surname)
-    if displayName == "" then
-        displayName = "Survivor"
-    end
-    return forename, surname, displayName
+    return SurvivorNames.resolve(id, stored, character)
 end
 
 local function liveCharacter(id)
@@ -179,35 +163,60 @@ local function professionLabelFor(id)
     return success and cleanNamePart(label) ~= "" and tostring(label) or "Survivor"
 end
 
-local function orderLabelFor(duty)
-    local directive = type(duty.directive) == "table" and duty.directive or nil
-    local directiveLabel = directive ~= nil and DIRECTIVE_LABELS[tostring(directive.kind or "")] or nil
+-- Base duty is persisted separately from the loaded controller.  Projecting an
+-- active claim here keeps the Notebook/Card truthful after a reload or while
+-- the controller is between ticks, without creating another order owner.
+local function claimedBaseTaskFor(id, duty)
+    if id == nil or type(duty) ~= "table" or duty.mode ~= "base"
+        or duty.baseId == nil or KnoxPersistence.getBase == nil then
+        return nil
+    end
+    local base = KnoxPersistence.getBase(duty.baseId)
+    for _, task in pairs(base ~= nil and base.tasks or {}) do
+        if type(task) == "table" and task.state == "claimed"
+            and tostring(task.claimedBy or "") == tostring(id) then
+            return task
+        end
+    end
+    return nil
+end
+
+local function orderLabelFor(duty, survivorId)
+    -- A stale companion directive may survive a delayed duty refresh.  Base
+    -- ownership is authoritative, so never let that transient field mask the
+    -- resident's real claimed work in the player-facing status.
+    local directive = duty.mode ~= "base"
+        and type(duty.directive) == "table" and duty.directive or nil
+    local directiveLabel = directive ~= nil and KnoxOrderCatalog.statusLabel(
+        tostring(directive.kind or ""), nil
+    ) or nil
     if directiveLabel ~= nil then
         return directiveLabel
     end
     if duty.mode == "base" then
+        local task = claimedBaseTaskFor(survivorId, duty)
+        if task ~= nil then
+            return KnoxOrderCatalog.label(
+                KnoxOrderCatalog.normalizeTaskType(task.type) or task.type,
+                "Working at base"
+            )
+        end
+        if duty.lastJobType ~= nil then
+            return "Available at base (last: " .. KnoxOrderCatalog.label(
+                KnoxOrderCatalog.normalizeTaskType(duty.lastJobType) or duty.lastJobType,
+                tostring(duty.lastJobType)
+            ) .. ")"
+        end
         return "Available at base"
     end
     if duty.mode == "companion" then
         local directive = type(duty.directive) == "table" and duty.directive or nil
         if directive ~= nil then
-            if directive.kind == "go_to" then
-                return "Moving to location"
-            end
-            if directive.kind == "guard" then
-                return "Guarding location"
-            end
-            if directive.kind == "loot_area" then
-                return "Looting area"
-            end
-            if directive.kind == "loot_building" then
-                return "Looting building"
-            end
-            if directive.kind == "loot_corpses" then
-                return "Looting bodies"
-            end
+            local label = KnoxOrderCatalog.statusLabel(tostring(directive.kind or ""), nil)
+            if label ~= nil then return label end
         end
-        return duty.order == "hold" and "Holding here" or "Following"
+        return duty.order == "hold" and "Holding here"
+            or (duty.order == "relax" and "Relaxing" or "Following")
     end
     if duty.order == "return" or duty.order == "return_to_base" then
         return "Returning to base"
@@ -237,6 +246,10 @@ local function runtimeActivity(id)
         return KnoxSurvivorRuntime.snapshot(id)
     end)
     if not success or type(snapshot) ~= "table" then
+        local intent = KnoxPersistence.getSurvivorLifeIntent ~= nil
+            and KnoxPersistence.getSurvivorLifeIntent(id) or nil
+        local intentLabel = intent ~= nil
+            and LIFE_INTENT_LABELS[tostring(intent.kind or "")] or nil
         local stored = KnoxPersistence.getUnloadedSurvivalState ~= nil
             and KnoxPersistence.getUnloadedSurvivalState(id) or nil
         local labels = {
@@ -245,6 +258,8 @@ local function runtimeActivity(id)
             group_waiting = "Waiting for group",
             group_regrouping = "Regrouping",
             surviving = "Surviving offscreen",
+            exploring = "Exploring",
+            seeking_supplies = "Looking for supplies",
             sleeping = "Sleeping",
             resting = "Resting",
             sheltering = "Staying nearby",
@@ -252,7 +267,7 @@ local function runtimeActivity(id)
             waiting_for_leader = "Waiting for leader",
             away_mission = "On a mission",
         }
-        return stored ~= nil and labels[stored.activity] or nil
+        return intentLabel or (stored ~= nil and labels[stored.activity] or nil)
     end
     return ACTIVITY_LABELS[tostring(snapshot.activity or "")]
 end
@@ -292,7 +307,8 @@ local function activityFor(duty, state, loaded, alive, currentActivity)
                 return "Moving"
             end
         end
-        return duty.order == "hold" and "Waiting here" or "Following"
+        return duty.order == "hold" and "Waiting here"
+            or (duty.order == "relax" and "Relaxing" or "Following")
     end
     if duty.mode == "base" then
         return "At base"
@@ -350,6 +366,8 @@ function ViewModel.getSurvivor(id, playerNum)
         and KnoxPersistence.getPlayerRelationshipSnapshot(playerId, id)
         or nil
     local capabilities = KnoxPersistence.getSurvivorCapabilities(id) or {}
+    local lifeIntent = KnoxPersistence.getSurvivorLifeIntent ~= nil
+        and KnoxPersistence.getSurvivorLifeIntent(id) or nil
     local faction = affiliation.factionId ~= nil and KnoxPersistence.getFaction ~= nil
         and KnoxPersistence.getFaction(affiliation.factionId) or nil
     local knownSince = relationship ~= nil and relationship.firstMetHours
@@ -381,9 +399,14 @@ function ViewModel.getSurvivor(id, playerNum)
         daysSurvived = daysSurvived,
         daysKnown = wholeDaysSince(knownSince, nowHours),
         locationLabel = locationLabelFor(duty, character, distance, sameLevel),
-        orderLabel = orderLabelFor(duty),
+        orderLabel = orderLabelFor(duty, id),
         order = tostring(duty.order or "survive"),
         activity = activityFor(duty, state, character ~= nil, alive, currentActivity),
+        lifeIntent = lifeIntent ~= nil and {
+            kind = lifeIntent.kind,
+            phase = lifeIntent.phase,
+            label = LIFE_INTENT_LABELS[tostring(lifeIntent.kind or "")],
+        } or nil,
         loaded = character ~= nil,
         alive = alive,
         health = clamp01((tonumber(state.health) or 100) / 100),
@@ -415,7 +438,9 @@ function ViewModel.getSurvivor(id, playerNum)
             order = tostring(duty.order or "survive"),
             ownerId = duty.ownerId,
             baseId = duty.baseId,
-            jobPreference = duty.jobPreference,
+            jobPreference = KnoxOrderCatalog.normalizeBasePreference ~= nil
+                and KnoxOrderCatalog.normalizeBasePreference(duty.jobPreference)
+                or duty.jobPreference,
             directiveKind = type(duty.directive) == "table"
                 and tostring(duty.directive.kind or "")
                 or nil,

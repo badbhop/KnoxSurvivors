@@ -343,6 +343,11 @@ final class KnoxCombatController {
         }
 
         if ("RANGED_REPOSITIONING".equals(phase)) {
+            // The Build 42 Lua firearm hook observes the shell's aiming/attack
+            // variables independently of this controller phase. Clear them on
+            // every reposition tick, not just when entering the phase, so a
+            // queued attack cannot emit a shot while the survivor is running.
+            clearAttackIntent();
             String movement = KnoxNpcFactory.tickMovement(npc, targetDistance, "run");
             if (movement.startsWith("Failed")) {
                 phase = "FAILED";
@@ -356,6 +361,7 @@ final class KnoxCombatController {
                     + " targetHealth=" + currentHealth;
             }
             clearMovementIntent();
+            body.getClass().getMethod("setRunning", boolean.class).invoke(body, false);
             phase = "AIMING";
             aimTicks = 0;
         } else if ("APPROACHING".equals(phase) && !obstacleTarget) {

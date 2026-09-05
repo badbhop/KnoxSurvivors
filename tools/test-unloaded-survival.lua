@@ -36,6 +36,7 @@ local duties = {
     away = { mode = "away", missionId = "mission-1" },
     returner = { mode = "base", baseId = "base-return" },
 }
+local lifeIntents = { survivor = { kind = "find_food", phase = "traveling" } }
 
 KnoxPersistence = {
     isSurvivorAlive = function(id) return not dead[id] end,
@@ -50,6 +51,7 @@ KnoxPersistence = {
         return { "empty", "survivor", "base", "group-a", "group-b", "away", "returner" }
     end,
     getSurvivorDuty = function(id) return duties[id] or { mode = "autonomous" } end,
+    getSurvivorLifeIntent = function(id) return lifeIntents[id] end,
     getAwayTeamForSurvivor = function(id)
         if id == "away" then
             return { id = "mission-1", destination = { x = 310, y = 420, z = 0 } }
@@ -123,8 +125,8 @@ assert(states.survivor.activity == "sleeping"
     and states.survivor.virtualX == 100 and states.survivor.virtualY == 200,
     "sleeping survivor remains at their current location")
 assert(simulation.advanceHibernated("survivor", 10))
-assert(states.survivor.activity == "surviving" and states.survivor.virtualX > 100,
-    "rested survivor resumes existing itinerary")
+assert(states.survivor.activity == "seeking_supplies" and states.survivor.virtualX > 100,
+    "rested survivor resumes the existing itinerary with its durable purpose")
 
 assert(simulation.advanceHibernated("base", 6), "base resident advances")
 assert(states.base.activity == "base_life"
@@ -237,4 +239,119 @@ KnoxWorldPopulation = nil
 simulation.advanceHibernated("no-catalog", 1)
 assert(noCatalog.virtualX == 100 and noCatalog.activity == "sheltering",
     "missing location catalog does not fall back to arbitrary drifting")
+local persistenceText = assert(io.open(
+    projectRoot .. "/mod/42/media/lua/client/KS_Persistence.lua", "r"
+)):read("*a")
+assert(string.find(persistenceText, "function KnoxPersistence.releaseBaseTaskClaim", 1, true)
+    and string.find(persistenceText, "manual_assignment_preserved", 1, true),
+    "off-screen claim handoff must preserve explicit manual assignments")
+local unloadedText = assert(io.open(
+    projectRoot .. "/mod/42/media/lua/client/KS_UnloadedSurvival.lua", "r"
+)):read("*a")
+assert(string.find(unloadedText, "PHYSICAL_TASK_OFFSCREEN_WAIT_HOURS", 1, true)
+    and string.find(unloadedText, "releaseBaseTaskClaim", 1, true),
+    "physical off-screen work must have a bounded automatic claim handoff")
+assert(string.find(unloadedText, "local targetHours = tonumber(hours) or nowHours()", 1, true)
+    and string.find(unloadedText, "candidate.claimedBy == id", 1, true)
+    and string.find(unloadedText, "not active[id] and not handled[id] and record ~= nil", 1, true)
+    and string.find(unloadedText, "local stillOwnsTask", 1, true)
+    and string.find(unloadedText, "local abstractable", 1, true)
+    and string.find(unloadedText, "task.offscreenLastHours", 1, true)
+    and string.find(unloadedText, "setUnloadedSurvivalState(id, state)", 1, true),
+    "off-screen base-task handoff must resolve claim state in the per-survivor scope")
+
+-- Exercise the previously unreachable physical-claim branch with a minimal
+-- unloaded resident. The task must be released from the persistent board and
+-- its activity written back without invoking native world actions.
+records.physical = "record-physical"
+states.physical = { hunger = .1, thirst = .1, fatigue = .1, endurance = .9,
+    health = 100, lastHours = 0, status = "hibernated" }
+duties.physical = { mode = "base", baseId = "physical-base" }
+local physicalTask = { id = "physical-task", type = "farm_seed", state = "claimed",
+    claimedBy = "physical", claimedAtHours = 0, manual = false }
+local releasedPhysical = false
+local originalIds = KnoxPersistence.getActivatableSurvivorIds
+local originalBase = KnoxPersistence.getBase
+local originalRelease = KnoxPersistence.releaseBaseTaskClaim
+local originalFinish = KnoxPersistence.finishBaseTask
+local originalRequeue = KnoxPersistence.requeueBaseTask
+records["active-physical"] = "record-active-physical"
+states["active-physical"] = { hunger = .1, thirst = .1, fatigue = .1, endurance = .9,
+    health = 100, lastHours = 0, status = "loaded" }
+duties["active-physical"] = { mode = "base", baseId = "active-physical-base" }
+local activePhysicalTask = { id = "active-physical-task", type = "farm_seed", state = "claimed",
+    claimedBy = "active-physical", claimedAtHours = 0, manual = false }
+records["missing-state-physical"] = "record-missing-state-physical"
+duties["missing-state-physical"] = { mode = "base", baseId = "missing-state-base" }
+local missingStateTask = { id = "missing-state-task", type = "farm_seed", state = "claimed",
+    claimedBy = "missing-state-physical", claimedAtHours = 0, manual = false }
+records["guard-worker"] = "record-guard-worker"
+states["guard-worker"] = { hunger = .1, thirst = .1, fatigue = .1, endurance = .9,
+    health = 100, lastHours = 0, status = "hibernated" }
+duties["guard-worker"] = { mode = "base", baseId = "guard-base" }
+local guardTask = { id = "guard-task", type = "guard", state = "claimed",
+    claimedBy = "guard-worker", claimedAtHours = 0, manual = false }
+KnoxPersistence.getActivatableSurvivorIds = function()
+    return { "physical", "active-physical", "missing-state-physical", "guard-worker" }
+end
+KnoxPersistence.getBase = function(id)
+    if id == "physical-base" then return { tasks = { physicalTask } } end
+    if id == "active-physical-base" then return { tasks = { activePhysicalTask } } end
+    if id == "missing-state-base" then return { tasks = { missingStateTask } } end
+    if id == "guard-base" then
+        return {
+            territory = { minX = 90, minY = 190, width = 20, height = 20, z = 0 },
+            tasks = { guardTask },
+        }
+    end
+    return originalBase(id)
+end
+KnoxPersistence.releaseBaseTaskClaim = function(baseId, taskId, survivorId, reason, now)
+    assert(reason == "unloaded_execution_wait" and now == 13,
+        "physical claim release receives canonical timing context")
+    local selected = baseId == "physical-base" and physicalTask
+        or (baseId == "missing-state-base" and missingStateTask or nil)
+    assert(selected ~= nil and selected.id == taskId and selected.claimedBy == survivorId,
+        "physical claim release receives canonical ownership context")
+    if selected == physicalTask then releasedPhysical = true end
+    selected.state = "blocked"
+    selected.claimedBy = nil
+    return selected, "released"
+end
+local guardFinished = false
+KnoxPersistence.finishBaseTask = function(baseId, taskId, survivorId)
+    assert(baseId == "guard-base" and taskId == "guard-task"
+        and survivorId == "guard-worker", "watch shift completes through canonical task owner")
+    guardFinished = true
+    guardTask.state = "done"
+    guardTask.claimedBy = nil
+    return guardTask, "completed"
+end
+KnoxPersistence.requeueBaseTask = function(baseId, taskId)
+    assert(baseId == "guard-base" and taskId == "guard-task",
+        "recurring watch shift requeues through canonical task owner")
+    guardTask.state = "queued"
+    return guardTask, "requeued"
+end
+simulation.advanceAll({ "active-physical" }, 13)
+assert(releasedPhysical and physicalTask.state == "blocked"
+    and states.physical.activity == "base_life"
+    and states.physical.lastHours == 13 and states.physical.hunger > .1
+    and physicalTask.offscreenLastHours == 13,
+    "unloaded physical claim advances physiology, releases once, and persists base-life state")
+assert(activePhysicalTask.state == "claimed" and activePhysicalTask.offscreenWaitHours == nil
+    and states["active-physical"].lastHours == 0,
+    "active resident never accumulates off-screen work timeout")
+assert(missingStateTask.state == "blocked" and states["missing-state-physical"] == nil,
+    "missing survival ledger cannot strand an automatic physical claim")
+assert(guardFinished and guardTask.state == "queued"
+    and guardTask.offscreenShiftsCompleted == 1
+    and states["guard-worker"].lastHours == 13
+    and states["guard-worker"].hunger > .1,
+    "tasked resident physiology and one recurring watch shift advance together")
+KnoxPersistence.getActivatableSurvivorIds = originalIds
+KnoxPersistence.getBase = originalBase
+KnoxPersistence.releaseBaseTaskClaim = originalRelease
+KnoxPersistence.finishBaseTask = originalFinish
+KnoxPersistence.requeueBaseTask = originalRequeue
 print("Unloaded survival PASS stored_resources=true proportional=true transaction=true recovery=true durable_death=true virtual_life=true")

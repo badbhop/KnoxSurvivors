@@ -114,6 +114,8 @@ assert(KnoxSettings.minimumSpawnDistance() == 40, "hidden encounter distance bal
 
 SandboxVars = { KnoxSurvivors = {
     WorldPopulation = 6,
+    InitialGroupChance = 100,
+    InitialGroupMaxSize = 2,
     MaxActiveSurvivors = 99,
     PopulationRefillDays = 3,
     MinimumSpawnDistance = 2,
@@ -164,11 +166,32 @@ assert(appliedAge == 42, "saved identity age wins during reconstruction")
 local catalog = assert(KnoxWorldPopulation.spawnCatalog())
 assert(#catalog.regions == 3, "all spawn regions loaded")
 assert(#catalog.origins == 18, "profession duplicates removed")
+local scoutOrigin = assert(KnoxWorldPopulation.nearestScoutingOrigin(
+    100, 100, 0, "faction-test", "100,100,0"
+))
+assert(scoutOrigin.key ~= "100,100,0" and scoutOrigin.z == 0,
+    "faction scouting chooses a different same-floor real origin")
 
-local initialized = KnoxWorldPopulation.maintain(10)
+local firstInitialBatch = KnoxWorldPopulation.maintain(10, {
+    players = { player }, initialAllocationBudget = 2,
+})
+assert(firstInitialBatch.status == "initializing"
+    and #firstInitialBatch.addedIds == 2 and firstInitialBatch.living == 2,
+    "fresh population initialization yields after its bounded allocation budget")
+local secondInitialBatch = KnoxWorldPopulation.maintain(10, {
+    players = { player }, initialAllocationBudget = 2,
+})
+assert(secondInitialBatch.status == "initializing"
+    and #secondInitialBatch.addedIds == 2 and secondInitialBatch.living == 4,
+    "fresh population initialization resumes on a later maintenance pass")
+local initialized = KnoxWorldPopulation.maintain(10, {
+    players = { player }, initialAllocationBudget = 2,
+})
 assert(initialized.status == "initialized", "initial allocation status")
-assert(#initialized.addedIds == 6 and initialized.living == 6,
-    "initial population reaches target")
+assert(#initialized.addedIds == 2 and initialized.living == 6,
+    "initial population reaches target without one unbounded pass")
+local initialAddedIds = KnoxPersistence.getLivingWorldSurvivorIds()
+assert(#initialAddedIds == 6, "all initial batches retain their durable identities")
 
 local regionCounts = {}
 local used = {}
@@ -178,10 +201,39 @@ for _, id in ipairs(KnoxPersistence.getAllWorldSurvivorIds()) do
     assert(not used[origin.key], "origin reused during initial allocation")
     used[origin.key] = true
 end
-assert(regionCounts.Alpha == 2 and regionCounts.Bravo == 2 and regionCounts.Charlie == 2,
-    "initial allocation is region balanced")
+assert(regionCounts.Alpha == 4 and regionCounts.Bravo == 1 and regionCounts.Charlie == 1,
+    "initial allocation reserves a bounded cohort in the player's starting region")
+local populationState = KnoxPersistence.getPopulationState()
+assert(populationState.initialRegionKey == "Alpha#1"
+    and populationState.initialRegionTarget == 4,
+    "starting-region presence policy is persisted and inspectable")
+assert(populationState.initialGroupsCreated and populationState.initialGroupCount == 1,
+    "opening population includes one bounded compact pair")
+local initialGroup = nil
+for _, id in ipairs(initialAddedIds) do
+    local group = KnoxPersistence.getTravelGroupFor(id)
+    if group ~= nil then initialGroup = group break end
+end
+assert(initialGroup ~= nil and #initialGroup.memberIds == 2 and initialGroup.originCohort,
+    "pre-materialization identities use the canonical persisted travel-group domain")
+local firstGroupState = KnoxPersistence.getUnloadedSurvivalState(initialGroup.memberIds[1])
+local secondGroupState = KnoxPersistence.getUnloadedSurvivalState(initialGroup.memberIds[2])
+local beforeDx = secondGroupState.virtualX - firstGroupState.virtualX
+local beforeDy = secondGroupState.virtualY - firstGroupState.virtualY
+assert(KnoxWorldPopulation.advanceOriginTravel(initialGroup.leaderId, 20),
+    "pre-materialization group advances through one shared itinerary")
+firstGroupState = KnoxPersistence.getUnloadedSurvivalState(initialGroup.memberIds[1])
+secondGroupState = KnoxPersistence.getUnloadedSurvivalState(initialGroup.memberIds[2])
+assert(math.abs((secondGroupState.virtualX - firstGroupState.virtualX) - beforeDx) < 0.001
+    and math.abs((secondGroupState.virtualY - firstGroupState.virtualY) - beforeDy) < 0.001,
+    "shared origin itinerary preserves compact member offsets")
+local soloIds = {}
+for _, id in ipairs(initialAddedIds) do
+    if KnoxPersistence.getTravelGroupFor(id) == nil then soloIds[#soloIds + 1] = id end
+end
+assert(#soloIds == 4, "initial mix retains independent survivors")
 
-local deadId = initialized.addedIds[1]
+local deadId = soloIds[1]
 local deadOrigin = KnoxPersistence.getSurvivorOrigin(deadId)
 assert(KnoxPersistence.markSurvivorDead(deadId, 20, "test"), "death persisted")
 local deficitStarted = KnoxWorldPopulation.maintain(20)
@@ -192,11 +244,13 @@ assert(waiting.status == "waiting" and #waiting.addedIds == 0,
 local refilled = KnoxWorldPopulation.maintain(92)
 assert(refilled.status == "refilled" and #refilled.addedIds == 1,
     "one replacement allocated when due")
+assert(refilled.groupId == nil or type(refilled.groupId) == "string",
+    "replacement group linkage remains optional and persisted")
 assert(KnoxPersistence.getSurvivorOrigin(refilled.addedIds[1]).key ~= deadOrigin.key,
     "dead survivor origin is never reused")
 assert(spawnRegionCalls == 1, "spawn definitions cached between maintenance passes")
 
-local spawnId = initialized.addedIds[2]
+local spawnId = soloIds[2]
 local spawnOrigin = assert(KnoxPersistence.getSurvivorOrigin(spawnId))
 for x = spawnOrigin.x - 4, spawnOrigin.x + 4 do
     for y = spawnOrigin.y - 4, spawnOrigin.y + 4 do
@@ -228,7 +282,7 @@ local hiddenCandidate, hiddenReason = KnoxWorldPopulation.activationCandidate(
 assert(hiddenCandidate == nil and hiddenReason == "no_safe_hidden_loaded_square",
     "first materialization never occurs in player sight")
 
-local restoreId = initialized.addedIds[3]
+local restoreId = soloIds[3]
 assert(KnoxPersistence.setRecord(restoreId, "saved-record"), "record stored")
 local exactSquare, exactState = makeSquare(400, 500, 0)
 exactState.visible = true
@@ -307,6 +361,8 @@ local durableCandidates = KnoxWorldPopulation.activationCandidates(
 )
 local developerRestored = false
 for _, candidate in ipairs(durableCandidates) do
+    assert(candidate.activationPriority ~= nil,
+        "activation candidate carries deterministic ownership priority")
     if candidate.id == "ks-dev-1" and candidate.mode == "restore" then
         developerRestored = true
     end
@@ -349,4 +405,4 @@ assert(KnoxWorldPopulation.maintain(200000).status == "spawn_origins_exhausted",
 assert(#KnoxPersistence.getAllWorldSurvivorIds() == #catalog.origins,
     "finite world catalog is a spatial resource, not runaway population generation")
 
-print("World population PASS balanced=true refill=one exact_restore=true durable_restore=true hidden_spawn=true virtual_restore=true uncapped=true")
+print("World population PASS starting_region=true initial_groups=true shared_origin_travel=true map_balance=true refill=one exact_restore=true durable_restore=true hidden_spawn=true virtual_restore=true uncapped=true")

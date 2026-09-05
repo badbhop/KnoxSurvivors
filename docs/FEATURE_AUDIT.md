@@ -1102,6 +1102,93 @@ uses root inventory items already ready for vanilla equip/wear.
 
 - Kill a zombie and confirm no new Knox error icon/storm; open one survivor's Skills and Health tabs and confirm live XP bars plus one body diagram; climb a fence near zombies and continue away without turning back; approach a crowd and confirm crouch only while unnoticed, then immediate stand/fight-or-flee after detection; finally knock one zombie down while a second approaches and confirm the survivor can switch to the standing attacker.
 
+### Unified order/work-duty integration (2026-09-04)
+
+**Status: Implemented; focused verification passes. Live gameplay remains pending.**
+
+The shared order catalogue already described both companion directives and concrete
+settlement task names, but the companion service rejected concrete task names instead
+of routing them to the existing resident-duty preference owner. That made the visible
+order vocabulary broader than the executable dispatch boundary.
+
+The service now maps concrete task names such as `farm_seed`, `animal_feed`,
+`haul_corpse`, and `construct_defense` through `preferenceForTask` and the existing
+`setBaseJobPreference` path for both individual and party dispatch. No second task
+manager or task executor was added. Remaining task execution and claims stay owned by
+the base task board and autonomy controller.
+
+Party-order category and location labels now also resolve through the shared catalogue,
+with safe literal fallbacks for early-load/test contexts. This keeps UI wording and
+dispatch vocabulary together without changing gameplay ownership.
+
+Verification: all 79 standalone Lua tests pass, all mod Lua files parse with Lua 5.1,
+`stageWorkshop` completes successfully, and `git diff --check` reports no whitespace
+errors. Live verification of resident assignment, party dispatch, and interruption/
+resume remains pending. No launcher patch is required because the runtime and Java
+packaging contract did not change.
+
+The selector also canonicalizes each task type before comparing it to a resident
+preference. Legacy or in-memory labels such as `storage_sorting` therefore remain
+eligible for the current depot executor even before a save migration rewrites them.
+
+### Controller task-vocabulary boundary (2026-09-04)
+
+**Status: Implemented; focused verification and staging pass. Live settlement behavior remains pending.**
+
+The persistence migration and task board already normalize legacy task names, but a
+restored claim or direct developer/UI path could still enter the loaded controller
+before that normalization was guaranteed. The controller now canonicalizes a task
+when a restored claim, newly claimed task, or work-move dispatch is accepted. The
+base-job resolver and timing helpers apply the same normalization for direct
+callers as well. All existing base executors therefore receive one current task
+vocabulary without a second scheduler or duplicated task state.
+
+Verification: `tools/test-base-jobs.lua` and `tools/test-base-task-board.lua` pass, all mod Lua files parse with
+Lua 5.1, and `stageWorkshop` completes successfully. No Java or launcher change was
+required. Live verification still needs a saved resident with an older task record,
+an automatic task, and a player-assigned task to confirm each dispatch reaches the
+intended native executor and resumes after interruption.
+
+### Payload-bearing patrol order convergence (2026-09-04)
+
+The shared companion dispatch boundary now treats a familiar `patrol` order with
+an area payload as the concrete `patrol_area` directive. Previously that label
+could be routed to the resident base-preference branch, silently discarding the
+player-selected patrol area. Payload-less `patrol` remains the base preference.
+
+Focused `test-order-routing.lua` coverage now verifies individual and party
+payload-bearing patrol dispatch, while preserving targeted guard, resident guard,
+and concrete settlement-task routing. Full Lua tests and Lua 5.1 syntax parsing
+pass. This is a loaded-world live verification item; no launcher or Java change
+was required.
+
+### Expanded legacy order vocabulary (2026-09-04)
+
+The shared Knox catalogue now accepts additional familiar order labels such as
+`return_home`, `go_home`, `stay`, `wait`, `recover`, `search_building`,
+`chop_wood`, and `pile_corpses`. These are aliases only and converge on the
+existing return, hold, relax, search, woodwork, or hauling owners; no legacy
+task implementation or second scheduler was imported.
+
+`test-order-catalog.lua` and `test-order-routing.lua` cover the new mappings.
+The full Lua suite, Lua 5.1 syntax checks, Workshop staging, and whitespace
+validation pass. Live menu execution remains pending; no launcher or Java
+change was required.
+
+### Patrol task-label migration guard (2026-09-04)
+
+Persisted settlement records using the older `patrol_area` task label now
+normalize to the existing recurring `patrol` executor. This is separate from
+the live companion `patrol_area` directive and prevents an old task record from
+being queued without a matching base executor. The normalization is deliberately
+limited to that label: discovery work areas such as `farming` must continue to
+emit concrete actions such as planting or watering rather than becoming generic
+tasks.
+
+The order-catalogue regression, full Lua suite, Lua 5.1 syntax checks,
+Workshop staging, and whitespace validation pass. Live migrated-save behavior
+remains pending; no launcher or Java change was required.
+
 ## Goal status
 
 | Goal area | Status | Current evidence and missing boundary |
@@ -1115,13 +1202,13 @@ uses root inventory items already ready for vanilla equip/wear.
 | 7. Skills, traits, occupations | **Implemented, unverified** | Deterministic Build 42 profession/trait generation, perk levels, XP capture/restore, and job requirement checks exist and pass standalone persistence checks. Long save/unload/reconstruction progression still needs a live pass. |
 | 8. Social system | **Partial / relationship and encounter coherence implemented, live pass pending** | Persistent IDs provide one deterministic self/allied/neutral/hostile classification across pair history, player ownership, groups, factions, and symmetric faction disposition. Loaded ally assistance derives from that authority; neutral contact is cautious rather than forced, greetings are single-owner and cooldown-bound, joining requires familiarity/shared activity, and interruptions resume durable behavior. Survivor PvP and deeper faction favors remain absent. |
 | 9. Natural groups | **Partial / membership coherence implemented, live pass pending** | Consent-based groups now have deterministic persisted lookup, duplicate membership normalization, stable leader repair, death cleanup, and runtime caches derived from the saved roster. Separation, combat, roaming, and camp activity do not mutate membership. Z-aware recovery and formation behavior remain internally verified; live social cohesion and cross-floor group travel/combat are still unproven. |
-| 10. Factions | **Partial / membership coherence implemented, live pass pending** | Persistent faction IDs, leaders, members, traits, relationships, home candidate/base IDs, safehouse ownership, and resident conversion exist. Save-start normalization prevents contradictory faction ownership, preserves player companions, repairs dead leaders, and synchronizes camp occupancy. Resource expeditions, diplomacy expansion, recruitment growth, and full faction progression remain incomplete. |
+| 10. Factions | **Partial / membership coherence implemented, live pass pending** | Persistent faction IDs, leaders, members, traits, relationships, home candidate/base IDs, safehouse ownership, and resident conversion exist. Save-start normalization prevents contradictory faction ownership, preserves player companions, repairs dead leaders, and synchronizes camp occupancy. Established NPC faction leaders now have a bounded first-contact recruitment path with a persistent cooldown; resource expeditions, diplomacy expansion, and full faction progression remain incomplete. |
 | 11. Base scouting/settlement | **Partial** | Loaded buildings are scored, safehouse conflicts are rejected, candidates persist, leaders travel to candidates, and faction bases/residents are created. Candidate breadth, repeated unloaded search, resource/water evaluation, and failure recovery need completion and live verification. |
-| 12. Base domain | **Partial / relocation implemented, live pass pending** | Player and faction base records, home/territory separation, residents, zones, storage policies, tasks, ownership protection, and save migration exist. New player building claims receive a six-tile yard perimeter. Moving homes retains the stable base/resident ownership ID and leaves physical world items untouched while transactionally replacing the home/territory and clearing old location-bound zones, storage policies, and unclaimed work. A resident-owned task blocks relocation rather than being orphaned. NPC faction planning fills only missing zones, binds available real containers without creating supplies, and relies on priority ordering plus atomic task claims so residents distribute across available work. Off-base resource acquisition and end-to-end settlement life remain incomplete. |
-| 13. Base Setup UI | **Partial / selector crash corrected, live pass pending** | Context menus can establish or confirmation-move a base, redraw territory, create zones, categorize containers, and safely remove inactive work areas. Build 42 modal callbacks now consume the real target/button signature, and both corner selectors use the native `skipWalk2` opt-out so selecting ground cannot queue player movement. A vanilla-style Base Setup window opens from party/world menus with Overview, Residents, Work Areas, Storage, and Tasks tabs plus boundary editing, work-area selection, party recall, persistent resident job preferences, and safe queued-task cancellation/resume. Cancellation cannot interrupt a claimed native action and preserves the task signature so automatic planning does not immediately recreate it. Zone resizing, exact task-to-resident assignment, and richer visual territory/zone management remain incomplete. |
+| 12. Base domain | **Partial / relocation implemented, live pass pending** | Player and faction base records, home/territory separation, residents, zones, storage policies, tasks, ownership protection, and save migration exist. New player building claims receive a six-tile yard perimeter. Moving homes retains the stable base/resident ownership ID and leaves physical world items untouched while transactionally replacing the home/territory and clearing old location-bound zones, storage policies, and unclaimed work. A resident-owned task blocks relocation rather than being orphaned. NPC faction planning fills only missing zones, binds available real containers without creating supplies, and relies on priority ordering plus atomic task claims so residents distribute across available work. The Notebook can now assign a specific queued task to a selected player-base resident through the guarded service/task boundary. Loaded resource acquisition and return/deposit now have an executor foundation; complete settlement life and live end-to-end verification remain pending. |
+| 13. Base Setup UI | **Partial / selector crash corrected, live pass pending** | Context menus can establish or confirmation-move a base, redraw territory, create zones, categorize containers, and safely remove inactive work areas. Build 42 modal callbacks now consume the real target/button signature, and both corner selectors use the native `skipWalk2` opt-out so selecting ground cannot queue player movement. A vanilla-style Base Setup window opens from party/world menus with Overview, Residents, Work Areas, Storage, and Tasks tabs plus boundary editing, work-area selection, party recall, persistent resident job preferences, guarded assignment of queued tasks to selected residents, and safe queued-task cancellation/resume. Cancellation cannot interrupt a claimed native action and preserves the task signature so automatic planning does not immediately recreate it. Zone resizing and richer visual territory/zone management remain incomplete. |
 | 14. Existing base jobs | **Implemented, unverified** | Guard, patrol, depot sorting, barricading, farming, tree cutting, log sawing, corpse hauling, trough water/feed, and structure repair have real executors and focused passing tests. When no ready task or patrol is selected, a resident can now make a bounded ambient rest decision that reuses normal furniture/ground sitting rather than standing motionless; it releases its seat/posture before the next decision. A claimed task collects missing exact requirements from currently loaded assigned storage through normal inventory transfers before work begins; it blocks safely when that storage is absent. Most lack live passes; task reservation across multiple residents and save/interruption still needs integration testing. |
 | 15. Construction/defense planning | **Partial, static path verified** | Defense Construction Areas now plan a gate first, then wall frames and first-stage wooden walls using Build 42.20 entity recipes, native `ISBuildAction`, real materials, skill gates, XP, sounds, and world-object completion checks. Faction bases receive a conservative default perimeter. Live off-slot action, construction interruption, and multi-resident verification remain required; walls/gates beyond the first wooden stage are not yet implemented. |
-| 16. Companions | **Partial / follow locomotion implemented, unverified** | Talk, trust, recruit, Follow, Hold, Return to Base, Dismiss, climbing policy, and area/building/corpse loot directives persist. Follow now uses distinct trailing slots, ignores insignificant leader motion, refreshes pace without replacing the route, catches up with bounded walk/run/sprint policy, resets recovery on arrival, and explicitly respects Hold. Return to Base hands a companion off transactionally to a persisted virtual route when the destination cell is unloaded. Party Go To and Guard persist and resume after ordinary interruptions. Combat stances and normalized duty data remain intact. Exact task assignment, finished base roster exchange, and live verification of follow transitions/order recovery remain incomplete. |
+| 16. Companions | **Partial / follow locomotion implemented, unverified** | Talk, trust, recruit, Follow, Hold, Return to Base, Dismiss, climbing policy, and area/building/corpse loot directives persist. Follow now uses distinct trailing slots, ignores insignificant leader motion, refreshes pace without replacing the route, catches up with bounded walk/run/sprint policy, resets recovery on arrival, and explicitly respects Hold. Return to Base hands a companion off transactionally to a persisted virtual route when the destination cell is unloaded. Party Go To and Guard persist and resume after ordinary interruptions. Combat stances and normalized duty data remain intact. Exact task assignment is implemented for player bases; finished base roster exchange and live verification of follow transitions/order recovery remain incomplete. |
 | 17. Companion HUD | **Partial** | Split-screen-isolated right-side HUD, portraits, needs, health, weapon, activity, individual menu, and party menu exist. It needs a complete live lifecycle pass, unloaded cleanup verification, urgency presentation, and final command coverage. |
 | 18. Survivor Card | **Partial / lifecycle patch unverified live** | Identity, age, occupation, time alive/known, group/base/job/activity, conditions, weapon, faction, trust, persistent traits, and top learned skills are shown. The card now follows Build 42's `ISHealthPanel:initialise()` → `createChildren()` lifecycle and safely omits that optional tab if the engine rejects it. Its Knox tab has direct Inventory and Medical Check shortcuts, both delegated to the existing vanilla inventory bridge and medical timed action rather than duplicating those mechanics. Standalone UI coverage passes, but a new live opening/render/action test is still required. Detailed relationship history and richer equipment presentation remain incomplete. |
 | 19. Survivors Notebook | **Partial** | A vanilla-styled window now has Base, Residents, Work, Missions, Survivors, and Factions tabs. It distinguishes loaded people from stored survivors, lists durable individual activity/role state, shows faction member counts, base/shelter status, and the current player-faction relation, and keeps mission progress separate from ordinary unloaded people. Portraits, richer selection/actions, resource status, and detailed base/faction views remain incomplete. |
@@ -1130,7 +1217,7 @@ uses root inventory items already ready for vanilla equip/wear.
 | 22. Camps | **Partial / temporary living implemented, live pass pending** | Homeless NPC factions create one lightweight persistent shelter in an unclaimed loaded building. Durable faction membership restores camp linkage without duplication; loaded members take distinct reserved shelter positions, stagger bounded idle/rest/reposition behavior, use ordinary needs and real nearby containers, take short roaming/scavenging excursions, return through native movement, defend group members, and retain camp identity through interruption. Camp conversion clears stale ownership. Player camps, fortification, jobs, strategy management, and richer social behavior remain outside this slice. |
 | 23. Vehicles | **Partial / passenger slice unverified** | Companion Orders now expose Enter My Vehicle and Exit Vehicle. The passenger-only implementation uses Build 42's native path-to-seat, enter, exit, and door-close timed actions, refuses occupied/locked/uninstalled/blocked seats, and never takes driver seat zero or changes keys/engine ownership. A seated shell is excluded from detached hibernation so its native seat relationship is not destroyed while the player drives. NPC driving, autonomous/group vehicle travel, vehicle-specific persistence/reconstruction, and live verification remain incomplete. |
 | 24. Raids/faction conflict | **Experimental dispatch/travel, unverified** | Symmetric persisted faction relations and hostile base-protection rules exist. Knox Events proposes real minority parties and can dispatch ready loaded residents from explicitly scheduled plans. Temporary duty bindings, native travel, shared stored travel/rest, and return/casualty cleanup have focused checks. No random scheduler is enabled. Actual combat/loot objectives, dispatch of already-stored parties, event factions, and live verification remain incomplete. |
-| 25. World population | **Implemented, unverified** | Region-balanced identities, persistent target, active-body limit, distant/hidden materialization, refill delay, origin reuse protection, hibernation candidates, and durable death records exist and pass standalone tests. Production-scale live streaming/refill is not proven. |
+| 25. World population | **Implemented, unverified** | Region-balanced identities, persistent target, active-body limit, distant/hidden materialization, refill delay, origin reuse protection, hibernation candidates, and durable death records exist and pass standalone tests. Initial populations form compact cohorts, and a bounded deterministic refill chance can pair a replacement with a nearby independent survivor through the canonical travel-group path. Production-scale live streaming/refill is not proven. |
 | 26. Lifecycle/hibernation | **Partial / focused checks pass** | Capture, removal, stored records, activation candidates, reconstruction, grace checks, and durable death exist. A dead shell first becomes a real `IsoDeadBody`; Knox then uses the native `shouldBecomeZombieAfterDeath()` predicate and `IsoDeadBody.reanimateLater()` only when the current sandbox transmission/infection rule calls for it. Failed engine removal retains the runtime for bounded retry, preventing duplicate resurrection. Detached cleanup and native corpse/reanimation scheduling are covered by focused checks; a live infected and non-infected death/reload gate remains required. |
 | 27. Failure recovery | **Partial, movement boundary internally coherent** | Cooldowns, reservations, task requeue, target re-resolution, movement deadlines, and alternate-entry abandonment exist. Java ownership is released on every movement terminal/interruption path, ordinary and formation failures retain bounded cooldowns, dynamic details no longer fragment streaks, and success resets recovery state. A narrow live run must still prove the failure storm and stale idle are gone. |
 | 28. Player-facing feedback | **Partial** | Speech bubbles, activity feed, HUD activity, need callouts, order messages, and Notebook summaries exist. A base worker now says and reports when an assigned-storage requirement blocks a job. Other missing-tool/material/job failure feedback and richer status presentation are incomplete; repetition/spam needs a live pass. |
@@ -1146,17 +1233,106 @@ uses root inventory items already ready for vanilla equip/wear.
 The shortest path toward the acceptance loop is not to add every missing feature in
 parallel. The current order is:
 
-1. restore and prove local-player/global-instance ownership, fix the Survivor Card crash,
-   and eliminate permanent `DETACHED` lifecycle states;
-2. make loaded-world melee and zombie-to-survivor damage reliable in duel and horde tests;
-3. reduce movement/action retry failures and prove group/companion travel recovery;
-4. live-verify the existing base-job executors with multiple residents and save/reload;
-5. add persistent replacement-door/basic-defense construction through real Build 42
-   recipes, skills, tools, materials, placement, and actions;
-6. finish player inventory/medical management and the Base Setup/Notebook management UIs;
-7. live-verify the implemented native firearm reload/fire gate, then complete away-team
-   materialization because both are required for production settlement supply loops;
-8. add camps, vehicles, and raids only after ordinary survivor/faction life is stable.
+1. live-verify the existing multi-resident settlement loop: shortage priority, task
+   rotation, real storage/material transfers, guard/patrol coverage, idle recovery,
+   and save/reload continuity;
+2. live-verify faction shelter selection and the new bounded leader-to-loner recruitment
+   path, including the staged 30/60/90-tile search and post-join settlement handoff;
+3. complete the player-facing order and roster surfaces around the now-canonical
+   catalogue, including Notebook/base resident management and clearer status feedback;
+4. finish real resource away-team execution and return/deposit handling so settlement
+   supply loops can operate beyond the loaded area;
+5. live-verify native firearms, death/reanimation, unloaded recovery, and long-session
+   performance together rather than treating isolated checks as release proof;
+6. add vehicles, raids, named events, and deeper diplomacy only after ordinary
+   survivor/faction life is stable.
+
+### Faction leader first-contact recruitment (2026-09-04)
+
+- **Gap:** faction recruitment was gated on prior familiarity and shared activity.
+  A lone survivor could therefore never qualify for the activity required to join.
+- **Fix:** the existing encounter decision now gives an established NPC faction
+  leader a modest, deterministic chance to recruit an eligible loner on first
+  contact. Independent groups keep the earlier familiarity/shared-survival gate;
+  hostility, cooldowns, faction limits, and the canonical membership transition
+  remain unchanged.
+- **Verification:** `tools/test-human-encounters.lua`, full Lua suite, full Lua
+  syntax scan, and `git diff --check` pass. Live recruitment and post-join travel
+  or base behavior remain pending.
+
+Faction recruitment also records a twelve-hour cooldown on the existing travel-group
+record after a successful admission. This prevents an established leader from emptying
+the surrounding population in one encounter sweep while keeping the state persistent and
+lightweight.
+
+### Guard order routing (2026-09-04)
+
+- **Gap:** `guard` is shared by the resident job preference and the companion location
+  directive. The dispatch method checked preferences first, so a concrete guard-post
+  command with a target payload could silently change a job preference instead.
+- **Fix:** payload-bearing `guard` orders now route through the existing directive
+  executor; payload-less `guard` continues to set the base preference. Party dispatch uses
+  the same rule.
+- **Verification:** full Lua suite, full Lua syntax scan, and `git diff --check` pass.
+  Live confirmation of an owned companion receiving a guard-post order remains pending.
+
+The new `tools/test-order-routing.lua` regression explicitly covers both sides of this
+shared vocabulary: targeted `guard` reaches the companion directive executor, while
+payload-less `guard` remains a resident preference.
+
+### Player-base resident ownership at task assignment (2026-09-04)
+
+- **Gap:** the Notebook and service validated the player base, but the task-board
+  boundary itself did not verify that the selected survivor was actually owned by
+  that player. A future caller could therefore attempt to assign a faction or
+  independent survivor to a player task.
+- **Fix:** `KnoxBaseTaskBoard.claimSpecific` now requires the canonical persisted
+  affiliation `{ kind = "player", ownerId = playerId }` before checking eligibility
+  or claiming the queued task. The existing atomic claim and manual-task marker are
+  unchanged.
+- **Verification:** `tools/test-base-task-board.lua`, the full standalone Lua suite,
+  the complete Lua syntax scan, and `git diff --check` pass. Live Notebook assignment
+  and multi-resident rotation remain pending.
+
+### Legacy haul task convergence (2026-09-04)
+
+- **Gap:** the public task vocabulary still accepted the early `haul` name even
+  though the current native executor is `sort_depot`; a manually-created or old
+  save task could therefore remain queued under a type with no executor.
+- **Fix:** `KS_OrderCatalog.normalizeTaskType` now maps `haul` to `sort_depot`
+  before queueing or selection. The existing `haul` label remains readable for
+  older UI data, but execution converges on the real depot-transfer path.
+- **Verification:** order-catalogue regression, full Lua suite, Lua syntax scan,
+  workshop staging, and `git diff --check` pass. Live depot work remains pending.
+
+### Off-screen physical base-task claim handoff (2026-09-04)
+
+- **Gap:** an automatic resident sent beyond the loaded world with a physical
+  job could retain its claim indefinitely even though the native world action
+  could not execute until the square streamed back in.
+- **Fix:** after twelve off-screen hours, automatic physical claims are released
+  through `KnoxPersistence.releaseBaseTaskClaim`, marked as a bounded blocked
+  retry, and made available for another eligible resident. Explicit Notebook
+  assignments are preserved and are never silently released by this path.
+- **Verification:** full Lua suite, complete Lua syntax scan, Java/workshop
+  staging, and `git diff --check` pass. Live unload/reload rotation remains
+  pending; no world-changing action is simulated off-screen.
+
+The loaded controller also clears the persisted off-screen wait budget whenever
+it restores or claims a task. A resident that returns before the handoff limit
+therefore receives a full native execution window instead of inheriting stale
+unloaded time.
+
+### Refill group continuity (2026-09-04)
+
+- **Gap:** population refills restored the headcount one survivor at a time but
+  never restored the small-group character of the world after deaths.
+- **Fix:** a new refill identity now has a 40% deterministic chance to form a
+  compact pair with the nearest eligible independent identity within 64 tiles.
+  The existing persisted travel-group API owns membership; no body teleport or
+  synthetic activity is introduced.
+- **Verification:** full Lua tests, syntax scan, Java build/staging, and diff
+  validation pass. Production-scale refill and live group behavior remain pending.
 
 ## Acceptance status
 
@@ -2959,3 +3135,3025 @@ Pending live: start a normal new urban save and record time to first survivor, e
 first seven in-game days, peak active count and any frame-time impact. The intended result is an
 encounter during ordinary exploration without repeated crowds or obvious materialization. No Java
 or launcher protocol changed, so no launcher patch is required.
+
+## 2026-09-01 — Live-test flee, firearm, dialogue and companion polish
+
+Status: implemented and automatically verified; native firearm animation timing, retreat-off combat,
+speech bubbles, vehicle timed actions and responsive UI remain pending live verification.
+
+- The latest long-session evidence contained no Knox Lua exception. It did show healthy survivors
+  repeatedly entering `FLEEING` against three zombies, then retaining retreat ownership through
+  blocked escape lanes and accumulating failures. **Allow Survivor Fleeing (Experimental)** now
+  defaults off. The gate exists at assessment, direct retreat acquisition and active-state cleanup,
+  so disabling it cannot leave a stored survivor in stale retreat. Combat remains enabled.
+- Periodic controller/render status dumps now require developer diagnostics, and that option defaults
+  off. Error reporting and explicit test scenarios remain available. This removes routine high-volume
+  diagnostic work from normal sessions without hiding actual failures.
+- Ranged reposition now clears all native aiming/attack input on every movement tick and drops the
+  running flag before returning to aim. This closes the confirmed ownership gap that allowed the
+  Build 42 firearm hook to observe a queued shot while the survivor was still running.
+- Added a persisted **Relax and Recover** companion order. Existing needs remain authoritative:
+  eating, drinking, treatment and sleep still use real state/items, while an otherwise stable
+  companion finds real furniture or sits through the existing recovery posture. **Stop Relaxing**
+  returns them to Follow and interruption cleanup releases the rest action.
+- Existing passenger-only **Enter My Vehicle** and **Exit Vehicle** commands were verified to remain
+  exposed under Orders and continue using vanilla path/enter/exit timed actions. NPC driving remains
+  intentionally out of scope.
+- Added a nearby **What do you need?** interaction backed by real hunger, thirst, fatigue, endurance,
+  bleeding and health state. Loot/search actions now use short deterministic callouts with a bounded
+  cooldown. All speech still goes through native `Say`, so the game owns bubble replacement while the
+  activity feed keeps the named transcript.
+- Base-management summary/help text is clipped to the active viewport, and an existing Notebook is
+  resized and recentered when reopened after resolution, window-mode or split-screen changes.
+- Modded clothing remains on the existing safe path: items registered by the game as clothing use
+  native body locations, wear state and protection metadata; unknown items fail classification
+  safely. No third-party art or textures were copied.
+- All 69 standalone Lua tests, all 74 mod Lua syntax checks and `:java:build prepareWorkshopUpload`
+  pass. The Workshop payload is staged. The contained off-slot `IsoPlayer` architecture is unchanged.
+
+Pending live: with fleeing left off, place one survivor near a crowd and confirm they fight rather
+than entering retreat. Test a firearm survivor at close range and verify no shot/sound occurs while
+running, then confirm visible aim and fire after stopping. Ask what a survivor needs, order a companion
+to relax/stop, enter/exit a vehicle, and reopen Base Management at a second resolution. Group-at-world-
+creation, a higher organic faction threshold, broader idle animation selection and automatic vehicle
+boarding were not folded into this safety pass because they require separate persistence/engine
+boundaries rather than a speculative patch. The Java agent payload changed, but its launcher protocol
+did not; Workshop staging updates the agent JAR and no launcher code patch is required.
+
+## 2026-09-03 — Starting-region world presence
+
+Status: implemented and automatically verified; a new-world encounter pacing test remains required.
+
+- Initial population allocation previously balanced every identity evenly across all map regions.
+  That produced a durable whole-map population but gave the player's starting region no stronger
+  presence than a distant town, making normal early encounters unnecessarily rare.
+- New worlds now reserve a bounded cohort of four to twelve identities in the region nearest the
+  primary player's starting square, based on total population and region count. The remaining
+  identities retain map-wide balanced allocation.
+- This does not spawn around the moving player, relocate an existing survivor, or bypass visibility,
+  distance, loaded-square, occupancy or safety checks. Survivors still originate from cached native
+  player-spawn/building anchors and follow their existing offscreen itinerary.
+- The selected region and target cohort are persisted on the population record for diagnostics.
+  Existing initialized saves are intentionally unchanged; use a new save to evaluate this policy.
+- Valid pre-materialization identities can now enter the canonical travel-group domain. A starting
+  cohort attempts one compact pair and, when large enough, one compact three-person group using only
+  origins within 64 tiles. It never forces a distant collection of survivors into a fake group.
+- These groups share one pre-materialization itinerary and retain their original relative offsets.
+  Once any member owns a real body record, remaining pending members wait instead of independently
+  drifting away. Existing loaded and fully captured group travel remains authoritative afterward.
+- All 69 standalone Lua tests and all 74 mod Lua syntax checks pass. The complete Java verifier set,
+  `:java:build`, Workshop staging and `prepareWorkshopUpload` also pass.
+- No Java or launcher protocol changed, so this slice does not require a launcher patch.
+
+Pending live: start a fresh urban save with default population settings, explore ordinary nearby
+streets/buildings, and record the first natural encounter. Pass requires an encounter opportunity
+without visible pop-in, repeated crowds, duplicate identities or obvious player-following behavior.
+
+## 2026-09-03 — Autonomous life-intent continuity
+
+Status: implemented and automatically verified; natural multi-hour behavior remains pending the
+combined live-test phase.
+
+- Independent roaming previously persisted the survivor and their location but not why they were
+  moving. A completed action or restore therefore returned directly to a fresh local choice, which
+  made individually correct actions read as aimless behavior over time.
+- Lua persistence schema 16 now stores one validated autonomous `lifeIntent`: food, water or medical
+  search; scavenging; building investigation; or onward area travel. It stores a coarse phase and an
+  optional target identity/position, never native movement, combat or timed-action ownership.
+- Existing need evaluation remains authoritative. An unresolved supply need survives travel and
+  temporary interruption; once the real need evaluator no longer requests it, the intent clears.
+  Ordinary scavenging clears on completion, and failed destinations enter the existing bounded
+  cooldown before intent returns to reassessment.
+- Companion, player-base, faction-base, camp and group-follower ownership supersede incompatible
+  independent intent. Persisted companion/base transitions clear it at the domain boundary, so an
+  unloaded recruit or resident cannot restore an old scavenging purpose.
+- `tools/test-roaming-autonomy.lua` verifies readable goal mapping and preservation of urgent purpose.
+  `tools/test-companion-base-domain.lua` verifies validated persistence, rejection of unknown plans,
+  and cleanup on recruitment. Both focused tests and changed-file syntax checks pass.
+
+Pending live: included in the later combined session. Observe an independent survivor travel to a
+building, scavenge, leave, survive a combat/self-care interruption, and continue with a coherent
+purpose. No Java or launcher protocol changed, so this slice does not require a launcher patch.
+
+## 2026-09-03 — Travelling-group to faction threshold
+
+Status: implemented and focused verification passes; organic promotion remains part of the later
+combined live test.
+
+- Normal autonomous groups previously became factions at three members. A new concise sandbox rule,
+  **Survivors Needed to Form a Faction**, supports 3-8 and defaults to four. This lets pairs/trios
+  travel together and encounter others before claiming a faction identity and shelter.
+- The number does not bypass relationship coherence: every non-leader must still have the existing
+  nearby/shared-roam, loot or combat history with the leader. Named event factions and explicit
+  developer scenarios retain their deliberate setup path instead of being silently resized.
+- Persistence promotion accepts the threshold as an explicit policy input; it does not read sandbox
+  state inside the data domain. Relationship coordination is the normal-play owner that supplies the
+  configured value. Focused sandbox, faction-persistence and human-encounter tests pass.
+
+Pending live: allow a starting pair/trio to meet and recruit a fourth survivor, verify it remains an
+informal group below four, then promotes once both count and shared-survival evidence are satisfied.
+Existing factions are not dissolved if the setting later increases. No Java or launcher protocol
+changed, so no launcher patch is required.
+
+## 2026-09-03 — Companion survival missions and event gate
+
+Status: implemented — focused verification pending rerun; live verification pending.
+
+The existing companion directive system now exposes three small survival missions: Find Food, Find
+Water, and Find Medical Supplies. They reuse the current native nearby supply search, movement,
+traversal, inventory and timed-action paths. A mission searches a bounded area for real items and
+then resumes the underlying Follow/Hold order. Three unproductive attempts clear the directive and
+report a contextual failure instead of looping forever. The persistence validator accepts only
+finite, bounded ground selections; malformed mission directives fail closed.
+
+The menus present these as **Survival Orders**, keeping the player-facing model simple: orders are
+what the player asks for, jobs are ongoing base duties, and “mission” only describes the bounded
+execution of a temporary order internally.
+
+Automatic scripted Knox events remain disabled by default through `EnableKnoxEvents`. Enabling the
+option is an explicit experimental choice, and developer event/raid requests refuse cleanly while
+it is disabled. Existing event records are retained for compatibility and inspection.
+
+Pending verification: rerun the full Lua suite, all mod syntax checks and the Java build after the
+mission edits. Live testing is still required for menu selection, native search animation/item
+transfer, interruption/resume and no-supply failure. No launcher or Java protocol change is
+required; these changes do not alter the launcher payload or install contract.
+
+## 2026-09-03 — Party recovery and vehicle orders
+
+Status: implemented — focused verification passed; live verification pending.
+
+The party menu now exposes the existing durable **Relax and Recover** order, so companions can
+eat, drink, sit and recover together until the player gives a normal Follow/Hold replacement.
+When the player is in a vehicle, the same menu also exposes **Get In My Vehicle** and **Get Out of
+Vehicles**. These are only party-level wrappers around Knox's existing per-companion vanilla
+passenger-seat/path/enter/exit actions: no seat is fabricated, driver seat zero remains reserved,
+and a full vehicle reports that there are no passenger seats.
+
+Verification: companion vehicle, weapon-preference and companion-command tests pass, along with
+syntax and diff checks. Pending live: mixed party boarding, a full vehicle, exiting after combat,
+and recovery interruption/resume. No Java, packaging, or launcher change is required.
+
+## 2026-09-03 — Party needs check
+
+Status: implemented — focused verification passed; live verification pending.
+
+The party order menu now has **Check Party Needs**. It calls the existing per-survivor real-needs
+report for each loaded companion, so speech still comes from their actual BodyDamage, hunger,
+thirst, fatigue and endurance state. It does not invent a party-health meter or change their order.
+
+Verification: companion-command and party-menu tests plus changed-file syntax/diff checks pass.
+Pending live: confirm several companions report in sequence without unreadable speech overlap. No
+Java, packaging, or launcher change is required.
+
+## 2026-09-03 — Find Better Weapon order
+
+Status: implemented — focused verification passed; live verification pending.
+
+Individual and party Survival Orders now include **Find Better Weapon**. The search is bounded to
+real nearby containers and accepts only a usable weapon that is a meaningful upgrade. Melee scoring
+remains conservative; a firearm is accepted only when Build 42's existing firearm readiness check
+confirms usable ammo/magazine/chamber state. It will not select a broken weapon or create any
+equipment. Normal native transfer and Knox's existing equipment reconsideration own
+the pickup/equip result; three unsuccessful local searches end cleanly with a contextual response.
+
+Verification: equipment-intelligence and companion-command tests cover usable/broken weapons,
+meaningful upgrade threshold, usable-firearm preservation, directive persistence, Lua syntax and
+diff checks. Pending live: issue the order beside containers with a weak current weapon, better
+melee weapon, broken weapon and firearm; confirm one real pickup/equip and no repeated swapping.
+No Java, packaging, or launcher change is required.
+
+## 2026-09-03 — Clean Up Inventory order
+
+Status: implemented — focused verification passed; live verification pending.
+
+Added the reference-style **Clean Up Inventory** order to individual and party Survival Orders.
+It reuses the existing real-item cleanup policy: surplus can be deposited into an available base
+container or dropped through the normal world-transfer path, while useful food, water, medicine
+and equipped gear remain protected. Completion clears the temporary order; unavailable storage or
+an interrupted transfer follows the existing bounded retry path.
+
+Verification: inventory-cleanup, companion-command and equipment tests pass, with changed-file
+syntax and diff checks. Pending live: issue the order with mixed junk, supplies and equipment near
+an owned base, then interrupt it with combat and confirm it resumes or clears cleanly. No launcher
+or Java protocol change is required.
+
+## 2026-09-03 — Survival-order parity expansion
+
+Status: implemented — full Lua suite and syntax checks pass; live verification pending.
+
+The player-facing Survival Orders now cover the practical, bounded requests needed for a
+modernized Superb-style replacement without introducing a second planner: Find Food, Find Water,
+Find Medical Supplies, Find Better Weapon, and Clean Up Inventory. The existing loot directives are
+labelled **Explore and Search Area**, **Loot This Building**, and **Loot Dead Bodies** so they read as
+ordinary orders in the context menu. Party orders expose the same set and retain the existing
+Follow/Hold/Relax, stance, vehicle, needs, and return-to-base controls.
+
+All of these orders continue to use Knox's authoritative native inventory, equipment, movement and
+timed-action paths. They have bounded search/ retry behavior and do not create items, duplicate
+mission state, or change the launcher payload. This is intentionally the last expansion before a
+live pass: the next evidence should confirm one individual order and one party order with real
+containers, interruption by combat, completion, and return to the prior companion duty.
+
+Verification: the complete local Lua test suite reports 69 passing tests and 74 syntax checks;
+focused equipment, inventory-cleanup, companion-command, base-UI, and party-vehicle checks pass;
+`git diff --check` passes. No launcher patch is required because no Java/protocol/package contract
+changed. Live in-game transfer, animation, equipment, and party behavior remain pending.
+
+## 2026-09-03 — Starting survivor cohort pacing
+
+Status: implemented — focused population and sandbox checks pass; live verification pending.
+
+Initial world allocation now has a bounded, configurable chance to form one compact starting
+travelling cohort from nearby player-origin survivors. The new **Chance of Starting Survivor
+Groups** and **Maximum Starting Group Size** settings default to 65% and four members. A cohort
+never increases the total population, consumes distant origins, or replaces the later relationship
+and faction rules; additional groups still form through ordinary encounters and shared survival.
+Setting the chance to zero restores an all-independent opening, while a high value makes the first
+area feel inhabited without turning the world into an army.
+
+Verification: world-population and sandbox-settings checks pass; Lua syntax and diff checks pass.
+No Java or launcher contract changed. Live verification remains pending for a fresh save: confirm
+the configured cohort appears as a small group and that independent survivors remain discoverable
+elsewhere on the map.
+
+## 2026-09-03 — Human encounter approach range
+
+Status: implemented — relationship-focused checks pass; live verification pending.
+
+Independent survivors now notice one another within a bounded 24-tile same-floor awareness range and
+can begin a cautious approach within 16 tiles, provided native line-of-sight succeeds. This closes
+the old “walk past each other” gap without granting through-wall, cross-floor, or long-distance
+awareness. Existing cooldowns, participant ownership, hostility classification, and normal roaming
+resume behavior remain unchanged.
+
+Verification: full Lua suite, relationship checks, syntax checks and `git diff --check` pass. No
+Java or launcher contract changed. Live verification remains pending for two independent survivors
+crossing paths in open space and near a building corner.
+
+## 2026-09-03 — Population activation pacing
+
+Status: implemented — population and sandbox checks pass; live verification pending.
+
+The population stream no longer assumes a fixed two-body activation budget. **Survivors Loaded Per
+Update** is now a bounded sandbox setting from 1–4, defaulting to 2 for the existing performance
+profile. Raising it lets nearby members of a persistent group materialize in the same update more
+often, while the active-survivor cap, hidden-square checks, and distance band remain authoritative.
+It is intentionally a per-update ceiling, not a population multiplier or cap bypass.
+
+Verification: full Lua suite, population/sandbox checks, syntax checks and `git diff --check` pass.
+No Java or launcher contract changed. Live verification remains pending for a three-member group at
+the default and maximum activation settings.
+
+## 2026-09-03 — Cohort-aware materialization
+
+Status: implemented — full Lua suite passes; live verification pending.
+
+Activation now keeps persistent travel groups together when their eligible members fit the current
+activation budget. A group is selected as a cohort only when every eligible member is available and
+the cap has room; otherwise the normal nearest-survivor selection remains in force. This avoids
+half-loaded groups without teleporting members, bypassing active limits, or loading distant bodies.
+
+Verification: all 69 Lua tests pass, including world-presence/population coverage; syntax and diff
+checks pass. No Java or launcher contract changed. Live verification remains pending for a three-
+member persistent group entering the encounter band with activation budgets of two and four.
+
+## 2026-09-03 — Contextual survivor communication layer
+
+Status: implemented — focused and full Lua verification pass; live presentation pending.
+
+A dedicated dialogue owner now provides short, contextual callouts for building travel, onward
+roaming, searching, useful finds, failed searches, food/water/medical needs, resting, regrouping,
+combat, retreat, camp return, and base work. Dialogue uses per-survivor event cooldowns plus a short
+global cooldown, so one survivor cannot stack several lines at once or repeat the same action every
+decision cycle. Selection is deterministic enough for debugging while still varying over time.
+
+The autonomy controller now routes roaming, supply search, combat, fleeing, regrouping, camp return,
+base work, and existing loot-action speech through this owner. The existing Show Survivor Speech
+setting disables the entire layer, and runtime cooldowns reset cleanly when a game starts. Dialogue
+does not own behavior, change relationships, or fabricate actions; it only reports decisions that
+the established systems have already begun.
+
+Verification: a new focused dialogue test covers banks, event/global cooldowns, settings and reset;
+roaming and combat-intelligence checks pass; the complete Lua suite now reports 70 passing test
+files and 75 syntax-checked Lua files. No Java or launcher contract changed. Live verification is
+pending for readability, overlap, and timing during a mixed survivor session.
+
+## 2026-09-03 — Configurable encounter band
+
+Status: implemented — population, world-presence and sandbox checks pass; live verification pending.
+
+The hard-coded 220-tile activation band is now the **Survivor Encounter Distance** sandbox setting,
+defaulting to 280 tiles and clamped to 120–500. Persistent survivors can therefore be discovered
+more reliably during normal exploration without raising the world population or bypassing hidden,
+standable-square checks. Hibernation follows the selected band with a small 40-tile buffer, avoiding
+rapid load/unload churn at the edge of the encounter area.
+
+Verification: world-population, world-presence and sandbox-settings checks pass; modified Lua syntax
+and `git diff --check` pass. No Java or launcher contract changed. Live verification remains pending
+for a fresh save at the default distance and at a deliberately smaller distance.
+
+## 2026-09-03 — Persistent shared group purpose
+
+Status: implemented — focused verification passed; live verification pending.
+
+Travel groups now persist one validated, revisioned objective copied from their current leader's
+autonomous life intent. Followers can observe that purpose but never receive a second movement
+owner: loaded locomotion remains leader plus formation-following. Repeating the same objective is a
+no-op, non-leaders cannot replace it, and leader death/removal clears the old plan before a successor
+can choose another.
+
+Fully hibernated groups now continue a coordinate-bearing shared objective as one cohort. Members
+retain their offsets and individual needs ledgers; the shared record owns only coarse destination
+progress. Reaching the destination changes the leader and group intent to `reassess`, releases the
+explicit objective route, and applies a short shelter interval before ordinary world travel can
+resume. Malformed or leader-mismatched objectives are removed during schema-17 normalization.
+
+At a loaded shared building/scavenging goal, nearby followers can assist with the existing ranked
+container search. Existing item/container reservations divide useful work naturally; formation-slot
+delays and bounded cooldowns prevent every member starting at once. Assistance is limited to members
+within eight tiles of their leader, never copies the leader's intent into follower persistence, and
+does not turn one survivor's food/water/medical need into a group-wide command.
+
+Verification: relationship-coherence, unloaded-group, formation, roaming, and behavior-integration
+tests cover leader authority, copy safety, revision stability, unload travel, arrival, reassessment,
+leader replacement, reload/corruption normalization, bounded follower assistance, and personal-need
+isolation. The complete suite reports 70 passing Lua test files, 76 syntax-checked Lua files, and a
+successful Java build with every transformer/runtime verifier passing. `git diff --check` passes.
+No launcher patch is required because this changes only Workshop Lua state and uses the existing
+package/runtime contract. Live verification remains pending for one
+group beginning a building trip, leaving the loaded area, and later restoring with the same purpose.
+
+## 2026-09-03 — Loaded group survival cooperation
+
+Status: implemented — automated verification passed; live verification pending.
+
+Loaded travel groups can now respond collectively when a nearby member lacks food, clean water, or
+immediate bandaging material. A healthy donor offers one real carried surplus item through Knox's
+existing native inventory-transfer action. The policy preserves at least one donor reserve, protects
+an additional reserve if the donor shares the shortage, and excludes equipped or favorite items.
+Medical need outranks water, which outranks food. Both the recipient and exact item are reserved so
+several members cannot pile transfers onto one person, and source/destination containers must prove
+the transfer completed.
+
+When nobody can safely share, a nearby follower reports the shortage and remains with the group.
+The loaded leader selects the most urgent member shortage and owns the ordinary world search; the
+resulting life intent becomes the existing shared group objective. Distant members still handle
+urgent needs independently. Combat, detachment, failure, timeout, and normal completion release the
+temporary transfer state. This adds no abstract group inventory and performs no offscreen item
+transfer.
+
+Verification: new group-support coverage proves need priority, donor reserves, same-floor/range
+limits, duplicate-recipient protection, native transfer queuing, and real completion evidence.
+Formation coverage proves controller ownership and cleanup plus follower need delegation. The full
+suite reports 71 passing Lua test files and 77 syntax-checked Lua files. The complete Java build and
+all movement, traversal, combat, corpse, inventory, locomotion, and transformer verifiers pass;
+`git diff --check` also passes. Live
+verification remains pending for sharing each resource type, combat interruption, leader-owned
+search, and group resumption.
+## Persistent base-duty fairness (offline verification, live pending)
+
+The automatic base scheduler now evaluates all currently queued, eligible work
+before assigning a resident.  A persisted `lastClaimedBy` marker applies a small
+fairness penalty to the same resident on near-equal recurring tasks, while the
+existing preference pass and materially higher task priority remain authoritative.
+This keeps guards, cleanup, farming, hauling, repairs, and other existing duties
+from being monopolized by the first resident evaluated without adding a second
+task database or changing task execution.
+
+Verification:
+
+- `tools/test-base-jobs.lua` passes the existing automatic-job coverage plus
+  preferred-role selection, ineligible-task filtering, equal-priority rotation,
+  and higher-priority override checks.
+- Full Lua suite: 71 focused scripts pass; all mod/test Lua files pass syntax checks.
+- `:java:build` passes, including the existing movement, traversal, combat,
+  lifecycle, inventory, and visibility verifiers.
+
+Status: implemented and internally verified.  Live in-game confirmation of
+multiple residents sharing recurring base work remains pending.  No launcher
+change is required because this pass only changes loaded Lua scheduling logic.
+## Base-job failure backoff (offline verification, live pending)
+
+Failed base actions now enter a persisted, bounded retry cooldown.  Each failed
+run increments `failureStreak` and backs off from 0.25 hours to a maximum of 8
+hours; a successful run resets the streak.  This prevents missing materials,
+blocked geometry, or temporarily unavailable targets from reopening every
+controller tick while still allowing the same durable task to recover later.
+The existing native action, task ownership, and requeue paths are unchanged.
+
+Verification:
+
+- `tools/test-companion-base-domain.lua` covers first-failure cooldown,
+  suppression before `retryAtHours`, reopening afterward, and durable run history.
+- Full Lua suite: 71 focused scripts pass; all 148 Lua files pass syntax checks.
+- `:java:build` passes with all existing runtime/transformer verifiers.
+
+Status: implemented and internally verified; live multi-resident/job interruption
+testing remains pending.  No launcher patch is required.
+## Initial survivor cohort distribution (offline verification, live pending)
+
+World initialization now forms more than one compact starting cohort when the
+population is large enough, while retaining the single-pair behavior for small
+test saves.  A standard 48-survivor population can create up to three small
+groups, each selected from nearby player-spawn origins with deterministic rolls.
+The groups remain ordinary persisted travel groups and are not an army-wide
+formation; later meetings and faction rules still control further growth.
+
+Verification:
+
+- `tools/test-world-population.lua` continues to pass the six-survivor compact
+  cohort, origin reuse, shared travel, and save/restore coverage.
+- Full Lua suite: 71 focused scripts pass; all 148 Lua files pass syntax checks.
+- `:java:build` and all existing verifiers pass.
+
+Status: implemented and internally verified; a normal-population live check of
+cohort visibility and spacing remains pending.  No launcher patch is required.
+## Profession-aware automatic base duties (offline verification, live pending)
+
+Residents left on `Auto` now receive a non-persistent profession hint during
+task selection: security/veteran roles favor guard work, carpenter/construction
+and mechanic roles favor woodwork, farmers/gardeners favor farming, and ranch or
+animal roles favor animal care.  Explicit player-selected duties remain
+authoritative.  The hint does not bypass skill, trait, material, priority, or
+fairness checks, and unmatched professions remain fully automatic.
+
+Verification:
+
+- `tools/test-base-jobs.lua` covers explicit-role preservation, profession hints,
+  unmatched fallback, and all existing task-selection checks.
+- Full Lua suite: 71 focused scripts pass; all 148 Lua files pass syntax checks.
+- `:java:build` and all existing verifiers pass.
+
+Status: implemented and internally verified; live confirmation of mixed-profession
+resident behavior remains pending.  No launcher patch is required.
+## Base-duty completion pacing (offline verification, live pending)
+
+Successful recurring base work now has a short persisted cooldown before the
+same task can be reopened: 0.5 world-hours for normal duties and 0.1 for depot
+sorting.  This keeps workers from instantly repeating a completed action, gives
+other residents a chance to claim available work, and leaves room for normal
+rest/idle behavior.  Failed tasks still use the separate bounded backoff policy;
+explicit claimed-task ownership is unchanged.
+
+Verification:
+
+- `tools/test-companion-base-domain.lua` verifies the new completion cooldown,
+  delayed requeue, repeated-failure backoff, and success reset.
+- Full Lua suite: 71 focused scripts pass; all 148 Lua files pass syntax checks.
+- `:java:build` and all existing verifiers pass.
+
+Status: implemented and internally verified; live observation of resident pacing
+and multi-worker turnover remains pending.  No launcher patch is required.
+## Configurable starting-cohort count (offline verification, live pending)
+
+Added the `Maximum Starting Groups` sandbox setting, clamped to 1–4 and defaulting
+to three.  It controls only how many compact cohorts may be formed during the
+one-time initial population pass; group chance, nearby-origin requirements,
+maximum group size, total population, and later faction rules remain separate.
+This gives players a simple way to tune how social the opening world feels
+without adding a large settings surface.
+
+Verification:
+
+- `tools/test-sandbox-settings.lua` validates the default and declaration.
+- `tools/test-world-population.lua` continues to pass the small-population
+  single-cohort path and shared travel coverage.
+- Full Lua suite: 71 focused scripts pass; all 148 Lua files pass syntax checks.
+- `:java:build` and all existing verifiers pass.
+
+Status: implemented and internally verified; normal-population live balancing
+remains pending.  No launcher patch is required.
+## Companion tool-supply order (offline verification, live pending)
+
+Individual and party Survival Orders now include **Find Useful Tools**.  The
+directive uses the same bounded nearby real-container search and native transfer
+path as existing supply orders.  It recognizes only unbroken essential tools
+already supported by Knox's looting policy (such as axes, hammers, saws,
+screwdrivers, wrenches, jacks, and tire pumps), reserves the selected item, and
+returns to the prior companion duty after success or three clean misses.  It
+does not fabricate tools or treat arbitrary modded items as compatible.
+
+Verification:
+
+- `tools/test-companion-commands.lua` covers persistence of the new directive.
+- `tools/test-survivor-looting.lua` covers usable/broken/unknown tool safety.
+- Full Lua suite: 71 focused scripts pass; all 148 Lua files pass syntax checks.
+- `:java:build` and all existing verifiers pass.
+
+Status: implemented and internally verified; live transfer/animation and
+interruption behavior remain pending.  No launcher patch is required.
+
+## Base-worker material resupply (offline verification, live pending)
+
+Claimed base tasks that cannot start because a required item is missing now make
+a bounded supply run before giving up.  The worker searches nearby real
+containers for an exact declared requirement, reserves one matching item, uses
+the existing native transfer path, and then resumes the same claimed task.
+Three unsuccessful attempts release the task into the existing persisted retry
+backoff; successful work still clears the failure streak.  No abstract stockpile
+or fabricated item is created, and normal companion/base ownership remains
+unchanged.
+
+Verification:
+
+- `tools/test-base-supply-planner.lua` covers exact full-type matching, positive
+  counts, sorting, and malformed/nil input safety.
+- Full Lua suite: 72 focused scripts pass; all 78 current Lua files pass syntax
+  checks.
+- `:java:build` and all existing Java verifiers pass.
+
+Status: implemented and internally verified; live pickup, return, and task
+completion animations remain pending.  No launcher patch is required because
+this pass changes only Lua behavior.
+
+## Base-needs scheduling (offline verification, live pending)
+
+Automatic base work now considers the honest storage snapshot before selecting
+among already-queued tasks. Low food/water, misplaced depot items, building
+shortages, and corpse cleanup receive small bounded priority boosts; normal
+priorities remain the baseline and are preserved in `basePriority`. This does
+not create supplies, bypass skill checks, or add a second scheduler. It helps a
+settlement address relevant existing work while retaining task fairness and
+resident preferences.
+
+Verification:
+
+- `tools/test-base-needs.lua` covers shortage boosts, priority preservation,
+  urgent cleanup, and adequate-stock behavior.
+- Full Lua suite: 73 focused scripts pass; all 79 current Lua files pass syntax
+  checks.
+- `:java:build` and all existing Java verifiers pass.
+
+Status: implemented and internally verified; live multi-resident balancing and
+real storage behavior remain pending. No launcher patch is required.
+
+## Persistent workforce rotation (offline verification, live pending)
+
+Base claims now persist `lastClaimedAtHours` in addition to the existing worker
+identity. Equal-priority recurring tasks receive a small, bounded recent-claim
+penalty, allowing another eligible resident to take a turn while still letting
+urgent or substantially higher-priority work win. The rule is applied in both
+automatic selection and the task-board fallback path, so the two schedulers keep
+the same behavior after reload.
+
+Verification:
+
+- Existing base-job fairness and priority tests pass unchanged.
+- Full Lua suite: 73 focused scripts pass; all 79 current Lua files pass syntax
+  checks.
+- `:java:build` and all existing Java verifiers pass.
+
+Status: implemented and internally verified; multi-worker live rotation remains
+pending. No launcher patch is required.
+
+Recurring security work now also prefers relief from another eligible resident
+when alternatives exist. The previous worker can still reclaim the post if no
+one else qualifies, so this remains a soft rotation policy rather than a hard
+assignment or new scheduler.
+
+Verification: base-job regression coverage includes relief selection; all 76
+Lua tests, Java build/verifiers, Workshop staging, and `git diff --check` pass.
+Live resident rotation remains pending. No launcher patch is required.
+
+Off-screen guard and patrol shifts now requeue their recurring task after a
+completed watch interval. This lets another resident take relief while the
+base is unloaded, instead of leaving one identity permanently associated with
+the post until the next full load. The normal retry window and task history are
+preserved through the existing persistence API.
+
+Verification: all 76 Lua tests, Java build/verifiers, Workshop staging, and
+`git diff --check` pass. Live multi-resident relief rotation remains pending.
+No launcher patch is required.
+
+## Resident supply runs (offline verification, live pending)
+
+When a base resident has no executable local job and the shared storage
+snapshot is genuinely short on food, water, or medical supplies, the resident
+now gets a bounded opportunity to use the existing real-item nearby search.
+This preserves the resident's base duty, uses the normal inventory/action path,
+and backs off between attempts; it does not create abstract stock or a second
+mission system.
+
+Verification: all 76 Lua tests, Java build/verifiers, Workshop staging, and
+`git diff --check` pass. Live confirmation of supply runs leaving and returning
+to a base remains pending. No launcher patch is required.
+
+## Off-screen base duty progression (offline verification, live pending)
+
+Unloaded residents no longer appear completely frozen while the player is away.
+The existing unloaded-survival ledger now tracks a claimed base duty. Guard and
+patrol shifts accumulate bounded off-screen work time and complete through the
+existing persisted task-board path. Physical jobs such as farming, repairs,
+construction, hauling, and barricading remain claimed but are deliberately not
+marked complete away from the loaded world; they resume with their native engine
+actions when the resident returns.
+
+Verification:
+
+- `tools/test-base-duty-simulation.lua` covers shift accumulation, completion,
+  queued-task rejection, and protection of physical jobs.
+- Full Lua suite: 74 focused scripts pass; all 80 current Lua files pass syntax
+  checks.
+- `:java:build` and all existing Java verifiers pass.
+
+Status: implemented and internally verified; save/reload and multi-hour live
+materialization remain pending. No launcher patch is required.
+
+## Persistence normalization hardening (offline verification, live pending)
+
+The persistence root now normalizes the accumulated scheduling fields when an
+older save is opened: task priority baselines, retry/failure counters, recent
+claim timestamps, off-screen watch time, survivor duty defaults, and existing
+unloaded-life values are sanitized in place. Missing unloaded-life state is not
+invented, so legacy records still wait for a real capture before physiology is
+applied. This keeps old saves compatible without replacing identities or
+rewriting valid state.
+
+Verification:
+
+- Legacy world-presence and event-readiness regression tests pass.
+- Full Lua suite: 74 focused scripts pass; all 80 current Lua files pass syntax
+  checks.
+- `:java:build` and all existing Java verifiers pass.
+
+Status: implemented and internally verified; migration against a real legacy
+save remains pending. No launcher patch is required.
+
+## Base-task ownership restoration (offline verification, live pending)
+
+Persistent claimed work is now explicitly restored before a reconstructed base
+resident may select another task. The persistence boundary enforces one claimed
+task per survivor, keeps the highest-priority deterministic claim, requeues any
+duplicates, and releases claims owned by missing, dead, reassigned, or
+event-borrowed survivors. Schema-wide repair runs once per schema version;
+controller restoration performs only the relevant base scan.
+
+This closes the previous state where a controller could forget its in-memory
+`baseTask` after unloading while the task board still retained the durable claim,
+allowing the resident to select additional work.
+
+Verification:
+
+- `tools/test-companion-base-domain.lua` covers authoritative claim recovery,
+  duplicate-claim repair, orphan cleanup, and preservation of relocation rules.
+- Full Lua suite: 74 focused scripts pass; all 80 current Lua files pass syntax
+  checks.
+- `:java:build`, all Java verifiers, and `git diff --check` pass.
+
+Status: implemented and internally verified; unload/materialize continuation
+remains pending live evidence. No launcher patch is required.
+
+## Companion patrol orders (offline verification, live pending)
+
+Individual companions and the full party can now receive a persistent
+`patrol_area` directive through the existing context menus. The route uses four
+inset points inside the selected area, advances from the nearest reached point,
+and varies equal-distance starting choices by survivor identity so a party does
+not deliberately stack. Patrol pauses are bounded, combat/self-care retain the
+underlying directive, and three invalid-route attempts release the temporary
+order cleanly. No formation or alternate movement system was introduced.
+
+The world-population materializer also recognizes the new `base_working`
+off-screen activity, preventing an unloaded working resident from restoring at
+an obsolete pre-work record location.
+
+Verification:
+
+- `tools/test-companion-patrol.lua` covers inset route generation, waypoint
+  advancement, and invalid-input safety.
+- `tools/test-companion-commands.lua` covers persisted patrol directives.
+- Full Lua suite: 75 focused scripts pass; all 81 current Lua files pass syntax
+  checks.
+- `:java:build`, all Java verifiers, and `git diff --check` pass.
+
+Status: implemented and internally verified; visible patrol pacing, traversal,
+and interruption/resume remain pending live evidence. No launcher patch is
+required.
+
+## Guard-post and base-patrol coherence (offline verification, live pending)
+
+Guard and Patrol now have separate, consistent meanings across companion and
+base behavior. A guard moves to one deterministic post within the assigned area
+and holds it. A patrol follows a persisted multi-stop route through the area,
+pauses briefly at each stop, and completes only after visiting the full route.
+Faction bases place their default entry-watch zone at a valid nearby outdoor
+square when one is loaded instead of blindly using the building center.
+
+Base-patrol progress is stored on the existing task record. Combat, unload, or
+another bounded failure may block and later reopen that same task without
+losing the next route stop. Save normalization clamps malformed progress, small
+areas collapse duplicate points safely, and no second movement or job owner was
+introduced.
+
+Verification:
+
+- `tools/test-companion-patrol.lua` covers companion- and base-shaped bounds,
+  distinct route stops, deterministic guard posts, persisted cycle progress,
+  tiny-area deduplication, and controller wiring.
+- `tools/test-base-jobs.lua` covers stable guard-post resolution and consecutive
+  base-patrol destinations.
+- `tools/test-companion-base-domain.lua` covers patrol progress surviving a
+  blocked/requeued task and later reclaim.
+- Full Lua suite: 75 focused scripts pass; all 80 current Lua files pass syntax
+  checks.
+- `:java:build`, all Java verifiers, and Workshop staging pass.
+
+Status: implemented and internally verified. Live evidence is still required
+for visible multi-stop pacing, obstacle traversal between stops, combat resume,
+and save/reload midway through a patrol. No launcher patch is required because
+this pass changes only staged mod Lua and documentation.
+
+## Unified order vocabulary and safe resume command (offline verification, live pending)
+
+The player-facing command surface now has a small Knox-owned order catalogue
+shared by the companion service and both party/individual context menus. It
+provides one stable label source for primary orders, temporary directives, and
+base preferences without creating a second planner or task manager. A new
+Resume Normal Duty action clears only the temporary companion directive through
+the existing persistence and controller interruption boundary; Follow, Hold,
+Relax, base duty, affiliation, and survivor identity remain untouched. The
+party version applies the same operation to every owned companion and disables
+it when no temporary directive exists.
+
+Verification:
+
+- `tools/test-order-catalog.lua` covers shared labels, directive classification,
+  and unknown-order safety.
+- Full focused Lua suite: 76 scripts pass; all current Lua test surfaces pass.
+- `git diff --check` reports no whitespace errors.
+
+Status: implemented and internally verified; live menu routing, interrupted
+combat/self-care resume, and save/reload behavior remain pending. No launcher
+patch is required because this pass changes only staged mod Lua and docs.
+
+The catalogue is now also the source for party, individual, base-preference,
+and survivor-card labels. Status text keeps its established readable wording
+while menu wording remains concise, so this consolidation does not alter saved
+directive data or controller behavior.
+
+## Base resident rest preference (offline verification, live pending)
+
+Base residents can now be assigned **Rest / Recover** through the existing job
+preference menu. The preference is persisted on the resident's normal duty
+record, prevents automatic task claiming while active, and lets the existing
+base idle/ambient recovery path run. Returning to Automatic or another work
+preference resumes the existing scheduler; no parallel task manager or abstract
+rest state was introduced.
+
+Verification: order catalogue, base-job, companion-command, and base-ambient
+tests pass; Workshop staging passes. Live confirmation of visible sitting,
+needs recovery, and preference persistence remains pending. No launcher patch
+is required because this pass changes only staged Lua and documentation.
+
+## Settlement job-type balancing (offline verification, live pending)
+
+Automatic task selection now applies a small bounded penalty when a task type
+already has active claims. Priority, skill/material eligibility, explicit role
+preference, and recent-claim fairness remain authoritative; the penalty only
+breaks near-equal ties between useful work types. This keeps a base from sending
+every available resident to the same guard, farming, or hauling category while
+still allowing that category when it is the only eligible work.
+
+Verification: `tools/test-base-jobs.lua` now covers active work-type
+distribution alongside existing preference, priority, and fallback checks;
+order, ambient-life, diff, and Workshop staging checks pass. Live multi-resident
+job distribution remains pending. No launcher patch is required.
+
+## Base rest handoff and claim release (offline verification, live pending)
+
+Selecting **Rest / Recover** now also releases any currently claimed base task
+back to the existing task board before the resident enters ambient recovery.
+This closes the boundary where a resident could be told to rest but continue a
+previous work claim after the next controller refresh. The durable preference,
+task requeue, native-action interruption, and later return to Automatic remain
+on the existing persistence/controller paths.
+
+Verification: base-job, ambient-life, companion-command, order-catalogue, diff,
+and Workshop staging checks pass. Live confirmation of an in-progress job being
+released and a resident visibly recovering remains pending. No launcher patch is
+required.
+
+The shared catalogue also now fails closed when a stripped test harness or
+optional load path does not provide the module, keeping context-menu tests and
+older initialization paths from throwing while the normal game load still uses
+the full Knox labels.
+
+Final offline verification for this pass: all 76 Lua tests pass, Java build and
+verifiers pass, Workshop staging passes, and `git diff --check` reports no
+content errors. Live settlement behavior remains pending.
+
+## Player-base work-area defaults (superseded 2026-09-05)
+
+Live usability review rejected automatic player-base work areas. Player areas
+and storage policies are now explicit Notebook choices; automatic planning is
+reserved for autonomous NPC faction bases. Existing player-created areas remain
+valid and are not deleted. Repair continues to scan owned territory without a
+dedicated overlay. The sandbox option is now labelled **Automatic NPC Base Work
+Areas** to describe its actual scope.
+
+## Settlement work feedback (offline verification, live pending)
+
+Base work completion now reports the actual completed duty instead of using a
+generic patrol message for every task. Guard, patrol, defense, repairs,
+storage, corpse handling, animal care, farming, and wood work each have a short
+contextual line through the existing activity-feed/native speech path. This is
+presentation-only and does not add another dialogue or job system.
+
+Verification: all 76 Lua tests pass; Java build/verifiers, Workshop staging, and
+`git diff --check` pass. Live confirmation of the lines during real native job
+completion remains pending. No launcher patch is required.
+
+## Group-to-group human encounters (offline verification, live pending)
+
+Encounter coordination now allows leaders of two different established travel
+groups to notice and resolve a bounded human interaction. A `join` result is
+deliberately narrowed to a greeting for group-to-group contact; only a lone
+survivor can use the existing join-group path. The pending encounter records
+both original group IDs, so membership changes abort safely while an unchanged
+pair completes without merging or corrupting either group. Existing cooldowns,
+hostility, and controller ownership remain authoritative.
+
+Verification: the human-encounter regression now covers two established group
+leaders meeting without an invalid join pair or group merge. All 76 Lua tests,
+Java build/verifiers, Workshop staging, and `git diff --check` pass. Live
+verification of group leaders meeting in-world remains pending. No launcher
+patch is required.
+
+## Faction identity collision handling (offline verification, live pending)
+
+Generated NPC faction names now remain readable while avoiding duplicate names
+when two groups happen to produce the same leader-based name. Existing names,
+player faction names, and explicitly named event factions are preserved. A new
+generated collision receives a stable numeric suffix before it reaches the
+notebook, activity feed, or safehouse title.
+
+Verification: faction persistence, human encounter, full Lua suite, Java
+build/verifiers, Workshop staging, and `git diff --check` pass. Live formation
+of multiple same-name factions remains pending. No launcher patch is required.
+
+Faction-owned engine safehouses now also upgrade an old generated title such as
+`Knox faction faction-1` to the persisted faction display name, while leaving
+player-customized titles untouched. Newly created safehouses use the same
+readable faction name from the start.
+
+Verification: faction persistence, full Lua suite, Java build/verifiers,
+Workshop staging, and `git diff --check` pass. Live safehouse-title migration
+remains pending. No launcher patch is required.
+
+## Faction base identity (offline verification, live pending)
+
+When an NPC faction claims a permanent base, the base now adopts the persisted
+faction name with a `Base` suffix when it still has the generic `Survivor Camp`
+name. Customized base names are preserved. This keeps the faction, notebook,
+activity feed, and settlement property visibly connected without adding another
+name or ownership system.
+
+Verification: full Lua suite, Java build/verifiers, Workshop staging, and
+`git diff --check` pass. Live confirmation of faction-base naming remains
+pending. No launcher patch is required.
+
+Faction-formation activity-feed messages now use the persisted faction display
+name instead of a generic announcement, keeping the player-facing settlement
+loop tied to the same identity shown in the notebook and safehouse UI.
+
+## Settlement security coverage (offline verification, live pending)
+
+When a base has more than one resident and no guard or patrol task is active,
+the existing task selector gives the first eligible security task a bounded
+coverage bonus. Once security is covered, ordinary priorities, skills,
+preferences, and fairness resume. This prevents a populated base from sending
+everyone into production work while leaving its perimeter unwatched, without
+adding another scheduler or overriding explicit jobs.
+
+Verification: base-job regression coverage includes establishing and yielding
+security coverage; all 76 Lua tests, Java build/verifiers, Workshop staging,
+and `git diff --check` pass. Live multi-resident guard rotation remains
+pending. No launcher patch is required.
+
+## Scaled settlement watch (offline verification, live pending)
+
+Security coverage now scales modestly with the resident roster: a small base
+targets one active guard or patrol, while a base with four or more residents
+can keep a second relief watch active. Guard and patrol are balanced when both
+are available, and the existing repeat/recency penalties still prevent one
+resident from owning every watch shift. This remains a soft selection bonus;
+explicit duties, capabilities, task priority, and native action eligibility
+still win.
+
+Verification: base-job regression coverage now includes the larger-base relief
+watch case; full Lua and Java verification remains required. Live watch
+rotation and behavior around a real perimeter are still pending. No launcher
+patch is required because this is Lua-only.
+
+## Unified base-task presentation (offline verification, live pending)
+
+The notebook Work tab and cancel/resume activity messages now resolve persisted
+base task IDs through `KnoxOrderCatalog`. Residents therefore appear as
+"Water Crops", "Build Defenses", "Move Corpses", and similar readable duties
+instead of leaking internal names such as `farm_water`. Unknown or mod-added
+task types still fall back safely to their raw identifier.
+
+Verification: order-catalog regression coverage, full Lua suite, Java build and
+verifiers, Workshop staging, and diff validation pass. Live UI scaling and task
+feedback remain pending. No launcher patch is required.
+
+The same catalogue now owns the visible `Return to Base` and `Resume Normal
+Duty` labels in the companion context menu, removing the last duplicate strings
+from the primary order path. This is presentation-only and does not alter
+directive persistence or execution.
+
+## Faction shelter rejection recovery (offline verification, live pending)
+
+If a faction reaches a recorded shelter candidate but final confirmation fails,
+the candidate is now written through the existing bounded rejection memory before
+the scouting state is cleared. This prevents an ownership conflict, stale
+building, or newly claimed safehouse from causing the faction to select the same
+unusable building on every scouting cycle.
+
+Verification: faction-persistence rejection coverage, full Lua suite, Java build
+and verifiers, Workshop staging, and diff validation pass. Live faction scouting
+through a failed candidate remains pending. No launcher patch is required.
+
+## Deterministic faction shelter selection (offline verification, live pending)
+
+Faction shelter scouting now breaks equal-score ties by nearest approach and
+then stable building ID instead of relying on streamed map iteration order. A
+faction therefore keeps a consistent candidate when several buildings are
+equally suitable, while the existing score and rejection rules remain in force.
+
+Verification: full Lua suite, Java build/verifiers, Workshop staging, and diff
+validation pass. Live multi-building scouting remains pending. No launcher patch
+is required.
+
+## Outdoor temporary faction camps (offline verification, live pending)
+
+Faction leaders can now establish a bounded temporary camp outdoors when they
+form before locating a valid building. The camp uses the existing radius-based
+occupancy and return behavior; permanent building/safehouse scouting remains a
+separate later step. Incomplete streamed building metadata is treated safely
+instead of causing a camp-location error.
+
+Verification: camp-living regression coverage now includes an outdoor leader,
+full Lua suite, Java build/verifiers, and Workshop staging pass. Live outdoor
+camp formation and later conversion to a permanent base remain pending. No
+launcher patch is required.
+
+## Temporary camp/base territory boundary (offline verification, live pending)
+
+Temporary faction camps now consult persisted base territories as well as loaded
+safehouse objects and other camps. This closes the streaming gap where an
+outdoor camp could be created inside an established player or faction base
+before that base's engine safehouse was loaded.
+
+Verification: faction-camp regression coverage includes persisted-base overlap,
+full Lua suite, Java build/verifiers, and Workshop staging pass. Live competing
+camp placement remains pending. No launcher patch is required.
+
+## Temporary camp ownership safety (offline verification, live pending)
+
+Temporary camp creation now checks existing camps across factions. A building
+already claimed by another faction, or an outdoor camp patch within the bounded
+radius, is rejected through the persistence layer. This keeps faction shelters
+from overlapping while preserving same-faction reuse and later camp-to-base
+conversion.
+
+Verification: faction-camp regression coverage, full Lua suite, Java
+build/verifiers, and Workshop staging pass. Live competing-faction camp
+placement remains pending. No launcher patch is required.
+
+## Unified order/work-duty mapping (offline verification, live pending)
+
+The shared `KnoxOrderCatalog` now owns the preference-to-task-group mapping
+used by automatic base-duty selection. Farming, woodwork/defense, hauling,
+animal care, security, and repair preferences resolve through the same metadata
+used by player-facing labels and task presentation. This removes the previous
+duplicate matching table in `KS_BaseJobs` while leaving task creation, claims,
+eligibility, and native execution in their existing owners.
+
+Verification: order-catalog preference regressions, full Lua suite (76 tests),
+Java build/verifiers, and Workshop staging pass. A live check that player
+preferences and automatic resident assignment stay aligned remains pending.
+No launcher patch is required because this is Lua-only.
+
+## Ownership-aware survivor activation (offline verification, live pending)
+
+Loaded-body activation now applies a deterministic ownership priority within
+the existing active-body budget: player companions first, player-base
+residents next, NPC-base residents, grouped survivors, then independent
+survivors. Distance and restore-before-first-materialization ordering remain
+the tie-breakers. This keeps established player relationships available when
+the loaded band contains more durable survivors than the active-body budget,
+without increasing population or changing origin allocation.
+
+Verification: world-population regression coverage now asserts the priority
+metadata; full Lua suite (77 tests), Java build/verifiers, Workshop staging,
+and diff validation pass. Live streaming with a full active budget remains
+pending. No launcher patch is required.
+
+The settlement shortage boundary was tightened in the same pass: priority
+bonuses now require at least one assigned storage policy to be loaded and
+inspected. Streamed-out or unavailable storage no longer produces invented
+shortage urgency; the task remains governed by its persisted priority until
+real storage is available.
+
+Verification: `tools/test-base-needs.lua` covers the zero-loaded-policy case;
+the full 76-test Lua sweep and diff validation pass. Live storage streaming
+behavior remains pending. No launcher patch is required.
+
+The task-board convenience API now accepts the same optional resident preference
+used by the autonomy controller. It performs a preferred pass, then falls back
+to any eligible queued work, so callers outside the main controller cannot
+silently ignore a persisted job preference.
+
+Verification: `tools/test-base-task-board.lua` covers preferred selection and
+fallback; the full Lua suite now contains 77 passing tests. Java build,
+verifiers, Workshop staging, and diff validation pass. Live multi-resident duty
+selection remains pending. No launcher patch is required.
+
+## Faction settlement lifecycle guard (offline verification, live pending)
+
+Faction-base reconciliation now refuses to convert dead, event-managed,
+departing, or away-team survivors into residents. The same lifecycle boundary
+also prevents those identities from being added back to an NPC faction. This
+keeps durable death, event departure, and mission ownership authoritative when
+a base is created or restored.
+
+Verification: faction-persistence regression coverage exercises durable death
+against faction membership and resident conversion; the full Lua suite and
+diff validation pass. Java build/verifiers and Workshop staging were not
+changed by this Lua-only guard. Live faction restoration remains pending. No
+launcher patch is required.
+
+## Settlement supply-search coordination (offline verification, live pending)
+
+Base residents now share short-lived persisted claims for food, water, and
+medical supply searches. When a base is short on one category, only one resident
+claims that search at a time; the lease expires on failure, unload, death, or
+after a bounded interval. Healthy storage releases the claim immediately. This
+keeps the settlement loop from sending every resident on the same scavenging
+trip while preserving real-world item search and existing base duty ownership.
+
+Verification: roaming-controller source regressions cover the shared claim
+table, bounded lease, and duplicate suppression; the full Lua suite, Java
+build/verifiers, Workshop staging, and diff validation pass. Live multi-resident
+supply distribution remains pending. No launcher patch is required.
+
+## Faction-base duty handoff (offline verification, live pending)
+
+When an NPC faction claims a permanent base, active members now receive the
+normal runtime duty-change notification as each resident assignment is written.
+This prevents an already-loaded leader or member from continuing stale roaming
+or base-scouting behavior until an unrelated controller refresh occurs. The
+persisted duty remains the source of truth; the notification only wakes the
+existing controller boundary.
+
+Verification: base-management UI/source regression coverage protects the duty
+handoff hook; the full Lua suite, Java build/verifiers, Workshop staging, and
+diff validation pass. Live faction conversion and resident-work startup remain
+pending. No launcher patch is required.
+
+## Base idle-life staggering (offline verification, live pending)
+
+Idle residents now use a deterministic per-survivor phase for short movement,
+rest, and wait decisions instead of independent same-tick random rolls. This
+reduces synchronized pacing and resting while keeping the existing native
+furniture/ground recovery actions and bounded base decision cadence intact.
+
+Verification: autonomy source regressions cover deterministic per-survivor
+jitter and bounded phase changes; the full Lua suite, Java build/verifiers,
+Workshop staging, and diff validation pass. Live base ambience remains pending.
+No launcher patch is required.
+
+## Base supply-trip return handoff (offline verification, live pending)
+
+Resident shortage searches now carry a temporary supply-trip marker. After the
+native search/transfer completes, the marker is cleared and the existing base
+duty decision boundary immediately routes the resident home if they are outside
+the territory. Interruptions still clear only the temporary marker, allowing
+combat or self-care to preempt safely without creating a second order.
+
+Verification: roaming-controller source regressions cover marker creation and
+return handoff; the full Lua suite, Java build/verifiers, Workshop staging, and
+diff validation pass. Live supply collection and return remain pending. No
+launcher patch is required.
+### Human encounter availability for NPC faction residents (2026-09-04)
+
+- **Defect:** the encounter coordinator excluded every survivor with `duty.mode == "base"`, which meant residents of an established NPC faction could never notice or meet nearby independent survivors. This blocked the intended path for faction groups to grow without weakening player companion/base ownership.
+- **Fix:** social availability now receives the live controller and permits only NPC faction residents in `BASE_IDLE` or `BASE_AMBIENT_REST` to participate. Active base work/security, player-owned companions, and player-owned base residents remain protected. The controller meeting-interrupt boundary now recognizes those two idle base states, so the existing bounded approach/greeting flow can actually start.
+- **Verification:** `tools/test-human-encounters.lua` now covers idle faction residents participating and active base work being excluded; full Lua suite and Java build/staging checks pass.
+- **Status:** implemented; live in-game encounter verification pending.
+### Unified order catalogue routing (2026-09-04)
+
+- **Defect:** player-facing order validation and base-preference menu ordering were duplicated in service/UI code, allowing the visible vocabulary to drift from the command boundary and permitting malformed directives to reach persistence.
+- **Fix:** `KnoxOrderCatalog` now owns primary-order/base-preference classification and the stable base-preference menu sequence. Companion commands validate against that catalogue, directive submission rejects unknown/non-table directives before persistence, and the context menu consumes the canonical preference order.
+- **Verification:** order-catalogue regression checks cover primary/directive/preference classification and unknown safety; full Lua suite, Java build, staging, and `git diff --check` pass.
+- **Status:** implemented; live command-menu verification pending.
+### Unified companion order dispatch (2026-09-04)
+
+- **Defect:** context-menu handlers each called persistence/directive methods directly, so player-facing orders had no single validation/routing boundary.
+- **Fix:** added `KnoxCompanionService.issueOrder`, which validates against `KnoxOrderCatalog` and routes primary orders, return-to-base, resume, and existing directives to their current owners. Loot, survival, move, guard, and patrol menu actions now use that dispatcher; malformed/unsupported requests fail closed.
+- **Verification:** companion command and order-catalogue checks pass, along with the full Lua suite, Java build/staging, and whitespace validation.
+- **Status:** implemented; live menu interaction remains pending.
+### Base-duty preferences on the shared order boundary (2026-09-04)
+
+- **Defect:** base-resident job preferences still bypassed the shared player-facing order route, leaving the catalogue incomplete for settlement commands.
+- **Fix:** the same dispatcher now routes catalogue base preferences (`auto`, guard/patrol, farming, woodwork, hauling, animal care, repair, rest) to the existing persisted base-preference service. No second task manager or job executor was introduced.
+- **Verification:** companion command source checks, order-catalogue checks, full Lua suite, Java build/staging, and whitespace validation pass.
+- **Status:** implemented; live base-menu verification pending.
+### Base-resident player controls (2026-09-04)
+
+- **Defect:** the base-resident context menu exposed a misleading `Follow` label and did not provide the native inventory access already available for companions.
+- **Fix:** the entry is now explicitly `Bring Along` (using the existing base-to-companion transition), and base residents receive the same distance-gated inventory menu. Job preferences continue through the unified order dispatcher.
+- **Verification:** base UI and companion command checks pass; full Lua/Java verification remains green from this pass.
+- **Status:** implemented; live context-menu and activation verification pending.
+### Persistence-safe catalogue validation (2026-09-04)
+
+- **Defect:** making persistence load the UI catalogue directly broke standalone/test and early-load paths where the catalogue is intentionally unavailable.
+- **Fix:** persistence now consults the catalogue when it is already loaded, with the existing allow-list as a compatibility fallback. This keeps save/load independent of UI load order while still converging on one canonical vocabulary at runtime.
+- **Verification:** full Lua suite (`lua_failures=0`), Java build/staging, and diff validation pass.
+- **Status:** implemented; live save/load remains pending.
+### Dead resident task-claim guard (2026-09-04)
+
+- **Defect:** the persistent task-board claim boundary checked record/duty ownership but did not explicitly reject an identity already marked dead.
+- **Fix:** `claimBaseTask` now fails with `survivor_dead` before changing task state. Existing cleanup/requeue logic remains responsible for releasing any prior claim.
+- **Verification:** full Lua suite, Java build/staging, and diff validation pass.
+- **Status:** implemented; live death/base-job interaction remains pending.
+### Single active base-task ownership (2026-09-04)
+
+- **Defect:** task-level uniqueness did not prevent one resident from holding multiple claimed base tasks during same-tick controller/UI retries.
+- **Fix:** `claimBaseTask` now checks the resident's existing claims and fails closed with `already_claimed_task` before changing another task. Native task execution and normal requeue paths remain unchanged.
+- **Verification:** base task-board regression check, full Lua suite, Java build/staging, and diff validation pass.
+- **Status:** implemented; live same-tick retry behavior remains pending.
+### Base preference lifecycle guard (2026-09-04)
+
+- **Defect:** persisted base-job preferences could still be edited on a dead or event-bound player-owned resident, leaving a stale duty mutation even though work execution was unavailable.
+- **Fix:** `setBaseJobPreference` now rejects dead and event-owned residents before changing the durable duty record. Task claiming already rejects the same states, keeping preference and execution boundaries consistent.
+- **Verification:** full Lua suite (`lua_failures=0`), Java build/staging, and diff validation pass.
+- **Status:** implemented; live UI lifecycle verification remains pending.
+### Base-duty acknowledgement feedback (2026-09-04)
+
+- **Improvement:** changing a resident's persisted base-job preference gave no direct confirmation from the survivor.
+- **Fix:** the existing companion service now emits one short role-specific acknowledgement through `KnoxActivityFeed` after a successful change. No new dialogue/UI surface was added and task ownership remains unchanged.
+- **Verification:** full Lua suite (`lua_failures=0`), Java build/staging, and diff validation pass.
+- **Status:** implemented; live feedback presentation remains pending.
+### Catalogue-owned directive construction (2026-09-04)
+
+- **Defect:** directive payloads were being assembled ad hoc at the companion-service boundary, allowing player-facing callers to bypass the catalogue's canonical directive vocabulary or omit a normalized `kind`.
+- **Fix:** `KnoxOrderCatalog.makeDirective` now validates the directive kind, copies the payload, and stamps the canonical kind before persistence/execution. `issueOrder` uses this single constructor and fails closed for unsupported directives.
+- **Verification:** focused order-catalogue and companion-command checks, full Lua suite, Java build/staging, and whitespace validation.
+- **Status:** implemented; live directive execution remains pending.
+### Unified settlement task selection (2026-09-04)
+
+- **Defect:** `KS_BaseTaskBoard.claimBest` kept a second preference/fairness selector, so callers could receive different assignments from the newer settlement planner.
+- **Fix:** when the base-job layer is loaded, the task board now delegates selection to `KnoxBaseJobs.selectEligibleTask` and retains atomic claiming in persistence. Early-load callers keep the compatibility selector until the job layer exists.
+- **Verification:** base task-board regression, full Lua suite, Java build/staging, and whitespace validation.
+- **Status:** implemented; live multi-resident duty distribution remains pending.
+### Settlement shortage recovery expansion (2026-09-04)
+
+- **Gap:** base supply recovery considered food, water, and medical stock but ignored a settlement with no weapons or basic tools, leaving residents to idle or roam without a concrete reason.
+- **Fix:** the existing one-worker shortage lease now also selects `find_weapon` and `find_tools` after essential food, water, and medical checks. It reuses the normal ranked world search, real item transfer, and return-to-base path; no abstract stockpile or mission system was added.
+- **Verification:** base-needs regression, full Lua suite, Java build/staging, and whitespace validation.
+- **Status:** implemented; live shortage trip and return remain pending.
+### Faction-to-settlement boundary review (2026-09-04)
+
+- **Confirmed:** stable three-person groups can promote through the existing relationship gate, receive a persisted faction name, choose an unclaimed shelter, create a safehouse/base record, generate guard/patrol/maintenance/work coverage, and convert members into base residents without duplicate ownership.
+- **Deliberately not duplicated:** faction membership, base ownership, and task assignment remain owned by `KS_Persistence`, `KS_FactionCamps`, `KS_BaseManager`, and the shared task board. No second faction scheduler was introduced.
+- **Remaining gap:** a faction whose leader and members are outside loaded cells cannot yet perform a useful unloaded shelter/resource search; it waits for a loaded boundary before choosing a real building or gathering real supplies. This is the next faction progression pass.
+- **Verification:** source inspection plus the existing faction, camp, population, task-board, full Lua, Java build/staging, and whitespace checks.
+- **Status:** core loaded transition confirmed by focused checks; unloaded faction scouting/resource growth remains incomplete and live behavior is pending.
+### Unloaded faction scouting handoff (2026-09-04)
+
+- **Gap:** a fully stored NPC faction could advance ordinary group travel, but had no durable reason to stop at a plausible area for its leader to inspect a real shelter when the world cell was unloaded.
+- **Fix:** stored faction cohorts now choose a different same-floor real origin from the cached population catalogue, persist an `investigate_building` objective, move as one cohort, and pause at that anchor. Once the leader materializes, the existing loaded `KS_FactionBaseScouting` path resumes and evaluates actual buildings; no building, supplies, or base is invented off-screen.
+- **Verification:** population-origin and unloaded-group regression checks, full Lua suite, Java build/staging, and whitespace validation.
+- **Status:** implemented; live unloaded-faction materialization and shelter selection remain pending.
+
+### Faction growth and settlement admission (2026-09-04)
+
+**Status:** implemented; live faction recruitment and post-admission settlement behavior remain pending.
+
+The existing encounter path could add an independent survivor to an established faction,
+but it had no faction-size boundary. A join rejected by the persistence layer could also
+still be presented as an accepted join and mark the pair allied. That was an integration
+defect at the relationship-to-faction boundary, not a reason to add another faction manager.
+
+The fix adds the `NPCFactionMaxMembers` sandbox setting (default 8, bounded 3--24) and
+enforces it transactionally in `KnoxPersistence.addTravelGroupMember`. Existing members
+are never removed when the setting is lowered. `KS_SurvivorRelationships` now treats a
+rejected faction admission as a short neutral cooldown, resumes both controllers, and
+does not claim an alliance or group transition occurred.
+
+Focused checks cover the default and clamped sandbox values, faction admission at the
+configured limit, and persistence compatibility with later faction/base tests. The full
+Lua suite and Java build remain the verification gate; live encounter, recruitment, and
+settlement observation are still required. This is Lua/persistence-only, so no launcher
+patch is required.
+- **Regression coverage:** `test-unloaded-groups.lua` now creates a stored NPC faction, verifies the persisted shelter-scout objective, and confirms the shared cohort stops at its real origin anchor.
+
+## Persistent workforce rotation (2026-09-04)
+
+- **Defect:** automatic settlement selection already balanced active task types,
+  but a resident's own previous duty was not remembered. A worker could be
+  handed the same recurring job whenever it reopened, making a base look like
+  one person had been assigned permanently to one station.
+- **Fix:** a successful persistent task claim now records `lastJobType` and
+  `lastJobAtHours` on the resident's existing duty record. Automatic selection
+  applies a small, bounded penalty to that same task type. Explicit player
+  preferences, eligibility, security coverage, and materially higher priority
+  still win; no second scheduler or abstract job state was introduced.
+- **Verification:** base-job regressions cover rotation to a near-equal task,
+  explicit-preference precedence, and missing-duty safety. Focused base-job and
+  task-board tests pass. Full Lua syntax/tests, Java build/staging, and diff
+  validation remain the verification gate for this pass.
+- **Status:** implemented; live multi-resident work rotation and save/reload
+  behavior remain pending. Lua/persistence-only change; no launcher patch is
+  required.
+
+## Bounded human encounter lead-in (2026-09-04)
+
+- **Gap:** human encounters were gated to a 24-tile awareness and 16-tile
+  approach window. That was safe but too short for two roaming survivors to
+  consistently notice and converge before passing each other.
+- **Fix:** the existing same-floor and native line-of-sight gate now uses a
+  bounded 32-tile awareness radius and 20-tile cautious approach radius. The
+  change affects only contact lead time; it does not grant wall, floor, or
+  map-wide awareness and does not alter relationship outcomes or cooldowns.
+- **Verification:** encounter regressions cover blocked LOS, different floors,
+  the expanded same-floor contact range, single-owner meetings, cooldowns,
+  group protection, and idle faction-resident eligibility. Live encounter
+  frequency remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Patrol preference/directive collision (2026-09-04)
+
+- **Defect:** `patrol` is both a canonical player-base preference and a legacy
+  shorthand for a companion patrol area. Applying the alias before dispatch
+  classification could misroute payload-less resident or party Patrol orders
+  as empty location directives.
+- **Fix:** the catalogue keeps payload-less `patrol` canonical as the base
+  preference. Payload-bearing shorthand is promoted to `patrol_area` only at
+  directive construction/dispatch; payload-less party Patrol fans out through
+  the existing per-companion bounded patrol directive.
+- **Verification:** order-catalogue and order-routing regressions pass; the
+  catalogue and companion service pass Lua 5.1 syntax validation and
+  `git diff --check`. Live menu execution remains pending.
+- **Status:** implemented; Lua-only order-boundary correction, so no launcher
+  patch is required.
+
+### Unarmed combat rejection recovery (2026-09-05)
+
+- Follow-up menu inspection: party/survivor/trade construction passes explicit
+  callable-callback assertions in the executable UI regressions. This does not
+  identify the two historical numeric callbacks. Removed two unreferenced local
+  base-menu builders duplicating Notebook work-area controls; public handlers
+  and saved zone types remain intact. All 83 Lua regressions, affected syntax,
+  and Workshop staging pass after cleanup. No Java or launcher change.
+
+- Latest run `20260905-005316` repeatedly rejected attacks for `ks-world-4`
+  with `NO_EQUIPPED_WEAPON`, reaching failure counts of 70 and above.
+  The controller retried every threat scan even when its held item was unchanged.
+- Added a 900-tick rejection cooldown across targets. Changing the held item
+  immediately permits reevaluation and releases the related target suppression.
+  Existing threat awareness, orders, and configured retreat policy remain active.
+- All 83 Lua regressions, affected syntax, Java checks/build and Workshop staging
+  pass. Live behavior remains pending. No launcher change is required.
+- That run also contains context-menu numeric callback errors and two native
+  ThumpState null-target exceptions; their exact initiating actions remain
+  unproven and require further tracing. Its farming `select()` exception is
+  already covered by the current Kahlua-compatible requirement builder/test.
+
+### Legacy Patrol preference migration (2026-09-04)
+
+- **Gap:** older resident records could retain `patrol_area` in
+  `duty.jobPreference`, which is a directive spelling rather than the
+  scheduler's canonical `patrol` role. Those residents could lose their
+  intended recurring patrol preference after reload.
+- **Fix:** `KnoxOrderCatalog.normalizeBasePreference` maps only the base
+  preference boundary from `patrol_area` to `patrol`. Persistence migration,
+  base-job selection, party display, and preference updates now use that helper;
+  explicit companion patrol directives remain `patrol_area`.
+- **Verification:** order-catalogue and order-routing regressions pass; affected
+  Lua files pass syntax validation. Live migrated-save scheduling remains
+  pending.
+- **Status:** implemented; Lua/persistence-only change, so no launcher patch is
+  required.
+
+### Final player-facing command bypasses removed (2026-09-04)
+
+- **Gap:** The medical-check helper and Notebook resident recall still called
+  the lower-level command/base service directly.
+- **Fix:** Both now use the canonical `issueOrder` boundary (`hold` and
+  `return_to_base`), while their existing medical and resident behavior remains
+  unchanged.
+- **Verification:** Order-routing and full Lua regressions pass; syntax,
+  Java/staging, and whitespace checks remain green. Live medical-check and
+  Notebook recall clicks remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Useful-building roaming score (2026-09-04)
+
+- **Gap:** independent roaming selected the nearest reachable building almost
+  entirely by distance, so survivors could repeatedly choose low-value structures
+  even when a larger residential or supplied building was nearby.
+- **Fix:** the existing bounded roam scan now adds a small defensive usefulness
+  score for rooms, building area, residential status, and available water. The
+  score is only a tie-break against distance and danger; short-term destination
+  memory, native movement, and the existing planner remain unchanged.
+- **Verification:** roaming-autonomy regression, Lua syntax scan, and diff
+  validation pass. Live multi-hour destination behavior remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Concrete base-task order handoff (2026-09-04)
+
+- **Gap:** the task board already provided an ownership-checked `claimSpecific`
+  operation, but the canonical player-order dispatcher could not reach it.
+  Player-facing callers therefore needed a separate service path for a concrete
+  resident task.
+- **Fix:** added the `assign_base_task` catalogue action and routed it through
+  `CompanionService.issueOrder` with an explicit `{ baseId, taskId }` payload.
+  Existing task-board ownership, resident, eligibility, and atomic-claim checks
+  remain authoritative; malformed requests fail closed.
+- **Verification:** order-catalogue and order-routing regressions pass, Lua
+  syntax checks pass, and `git diff --check` passes. Live assignment remains
+  pending the settlement acceptance run.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Loaded away-team mission handoff (2026-09-04)
+
+**Status: Implemented, focused verification passes, live mission verification pending.**
+
+Resource teams can now cross from persisted `awaiting_collection` into one loaded-world executor.
+The normal population reconciler still excludes away members; an explicit mission-only exception
+restores a member at the loaded destination or durable return point and binds its controller to the
+persisted away duty. The controller reuses the existing exploration and native inventory-transfer
+path. Collection is acknowledged only after the action completes, and the executor records item
+types only when the exact item is present in the survivor's real inventory. Empty valid searches
+also acknowledge a member. A complete team enters the persisted returning phase, travels to its
+return point, and restores previous duties only through the existing completion transition.
+
+Mission members receive deterministic nearby offsets where practical, while unavailable cells and
+failed returns remain bounded retries and cannot fall through into roaming, companion, or base work.
+
+Focused verification:
+
+- `tools/test-away-team-executor.lua` covers bounded destination directives, real transfer proof,
+  collection acknowledgement, and return gating;
+- `tools/test-away-teams.lua` covers the explicit population exception and controller binding;
+- `tools/test-world-population.lua` covers existing away exclusion and population behavior;
+- all mod Lua files parse with Lua 5.1 and the focused tests pass.
+
+No launcher patch is required because this is Lua/persistence-only integration. Live verification
+still needs a real resource team near a loaded destination, collection from a vanilla container,
+return to its owner/base, and save/reload during each phase.
+
+### Patrol progress migration without fixed route geometry (2026-09-04)
+
+- **Defect:** save migration reduced every patrol's persisted step and completed
+  stop count against a hard-coded four-point route. That could skip or reset
+  progress when a saved work area produced a different number of distinct
+  runtime waypoints.
+- **Fix:** migration now keeps both counters finite and bounded, while
+  `KnoxCompanionPatrol` remains the only owner that folds progress against the
+  actual waypoint list when the patrol is resumed. No new scheduler or route
+  representation was introduced.
+- **Verification:** base-duty simulation regression, full Lua suite, Lua 5.1
+  syntax scan, Java checks, Workshop staging, and whitespace validation pass.
+  Live reload of a custom-sized patrol area remains pending.
+- **Status:** implemented; Lua/persistence-only change, so no launcher patch is
+  required.
+
+### Resident work status projection (2026-09-04)
+
+- **Defect:** a delayed controller refresh could leave a stale companion
+  directive on a resident duty record. The Notebook/Card therefore reported the
+  old companion activity instead of the resident's claimed base task.
+- **Fix:** `KS_SurvivorViewModel` now treats base ownership as authoritative,
+  projects the currently claimed task through the shared order catalogue, and
+  falls back to the last normalized duty only when no task is active. The
+  projection is read-only and does not add another command owner.
+- **Verification:** survivor view-model and base-duty regressions, full Lua
+  suite, Lua 5.1 syntax scan, Java checks, Workshop staging, and whitespace
+  validation pass. Live Notebook refresh after a duty handoff remains pending.
+- **Status:** implemented; Lua/UI-only change, so no launcher patch is
+  required.
+
+### Away-team multi-member collection gate (2026-09-04)
+
+- **Defect:** a resource team's persistence boundary could transition from
+  `collecting` to `returning` after only one member had reported supplies.
+  Remaining members would still be assigned away duty while the team had
+  already become eligible for completion.
+- **Fix:** each member now records an explicit collection acknowledgement,
+  including a valid empty search. `beginAwayTeamReturn` is accepted only when
+  every listed member has acknowledged collection; item ledgers still contain
+  only real executor-reported item types.
+- **Verification:** away-team regression covers partial collection, empty-member
+  completion, normal return, timeouts, and death races; full Lua/syntax, Java,
+  Workshop staging, and whitespace checks pass. Loaded destination collection and
+  physical return remain pending integration/live verification.
+- **Status:** implemented; Lua/persistence-only change, so no launcher patch is
+  required.
+
+### Offline patrol phase rotation (2026-09-04)
+
+- **Defect:** long unloaded patrol intervals advanced the next waypoint but left
+  `patrolStopsCompleted` at its pre-interval value. The next loaded arrival could
+  therefore reset the route at an inconsistent stop.
+- **Fix:** off-screen patrol advancement now wraps both waypoint and stop phase
+  against the actual runtime waypoint count. Guard relief behavior is unchanged.
+- **Verification:** base-duty simulation regression covers three- and four-point
+  routes, full Lua/syntax, Java, Workshop staging, and whitespace checks pass.
+  Live unload/reload patrol continuity remains pending.
+- **Status:** implemented; Lua-only duty simulation change, so no launcher patch
+  is required.
+
+### Durable away-team return point (2026-09-04)
+
+- **Gap:** resource away teams persisted their destination but not the real
+  dispatch-side return point. A loaded mission executor would have had to infer
+  whether a team belonged back at a player position, base, or another owner.
+- **Fix:** away-team creation now accepts and validates an optional return
+  destination, persists it as integer XYZ data, and exposes a read-only lookup.
+  The player-base scout handoff records the player's dispatch square; a base
+  resident dispatch derives the center of its persisted territory when no
+  explicit point is supplied. Older missions without either source remain
+  valid and return `nil` until a caller can provide a point.
+- **Verification:** away-team regression, full Lua/syntax checks, Java checks,
+  Workshop staging, and whitespace validation pass. Loaded collection and
+  physical return remain pending.
+- **Status:** implemented; Lua/persistence-only change, so no launcher patch is
+  required.
+
+### Off-screen security shift rotation (2026-09-04)
+
+- **Gap:** unloaded guard and patrol duties accumulated watch time but did not
+  retain any rotation result, and elapsed periods longer than one shift silently
+  discarded the additional watch time.
+- **Fix:** the existing `KS_BaseDutySimulation` now preserves the fractional
+  remainder, records every completed four-hour watch shift, counts guard relief,
+  and advances a patrol task's next waypoint once per completed shift. No
+  movement, loot, or resource state is fabricated off-screen; loaded patrols
+  still use the native controller path.
+- **Verification:** focused base-duty regression, full standalone Lua suite,
+  `luac` syntax validation, and whitespace validation pass. Long-session
+  save/load and live unloaded patrol rotation remain pending.
+- **Status:** implemented; Lua-only settlement simulation change, so no launcher
+  patch is required.
+
+The same persistence boundary now clamps `offscreenShiftsCompleted` and
+`guardReliefCount` when older or damaged task records are loaded, preventing
+invalid counters from affecting later duty rotation.
+
+### Expanded legacy order compatibility (2026-09-04)
+
+- **Gap:** familiar labels such as `loot_dead_bodies`, `get_food`, `get_meds`,
+  `guard_area`, `patrol`, and `cancel` were not consistently normalized at the
+  shared order boundary.
+- **Fix:** `KS_OrderCatalog` and the early persistence fallback now converge
+  those labels to the current Knox directives and primary orders. Existing
+  executors and the task board remain the only runtime owners.
+- **Verification:** order-catalogue regression, full standalone Lua suite,
+  `luac` syntax validation, and whitespace validation pass. Live context-menu
+  use of every new compatibility label remains pending.
+- **Status:** implemented; Lua-only vocabulary change, so no launcher patch is
+  required.
+
+### Persisted companion-order normalization (2026-09-04)
+
+- **Defect:** a duty or directive written by an older menu could retain labels
+  such as `explore`, `stand_ground`, or `go_find_food`. If the catalogue was
+  not loaded yet during save restoration, the controller could receive an
+  unknown order and leave the survivor without a valid persistent owner.
+- **Fix:** the persistence normalization boundary now applies the same Knox
+  order aliases used by the live catalogue, limits companion duties to the
+  supported primary orders (falling back to Follow), forces base residents to
+  `available`, and validates canonicalized directives before they reach the
+  runtime controller. Invalid directives are discarded rather than restored as
+  stale work.
+- **Verification:** order-catalogue regression, full Lua suite, Lua syntax
+  checks, Java build/verifiers, Workshop staging, and whitespace validation
+  pass. Live migration from an older save remains pending.
+- **Status:** implemented; Lua-only persistence compatibility change, so no
+  launcher patch is required.
+
+### Player-directed settlement task assignment (2026-09-04)
+
+- **Gap:** The unified order catalogue exposed base job preferences, but the
+  Notebook could not assign a specific queued work item to a chosen resident.
+  Players therefore had to rely entirely on automatic selection, leaving the
+  Superb-style direct-work command surface incomplete.
+- **Fix:** The Work tab now lists the real residents of the player's base and
+  provides a guarded `Assign` action for the selected queued task. Assignment
+  enters through `KnoxCompanionService.assignBaseTask` and then routes through
+  `KS_BaseTaskBoard.claimSpecific`, which verifies player-base
+  ownership, queued state, resident eligibility, skill requirements, and the
+  existing one-active-task invariant before calling atomic persistence claiming.
+  The active runtime is notified after a successful claim; no second task
+  manager or alternate execution path was introduced.
+- **Verification:** Base-task-board and Notebook source regressions cover the
+  guarded assignment boundary; full Lua tests, Lua syntax checks, Java
+  build/staging, and whitespace validation remain the pass gate. Live task
+  assignment and interruption/resume behavior remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Manual settlement work with automatic jobs disabled (2026-09-04)
+
+- **Defect:** `beginBaseTask` rejected the entire base-work path when automatic
+  jobs were disabled. A player-assigned queued task could therefore be claimed
+  and persisted but never restored or executed.
+- **Fix:** The controller now restores and runs an existing claimed task before
+  checking the automatic-jobs setting. The setting gates only new automatic
+  task selection; it no longer overrides an explicit player assignment.
+- **Verification:** Source regression protects the ordering boundary; full Lua
+  tests, syntax checks, Java build/staging, and diff validation pass. Live
+  execution with automatic jobs disabled remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Explicit work versus Rest preference (2026-09-04)
+
+- **Defect:** A resident's Rest preference could supersede a task explicitly
+  assigned moments earlier, causing the task to be requeued before execution.
+- **Fix:** Player-directed claims are marked `manual` at the task boundary. The
+  controller restores those claims before evaluating Rest and honors them; Rest
+  continues to release automatic claims as intended. The distinction is stored
+  on the existing task record and does not add another scheduler or duty model.
+- **Verification:** Base-task-board/controller regression coverage, full Lua
+  tests, Lua syntax checks, Java build/staging, and diff validation pass. Live
+  manual-task-versus-Rest behavior remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Manual assignment marker atomicity (2026-09-04)
+
+- **Defect:** The manual-assignment marker was written before the persistence
+  claim returned. A rejected or concurrent claim could leave a queued task
+  mislabeled as explicit work.
+- **Fix:** `KS_BaseTaskBoard.claimSpecific` now writes `manual=true` and clears
+  the automatic marker only after the atomic claim succeeds. Failed claims leave
+  the task unchanged.
+- **Verification:** Task-board regression covers the post-claim write ordering;
+  full Lua tests, syntax checks, Java staging, and diff validation pass.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Larger-settlement security coverage (2026-09-04)
+
+- **Gap:** A growing settlement could expose only one guard post, leaving all
+  security duty concentrated at the same entrance while residents rotated.
+- **Fix:** Bases with four or more residents now receive a second ordinary
+  `guard` zone at a separate deterministic outdoor post. It uses the existing
+  task board, native movement, guard executor, and fairness rotation; no
+  parallel security system or teleporting was added. Smaller bases keep the
+  original single-post behavior.
+- **Verification:** Base-management regression protects the resident threshold,
+  duplicate guard-zone guard, and `Outer Watch` marker. Full Lua tests, syntax
+  checks, Java staging, and diff validation pass. Live multi-post coverage and
+  save/reload remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Established-settlement patrol coverage (2026-09-04)
+
+- **Gap:** A large resident roster still shared one recurring patrol route,
+  limiting perimeter coverage even when multiple residents were available.
+- **Fix:** Bases with six or more residents now receive a second ordinary
+  `patrol` zone (`Outer Patrol`) at a separate deterministic position. It uses
+  the existing patrol waypoint, claim, rotation, and native movement paths;
+  no new formation or scheduler was introduced.
+- **Verification:** Base-management regression protects the six-resident
+  threshold, duplicate-route guard, and patrol marker. Lua tests, syntax checks,
+  Java staging, and diff validation pass. Live large-roster patrol coverage and
+  save/reload remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Capability-aware resident duty selection (2026-09-04)
+
+- **Gap:** Residents were rejected when they lacked a required skill, but two
+  equally valid tasks otherwise competed only by queue priority and history.
+  A capable worker could therefore be assigned an unrelated duty while a
+  matching resident remained idle.
+- **Fix:** `KS_BaseJobs.selectEligibleTask` now adds a small capped affinity
+  bonus for the resident's persisted Build 42 skill profile. The bonus is only
+  a tie-breaker: explicit preferences, shortage priority, security coverage,
+  eligibility gates, and atomic claims remain authoritative. Unknown skills or
+  profiles safely contribute zero.
+- **Verification:** Base-job regression covers equal-priority security skill
+  preference; full Lua tests, syntax checks, Java staging, and diff validation
+  pass. Live multi-resident role distribution remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+Legacy task labels are normalized before the affinity lookup as well, so older
+saved `woodcutting`, `farming`, or maintenance records receive the same skill
+hint without changing their persisted identity or executor path.
+
+### Base security summary feedback (2026-09-04)
+
+- **Gap:** The unified Base tab reported residents, zones, and queued work but
+  did not show whether the settlement had guard or patrol coverage.
+- **Fix:** The existing Base header now includes enabled guard-post and patrol-
+  route counts. It is derived directly from persisted zones, clipped through
+  the existing viewport-safe label helper, and does not add a second status or
+  security model.
+- **Verification:** Base-management UI regression, Lua syntax, diff checks,
+  Java staging, and Workshop staging pass. Live rendering at alternate
+  resolutions remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Resident active-duty feedback (2026-09-04)
+
+- **Gap:** The Residents tab showed a base role and profession but not the
+  concrete task currently claimed by that resident, making settlement work
+  difficult to follow from the player-facing screen.
+- **Fix:** Resident rows now derive the claimed task from the persisted base
+  task board and render its canonical Knox label, falling back to `Idle` when
+  no task is active. This is read-only presentation; task ownership and
+  execution remain unchanged.
+- **Verification:** Base-management UI regression, Lua syntax, diff checks,
+  Java staging, and Workshop staging pass. Live refresh timing remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+The Base header now reports staffed security as `active/available` for guard
+posts and patrol routes, making an understaffed settlement visible without
+changing the scheduler or creating a second security state.
+
+### Legacy settlement task normalization (2026-09-04)
+
+- **Gap:** Persisted or manually-created work records could retain older task names
+  such as `woodcutting`, `corpse_cleanup`, or `storage_sorting`, while current Knox
+  executors expect canonical task types. Those records could survive but be skipped by
+  the modern scheduler.
+- **Fix:** Added a bounded task-type compatibility map to `KS_OrderCatalog`, applied it
+  when queuing new work and while normalizing persisted tasks. Migrated signatures retain
+  their target portion, preventing duplicate work records. No old executor code was copied.
+- **Verification:** Order-routing and base-task-board regressions pass, the full Lua suite
+  passes with zero failures, all Lua files parse with Lua 5.1, Workshop staging succeeds,
+  and `git diff --check` is clean. Live migration and resident execution remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Unified player-facing order catalogue (2026-09-04)
+
+- **Gap:** Companion and party dispatch already shared `KS_OrderCatalog`, but several
+  party, vehicle, traversal, recruitment, and base-management labels were still hardcoded
+  in individual menus. That made the visible command vocabulary drift from the canonical
+  order boundary.
+- **Fix:** Added presentation-only action entries to `KS_OrderCatalog` and routed the
+  affected menus through `KnoxOrderCatalog.label`. Existing handlers, persistence, and
+  executors remain unchanged; no second task manager or dispatch path was introduced.
+- **Verification:** Order-routing and vehicle regressions pass, the full Lua suite passes
+  with zero failures, all Lua files parse with Lua 5.1, and `git diff --check` is clean.
+  Live menu rendering remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Canonical task-label collision guard (2026-09-04)
+
+- **Gap:** `barricade` is both a concrete task name and a legacy alias for the
+  broader woodwork preference. Alias-first lookup could show the wrong label in
+  a player menu even though dispatch remained valid.
+- **Fix:** Catalogue lookup now prefers exact canonical entries, then applies
+  compatibility aliases only when no exact entry exists. Task dispatch continues
+  to use the dedicated task-type normalizer.
+- **Verification:** Order-catalogue and full Lua tests pass, all Lua files parse,
+  Workshop staging succeeds, and diff validation is clean. Live menu rendering
+  remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Automatic settlement task admission (2026-09-04)
+
+- **Gap:** the automatic-duty allow-list lagged behind the settlement
+  executors already present. Newer wood processing, corpse hauling, animal
+  care, repair, and defense-construction tasks could be queued without being
+  admitted through the same automatic zone boundary.
+- **Fix:** `KS_BaseJobs.AUTOMATIC_TYPES` now includes those supported task
+  types. Task creation, requirements, atomic claims, and native actions remain
+  owned by the existing systems; no second scheduler or abstract resource
+  simulation was introduced.
+- **Verification:** the base-jobs regression now asserts admission for every
+  supported task type. Full Lua tests, syntax validation, Java build/staging,
+  and whitespace checks are run for this pass. Live multi-resident duty
+  rotation and save/reload continuity remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Party menu settlement-order convergence (2026-09-04)
+
+- **Gap:** the party context menu exposed companion orders but did not provide
+  a direct, catalogue-backed way to set the player base residents' shared work
+  preference.
+- **Fix:** added a `Base Work Orders` submenu that iterates the canonical
+  `KnoxOrderCatalog.basePreferenceOrder` and dispatches through
+  `KnoxCompanionService.issueOrderAll`. Existing resident ownership checks and
+  preference persistence remain authoritative.
+- **Verification:** order-routing regression, full Lua suite, syntax scan,
+  Java build/verifiers, Workshop staging, and diff validation pass. Live menu
+  selection and resident duty rotation remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Settlement access without an active companion (2026-09-04)
+
+- **Gap:** the party context entry was hidden when a player had no current
+  followers, even when that player already owned a base with resident
+  survivors. This made the new base-work order surface inaccessible to a
+  legitimate settlement-only roster.
+- **Fix:** the existing context-menu gate now permits the party/settlement
+  entry when at least one player-base resident exists, while preserving the
+  original companion requirement for players without either roster.
+- **Verification:** order-routing regression, full Lua suite, syntax check,
+  Workshop staging, and diff validation pass. Live context-menu visibility and
+  base-resident order selection remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Shared settlement preference feedback (2026-09-04)
+
+- **Gap:** the party-level base-work menu could issue a preference but did not
+  show which persisted preference the resident roster currently shared.
+- **Fix:** menu entries now derive the common normalized preference from the
+  authoritative resident duty records and mark that entry selected when the
+  roster agrees. Mixed rosters intentionally show no selection.
+- **Verification:** order-routing regression, full Lua suite, syntax checks,
+  Workshop staging, and diff validation pass. Live visual confirmation remains
+  pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Bounded resource-mission expiry (2026-09-04)
+
+- **Gap:** a resource away team with no loaded destination executor could remain
+  in `awaiting_collection` forever, retaining away ownership and making its
+  members unavailable for normal settlement life.
+- **Fix:** after 72 in-game hours in that state, persistence moves the team to a
+  durable `blocked` result, records `collection_timeout`, preserves any already
+  recorded resource ledger, and restores each member's previous duty. No loot
+  is generated and no collection is treated as successful.
+- **Verification:** away-team regression, full Lua suite, syntax scan,
+  Workshop staging, and diff validation pass. Live timeout/recovery behavior
+  remains pending; the real loaded collection executor is still a separate
+  milestone.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Rest preference releases persisted settlement claims (2026-09-04)
+
+- **Defect:** changing a resident to the Rest preference while a previously claimed
+  base task was only present in the persisted task board could drop the controller's
+  pointer without releasing the durable claim. The task then remained owned by a
+  resting survivor and could not rotate to another worker.
+- **Fix:** the existing autonomy boundary now requeues all claims for that survivor
+  through `KnoxPersistence.requeueBaseTasksForSurvivor` before entering ambient base
+  recovery. Task identity, requirements, and retry metadata remain owned by the
+  existing task board; no second scheduler was added.
+- **Verification:** focused base-needs regression, full Lua tests, Lua syntax checks,
+  and `git diff --check` pass. Live menu-to-rest and multi-resident rotation remain
+  pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Notebook base-duty dispatch convergence (2026-09-04)
+
+- **Gap:** the Residents tab wrote base-job preferences directly to persistence,
+  bypassing the canonical companion/order service used by the context menu and
+  party controls. The preference saved, but loaded controllers did not receive
+  the same duty-change notification or acknowledgement path.
+- **Fix:** the notebook now sends the selected preference through
+  `KnoxCompanionService.issueOrder`. The service remains responsible for
+  ownership validation, persistence, resident requeue behavior, feedback, and
+  runtime notification; no second task manager or order state was introduced.
+- **Verification:** base-setup UI regression, full Lua tests, Lua syntax checks,
+  Java build/staging, and diff validation pass. Live notebook interaction remains
+  pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Persisted active-duty coverage in task selection (2026-09-04)
+
+- **Gap:** automatic selection normally receives only queued tasks, so its
+  security and work-type balancing could not see already-claimed duties from
+  the persisted base. A resident could therefore be assigned another guard
+  post even when coverage already existed, or the settlement could repeatedly
+  favor one work type.
+- **Fix:** `KS_BaseJobs.selectEligibleTask` now supplements the queued snapshot
+  with claimed records from the authoritative persisted base, de-duplicated by
+  task ID. Claimed work affects only coverage/fairness scoring; only queued
+  records remain eligible for a new atomic claim.
+- **Verification:** base-job regression now covers an active persisted watch
+  omitted from the queued snapshot; full Lua tests, syntax checks, Java
+  build/staging, and diff validation pass. Live multi-resident balancing remains
+  pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Legacy order labels at the task boundary (2026-09-04)
+
+- **Gap:** direct task-board callers could pass older player-facing labels such
+  as `barricade`, while the canonical scheduler expected `woodwork`. This could
+  silently skip a resident's intended preferred work even though the order
+  catalogue already knew the alias.
+- **Fix:** `KS_BaseJobs.selectEligibleTask` normalizes the preference before
+  calculating preferred passes and task-group matches. Execution and persistence
+  ownership remain unchanged.
+- **Verification:** base-job regression covers legacy-label selection; full Lua
+  tests, syntax checks, Java build/staging, and diff validation pass. Live menu
+  selection remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Player-base defense work-area default (2026-09-04)
+
+- **Gap:** the automatic default-zone pass gave player bases farming, wood,
+  repair, guard, patrol, and corpse areas, but no construction perimeter. A
+  recruited resident therefore had no default place to perform the existing
+  native defense-construction executor unless the player created a zone by hand.
+- **Fix:** `KS_BaseManager.ensureFactionZones` now adds one guarded
+  `construction` area around the saved territory when neither construction nor
+  defense is already configured. Faction-specific perimeter records and manual
+  zones remain authoritative; no structures or materials are created.
+- **Verification:** base-setup regression, full Lua tests, syntax checks, Java
+  build/staging, and diff validation pass. Live construction task discovery and
+  native building remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Trough-aware animal-care area default (2026-09-04)
+
+- **Gap:** the real animal-care executor could already water or feed a vanilla
+  trough, but automatic base setup never created an animal-care area. Animal
+  settlements therefore required manual zone configuration even when a trough
+  was inside the claimed territory.
+- **Fix:** default-zone setup now scans the saved base bounds for an actual
+  `IsoFeedingTrough` and adds a small guarded care area around it. Bases without
+  a trough receive no animal zone, and existing/manual zones remain untouched.
+- **Verification:** base-setup regression, full Lua tests, syntax checks, Java
+  build/staging, and diff validation pass. Live trough watering/feeding remains
+  pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Claimed-task selector safety (2026-09-04)
+
+- **Defect:** a scheduler snapshot containing a stale `claimed` record could
+  still score that task as a new candidate, allowing a second resident to be
+  offered work already owned by someone else.
+- **Fix:** `KnoxBaseJobs.selectEligibleTask` now counts claimed work for coverage
+  and fairness but only considers queued (or legacy state-less) records for new
+  selection. Atomic persistence claiming remains the final ownership guard.
+- **Verification:** base-job regression covers claimed-task exclusion; full Lua
+  suite, Lua syntax, Java build/verifiers, Workshop staging, and diff validation
+  pass. Live concurrent resident scheduling remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Canonical labels in individual companion menu (2026-09-04)
+
+- **Gap:** the party menu used catalogue labels, but the individual context
+  menu still hard-coded several primary and movement order names.
+- **Fix:** Follow, Hold, Relax, Move, Guard, and Patrol now read their labels
+  from `KS_OrderCatalog`, keeping both player-facing surfaces on the same Knox
+  vocabulary while preserving their existing callbacks and order semantics.
+- **Verification:** full Lua regression suite and Lua syntax checks pass;
+  Java build/verifiers and Workshop staging pass. Live menu presentation remains
+  pending. No launcher patch is required.
+- **Status:** implemented.
+
+### Expanded familiar order aliases (2026-09-04)
+
+- **Improvement:** common player terms such as Search, Loot, Escort, and Defend
+  now resolve to the existing Knox Explore, Follow, Hold, or Guard behaviors.
+- **Boundary:** these remain vocabulary aliases only; they do not add a second
+  task system or alter execution ownership.
+- **Verification:** order-catalogue regression, Lua syntax check, Java build,
+  runtime verifiers, Workshop staging, and diff validation pass. No launcher
+  patch is required.
+
+### Persisted duty canonicalization (2026-09-04)
+
+- **Defect:** callers outside the companion UI could write a legacy base-role
+  label directly, leaving a save with a preference that was readable but not
+  canonical.
+- **Fix:** persistence now normalizes valid base preferences both when saving a
+  new role and while normalizing an existing survivor record. The task board,
+  profession hinting, and fairness selector therefore see the same role value
+  regardless of which UI or migration path produced it.
+- **Verification:** full Lua suite, Lua syntax checks, Java build/verifiers,
+  Workshop staging, and diff validation pass. Live save migration remains
+  pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+## Superb-style order vocabulary convergence (2026-09-04)
+
+- **Gap:** the rebuilt companion layer had the execution pieces for familiar
+  survivor activities, but callers using names such as `explore`, `go_find_food`,
+  or `stand_ground` could be rejected or routed inconsistently.
+- **Fix:** added a small Knox-owned alias vocabulary in `KS_OrderCatalog`. Aliases
+  normalize to the existing canonical orders (`loot_area`, `find_food`, `hold`,
+  `woodwork`, `farming`, `hauling`, and so on) before validation, persistence,
+  or directive creation. Individual
+  and party dispatch now normalize at the same boundary, so old menu wording and
+  future notebook controls converge without importing the legacy task system.
+  Base-job preference aliases are canonicalized before persistence as well, so a
+  legacy label cannot leave a resident with a second, non-matching duty value.
+- **Verification:** alias, directive-normalization, companion-dispatch, and
+  party-order regressions pass; all Lua tests pass with zero failures; all mod
+  Lua files pass `luac -p`; Java build, runtime verifiers, and Workshop staging
+  pass. Live menu execution remains pending.
+- **Status:** implemented; Lua-only compatibility work, so no launcher patch is
+  required. The old Superb source was not modified or copied.
+
+### Settlement duty migration normalization (2026-09-04)
+
+- **Defect:** a migrated resident could retain a familiar legacy role label in
+  its duty record. Although task matching understood some aliases, the
+  scheduler could still make a role decision from the non-canonical value.
+- **Fix:** `KnoxBaseJobs.effectivePreference` now normalizes valid legacy labels
+  before applying profession hints, preference matching, fairness, and fallback
+  selection. Persistence remains the single owner of the duty record.
+- **Verification:** base-job and order-catalogue regressions, full Lua suite,
+  Lua syntax checks, Java build/verifiers, Workshop staging, and diff validation
+  pass. Live resident rotation and save/reload migration remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+## Settlement candidate recovery and ownership safety (2026-09-04)
+
+- **Defect:** faction base scouting could retain one stale candidate indefinitely, and could select a building whose footprint overlapped an existing persisted Knox base.
+- **Fix:** candidate leads now expire after a bounded 72 in-game hours so the leader can rescan; scouting rejects buildings overlapping any persisted base territory/home before scoring them. Existing safehouse and candidate-rejection rules remain authoritative.
+- **Verification:** faction persistence/camp tests pass; full Lua syntax, Lua regression suite, and Java packaging checks pending in this pass.
+- **Status:** implemented; live in-game scouting and base conversion remain pending verification.
+
+## Off-screen faction shelter handoff timeout (2026-09-04)
+
+- **Defect:** an unloaded faction stopped at its cached shelter-scoping anchor and could remain there indefinitely if the cell never streamed in, freezing its off-screen progression.
+- **Fix:** the existing shared cohort now keeps the shelter handoff for 48 in-game hours, then releases it and selects another cached origin while preserving the faction and group records. No building or resources are fabricated off-screen.
+- **Verification:** unloaded-group regression covers the pause and bounded release; affected Lua tests and syntax checks pass. Live materialization remains pending.
+- **Status:** implemented; no launcher patch is required.
+
+## Initial population group distribution (2026-09-04)
+
+- **Gap:** opening groups were formed only from the identities allocated in the player's nearest start region. Compact spawn clusters in other regions always began as isolated survivors even when they were close enough to travel together.
+- **Fix:** the existing bounded group-forming pass now considers every identity allocated during initial population. It still uses the configured chance, maximum size, compact-distance check, and group-count cap, so this increases social clustering without increasing the population or creating an army.
+- **Verification:** world-population regression, full Lua suite, syntax checks, and whitespace validation pass. Live distribution across a fresh world remains pending.
+- **Status:** implemented; Lua-only, no launcher patch required.
+
+## Faction base ownership reconciliation (2026-09-04)
+
+- **Defect:** a stale `homeBaseId` could resolve to a real base record owned by a player or another faction. The resident handoff would then fail closed, but the faction could remain attached to the wrong base record.
+- **Fix:** `ensureFactionBase` now validates owner kind and owner id before using an existing record. Mismatches clear only the stale faction pointer and rebuild the faction-owned base from its persisted home definition.
+- **Verification:** base-management source regression covers the stale-owner guard; faction persistence/camp tests, full Lua suite, Lua syntax, Java build/staging, and whitespace validation pass.
+- **Status:** implemented; live restore from a deliberately stale save remains pending.
+
+Save normalization now clears invalid faction `homeBaseId` links while preserving
+the durable home definition for `KS_BaseManager` to rebuild on startup.
+
+## Faction storage category completion (2026-09-04)
+
+- **Defect:** automatic faction storage stopped as soon as any storage policy existed, so a partially configured or migrated base could never receive missing depot, tools, weapons, medical, building, farming, or clothing categories.
+- **Fix:** storage initialization now preserves every existing policy and fills only uncovered categories from additional real containers in the territory. It still never creates containers or supplies and remains bounded to the existing scan.
+- **Verification:** base-management source regression and Lua syntax checks pass; full Lua suite remains green. Live storage assignment remains pending.
+- **Status:** implemented; Lua-only, no launcher patch required.
+
+The fallback sequence also covers food and water when a base has ordinary
+containers but no fridge, freezer, or dedicated water container.
+Rain collectors and other water-named containers are now classified as water
+storage automatically as well.
+
+## Unified party order dispatch (2026-09-04)
+
+- **Defect:** individual companion orders were validated through
+  `KnoxOrderCatalog`, but party-wide context-menu actions still called several
+  lower-level helpers directly. This left the group command surface with a
+  second routing path and made future order additions easy to wire only for one
+  companion or one menu.
+- **Fix:** `KnoxCompanionService.issueOrderAll` now validates the same canonical
+  catalogue and routes primary orders, return-to-base, resume, directives, and
+  player-base job preferences through their existing owners. `KS_PartyCommands`
+  uses that boundary for follow, hold, relax, return, directive, and resume
+  actions. No new task manager, order state, or execution system was added.
+- **Verification:** companion-command and order-catalogue regressions pass;
+  the complete Lua test suite passes with zero failures and `git diff --check`
+  is clean. Live party-menu execution and multi-resident preference changes
+  remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Log-processing work-area integration (2026-09-04)
+
+- **Gap:** Base Setup exposed a `log_processing` work area, but the automatic
+  wood/log finder only searched `woodcutting` zones. A saved saw area could
+  therefore exist without producing a resident task.
+- **Fix:** `KS_BaseWoodcutting` now includes both existing zone types in the
+  same native log/saw path while keeping their intent distinct: woodcutting
+  searches trees, and log processing searches the saw recipe (with a woodlot
+  fallback for older bases that have no dedicated saw area). Recipe validation,
+  real log consumption, timed crafting, and task ownership remain unchanged;
+  no second scheduler was added.
+- **Verification:** Base-job regression now covers a `log_processing` zone;
+  full Lua tests, Lua syntax checks, Java build/staging, and diff validation
+  are the pass gate. Live saw-bench execution remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+The automatic base-area defaults now also create a small dedicated Log Processing
+area beside the Wood Lot for new player and faction bases. Existing manually
+configured areas are preserved.
+
+### Base-supply return and storage handoff (2026-09-04)
+
+- **Gap:** When a base resident left to recover food, water, or medical supplies,
+  the real item stayed in personal inventory after the resident returned. The
+  shortage loop could therefore send another resident out even though the first
+  run had succeeded.
+- **Fix:** A successful base-supply search now records the recovered real item,
+  returns through the normal base duty, and queues one native inventory transfer
+  into the nearest assigned category/depot container. The marker survives
+  temporary combat or action interruption, persists the item type through the
+  existing life-intent record for save/reload recovery, clears only after the
+  destination contains the item, and fails cleanly when the item is gone.
+  Missing storage remains a bounded retry rather than an invented stockpile;
+  ordinary personal cleanup remains separate.
+- **Verification:** The base-needs regression covers the explicit return-deposit
+  boundary; the full Lua test suite and Lua syntax checks pass. Live shortage,
+  return, and save/reload behavior remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Staged faction shelter scouting (2026-09-04)
+
+- **Gap:** Loaded faction scouting searched only a 30-tile square. A group could
+  abandon settlement selection even when a suitable nearby building was just
+  outside that first block.
+- **Fix:** `KS_FactionBaseScouting` now searches staged outer rings of 30, 60,
+  and 90 tiles, stopping after the first ring that yields a valid candidate.
+  The wider rings do not rescan the inner area and retain the existing room,
+  accessibility, vanilla safehouse, persisted-base overlap, rejection-memory,
+  and nearest-exterior-square checks.
+- **Verification:** Added a focused staged-radius/ownership-safety regression;
+  full Lua tests, syntax checks, Java build/staging, and whitespace validation
+  are the remaining pass gate. Live multi-ring scouting is still pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Settlement shortage priority handoff (2026-09-04)
+
+- **Gap:** A base resident with no active task could claim ordinary guard or
+  production work before checking whether the settlement had a real food, water,
+  medical, weapon, or tool shortage.
+- **Fix:** The existing shortage lease is now considered before selecting a new
+  base task. A successful search still uses the normal loaded-world loot,
+  return, and native storage-deposit path. A task already claimed by a resident
+  is never interrupted; this only changes the next-duty decision boundary.
+- **Verification:** Base-needs regression now protects the ordering boundary;
+  full Lua tests, syntax checks, Java build/staging, and whitespace validation
+  pass. Live shortage-versus-duty behavior remains pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Settlement task ownership release (2026-09-04)
+
+- **Defect:** completed or reassigned tasks could retain `claimedBy` and the
+  `manual` marker after the resident stopped owning them. This made finished
+  work appear assigned and could prevent clean automatic rotation.
+- **Fix:** task completion now releases claimant ownership while retaining only
+  `lastClaimedBy` for fairness. Duty changes requeue the task and clear both
+  manual and automatic ownership markers before another resident can claim it.
+- **Verification:** base-task-board regression, full Lua suite, Lua syntax
+  checks, Java build/verifiers, Workshop staging, and whitespace validation
+  pass. Live multi-resident rotation remains pending.
+- **Status:** implemented; Lua-only settlement lifecycle change, so no launcher
+  patch is required.
+
+### Unified resident work-status projection (2026-09-04)
+
+- **Gap:** the Notebook could only find a loaded claimed task directly in the
+  base task table. Residents working through the unloaded-duty path appeared
+  as `Idle`, hiding real guard/patrol progress from the player.
+- **Fix:** persistence now exposes a read-only resident work-status projection
+  from the existing claimed task and last-job fields. The Residents tab uses it
+  for both loaded and off-screen members, showing the canonical work label and
+  an explicit off-screen marker without creating another scheduler or status
+  store.
+- **Verification:** base-task-board and Notebook source regressions, full Lua
+  tests, Lua syntax checks, Java build/verifiers, Workshop staging, and
+  whitespace validation pass. Live off-screen status refresh remains pending.
+- **Status:** implemented; Lua-only presentation integration, so no launcher
+  patch is required.
+
+### Animal-care task admission boundary (2026-09-04)
+
+- **Defect:** an enabled `animal_care` work area could fall through the generic
+  automatic-zone loop and create a plain `animal_care` task. The controller only
+  executes the concrete `animal_water` and `animal_feed` actions produced after
+  a real trough/item check, so the generic record was unsupported and could be
+  claimed and blocked repeatedly.
+- **Fix:** automatic zone admission now excludes `animal_care` from the generic
+  queue. The existing animal-care finder remains responsible for emitting only
+  concrete water/feed tasks when a loaded trough genuinely needs service. No
+  second scheduler or simulated animal stock was added.
+- **Verification:** full 79-test Lua suite passes; all mod Lua files pass Lua 5.1
+  syntax validation; `gradlew.bat stageWorkshop` succeeds; `git diff --check`
+  reports no errors. The old Superb reference tree remains untouched. Live trough
+  servicing and multi-resident rotation remain pending.
+- **Status:** implemented; Lua-only settlement change, so no launcher patch is
+  required.
+
+### Legacy animal-care task migration (2026-09-04)
+
+- **Defect:** saves created before the animal-care admission guard could still
+  contain a generic `animal_care` task. Scheduler filtering alone did not repair
+  that persisted record, leaving a stale task available to later controllers.
+- **Fix:** save normalization now converts a legacy record when its target carries
+  the concrete `animal_water` or `animal_feed` action. A record without that
+  information is retired as `cancelled`, releases any claimant, and is never
+  reopened as executable work. The existing native trough finder remains the
+  only creator of new animal tasks.
+- **Verification:** full 79-test Lua suite passes; all mod Lua files pass Lua 5.1
+  syntax validation; `gradlew.bat stageWorkshop` succeeds; `git diff --check`
+  reports no errors. Live migration and trough servicing remain pending.
+- **Status:** implemented; Lua-only persistence hardening, so no launcher patch is
+  required.
+
+### Persistence-side task vocabulary guard (2026-09-04)
+
+- **Gap:** normal task-board calls already normalized legacy names, but direct
+  persistence callers could bypass that boundary and save `haul`, `construction`,
+  or another historical label as a new task.
+- **Fix:** `KnoxPersistence.queueBaseTask` now canonicalizes the task type before
+  signature creation and storage. The task board remains the ordinary routing
+  surface, while persistence now guarantees that alternate callers cannot create
+  a second executable vocabulary.
+- **Verification:** full 79-test Lua suite passes; all mod Lua files pass Lua 5.1
+  syntax validation; `gradlew.bat stageWorkshop` succeeds; `git diff --check`
+  reports no errors. Live task creation through the in-game UI remains pending.
+- **Status:** implemented; Lua-only order/work integration, so no launcher patch is
+  required.
+
+### Canonical settlement fairness accounting (2026-09-04)
+
+- **Defect:** task preference matching already normalized legacy task names, but
+  active-work counts, security coverage, previous-duty rotation, skill hints, and
+  repeat penalties still compared raw `task.type` values. A migrated `haul` or
+  `storage_sorting` record could therefore evade fairness accounting and make a
+  resident receive duplicate work or hide an existing watch post.
+- **Fix:** `KS_BaseJobs.selectEligibleTask` now canonicalizes task types at every
+  scheduler comparison while leaving the persisted record and executor boundary
+  unchanged. Legacy labels share the same active counts, security coverage, skill
+  affinity, last-duty rotation, and repeat penalties as current task names.
+- **Verification:** `tools/test-base-jobs.lua` passes, including a regression with
+  active legacy storage work and queued legacy/current equivalents. Full Lua suite,
+  Lua syntax, Java/staging, and whitespace checks remain the pass gate. Live
+  multi-resident rotation and save/reload behavior remain pending.
+- **Status:** implemented; Lua-only settlement scheduling change, so no launcher
+  patch is required.
+
+### Loaded/unloaded duty vocabulary parity (2026-09-04)
+
+- **Gap:** loaded resident scheduling normalized legacy task labels, but the
+  off-screen duty simulator still checked raw names when deciding whether a
+  completed watch task should be requeued. A migrated `patrol_area`/legacy
+  equivalent could finish off-screen without returning to the recurring duty
+  queue.
+- **Fix:** `KS_UnloadedSurvival` now uses the same `KnoxOrderCatalog` task-type
+  normalization before applying guard/patrol requeue behavior. The existing
+  persistence and duty-simulation owners remain unchanged.
+- **Verification:** unloaded-survival regression, full Lua suite, and Lua 5.1
+  syntax checks pass. Java/staging and whitespace checks are the remaining pass
+  gate; live unloaded watch rotation remains pending.
+- **Status:** implemented; Lua-only settlement parity change, so no launcher
+  patch is required.
+
+### Order-catalogue legacy boundary (2026-09-04)
+
+- **Gap:** internal scheduler callers normalized legacy task names, but the
+  public order catalogue did not. Direct UI or compatibility callers passing
+  `storage_sorting`, `haul`, or another historical label could receive no base
+  preference even though the same task was executable.
+- **Fix:** `KS_OrderCatalog.preferenceForTask` and
+  `preferenceMatchesTask` now normalize task types at their public boundary.
+  All order, scheduler, and compatibility callers therefore resolve the same
+  hauling/farming/woodwork/security preference without adding another dispatch
+  path.
+- **Verification:** order-catalogue regression and the full Lua suite pass;
+  Lua 5.1 syntax, Java verification, Workshop staging, and whitespace checks
+  pass. Live menu execution remains pending.
+- **Status:** implemented; Lua-only order compatibility change, so no launcher
+  patch is required.
+
+### Canonical shortage prioritization (2026-09-04)
+
+- **Gap:** settlement shortage bonuses compared raw task names. A migrated
+  `farming` or `maintenance` task could therefore miss the food, water, or
+  building-material urgency adjustment even though the executor vocabulary had
+  already been normalized elsewhere.
+- **Fix:** `KS_BaseNeeds.priorityBonus` now canonicalizes task types through the
+  shared order catalogue before applying shortage priorities. It changes only
+  scoring; real storage inspection, task claims, and native work execution stay
+  owned by their existing systems.
+- **Verification:** base-needs regression now covers a legacy farming task;
+  full Lua suite and Lua 5.1 syntax checks pass. Java/staging and whitespace
+  checks remain the pass gate; live shortage-driven resident assignment is
+  pending.
+- **Status:** implemented; Lua-only settlement scheduling change, so no
+  launcher patch is required.
+
+### Fresh physical-task lease on claim (2026-09-04)
+
+- **Defect:** an automatic physical task released after an unloaded wait could
+  retain its previous `offscreenWaitHours`. When reclaimed, it could therefore
+  be released again almost immediately before the resident had a chance to
+  execute the native world action.
+- **Fix:** `KnoxPersistence.claimBaseTask` resets the off-screen wait lease at
+  the atomic claim boundary and records the canonical task type as the
+  resident's rotation hint. Manual assignments and native execution remain
+  unchanged.
+- **Verification:** base-task-board regression, full Lua suite, Lua 5.1 syntax,
+  Java verification, Workshop staging, and whitespace checks pass. Live unload,
+  reclaim, and physical task execution remain pending.
+- **Status:** implemented; Lua-only persistence/task-boundary change, so no
+  launcher patch is required.
+
+### Action-field fallback for shortage scoring (2026-09-04)
+
+- **Gap:** a small set of early persisted task records can lack `type` while
+  retaining the concrete executor action in `target.action`. Those tasks could
+  be selected, but would miss the existing food/water/building shortage bonus.
+- **Fix:** `KS_BaseNeeds.priorityBonus` now uses `target.action` only when the
+  task type is absent, then applies the normal shared task normalization. It
+  does not create a new task record or change executor ownership.
+- **Verification:** base-needs regression covers a missing-type farming record;
+  full Lua suite, Lua 5.1 syntax, Java verification, Workshop staging, and
+  whitespace checks pass. Live legacy-save scheduling remains pending.
+- **Status:** implemented; Lua-only compatibility change, so no launcher patch
+  is required.
+
+### Persistence-first legacy order fallback (2026-09-04)
+
+- **Gap:** persistence can initialize before `KS_OrderCatalog.lua`. In that
+  load order, older `return_home`, `go_home`, `rest`, and `recover` orders,
+  plus `patrol_area` task records, could bypass the catalogue and remain
+  non-canonical until a later controller refresh.
+- **Fix:** the persistence-local fallback maps now cover those legacy order
+  labels and converge `patrol_area` to the existing recurring `patrol`
+  executor. The catalogue remains authoritative when loaded; this only makes
+  early-save migration deterministic and does not add a scheduler or task
+  implementation.
+- **Verification:** order-catalogue regression, full Lua suite, Lua 5.1
+  syntax checks, Java verification, Workshop staging, and whitespace checks
+  pass. Live migrated-save restoration remains pending.
+- **Status:** implemented; Lua-only persistence compatibility change, so no
+  launcher patch is required.
+
+The fallback now also covers the remaining search, inventory, barricade,
+farming, woodwork, hauling, and corpse-cleanup labels used by early menus.
+The full Lua suite and whitespace validation were rerun after that alignment;
+live migrated-save restoration remains the only pending evidence for this
+boundary.
+
+### Off-screen physical-task lease reachability (2026-09-04)
+
+- **Defect:** the unloaded-survival loop had a dead branch for physical base
+  work. Its claim-release code referenced per-survivor task, duty, state, and
+  elapsed values outside their scope, and the generic stored-survivor branch
+  matched first. Automatic physical claims could therefore remain reserved
+  indefinitely while their world square was unloaded.
+- **Fix:** `KS_UnloadedSurvival.advanceAll` now resolves each survivor's base
+  duty, stored state, and claimed task inside the per-survivor loop, sends
+  ordinary stored survivors through physiology only when no physical claim is
+  present, and applies the existing bounded twelve-hour automatic release to
+  the resolved claim. Manual assignments remain preserved.
+- **Verification:** unloaded-survival regression, full Lua suite, Lua 5.1
+  syntax checks, Java verification, Workshop staging, and whitespace checks
+  pass. Live unload/reload claim handoff remains pending.
+- **Status:** implemented; Lua-only unloaded-settlement fix, so no launcher
+  patch is required.
+
+The same boundary now persists the resident's `base_working`/`base_life`
+activity after each off-screen lease update, keeping Notebook and activity
+views consistent with the durable claim. Focused unloaded-survival coverage,
+the full Lua suite, and diff validation pass; live unloaded UI confirmation
+remains pending.
+
+The lease calculation was then tightened to treat `advanceAll`'s argument as
+absolute world age, matching the existing physiology and origin-travel APIs.
+Each physical claim keeps its own `offscreenLastHours`, so only newly elapsed
+time contributes to the twelve-hour handoff and normal hibernated survivors
+continue advancing to the requested world-age target.
+
+The unloaded-survival regression now exercises this branch with a claimed
+physical task and verifies the release context, blocked transition, persisted
+`base_life` activity, and timestamp update rather than relying only on source
+inspection.
+
+The atomic claim boundary also resets `offscreenLastHours`, preventing a
+reclaimed task from inheriting timing from a previous unloaded attempt.
+
+### Shared settlement security accounting (2026-09-04)
+
+- **Gap:** the work scheduler normalized legacy guard/patrol labels, but the
+  Notebook calculated zone and staffed-post counts independently. A migrated
+  `patrol_area` record could therefore display an unstaffed or overstaffed
+  settlement even when the task board had the correct ownership.
+- **Fix:** `KS_BaseJobs.securityCoverage` now owns the small guard/patrol
+  accounting boundary. It normalizes legacy zone/task labels, counts enabled
+  posts and routes, and returns staffed/available totals. The Notebook consumes
+  that result; task selection and native executors remain unchanged.
+- The same helper now ignores duplicate persisted task IDs, matching the
+  scheduler's existing duplicate guard when recovering damaged or migrated
+  settlement records.
+- **Verification:** base-job coverage regression, full Lua suite, Lua 5.1
+  syntax checks, Java verification, Workshop staging, and whitespace checks
+  pass. Live migrated-base Notebook rendering remains pending.
+- **Status:** implemented; Lua-only settlement presentation alignment, so no
+  launcher patch is required.
+
+Security coverage also now reports the resident-count-based required watch
+level and understaffed count. The Notebook shows this as a compact staffed
+summary while preserving the separate guard-post and patrol-route totals.
+
+### Explicit resource-mission return handoff (2026-09-04)
+
+- **Gap:** resource away teams could be completed directly from `collecting`,
+  leaving no durable boundary between destination work and the native return
+  trip. That made the team state ambiguous for the Notebook and loaded
+  movement executor.
+- **Fix:** `KnoxPersistence.beginAwayTeamReturn` now transitions a collecting
+  team to `returning` only after a real collection ledger exists. Member
+  completion accepts that existing state and still restores prior duties only
+  after every member has returned. No movement or supplies are simulated.
+- **Verification:** away-team lifecycle regression, full Lua suite, Lua 5.1
+  syntax checks, Java verification, Workshop staging, and whitespace checks
+  pass. Native destination search, return travel, and deposit remain live
+  integration work.
+- The read-only progress snapshot now also reports collected item count,
+  participating members, total members, and collection progress without
+  mutating the mission.
+- **Status:** implemented; Lua-only persistence boundary, so no launcher patch
+  is required.
+
+The next resource-mission step is deliberately still unimplemented: there is
+currently no loaded-world materialization owner that can safely reconstruct an
+away member at the destination, run the existing native loot/transfer action,
+and hand the member back to the persisted return state. Adding a second
+executor here would risk duplicate bodies or fabricated resources, so this
+boundary remains an explicit implementation gate rather than a speculative
+patch.
+
+The runtime review confirms that gate is architectural: away members are
+excluded from normal population activation, and the loaded autonomy controller
+has no resource-mission duty mode. The next implementation must therefore add
+one coordinated materialization/restore boundary that reuses the existing
+controller and native transfer actions; a standalone collector would violate
+the current shell-ownership rules.
+
+### Shared settlement shortage selection (2026-09-04)
+
+- **Gap:** the loaded autonomy controller contained the only shortage-priority
+  decision, so future settlement and away-team callers could drift into a
+  different food/water/medical/tool order.
+- **Fix:** `KS_BaseSupplyPlanner.chooseShortage` now owns that pure priority
+  decision. The controller delegates to it; claims, movement, native transfers,
+  and real inventory remain unchanged.
+- **Verification:** base-supply-planner regression, full Lua suite, Lua 5.1
+  syntax checks, Java verification, Workshop staging, and whitespace checks
+  pass. Live multi-resident shortage rotation remains pending.
+- **Status:** implemented; Lua-only planner refactor, so no launcher patch is
+  required.
+
+### Unified search-order defaults (2026-09-04)
+
+- **Gap:** direct Notebook, party, or future API callers that issued a search
+  order without a selected ground area were rejected at the companion service
+  boundary, even though the order itself was valid.
+- **Fix:** `KS_CompanionService` now creates a bounded twelve-tile search
+  directive around the survivor (falling back to the player square when the
+  body is unavailable) for loot, supply-finding, and inventory-cleanup orders.
+  Party calls resolve this per companion so separated members do not converge
+  on one stale player-centered target. Destination-sensitive orders still
+  require an explicit payload.
+- **Verification:** order-routing and catalogue regressions, full Lua suite,
+  Lua 5.1 syntax checks, and whitespace validation pass. Live Notebook/party
+  use of payload-less search orders remains pending.
+- **Status:** implemented; Lua-only service change, so no launcher patch is
+  required.
+
+### Temporary threat interruption preserves base work (2026-09-04)
+
+- **Gap:** entering combat or a survival-flee state called the normal base-task
+  abandonment path. That marked the resident's claimed job blocked, so a
+  routine attack could silently remove legitimate settlement work.
+- **Fix:** threat preemption now uses `Controller:suspendBaseTaskForThreat`.
+  It clears only transient native-action/transfer state and keeps the existing
+  claimed task attached to the resident. The normal restore path can resume it
+  after combat; explicit cancellation, invalid targets, shutdown, and genuine
+  action failures still finish or block tasks through the original boundary.
+- **Verification:** full Lua suite, Lua 5.1 syntax checks, order/base regressions,
+  and whitespace validation pass. Live combat-to-base-work resume remains
+  pending.
+- **Status:** implemented; Lua-only controller change, so no launcher patch is
+  required.
+### Payload-less companion Guard/Patrol routing (2026-09-04)
+
+- **Gap:** the shared order service treated a payload-less `Guard` or `Patrol`
+  command as a base-job preference. A travelling companion therefore could not
+  accept the familiar order unless the player first selected a ground area.
+- **Fix:** companion-owned survivors now receive a bounded native directive at
+  their current position: a small guard post or an eight-tile patrol area.
+  Payload-less party Guard/Patrol commands fan out through that same per-
+  companion path. Payload-bearing commands and base residents keep their
+  existing routing and persistence boundaries; no second scheduler or
+  formation system was added.
+- **Verification:** order-routing regression, full Lua suite, Java checks,
+  Workshop staging, and whitespace validation pass. Live context-menu execution
+  remains pending.
+- **Status:** implemented; Lua-only service integration, so no launcher patch
+  is required.
+
+### Base preference duty handoff (2026-09-04)
+
+- **Gap:** changing a player-base resident's job preference updated the durable
+  preference but could leave an already-claimed automatic task running under
+  the old role until completion. That delayed player-facing orders and could
+  keep routine work assigned to the wrong resident.
+- **Fix:** `KnoxPersistence.requeueAutomaticBaseTasksForSurvivor` now releases
+  only non-manual claims, preserving task identity, last claimant, and the
+  existing queue/eligibility boundary. `KnoxCompanionService.setBaseJobPreference`
+  invokes it only when the preference actually changes; Rest keeps its existing
+  explicit-assignment protection.
+- **Verification:** companion-command regression covers automatic release and
+  manual preservation; all 79 focused Lua tests, all 81 Lua syntax checks,
+  Java checks, Workshop staging, and whitespace validation pass. Live menu and
+  resident handoff behavior remain pending.
+- **Status:** implemented; Lua/persistence-only change, so no launcher patch is
+  required.
+
+The same handoff now notifies the loaded autonomy controller immediately. If the
+persisted automatic claim has already been requeued, its stale runtime pointer
+and transient supply/action state are released in the same tick; explicit manual
+work remains attached until its normal completion boundary. This closes the
+loaded-controller/task-board split without adding another order owner.
+
+Leaving base duty is a separate ownership boundary: even a previously manual
+base task is cleared from the loaded controller when the survivor becomes a
+companion or independent survivor, preventing a stale settlement job from
+following them into another mode.
+
+- **Verification:** companion-command regression covers stale automatic-pointer
+  cleanup, manual-pointer preservation, and base-exit cleanup; the full Lua, syntax, Java, staging,
+  and whitespace checks remain green. Live preference changes are still pending.
+
+Rest now uses the same automatic-only release boundary. Selecting Rest no longer
+cancels an explicit Notebook assignment; the controller can remain on that manual
+task, while routine automatic work is released for another resident.
+Automatic handoff also clears off-screen lease timestamps so a new claimant gets
+a fresh physical-work window.
+
+- **Verification:** companion-command regression/source guard, full Lua suite,
+  syntax scan, Java checks, Workshop staging, and whitespace validation pass.
+  Live Rest behavior remains pending.
+
+### Away-team return ownership gate (2026-09-04)
+
+- **Defect:** `completeAwayTeamMember` accepted calls while a resource team was
+  still in `collecting`. A destination-side caller could therefore restore a
+  member's previous base/companion duty before the member had entered the
+  explicit return phase.
+- **Fix:** member completion now requires the persisted `returning` state. Item
+  collection remains owned by `recordAwayTeamCollection`; duty restoration and
+  final mission completion can only occur after `beginAwayTeamReturn` succeeds.
+- **Verification:** the away-team regression now rejects premature completion,
+  confirms the member remains on away duty, and still passes the normal
+  collecting → returning → complete path. Full Lua/syntax, Java, staging, and
+  whitespace checks remain required; live destination collection is pending.
+- **Status:** implemented; Lua-only persistence change, so no launcher patch is
+  required.
+
+### Rest preference and manual base work (2026-09-04)
+
+- **Defect:** the loaded autonomy controller still used the broad base-task
+  requeue path when it observed `Rest`, so a delayed preference refresh could
+  release a manual Notebook assignment.
+- **Fix:** the controller now calls the automatic-only requeue boundary used by
+  the companion service. Explicit manual tasks remain attached until their
+  normal completion or cancellation path.
+- **Verification:** the companion-command regression checks the controller
+  source guard; live preference switching remains pending.
+- **Status:** implemented; Lua-only controller change, so no launcher patch is
+  required.
+
+### Away-team return timeout (2026-09-04)
+
+- **Defect:** a resource team that entered `returning` could retain away duty
+  indefinitely when a member never acknowledged the final handoff.
+- **Fix:** returning teams now use a bounded 72-hour timeout. Missing members
+  receive an explicit `return_timeout` failure, any real collection ledger is
+  preserved, the team becomes `blocked`, and previous duties are restored once.
+- **Verification:** the away-team regression covers the timeout and confirms
+  the member is released without fabricated resources; full Lua/syntax, Java,
+  staging, and whitespace checks remain required. Live return behavior remains
+  pending.
+- **Status:** implemented; Lua-only persistence change, so no launcher patch is
+  required.
+
+The same release path now treats a death racing timeout as authoritative: dead
+members retain a `deceased` duty while living members recover their prior duty.
+This prevents mission cleanup from reattaching a corpse to a settlement or
+companion roster.
+
+### Canonical order resolver (2026-09-04)
+
+- **Gap:** the order catalogue was authoritative, but callers repeated alias
+  normalization and category checks. A future command could therefore be
+  accepted by one player-facing path and rejected or misrouted by another.
+- **Fix:** `KS_OrderCatalog.resolve` now classifies one normalized request as a
+  primary order, directive, base preference, task preference, or presentation
+  action. Individual and party companion dispatch use this resolver before
+  entering the existing command/directive/task owners. No new executor or task
+  manager was added.
+- **Verification:** order-catalogue and order-routing regressions pass, Lua
+  syntax checks pass, and `git diff --check` passes. Live menu behavior remains
+  pending the settlement acceptance run.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Catalogue-owned player actions (2026-09-04)
+
+- **Gap:** the canonical order catalogue listed recruit, dismiss, needs,
+  vehicle, and climbing actions, but the individual order dispatcher stopped
+  after directives and settlement work. Those actions could work only through
+  separate menu-specific callers, allowing player-facing paths to drift.
+- **Fix:** `KS_CompanionService.issueOrder` now delegates those actions to the
+  existing recruitment, dismissal, needs, vehicle, and climbing owners. The
+  party dispatcher delegates safe per-party actions (needs, vehicle, and
+  climbing); recruit and dismiss remain individual-only to prevent accidental
+  mass ownership changes. No new executor or state store was added.
+- **Verification:** order-routing and order-catalogue regressions pass; every
+  mod Lua file passes Lua 5.1 syntax validation; `git diff --check` passes.
+  Live context-menu execution remains pending.
+- **Status:** implemented; Lua-only service integration, so no launcher patch
+  is required.
+
+### Player menus converge on order dispatch (2026-09-04)
+
+- **Gap:** the party and survivor context menus still called the needs,
+  vehicle, and climbing helpers directly, leaving a second player-facing
+  routing path beside `issueOrder`/`issueOrderAll`.
+- **Fix:** those callbacks now submit the canonical action names through the
+  shared dispatcher. Existing service methods remain the execution owners;
+  no behavior or persistence model changed.
+- **Verification:** order-routing regression, full Lua suite, Lua 5.1 syntax
+  validation, and `git diff --check` pass. Live menu clicks remain pending.
+- **Status:** implemented; Lua-only UI/service convergence, so no launcher
+  patch is required.
+
+### Settlement definition reconciliation after population changes (2026-09-04)
+
+- **Gap:** faction and player-base defaults were guaranteed at game start only.
+  A later resident admission or return could leave a valid settlement without
+  its normal guard, patrol, work-area, or storage defaults.
+- **Fix:** `KS_SurvivorAutonomy` now calls the existing idempotent
+  `KnoxBaseManager.ensureFactionBases` and `ensurePlayerBases` on the existing
+  population-reconciliation cadence. Ownership, task selection, and storage
+  remain owned by their existing managers; no second scheduler was introduced.
+- **Verification:** settlement-reconciliation regression, all 81 Lua tests,
+  Lua 5.1 syntax validation, Workshop staging, and `git diff --check` pass.
+  Live resident-admission and post-reload zone creation remain pending.
+- **Status:** implemented; Lua-only settlement integration, so no launcher patch
+  is required.
+
+### Player command adapters completed (2026-09-04)
+
+- **Gap:** A few individual and party menu callbacks still called companion,
+  vehicle, stance, or weapon services directly, leaving multiple player-facing
+  dispatch paths.
+- **Fix:** Context and party commands now submit recruit, follow, hold, relax,
+  return, dismiss, vehicle, combat-stance, and weapon-preference actions through
+  `KnoxCompanionService.issueOrder` / `issueOrderAll`. These remain thin adapters
+  to the existing service owners; no second task manager or state store was added.
+  Base-resident activation remains explicit because it changes ownership first.
+- **Verification:** Order-routing, order-catalogue, and all 81 Lua regressions
+  pass; Lua syntax, Java checks/verifiers, staging, and whitespace checks pass.
+  Live menu clicks and save/reload remain pending.
+- **Status:** implemented; Lua-only change, so no launcher patch is required.
+
+### Legacy Patrol preference presentation and matching (2026-09-04)
+
+- **Defect:** older resident records can still contain `patrol_area` as a
+  recurring base preference. The scheduler had a migration guard, but direct
+  preference matching and player-facing resident/card views could still show
+  the legacy directive spelling or fail to match a canonical Patrol task.
+- **Fix:** the shared preference-matching helper now uses the same
+  `normalizeBasePreference` boundary as scheduling and persistence. ViewModel,
+  Notebook, and Survivor Card output also normalize and label the preference
+  through `KS_OrderCatalog`, keeping old saves and current menus consistent.
+- **Verification:** order-catalogue regression now covers legacy preference
+  matching; Lua syntax and the full suite remain required. Live migrated-save
+  menu rendering is still pending.
+- **Status:** implemented; Lua/UI-only change, so no launcher patch is required.
+
+### Runtime settlement claim reconciliation (2026-09-04)
+
+- **Defect:** atomic task claiming prevented normal duplicate assignments, but
+  stale claims could still survive an unload, death, ownership change, or
+  interrupted save until a later per-survivor restore noticed them. That could
+  make a valid resident appear busy or leave queued work under an invalid owner.
+- **Fix:** `KnoxPersistence.reconcileBaseTaskClaims` now runs at the existing
+  automatic-duty selection boundary. It requeues claims whose owner is no
+  longer a living resident of that base and repairs duplicate claims by keeping
+  the higher-priority deterministic winner. Task history and retry ownership
+  remain on the existing board; no second scheduler was introduced.
+- **Verification:** base-task-board regression now protects the reconciliation
+  boundary and stale/duplicate reasons; full Lua, syntax, Java, and staging
+  checks remain required. Live unload/death/ownership transitions are still
+  pending.
+- **Status:** implemented; Lua/persistence-only change, so no launcher patch is
+  required.
+
+The same repair now runs across every persisted base on the existing settlement
+reconciliation cadence, so a base with only resting or manually assigned
+residents cannot indefinitely retain an invalid automatic claim.
+### Read-only settlement workforce projection (2026-09-04)
+
+- **Defect:** the task board held authoritative claims, but the base-facing layer
+  had no single derived view of working, resting, idle, manual, and automatic
+  residents. Different screens could therefore summarize the same settlement
+  inconsistently.
+- **Fix:** added `KnoxBaseJobs.workforceSummary(base)`, a read-only projection
+  built from persisted resident duties and task claims. The Notebook Base and
+  Work views now include the workforce counts beside the existing task and
+  security summaries. It does not claim, release, or mutate tasks and does not
+  introduce another scheduler.
+- **Workforce handoff:** settlement claim reconciliation is now coalesced for an
+  unchanged base for a short world-time window, while world-backed job discovery
+  still runs each request so new corpses, crops, repairs, or supply transfers are
+  not missed.
+- **Accounting guard:** claims held by former or invalid residents are excluded
+  from working, manual, and automatic counts; persistence repair remains the
+  owner of the actual cleanup.
+- **Verification:** base-job regression, full Lua regression suite, Lua syntax
+  scan, `git diff --check`, and `:java:check stageWorkshop` passed. Live
+  multi-resident settlement execution remains pending.
+- **Status:** implemented; Lua/UI-only change, so no launcher patch is required.
+
+### Faction threshold consistency (2026-09-04)
+
+- **Defect:** the developer faction/faction-base scenario always allocated three
+  survivors, while normal promotion read the sandbox minimum (four by default).
+  The autonomy scenario path also omitted the configured minimum and therefore
+  used persistence's fallback of three. This made identical groups behave
+  differently depending on how they were created.
+- **Fix:** developer scenario allocation and autonomy-triggered promotion now
+  both use `KnoxSettings.npcFactionMinimumMembers()`, with the existing
+  persistence floor of three preserved. No relationship or faction state model
+  was added.
+- **Verification:** the faction-persistence regression now guards both source
+  boundaries; focused Lua checks, syntax validation, Java checks, and Workshop
+  staging remain required. Live developer-scenario promotion is still pending.
+- **Status:** implemented; Lua-only consistency fix, so no launcher patch is
+  required.
+
+### Security coverage claimant validation (2026-09-04)
+
+- **Defect:** `BaseJobs.securityCoverage` counted every claimed guard/patrol task,
+  including claims left by a dead, unloaded, or former resident. The Notebook
+  could therefore report a staffed perimeter when no current resident owned the
+  post.
+- **Fix:** coverage now validates each claimant against the persisted base
+  resident roster and, when available, the authoritative living-state check.
+  Early-load callers without a roster retain their compatibility accounting;
+  live settlement state uses the strict resident boundary.
+- **Verification:** `tools/test-base-jobs.lua` covers stale-claim exclusion;
+  all 81 Lua regressions and all 82 Lua syntax checks pass. Live death/unload
+  rotation remains pending. No launcher patch is required.
+- **Status:** implemented; settlement accounting fix only.
+## Player-order label normalization (2026-09-04)
+
+- **Gap:** the unified order catalogue accepted Knox's internal keys and a
+  limited alias set, but title-cased labels from familiar menus or migrated
+  callers could fall through as unknown orders. This made the same order behave
+  differently depending on which entry point supplied it.
+- **Fix:** `KS_OrderCatalog` now normalizes whitespace, hyphens, case, aliases,
+  and catalogue labels before routing. Task labels use the same boundary, while
+  execution and persistence remain owned by the existing companion service and
+  base task board.
+- **Verification:** order-catalogue regression, all 81 Lua regressions, all 83
+  Lua syntax checks, and `git diff --check` pass. No launcher patch is required
+  because this is a Lua-only routing change. Live menu/save migration remains
+  pending.
+- **Status:** implemented; live player-order and resident-duty integration still
+  require the planned in-game acceptance pass.
+## Settlement supply-claim ownership (2026-09-04)
+
+- **Defect:** short-lived base food/water/medical search leases were checked for
+  expiry and life status, but not for current base membership. A resident moved
+  to another base or released from settlement duty could temporarily block the
+  correct workforce from answering a shortage.
+- **Fix:** `KS_SurvivorAutonomyController:baseSupplyNeed` now validates each
+  claimant's persisted duty mode and base ID, along with the existing living
+  check, before retaining the lease. Invalid claims are released at the normal
+  supply-search boundary; no new scheduler or stockpile was introduced.
+- **Verification:** base-needs regression, all 81 Lua regressions, all 83 Lua
+  syntax checks, and `git diff --check` pass. No launcher patch is required;
+  live multi-resident supply rotation remains pending.
+- **Status:** implemented, offline verified, live settlement execution pending.
+
+## Explicit base supply-run orders (2026-09-04)
+
+- **Gap:** base residents could answer automatic shortages, but the shared
+  Superb-style `Find Food/Water/Medical/Weapon/Tools` orders were routed as
+  companion directives. A player could not persistently ask a resident to make
+  one bounded supply run without changing that resident's ownership mode.
+- **Fix:** added an ownership-checked `baseSupplyOrder` field and setter/clearer
+  to `KnoxPersistence`. The shared companion dispatcher now routes those labels
+  to base residents without creating a second task manager; the base controller
+  executes the existing real-item world search, returns recovered items through
+  the existing base deposit path, expires failed requests after three attempts,
+  and clears the request on completion. The base context menu exposes the same
+  five orders under `Supply Run`; party search orders include eligible base
+  residents while companions retain their local directive behavior.
+- **Verification:** all 81 Lua regressions pass, including order-routing and
+  base-needs coverage; all 82 Lua files pass syntax validation. No Java or
+  launcher change was needed because this is Lua/persistence-only. Live menu,
+  search, deposit, and save/reload behavior remain pending.
+- **Status:** implemented; live settlement execution and persistence acceptance
+  remain pending.
+
+### Base supply-run restore, cancellation, and status (2026-09-04)
+
+- **Defect:** the controller could persist a `base_supply_deposit` handoff in
+  name only: the life-intent validator omitted the tools and deposit kinds,
+  omitted the returning phase, and rejected every base-duty intent. A restored
+  controller also did not initially copy its resident supply order. Empty
+  searches cleared an explicit request after one container rather than using
+  the intended bounded retry policy.
+- **Fix:** base supply search/return intents are now valid only for base-duty
+  survivors and the existing supported supply kinds. Controller/base sync
+  restores the request, persistent attempt count, and bounded three-search
+  failure state. Successful collection clears the request before the existing
+  real-item return/deposit path; empty searches retain it until the bounded
+  limit. Replacing or cancelling a request releases transient movement/action
+  ownership. `Resume Normal Duty` now cancels supply runs for individual or
+  party-controlled base residents, and the Notebook reports an active supply
+  run instead of showing that resident as idle.
+- **Verification:** companion/base-domain, base-needs, order-routing, companion-
+  command, and base-UI regressions pass; the full 81-test Lua suite passes.
+  Live save-during-search, save-during-return, cancellation, and deposit remain
+  pending.
+- **Status:** implemented and offline verified. Lua/persistence/UI only; no
+  launcher patch is required.
+
+### Fair and durable settlement supply rotation (2026-09-04)
+
+- **Defects:** shortage leases prevented several residents from searching for
+  the same resource simultaneously, but stable controller iteration allowed the
+  same resident to win every later lease. Supply movement also had no durable
+  in-flight duty owner, so reconstruction during a search could retain a vague
+  life intent while the base controller immediately chose ordinary return-home
+  behavior.
+- **Fix:** `KS_BaseSupplyPlanner` now selects the oldest eligible loaded worker,
+  excludes resting, task-owned, unloaded, and explicitly ordered residents, and
+  uses last resource kind plus stable ID only as deterministic tie-breakers.
+  Selection and terminal outcomes are stored in the existing resident duty.
+  One `activeSupplyRun` record now survives controller reconstruction while all
+  native movement, item lookup, transfer, and deposit state remains transient.
+  Successful, empty, unavailable, cancelled, dead, or reassigned paths release
+  the existing shortage claim and durable run before ordinary work resumes.
+  Automatic runs are now visible through the shared workforce and Notebook
+  status projection rather than being reported as idle.
+- **Verification:** planner coverage proves oldest-worker rotation, same-kind
+  avoidance, stable ties, and busy/resting/order exclusion. Persistence coverage
+  proves start, completion, cancellation, history, and roster projection. All
+  81 Lua regressions pass and all 82 mod Lua files pass Lua 5.1 syntax checking.
+  `:java:check`, `:java:build`, and `stageWorkshop` pass, including the movement,
+  combat, corpse, inventory, traversal, shell, and visibility verifiers.
+  `git diff --check` reports no whitespace errors; the staged Workshop payload
+  contains the same rotation and durable-run boundaries.
+- **Status:** implemented and offline verified. Live three-resident rotation,
+  interruption/reconstruction, real collection, and return/deposit remain the
+  acceptance gate. This is Lua/persistence/UI work; no launcher patch is
+  required.
+
+### Exact blocked-job resupply and minimum security coverage (2026-09-04)
+
+- **Defect:** a resident searching outside the base for a blocked job matched
+  every declared requirement, including tools and materials already carried.
+  A worker who had a hammer but needed planks could consume all three bounded
+  attempts collecting more hammers and incorrectly block the task. Automatic
+  task scoring also gave understaffed Guard/Patrol work only a small bonus, so
+  sufficiently high routine priorities could leave an established settlement
+  with no watcher.
+- **Fix:** `KS_BaseSupplyPlanner` now derives the outstanding count for each
+  declared item from the worker's real recursive inventory and the loaded
+  controller searches only for those missing full types. Inventory API failure
+  remains fail-safe and never manufactures stock. Automatic/flexible workers
+  now fill the existing one-or-two-person minimum watch before routine work;
+  explicit non-security roles remain authoritative, and a resident who just
+  worked a recurring watch yields the post for relief when another resident is
+  available. Task creation and atomic ownership remain in the existing base
+  task board.
+- **Coordination:** shortage planning now exposes the complete ordered set of
+  current shortages. Once one resident owns the food lease, another eligible
+  resident may answer water, medical, weapon, or tool shortages instead of all
+  controllers stopping at food. Existing per-kind leases still prevent two
+  residents from leaving for the same resource, and a resident retains its own
+  in-flight highest-priority claim through reconstruction.
+- **Persistence boundary:** loaded supply leases no longer live on the durable
+  base record. Controller-only lease state is rebuilt from the resident's
+  persisted `activeSupplyRun` during reconstruction, while migration removes
+  development-era `supplySearchClaims` tables from existing base ModData.
+- **Verification:** focused planner coverage checks complete, partial, unknown,
+  and unrelated inventory states plus distinct concurrent shortages and
+  reconstruction ownership. Base-job coverage checks minimum-watch priority,
+  explicit-role precedence, and existing relief rotation. All 81 Lua
+  regressions and all 82 Lua syntax checks pass. Java checks/build, every
+  transformer/runtime verifier, Workshop staging, and `git diff --check` pass.
+  Live settlement verification remains required.
+- **Status:** implemented; live collection of the correct missing material,
+  guard relief, and multi-resident settlement behavior remain pending. This is
+  Lua-only settlement logic and does not require a launcher patch.
+
+### Unloaded resident work continuity (2026-09-04)
+
+- **Defects:** `UnloadedSurvival.advanceAll` sent only residents without a
+  claimed task through normal stored-survivor advancement. A resident holding
+  physical work therefore stopped accumulating hunger, thirst, fatigue, and
+  endurance while unloaded, and guard/patrol claims never reached the existing
+  abstract watch-shift boundary. The separate claim-timeout branch also lacked
+  an active-body exclusion, so a loaded worker could accumulate off-screen wait
+  time. A record with a missing survival ledger could retain an automatic claim
+  indefinitely because that branch required the ledger to exist.
+- **Fix:** every inactive, non-cohort survivor with a real record now advances
+  through the one existing unloaded-survival path whether or not it owns a base
+  task. Guard/patrol alone may complete their existing abstract four-hour watch
+  shift; physical work remains native loaded-world work. Only inactive task
+  owners enter the physical-claim wait policy, and a missing survival ledger
+  still releases an automatic claim after the same bounded twelve-hour wait.
+  Manual Notebook assignments remain protected.
+- **Verification:** focused coverage proves physical-task physiology, bounded
+  automatic release, missing-ledger release, active-worker exclusion, and one
+  recurring guard shift through the canonical task owner. All 81 Lua
+  regressions and all 82 mod Lua syntax checks pass. `:java:check`,
+  `:java:build`, every runtime/transformer verifier, and `stageWorkshop` pass;
+  the staged Workshop copy contains the new inactive-resident ownership gate.
+  `git diff --check` reports line-ending warnings only and no whitespace error.
+- **Status:** implemented and offline verified. Live verification remains a
+  multi-resident unload/revisit test covering physical-work handoff, guard
+  relief, real needs progression, and save/reload. This is Lua/persistence
+  integration only and does not require a launcher patch.
+
+### Faction shelter-purpose completion (2026-09-04)
+
+- **Defect:** home confirmation committed the faction shelter and removed its
+  temporary camp, but left both the leader's durable shelter-scout life intent
+  and the travel group's shared objective in persistence until a later runtime
+  synchronization. Saving, unloading, or interrupting during that window could
+  restore a group still pursuing a shelter objective it had already completed.
+- **Fix:** `confirmFactionHomeBase` now retires the leader intent and matching
+  faction travel-group objective in the same persistence transaction as the
+  home claim. The existing loaded scouting controller, safehouse reconciler,
+  base manager, and group movement owners remain unchanged.
+- **Verification:** faction persistence now exercises a real leader intent and
+  group objective before home confirmation and proves both are absent after
+  the claim. Faction scouting, unloaded-group travel, settlement reconciliation,
+  and human-encounter focused checks pass. All 81 Lua regressions and all 82
+  mod Lua syntax checks pass.
+- **Status:** implemented and offline verified. The staged shelter approach,
+  loaded candidate selection, safehouse/base creation, resident conversion, and
+  save/reload still require the existing live faction acceptance run. This is a
+  Lua persistence correction and does not require a launcher patch.
+
+### Settlement status convergence (2026-09-04)
+
+- **Gap:** automatic settlement decisions already used real loaded storage,
+  resident-scaled reserve thresholds, task failure reasons, retry times,
+  workforce ownership, and security coverage, but Base Management exposed only
+  nonzero stock plus queued/active totals. A functioning base could therefore
+  look empty, and blocked work gave the player no useful explanation.
+- **Fix:** `KS_BaseSupplyPlanner.reserveStatus` is now the single read-only
+  reserve definition used by both shortage selection and presentation.
+  `KS_BaseJobs.settlementSummary` combines that result with the existing real
+  storage snapshot, task board, workforce, and security projections without
+  claiming work or inventing unloaded stock. The existing vanilla-style Work
+  tab now shows covered/missing reserves, blocked work reasons, retry delay,
+  and the assigned resident for active work. Resident rows now distinguish a
+  genuinely off-screen claim from a fresh loaded claim, present an in-flight
+  supply run ahead of its retained request, and show the Rest preference as
+  resting instead of stale idle work.
+- **Verification:** focused supply-planner, base-job, and Base Management UI
+  regressions cover shared thresholds, exact shortage amounts, loaded-storage
+  honesty, task-state counts, blocked retry state, and UI routing. All 81 Lua
+  regressions and all 82 mod Lua files pass Lua 5.1 syntax checking. Java
+  checks/build, every transformer/runtime verifier, and Workshop staging pass;
+  the staged Work tab contains the same status projection. `git diff --check`
+  reports line-ending warnings only and no whitespace errors.
+- **Status:** implemented and offline verified. Live Base Management rendering
+  with loaded and streamed-out storage remains pending. Lua/UI only, so no
+  launcher patch is required.
+
+### Fresh-world population initialization hang (2026-09-04)
+
+- **Evidence:** three launches under Project Zomboid 42.20.4 ended without a
+  Java fatal-error file or Lua exception. Windows recorded `java.exe` as an
+  application hang, and the final game-thread message in the complete log was
+  the Knox population catalogue (`89` player starts, `1914` building origins,
+  `11` regions). The bridge and all three Java transformers had already
+  reported PASS. The next synchronous operation attempted to allocate the
+  entire configured 48-person durable population in one tick.
+- **Fix:** initial identity allocation now yields after six records and resumes
+  on later population maintenance passes. It does not change the configured
+  target, origin balancing, rarity, group policy, refill timing, active-body
+  limit, or survivor identity format. Opening groups are formed only after the
+  initial target is reached and use all identities from every batch.
+- **Verification:** the world-population regression now forces a two-record
+  budget and proves `initializing` across multiple passes, durable accumulation,
+  final target completion, and group creation after the final batch. Focused
+  world-population, unloaded-survival, unloaded-group, and sandbox-setting tests
+  pass. All 81 standalone Lua tests and all 83 mod Lua files pass Lua 5.1
+  syntax checking. `:java:check :java:build stageWorkshop` passes against the
+  currently installed 42.20.4 game files, including every transformer, shell,
+  movement, combat, traversal, inventory, and corpse verifier.
+- **Status:** implemented; pending one fresh-world live confirmation. Lua-only,
+  so the existing launcher remains compatible and no launcher patch is needed.
+
+### Persistent-world hot-path freeze (2026-09-05)
+
+- **Evidence:** after batched fresh-world allocation reached playable runtime,
+  the latest live log spawned `ks-dev-1`, equipped its bat, and entered native
+  combat twice before Windows recorded another `java.exe` application hang.
+  There was no Lua exception, movement-failure storm, transformer failure, or
+  JVM fatal-error file. Inspection found that nearly every persistence getter
+  called `root()`, and `root()` re-normalized every survivor, relationship,
+  travel group, faction, camp, base, and task on every call. Hot autonomy and
+  combat paths invoke several such getters per survivor per game tick.
+- **Fix:** completed persistence normalization is now cached for the exact
+  authoritative ModData graph. Replacing any major domain table invalidates the
+  cache; `OnGameStart` explicitly invalidates it and performs one full loaded-save
+  repair. Scheduler scalar validation, faction event-identity validation, and
+  travel-group leader/objective cleanup now occur at their narrow owning
+  boundaries rather than depending on unrelated global read-side repair.
+- **Verification:** `tools/test-persistence-hot-path.lua` performs 1,000 hot
+  accessor reads without a base-domain scan, then proves an authoritative graph
+  replacement triggers exactly one new normalization. Event scheduler, event
+  faction, and relationship-coherence regressions protect the moved repair
+  boundaries. All 82 standalone Lua tests pass. Live FPS and long-session
+  responsiveness remain unverified.
+- **Status:** implemented and offline verified; pending a normal live session
+  with one or more active survivors. Lua-only, so the launcher does not need a
+  patch for this optimization.
+
+### Live inventory, corpse, base-area, and companion-need corrections (2026-09-05)
+
+#### Follow-up order, rest and identity corrections
+
+- Corrected the resident job-menu callback argument order responsible for the
+  numeric `onSelect` exception. Added executable menu dispatch regression.
+- Guard-zone placement uses one click and stores a 1x1 post. Area jobs retain
+  two-corner selection. This input change does not yet prove guard-duty retention.
+- Party vehicle exit remains available after the leader leaves the vehicle.
+  Resident work labels now expose barricading/corpse cleanup more clearly.
+  Notebook's existing mission display is titled Away; stored trips remain intact.
+- Relax no longer stands/restarts every periodic recheck. Real actionable needs
+  and replacement orders still interrupt it; combat remains checked first.
+  Ambient base rest lasts longer, and awake furniture selection prefers usable
+  sofas/couches and chairs over beds. Sleeping retains bed-quality selection.
+- A shared presentation name resolver uses saved names/native descriptors and
+  avoids internal placeholder labels. Loaded death announcement follows the
+  persisted alive-to-dead transition, so corpse cleanup retries do not repeat it.
+- Native human PvP investigation found the single-player `CombatManager.checkPVP`
+  gate still depends on coop PvP. Existing faction-PvP flags do not bypass that
+  gate. A narrow relationship-aware integration remains pending; human combat
+  with ordinary PvP disabled must not be claimed complete.
+- Pending: live traversal/circling, tall fences/windows, room-wide scavenging,
+  guard retention, hostile human combat, and shared base-storage redesign.
+  No infinite storage or new request/reward simulation was introduced.
+
+- **Evidence:** the latest short live run produced three off-slot inventory
+  exceptions at vanilla `ISEquipWeaponAction.complete`: the real action tried
+  to call `refreshBackpacks` on a local-player inventory page that does not
+  exist for a Knox shell. The survivor card also reached a hidden vanilla hair
+  callback and attempted to hide a missing local context menu. Player feedback
+  confirmed that taking equipped clothing moved the item but left its source
+  survivor worn/hand references intact.
+- **Fix:** native equip, wear, and unequip actions receive a no-op inventory
+  page only for their invalid off-slot UI refresh; real item/equipment mutation
+  remains vanilla. A survivor-source loot transfer detaches the item from that
+  survivor after confirmed native transfer and refreshes clothing/model
+  state. The read-only survivor card hard-disables hair, beard, and literature
+  callbacks. Corpse hauling retains vanilla `ISUnequipAction` and
+  `ISGrabCorpseAction`, so the shared unequip boundary is corrected without
+  replacing corpse behavior.
+- **Player-facing policy:** player base establishment/relocation no longer
+  creates work areas. Repair and General Work overlays were removed from the
+  picker; repair remains a territory-scoped job. Only autonomous NPC faction
+  bases generate practical zones/storage. Missing food, water, or medical
+  supplies no longer make an unordered companion abandon Follow/Hold; carried
+  self-care and explicit Find orders remain available. Optional speech now
+  enters Build 42's native overhead `ChatElement` directly.
+- **Human combat:** survivor-survivor hostility and hostile survivor-player
+  targeting already converge on the one Java combat owner, which accepts
+  `IsoPlayer` targets and native BodyDamage. A real player hit records durable
+  hostility only after `OnWeaponHitCharacter`. No simulated damage was added;
+  both directions remain pending live acceptance.
+- **Transfer outcome verification:** equipment now detaches only when an item
+  was present before and absent after the native transfer. Rejected transfers
+  preserve worn/hand state. If a later native callback throws after moving the
+  item, equipment still reconciles before the original error propagates.
+  Executable checks cover rejection, early error, success and late error.
+- **Corpse destination/retry follow-up:** native pickup retries reject removed
+  bodies. Drop selection remains inside the designated zone and rejects removed,
+  disabled, or blocked zones rather than using stale coordinates. Discovery
+  computes one drop destination per zone instead of repeating that search for
+  every body. Regression checks cover these boundaries; all 83 Lua tests,
+  affected syntax, Java checks/build and Workshop staging pass. The reported
+  corpse-swinging animation still requires live reproduction/confirmation.
+- **Connected combat defect:** the same live run repeatedly logged firearm
+  close-range fallback followed by immediate firearm reselection. A weak-key,
+  target-specific 900-tick cooldown now preserves melee fallback across threat
+  scans. It uses the controller's current tick and expires normally; it does not
+  suppress the target or prevent self-defense. Executable regression coverage
+  verifies both fallback retention and firearm reevaluation after expiry.
+- **Verification:** focused companion-inventory, base-setup, corpse-handling,
+  companion-command, player-facing-human, encounter, and sandbox regressions
+  pass. All 83 standalone Lua tests and all 83 mod Lua syntax checks pass.
+  `:java:check`, `:java:build`, every runtime/transformer verifier, and
+  `stageWorkshop` pass against installed Build 42.20.4. The staged Workshop
+  copy contains the same inventory, companion, base, and speech corrections.
+- **Status:** implemented and offline verified where noted. Inventory visual
+  detach, corpse pickup, overhead bubbles, companion need containment, and both
+  directions of human combat require the next live run. Lua/UI only; no launcher
+  patch is required.

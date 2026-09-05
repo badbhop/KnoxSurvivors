@@ -170,6 +170,8 @@ KnoxCompanionService = { getPlayerId = function(actor) return actor:getModData()
 local context = dofile(root .. "/mod/42/media/lua/client/KS_SurvivorContextMenu.lua")
 local function menu()
     return { options = {}, addOption = function(self, label, target, callback, ...)
+        assert(callback == nil or type(callback) == "function",
+            "context menu callback must be callable: " .. tostring(label))
         local option = { target = target, callback = callback, args = { ... } }
         self.options[label] = option return option
     end }

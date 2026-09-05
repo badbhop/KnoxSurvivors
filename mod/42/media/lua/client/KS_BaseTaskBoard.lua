@@ -1,5 +1,6 @@
 require "KS_Persistence"
 require "KS_BaseManager"
+require "KS_OrderCatalog"
 
 local TaskBoard = rawget(_G, "KnoxBaseTaskBoard") or {}
 _G.KnoxBaseTaskBoard = TaskBoard
@@ -29,6 +30,7 @@ local function worldAge()
 end
 
 function TaskBoard.queue(baseId, taskType, target, requirements, priority)
+    taskType = KnoxOrderCatalog.normalizeTaskType(taskType) or taskType
     if TaskBoard.TASK_TYPES[taskType] ~= true then
         return nil, "unknown_task_type"
     end
@@ -60,19 +62,102 @@ function TaskBoard.queued(baseId)
     return tasks
 end
 
-function TaskBoard.claimBest(baseId, survivorId)
-    for _, task in ipairs(TaskBoard.queued(baseId)) do
-        local eligible = KnoxBaseManager.canPerformTask(survivorId, baseId, task)
-        if eligible then
+function TaskBoard.claimBest(baseId, survivorId, preference)
+    -- Once the settlement job layer is loaded, defer to its single canonical
+    -- selector.  The task board remains responsible for the atomic claim; it
+    -- must not maintain a second, subtly different fairness/preference policy.
+    local jobs = rawget(_G, "KnoxBaseJobs")
+    if jobs ~= nil and type(jobs.selectEligibleTask) == "function" then
+        local selected, result = jobs.selectEligibleTask(
+            TaskBoard.queued(baseId), survivorId, baseId, preference
+        )
+        if selected ~= nil then
             return KnoxPersistence.claimBaseTask(
-                baseId,
-                task.id,
-                survivorId,
-                worldAge()
+                baseId, selected.id, survivorId, worldAge()
             )
         end
+        return nil, "no_eligible_task"
+    end
+
+    -- Compatibility path for early-load callers and focused tests that use the
+    -- task board before KS_BaseJobs has been required.
+    local selected, selectedScore = nil, nil
+    local passes = (preference ~= nil and preference ~= "" and preference ~= "auto") and 2 or 1
+    for pass = 1, passes do
+        for _, task in ipairs(TaskBoard.queued(baseId)) do
+            local preferred = KnoxOrderCatalog.preferenceMatchesTask(
+                preference, task ~= nil and task.type or nil
+            )
+            if ((pass == 1 and preferred) or (pass == 2 and not preferred))
+                and KnoxBaseManager.canPerformTask(survivorId, baseId, task) then
+                local score = tonumber(task.priority) or 0
+                if task.lastClaimedBy == survivorId then score = score - 18 end
+                local lastClaimed = tonumber(task.lastClaimedAtHours)
+                if lastClaimed ~= nil then
+                    local recentHours = math.max(0, 12 - math.max(0, worldAge() - lastClaimed))
+                    score = score - math.min(12, recentHours * 2)
+                end
+                local id = tostring(task.id or "")
+                if selected == nil or score > selectedScore
+                    or (score == selectedScore and id < tostring(selected.id or "")) then
+                    selected, selectedScore = task, score
+                end
+            end
+        end
+        if selected ~= nil then break end
+    end
+    if selected ~= nil then
+        return KnoxPersistence.claimBaseTask(
+            baseId,
+            selected.id,
+            survivorId,
+            worldAge()
+        )
     end
     return nil, "no_eligible_task"
+end
+
+-- Player-directed assignment uses the same atomic persistence boundary as
+-- automatic work selection.  The notebook may choose a concrete queued task,
+-- but it must not bypass base ownership, resident eligibility, skill gates, or
+-- the one-active-task-per-resident invariant.
+function TaskBoard.claimSpecific(baseId, taskId, survivorId, playerId)
+    local base = KnoxPersistence.getBase(baseId)
+    local task = base ~= nil and base.tasks[taskId] or nil
+    if base == nil or base.ownerKind ~= "player"
+        or tostring(base.ownerId or "") ~= tostring(playerId or "") then
+        return nil, "not_your_base"
+    end
+    -- Keep resident ownership authoritative at the task boundary as well as
+    -- in the Notebook picker. Future callers must not assign a faction or
+    -- independent survivor by knowing only a task and base id.
+    local affiliation = KnoxPersistence.getSurvivorAffiliation ~= nil
+        and KnoxPersistence.getSurvivorAffiliation(survivorId) or nil
+    if affiliation == nil or affiliation.kind ~= "player"
+        or tostring(affiliation.ownerId or "") ~= tostring(playerId or "") then
+        return nil, "not_player_resident"
+    end
+    if task == nil or task.state ~= "queued" then
+        return nil, "unavailable"
+    end
+    if KnoxBaseManager.canPerformTask ~= nil
+        and not KnoxBaseManager.canPerformTask(survivorId, baseId, task) then
+        return nil, "not_eligible"
+    end
+    local assigned, result = KnoxPersistence.claimBaseTask(
+        baseId,
+        taskId,
+        survivorId,
+        worldAge()
+    )
+    if assigned ~= nil and result == "claimed" then
+        -- Preserve the distinction between an explicit player assignment and
+        -- an automatic duty claim only after the atomic claim succeeds. A
+        -- rejected/concurrent claim must not mutate a queued task.
+        assigned.manual = true
+        assigned.auto = nil
+    end
+    return assigned, result
 end
 
 function TaskBoard.finish(baseId, taskId, survivorId, succeeded, reason)

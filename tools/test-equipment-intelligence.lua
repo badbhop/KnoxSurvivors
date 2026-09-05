@@ -91,6 +91,11 @@ local bridge = {
 }
 
 local equipment = dofile(rootPath .. "/mod/42/media/lua/client/KS_EquipmentIntelligence.lua")
+assert(equipment.isUsableMelee(strong) and not equipment.isUsableMelee(broken),
+    "world-search weapon classification accepts only usable melee weapons")
+assert(equipment.isMeaningfulMeleeUpgrade(character, strong)
+    and not equipment.isMeaningfulMeleeUpgrade(character, weak),
+    "world-search weapon classification requires a meaningful upgrade")
 local firstDecision = equipment.choose(character)
 assert(firstDecision ~= nil and firstDecision.kind == "melee",
     "better melee must be considered before worn upgrades: "
@@ -113,6 +118,19 @@ assert(equipment.choose(character) == nil,
 character.primary = gun
 local decision = equipment.choose(character)
 assert(decision == nil, "usable firearm is not displaced by idle melee evaluation")
+assert(not equipment.isMeaningfulMeleeUpgrade(character, strong),
+    "world-search weapon order does not displace a usable firearm")
+
+_G.KnoxFirearmSupport = { isReady = function(_, candidate)
+    return candidate == gun
+end }
+character.primary = weak
+assert(equipment.isMeaningfulWeaponUpgrade(character, gun),
+    "explicit weapon order accepts a firearm only when native readiness is true")
+local emptyGun = item("Base.EmptyPistol", { weapon = true, ranged = true })
+assert(not equipment.isMeaningfulWeaponUpgrade(character, emptyGun),
+    "explicit weapon order rejects a firearm without native readiness")
+_G.KnoxFirearmSupport = nil
 
 local tinyBag = item("Base.Bag_TinyUpgrade", { location = "Back", capacity = 18.2, reduction = 60 })
 character.inventory = { getItems = function() return list({ tinyBag }) end }

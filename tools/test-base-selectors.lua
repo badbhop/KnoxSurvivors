@@ -90,7 +90,7 @@ assert(pcall(lastModal.callback, lastModal.target, { internal = "YES" }),
 assert(territoryCalls == 1, "territory confirmation must save exactly once")
 
 local zone = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseZoneSelector.lua")
-assert(zone.start(player, "base-1", "guard", "Guard"), "zone selector should start")
+assert(zone.start(player, "base-1", "patrol", "Patrol"), "area selector should start")
 assert(activeDrag and activeDrag.skipWalk2 == true,
     "zone selection must opt out of ISBuildingObject walk-to")
 activeDrag.ui:onSquareSelected(square(20, 20))

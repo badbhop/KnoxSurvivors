@@ -3,6 +3,7 @@ require "ISUI/ISRichTextPanel"
 require "KS_Settings"
 require "KS_Persistence"
 require "KS_SurvivorRuntime"
+local SurvivorNames = require "KS_SurvivorNames"
 
 local ActivityFeed = rawget(_G, "KnoxActivityFeed") or {}
 _G.KnoxActivityFeed = ActivityFeed
@@ -137,21 +138,28 @@ local function speakerContext(character)
 end
 
 local function characterName(character)
-    if character == nil or character:getDescriptor() == nil then
-        return "Survivor"
-    end
-    local descriptor = character:getDescriptor()
-    local forename = tostring(descriptor:getForename() or "")
-    local surname = tostring(descriptor:getSurname() or "")
-    local name = string.gsub(forename .. " " .. surname, "^%s*(.-)%s*$", "%1")
-    return name ~= "" and name or "Survivor"
+    local id = KnoxSurvivorRuntime.idForCharacter(character)
+    local identity = id ~= nil and KnoxPersistence.getSurvivorIdentity(id) or nil
+    local _, _, name = SurvivorNames.resolve(id, identity, character)
+    return name
+end
+
+-- Called only when the canonical living record transitions to dead, before
+-- corpse teardown can detach its body. Corpse cleanup retries do not repeat it.
+function ActivityFeed.survivorDied(id, character)
+    local _, _, name = SurvivorNames.resolve(id, KnoxPersistence.getSurvivorIdentity(id), character)
+    addLine(name .. " has passed away.", "<RGB:0.88,0.55,0.48>")
 end
 
 function ActivityFeed.speak(character, text)
     if not KnoxSettings.showSurvivorSpeech() then return end
     if character ~= nil then
         pcall(function()
-            character:Say(text)
+            -- Say() is routed through local/network player chat state and is
+            -- not reliably rendered for a contained off-slot IsoPlayer in
+            -- single player. Build 42's native ChatElement is what actually
+            -- owns overhead speech rendering, so add the line there directly.
+            character:addLineChatElement(tostring(text), 1.0, 1.0, 1.0)
         end)
     end
     local groupLabel, colour = speakerContext(character)

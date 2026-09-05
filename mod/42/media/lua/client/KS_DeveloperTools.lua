@@ -63,6 +63,10 @@ function DeveloperTools.dispatchScout(playerNum, worldObjects)
 end
 
 function DeveloperTools.scheduleEligibleRaid()
+    if KnoxSettings.enableKnoxEvents ~= nil and not KnoxSettings.enableKnoxEvents() then
+        KnoxActivityFeed.event("Knox Events are disabled in Sandbox settings.")
+        return
+    end
     if not KnoxSettings.allowDestructiveDeveloperTests() then
         KnoxActivityFeed.event("Raid test requires Allow Destructive Tests.")
         return
@@ -77,6 +81,10 @@ function DeveloperTools.scheduleEligibleRaid()
 end
 
 local function scheduleNamedEntry(worldObjects, policyId, objectiveKind, partySize, label)
+    if KnoxSettings.enableKnoxEvents ~= nil and not KnoxSettings.enableKnoxEvents() then
+        KnoxActivityFeed.event("Knox Events are disabled in Sandbox settings.")
+        return
+    end
     if not KnoxSettings.allowDestructiveDeveloperTests() then
         KnoxActivityFeed.event(label .. " entry test requires Allow Destructive Tests.")
         return

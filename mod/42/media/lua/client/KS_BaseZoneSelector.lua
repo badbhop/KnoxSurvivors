@@ -218,6 +218,22 @@ function Selection:onSquareSelected(square)
         unhookTick(self)
         return
     end
+    -- A guard post is a position, not a rectangle. Keep the existing zone
+    -- record format so older saved areas remain readable by the job system.
+    if self.zoneType == "guard" then
+        local zone, result = KnoxBaseManager.addZone(self.baseId, "guard", {
+            x1 = square:getX(), y1 = square:getY(),
+            x2 = square:getX(), y2 = square:getY(), z = square:getZ(),
+        }, self.label)
+        unhookTick(self)
+        if zone ~= nil then
+            KnoxActivityFeed.event("Guard post saved at " .. tostring(square:getX())
+                .. ", " .. tostring(square:getY()) .. ".")
+        else
+            KnoxActivityFeed.event("Could not save guard post: " .. tostring(result) .. ".")
+        end
+        return
+    end
     if self.firstSquare == nil then
         self.firstSquare = square
         KnoxActivityFeed.event("First corner set for " .. tostring(self.label) .. " at " .. tostring(square:getX()) .. "," .. tostring(square:getY()) .. ". Now click the opposite corner — highlighted area is preview. Right-click cancels.")
@@ -259,7 +275,11 @@ function BaseZoneSelector.start(player, baseId, zoneType, label)
     }, Selection)
     selection.cursor = newSelectionCursor(selection)
     getCell():setDrag(selection.cursor, player:getPlayerNum())
-    KnoxActivityFeed.event("Add " .. tostring(selection.label) .. ": click first corner, then opposite corner. Highlighted rectangle is preview. Confirm size to save. Right-click cancels.")
+    if zoneType == "guard" then
+        KnoxActivityFeed.event("Add Guard Post: click the tile to guard. Right-click cancels.")
+    else
+        KnoxActivityFeed.event("Add " .. tostring(selection.label) .. ": click first corner, then opposite corner. Highlighted rectangle is preview. Confirm size to save. Right-click cancels.")
+    end
     return true
 end
 

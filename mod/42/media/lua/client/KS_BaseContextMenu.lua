@@ -159,58 +159,6 @@ local function addStorageMenu(parent, base, object)
     end
 end
 
-local function addWorkZoneMenu(parent, player, base)
-    local option = parent:addOption("Set Work Area", player, nil)
-    local menu = ISContextMenu:getNew(parent)
-    parent:addSubMenu(option, menu)
-    local definitions = {
-        { "Guard Area", "guard" },
-        { "Patrol Area", "patrol" },
-        { "Farming Area", "farming" },
-        { "Woodcutting Area", "woodcutting" },
-        { "Log Processing Area", "log_processing" },
-        { "Corpse Drop Area", "corpse" },
-        { "Animal Care Area", "animal_care" },
-        { "Repair Area", "repair" },
-        { "Defense Construction Area", "construction" },
-        { "General Work Area", "general" },
-    }
-    for _, definition in ipairs(definitions) do
-        menu:addOption(
-            definition[1],
-            player,
-            BaseContextMenu.selectZone,
-            base.id,
-            definition[2],
-            definition[1]
-        )
-    end
-end
-
-local function addManageZoneMenu(parent, base)
-    local zones = {}
-    for _, zone in pairs(base.zones or {}) do
-        if zone ~= nil then zones[#zones + 1] = zone end
-    end
-    if #zones == 0 then return end
-    table.sort(zones, function(a, b)
-        return tostring(a.label or a.type) < tostring(b.label or b.type)
-    end)
-    local option = parent:addOption("Manage Work Areas", nil, nil)
-    local menu = ISContextMenu:getNew(parent)
-    parent:addSubMenu(option, menu)
-    for _, zone in ipairs(zones) do
-        local label = tostring(zone.label or zone.type) .. " ["
-            .. tostring(zone.x1) .. "," .. tostring(zone.y1) .. " to "
-            .. tostring(zone.x2) .. "," .. tostring(zone.y2) .. "]"
-        local zoneOption = menu:addOption(label, nil, nil)
-        local zoneMenu = ISContextMenu:getNew(menu)
-        menu:addSubMenu(zoneOption, zoneMenu)
-        zoneMenu:addOption("Remove Work Area", BaseContextMenu,
-            BaseContextMenu.removeZone, base.id, zone.id)
-    end
-end
-
 local function buildingId(square)
     local building = square ~= nil and square:getBuilding() or nil
     local definition = building ~= nil and building:getDef() or nil

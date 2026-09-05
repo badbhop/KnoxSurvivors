@@ -2,6 +2,7 @@ require "KS_Persistence"
 require "KS_SurvivorCapabilities"
 require "KS_SurvivorRuntime"
 require "KS_BaseStorage"
+require "KS_Settings"
 
 local BaseManager = rawget(_G, "KnoxBaseManager") or {}
 _G.KnoxBaseManager = BaseManager
@@ -88,6 +89,16 @@ local function hasZoneType(base, zoneType)
     return false
 end
 
+local function countZoneType(base, zoneType)
+    local count = 0
+    for _, zone in pairs(base ~= nil and base.zones or {}) do
+        if zone ~= nil and zone.enabled ~= false and zone.type == zoneType then
+            count = count + 1
+        end
+    end
+    return count
+end
+
 local function ensureFactionZone(base, zoneType, bounds, label)
     if not hasZoneType(base, zoneType) and bounds ~= nil then
         return KnoxPersistence.addBaseZone(base.id, zoneType, bounds, label)
@@ -124,6 +135,37 @@ local function findOutdoorSquare(area, preferredDistance)
     return nil
 end
 
+-- Animal care should only appear when the claimed territory actually contains
+-- a vanilla feeding trough.  This keeps normal bases uncluttered while making
+-- the existing real trough executor discoverable for ranch/farm settlements.
+local function findAnimalCareSquare(area)
+    local cell = getCell ~= nil and getCell() or nil
+    if cell == nil or area == nil or instanceof == nil then return nil end
+    local minX = tonumber(area.minX) or 0
+    local minY = tonumber(area.minY) or 0
+    local maxX = tonumber(area.maxX)
+        or (minX + math.max(1, tonumber(area.width) or 1) - 1)
+    local maxY = tonumber(area.maxY)
+        or (minY + math.max(1, tonumber(area.height) or 1) - 1)
+    local z = tonumber(area.z) or 0
+    for x = minX, maxX do
+        for y = minY, maxY do
+            local square = cell:getGridSquare(x, y, z)
+            local objects = square ~= nil and square:getObjects() or nil
+            if objects ~= nil then
+                for index = 0, objects:size() - 1 do
+                    local object = objects:get(index)
+                    local success, trough = pcall(function()
+                        return instanceof(object, "IsoFeedingTrough")
+                    end)
+                    if success and trough == true then return square end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 local function ensureFactionZones(base)
     local area = base ~= nil and (base.territory or base.home) or nil
     if area == nil then return end
@@ -135,16 +177,68 @@ local function ensureFactionZones(base)
     ensureFactionZone(base, "patrol", {
         x1 = minX, y1 = minY, x2 = maxX, y2 = maxY, z = z, priority = 72,
     }, "Base Patrol")
-    local guardX = math.floor(tonumber(area.x) or ((minX + maxX) / 2))
-    local guardY = math.floor(tonumber(area.y) or ((minY + maxY) / 2))
+    local entryWatch = findOutdoorSquare(area, 2)
+    local guardX = entryWatch ~= nil and entryWatch:getX()
+        or math.floor(tonumber(area.x) or ((minX + maxX) / 2))
+    local guardY = entryWatch ~= nil and entryWatch:getY()
+        or math.floor(tonumber(area.y) or ((minY + maxY) / 2))
     ensureFactionZone(base, "guard", {
         x1 = guardX - 1, y1 = guardY - 1,
         x2 = guardX + 1, y2 = guardY + 1, z = z, priority = 84,
     }, "Entry Watch")
-    ensureFactionZone(base, "repair", {
-        x1 = minX, y1 = minY, x2 = maxX, y2 = maxY, z = z, priority = 88,
-    }, "Home Maintenance")
-    local work = findOutdoorSquare(area, 3)
+    -- Larger settlements need relief and a second sight line.  Keep this as a
+    -- second ordinary guard zone rather than inventing a separate security
+    -- system; BaseJobs will claim/rotate it using the same fairness rules as
+    -- every other resident duty.  The opposite corner keeps posts apart even
+    -- when the first outdoor square resolves near the building entrance.
+    local residentIds = KnoxPersistence.getBaseResidentIds ~= nil
+        and KnoxPersistence.getBaseResidentIds(base.id) or {}
+    local residentCount = type(residentIds) == "table" and #residentIds or 0
+    if residentCount >= 6 and countZoneType(base, "patrol") < 2 then
+        -- Split a large settlement's perimeter into a second route.  It is
+        -- still an ordinary patrol zone; task claims and waypoint rotation
+        -- remain owned by BaseJobs/CompanionPatrol.
+        local outerPatrol = findOutdoorSquare(area, math.max(5,
+            math.floor(math.max(6, tonumber(area.width) or 6) / 2)))
+        local patrolX = outerPatrol ~= nil and outerPatrol:getX()
+            or math.floor(maxX - 2)
+        local patrolY = outerPatrol ~= nil and outerPatrol:getY()
+            or math.floor(maxY - 2)
+        ensureFactionZone(base, "patrol", {
+            x1 = patrolX - 3, y1 = patrolY - 3,
+            x2 = patrolX + 3, y2 = patrolY + 3, z = z, priority = 71,
+        }, "Outer Patrol")
+    end
+    if residentCount >= 4 and countZoneType(base, "guard") < 2 then
+        local farWatch = findOutdoorSquare(area, math.max(4,
+            math.floor(math.max(4, tonumber(area.width) or 4) / 2)))
+        local farX = farWatch ~= nil and farWatch:getX()
+            or math.floor(maxX - 1)
+        local farY = farWatch ~= nil and farWatch:getY()
+            or math.floor(maxY - 1)
+        ensureFactionZone(base, "guard", {
+            x1 = farX - 1, y1 = farY - 1,
+            x2 = farX + 1, y2 = farY + 1, z = z, priority = 83,
+        }, "Outer Watch")
+    end
+    -- Structure repair scans the owned territory directly; it does not need a
+    -- second full-base work-area overlay. Keep generated zones limited to work
+    -- the player can understand spatially.
+    if not hasZoneType(base, "construction") and not hasZoneType(base, "defense") then
+        ensureFactionZone(base, "construction", {
+            x1 = minX - 1, y1 = minY - 1,
+            x2 = maxX + 1, y2 = maxY + 1, z = z, priority = 75,
+        }, "Defense Perimeter")
+    end
+    local animalSquare = findAnimalCareSquare(area)
+    if animalSquare ~= nil then
+        ensureFactionZone(base, "animal_care", {
+            x1 = animalSquare:getX() - 2, y1 = animalSquare:getY() - 2,
+            x2 = animalSquare:getX() + 2, y2 = animalSquare:getY() + 2,
+            z = animalSquare:getZ(), priority = 86,
+        }, "Animal Care")
+    end
+    local work = findOutdoorSquare(area, 4)
     if work ~= nil then
         ensureFactionZone(base, "farming", {
             x1 = work:getX() - 2, y1 = work:getY() - 2,
@@ -159,6 +253,14 @@ local function ensureFactionZones(base)
             x2 = outer:getX() + 6, y2 = outer:getY() + 6,
             z = outer:getZ(), priority = 68,
         }, "Wood Lot")
+        -- Keep log processing close to the wood lot while exposing it as its
+        -- own durable work area. The executor distinguishes the two and uses
+        -- real logs/saws; this only supplies a sensible default for new bases.
+        ensureFactionZone(base, "log_processing", {
+            x1 = outer:getX() - 2, y1 = outer:getY() - 2,
+            x2 = outer:getX() + 2, y2 = outer:getY() + 2,
+            z = outer:getZ(), priority = 70,
+        }, "Log Processing")
         ensureFactionZone(base, "corpse", {
             x1 = outer:getX() - 1, y1 = outer:getY() - 1,
             x2 = outer:getX() + 1, y2 = outer:getY() + 1,
@@ -168,7 +270,8 @@ local function ensureFactionZones(base)
 end
 
 local function ensureFactionStorage(base)
-    if base == nil or next(base.storage or {}) ~= nil then return end
+    if base == nil then return end
+    base.storage = base.storage or {}
     local area = base.territory or base.home
     local cell = getCell ~= nil and getCell() or nil
     if area == nil or cell == nil then return end
@@ -201,14 +304,39 @@ local function ensureFactionStorage(base)
             end
         end
     end
-    local fallback = { "depot", "tools", "building", "weapons", "medical", "farming", "clothing" }
+    local fallback = {
+        "depot", "food", "water", "tools", "building", "weapons",
+        "medical", "farming", "clothing",
+    }
+    local covered = {}
+    for _, policy in pairs(base.storage or {}) do
+        if policy ~= nil and type(policy.category) == "string" then
+            covered[policy.category] = true
+        end
+    end
+    local function nextMissing()
+        for _, category in ipairs(fallback) do
+            if not covered[category] then return category end
+        end
+        return nil
+    end
     for index, entry in ipairs(found) do
-        local category = string.find(entry.kind, "fridge", 1, true) and "food"
+        local preferred = string.find(entry.kind, "fridge", 1, true) and "food"
             or string.find(entry.kind, "freezer", 1, true) and "food"
+            or (string.find(entry.kind, "water", 1, true)
+                or string.find(entry.kind, "rain", 1, true)) and "water"
             or string.find(entry.kind, "medicine", 1, true) and "medical"
             or string.find(entry.kind, "wardrobe", 1, true) and "clothing"
             or fallback[math.min(index, #fallback)]
-        BaseManager.setStoragePolicy(base.id, entry.object, category, entry.containerIndex)
+        local reference = BaseManager.containerReference(
+            entry.object, entry.containerIndex, base.id
+        )
+        if reference ~= nil and base.storage[reference.key] == nil then
+            local category = not covered[preferred] and preferred or nextMissing()
+            if category == nil then break end
+            BaseManager.setStoragePolicy(base.id, entry.object, category, entry.containerIndex)
+            covered[category] = true
+        end
         if index >= 9 then return end
     end
 end
@@ -269,7 +397,9 @@ function BaseManager.movePlayerBase(player, square)
         return nil, "claimed_by_survivor_faction"
     end
     local moved, result = KnoxPersistence.relocateBase(base.id, area, territory, worldAge())
-    if moved ~= nil then BaseManager.syncStructureProtection() end
+    if moved ~= nil then
+        BaseManager.syncStructureProtection()
+    end
     return moved, result
 end
 
@@ -280,6 +410,16 @@ function BaseManager.ensureFactionBase(faction)
     local base = faction.homeBaseId ~= nil
         and KnoxPersistence.getBase(faction.homeBaseId)
         or nil
+    -- A stale save may retain a base id after ownership changed or the base
+    -- was replaced. Never let an NPC faction adopt a player/other-faction
+    -- record just because its id still exists; rebuild the faction-owned
+    -- record from the persisted home definition instead.
+    if base ~= nil and (base.ownerKind ~= "faction" or base.ownerId ~= faction.id) then
+        print("[KnoxSurvivors][BaseManager] discarded-stale-faction-base="
+            .. tostring(faction.homeBaseId) .. " faction=" .. tostring(faction.id))
+        faction.homeBaseId = nil
+        base = nil
+    end
     local result = "existing"
     if base == nil then
         base, result = KnoxPersistence.createBase(
@@ -293,6 +433,13 @@ function BaseManager.ensureFactionBase(faction)
         end
     end
     if base ~= nil then
+        -- Keep the settlement identity visible everywhere the player sees the
+        -- property. Do not overwrite a name the player or a future UI has
+        -- intentionally customized.
+        if (base.name == nil or base.name == "" or base.name == "Survivor Camp")
+            and type(faction.name) == "string" and faction.name ~= "" then
+            base.name = faction.name .. " Base"
+        end
         local hasDefenseZone = false
         for _, zone in pairs(base.zones or {}) do
             if zone ~= nil and (zone.type == "construction" or zone.type == "defense") then
@@ -319,15 +466,27 @@ function BaseManager.ensureFactionBase(faction)
                 }, "Defense Perimeter")
             end
         end
-        ensureFactionZones(base)
-        ensureFactionStorage(base)
+        if KnoxSettings.autoGenerateBaseWorkAreas() then
+            ensureFactionZones(base)
+            ensureFactionStorage(base)
+        end
         for _, survivorId in ipairs(faction.memberIds or {}) do
-            KnoxPersistence.setFactionBaseResident(
+            local resident, residentResult = KnoxPersistence.setFactionBaseResident(
                 survivorId,
                 faction.id,
                 base.id,
                 worldAge()
             )
+            -- Base creation can happen while the leader is still active in the
+            -- world. Notify that runtime immediately so it drops stale roaming
+            -- or faction-scouting intent and begins resident duty on its next
+            -- decision boundary. Persisted duty remains authoritative; this is
+            -- only the in-memory handoff signal.
+            if resident and residentResult ~= "existing"
+                and KnoxSurvivorRuntime ~= nil
+                and KnoxSurvivorRuntime.notifyDutyChanged ~= nil then
+                KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+            end
         end
     end
     return base, base ~= nil and result or "failed"
@@ -337,6 +496,11 @@ function BaseManager.ensureFactionBases()
     for _, faction in pairs(KnoxPersistence.getFactions()) do
         BaseManager.ensureFactionBase(faction)
     end
+end
+
+function BaseManager.ensurePlayerBases()
+    -- Player work areas and storage policies are explicit choices made through
+    -- the Notebook. Automatic planning is reserved for autonomous NPC bases.
 end
 
 function BaseManager.containsSquare(base, square)
@@ -558,6 +722,7 @@ end
 
 local function onGameStart()
     BaseManager.ensureFactionBases()
+    BaseManager.ensurePlayerBases()
     BaseManager.syncStructureProtection()
 end
 

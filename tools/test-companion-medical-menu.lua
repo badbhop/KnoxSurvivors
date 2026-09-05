@@ -30,7 +30,7 @@ local currentPatient = patient
 getSpecificPlayer = function(n) assert(n == 0); return player end
 KnoxSurvivorRuntime = { getCharacter = function() return currentPatient end }
 local holds, walks, completed, starts = 0, 0, 0, 0
-KnoxCompanionService = { command = function(p, id, order)
+KnoxCompanionService = { issueOrder = function(p, id, order)
     assert(p == player and id == "patient" and order == "hold")
     holds = holds + 1
     return true

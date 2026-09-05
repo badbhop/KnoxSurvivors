@@ -6,16 +6,21 @@ Knox Survivors adds two pages to Project Zomboid's sandbox options.
 
 - **Enable Knox Survivors** pauses the rebuild's gameplay entry points without deleting survivor save data.
 - **World Population** sets the persistent starting population and, normally, the living-survivor target across the entire map. The balanced playtest default is 48 and the supported range is 0–256.
-- **Disable Survivor Caps** is off by default. When enabled, the active-survivor and companion counts do not block activation or recruitment. World Population remains the starting count, but later arrivals may exceed it: at most one new identity per refill interval at an unused world location. Recruitment trust still applies when enabled; ownership, death, safe spawning and cooldown rules always apply. There is no separate numeric faction cap to bypass. Larger active populations can reduce performance.
+- **Disable Survivor Caps** is off by default. When enabled, the active-survivor and companion counts do not block activation or recruitment. World Population remains the starting count, but later arrivals may exceed it: at most one new identity per refill interval at an unused world location. Recruitment trust still applies when enabled; ownership, death, safe spawning and cooldown rules always apply. The separate NPC faction-size limit remains in force so one faction cannot grow without bound. Larger active populations can reduce performance.
 - **Max Active Survivors** normally caps how many production survivors may be physically materialized at once. The balanced default is 16 and the supported range is 1–48. Disabling caps ignores this setting; the scheduler still builds at most two new bodies per population update instead of loading a whole settlement in one burst. This rate limit does not impose a total-body cap.
 - **Population Refill Days** defaults to five days and controls how long a population deficit must persist before one replacement identity is allocated. Refill is gradual, one survivor per interval, never a catch-up burst.
 - **Minimum Spawn Distance** defaults to 40 tiles and keeps first materialization away from local players and out of view. Saved survivors always restore at their exact recorded square once it is loaded.
 - **Companion Limit** controls how many active companions each local player may recruit.
 - **Require Trust to Recruit** is off by default, allowing an eligible independent survivor to be recruited immediately. Enable it to require 50 personal trust and use the existing refusal cooldown. It never permits recruiting hostile, dead, unavailable, grouped, or faction-owned survivors and does not bypass the companion limit.
 - **Allow NPC Factions (Work in Progress)** controls new faction formation and base scouting. It remains enabled for the intended living-world test loop. Existing factions remain intact when disabled.
+- **Enable Knox Events (Experimental)** is off by default. It controls dispatch and processing of scripted faction/named-world events; event records are preserved, and the setting can be enabled later for focused testing.
+- **Survivors Needed to Form a Faction** defaults to four (range 3-8). Smaller travelling groups remain informal, and reaching the number still does not bypass the existing shared-survival relationship requirement.
+- **Maximum NPC Faction Members** defaults to eight (range 3-24). It limits future recruitment into an established NPC faction; lowering it never removes existing members, and it does not affect player-owned groups.
 - **Allow Hostile Survivor Encounters (Experimental)** controls threats and robberies between independent survivors. It remains enabled, but human encounter/combat behavior is still being polished.
+- **Allow Survivor Fleeing (Experimental)** defaults off. Enabling it restores combat-risk retreat behavior. Survivors still perceive, fight and defend themselves while it is disabled; only autonomous retreat ownership is suppressed while escape routing receives more live testing.
 - **Allow Faction Raids (Experimental)** defaults off. Players may opt into the real-member raid system; the first possible raid defaults to day 14.
 - **Allow Survivor and Player Combat (Experimental)** remains enabled so hostile relationships can resolve naturally, but human combat is still being polished.
+- **Automatic NPC Base Work Areas** defaults on. Autonomous NPC factions receive practical guard, patrol, farming, wood, corpse, and storage defaults. Player bases remain manually configured through the Notebook.
 - **Show Companion HUD** controls the right-side companion panel.
 - **Show Survivor Activity Feed** controls the Knox message window. Speech bubbles still work.
 
@@ -28,6 +33,8 @@ Sandbox defaults are copied into a save when its sandbox rules are created. Exis
 ## Developer tools
 
 Developer tools are disabled by default. Enable **Knox Survivors - Developer Tools > Enable Developer Tools** before creating or loading the test save.
+
+Detailed developer diagnostics also default off. Turn them on only for a focused test that needs periodic controller and render snapshots; ordinary error reporting remains available without the periodic status dump.
 
 The automatic scenario can load one survivor, one companion, a two-person travel group, a three-person faction, or a faction that immediately starts using the normal base-scouting behavior. Leave it on **None** to spawn scenarios manually.
 

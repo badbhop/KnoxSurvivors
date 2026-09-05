@@ -26,6 +26,7 @@ dofile(root .. "/mod/42/media/lua/client/KS_Persistence.lua")
 assert(KnoxPersistence.getSurvivorPolicies("a").weaponPreference == "ranged", "reload preserves real persisted policy")
 
 require = function() return true end
+dofile(root .. "/mod/42/media/lua/client/KS_OrderCatalog.lua")
 local notices = 0
 KnoxSurvivorRuntime = { notifyDutyChanged = function() notices = notices + 1 end }
 KnoxActivityFeed = { event = function() end }
@@ -66,6 +67,8 @@ KnoxBaseManager = { getForOwner = function() return nil end }
 local function menu()
     local result = { options = {} }
     function result:addOption(name, target, callback, ...)
+        assert(callback == nil or type(callback) == "function",
+            "context menu callback must be callable: " .. tostring(name))
         local option = { name = name, target = target, callback = callback, args = { ... } }
         self.options[name] = option return option
     end

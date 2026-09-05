@@ -1,5 +1,9 @@
 local root = arg[1] or "."
-require = function() end
+require = function(name)
+    if name == "KS_SurvivorNames" then
+        return dofile(root .. "/mod/42/media/lua/client/KS_SurvivorNames.lua")
+    end
+end
 local callbacks, draws = {}, {}
 Events = { OnPreUIDraw = { Add = function(f) callbacks.draw = f end },
     OnGameStart = { Add = function(f) callbacks.reset = f end } }

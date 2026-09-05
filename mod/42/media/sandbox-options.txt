@@ -8,6 +8,18 @@ option KnoxSurvivors.WorldPopulation = {
     type = integer, min = 0, max = 256, default = 48, page = KnoxSurvivors_Main, translation = KnoxSurvivors_WorldPopulation,
 }
 
+option KnoxSurvivors.InitialGroupChance = {
+    type = integer, min = 0, max = 100, default = 65, page = KnoxSurvivors_Main, translation = KnoxSurvivors_InitialGroupChance,
+}
+
+option KnoxSurvivors.InitialGroupMaxSize = {
+    type = integer, min = 2, max = 6, default = 4, page = KnoxSurvivors_Main, translation = KnoxSurvivors_InitialGroupMaxSize,
+}
+
+option KnoxSurvivors.InitialGroupCount = {
+    type = integer, min = 1, max = 4, default = 3, page = KnoxSurvivors_Main, translation = KnoxSurvivors_InitialGroupCount,
+}
+
 option KnoxSurvivors.DisableSurvivorCaps = {
     type = boolean, default = false, page = KnoxSurvivors_Main, translation = KnoxSurvivors_DisableSurvivorCaps,
 }
@@ -16,12 +28,20 @@ option KnoxSurvivors.MaxActiveSurvivors = {
     type = integer, min = 1, max = 48, default = 16, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MaxActiveSurvivors,
 }
 
+option KnoxSurvivors.ActivationsPerUpdate = {
+    type = integer, min = 1, max = 4, default = 2, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ActivationsPerUpdate,
+}
+
 option KnoxSurvivors.PopulationRefillDays = {
     type = integer, min = 1, max = 30, default = 5, page = KnoxSurvivors_Main, translation = KnoxSurvivors_PopulationRefillDays,
 }
 
 option KnoxSurvivors.MinimumSpawnDistance = {
     type = integer, min = 25, max = 150, default = 40, page = KnoxSurvivors_Main, translation = KnoxSurvivors_MinimumSpawnDistance,
+}
+
+option KnoxSurvivors.SurvivorEncounterDistance = {
+    type = integer, min = 120, max = 500, default = 280, page = KnoxSurvivors_Main, translation = KnoxSurvivors_SurvivorEncounterDistance,
 }
 
 option KnoxSurvivors.CompanionLimit = {
@@ -36,8 +56,28 @@ option KnoxSurvivors.AllowNPCFactions = {
     type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowNPCFactions,
 }
 
+option KnoxSurvivors.AutoGenerateBaseWorkAreas = {
+    type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AutoGenerateBaseWorkAreas,
+}
+
+option KnoxSurvivors.EnableKnoxEvents = {
+    type = boolean, default = false, page = KnoxSurvivors_Main, translation = KnoxSurvivors_EnableKnoxEvents,
+}
+
+option KnoxSurvivors.NPCFactionMinimumMembers = {
+    type = integer, min = 3, max = 8, default = 4, page = KnoxSurvivors_Main, translation = KnoxSurvivors_NPCFactionMinimumMembers,
+}
+
+option KnoxSurvivors.NPCFactionMaxMembers = {
+    type = integer, min = 3, max = 24, default = 8, page = KnoxSurvivors_Main, translation = KnoxSurvivors_NPCFactionMaxMembers,
+}
+
 option KnoxSurvivors.AllowHostileEncounters = {
     type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowHostileEncounters,
+}
+
+option KnoxSurvivors.AllowSurvivorFleeing = {
+    type = boolean, default = false, page = KnoxSurvivors_Main, translation = KnoxSurvivors_AllowSurvivorFleeing,
 }
 
 option KnoxSurvivors.AllowFactionRaids = {
@@ -93,5 +133,5 @@ option KnoxSurvivors.AllowDestructiveDeveloperTests = {
 }
 
 option KnoxSurvivors.ShowDeveloperDiagnostics = {
-    type = boolean, default = true, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_ShowDeveloperDiagnostics,
+    type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_ShowDeveloperDiagnostics,
 }

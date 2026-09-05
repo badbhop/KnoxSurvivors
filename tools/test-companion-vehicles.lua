@@ -23,6 +23,9 @@ local service = read(rootPath .. "/mod/42/media/lua/client/KS_CompanionService.l
 assert(service:find('function CompanionService.boardPlayerVehicle', 1, true)
     and service:find('function CompanionService.exitVehicle', 1, true),
     "companion service must expose passenger board and exit commands")
+assert(service:find('function CompanionService.boardAllPlayerVehicle', 1, true)
+    and service:find('function CompanionService.exitAllVehicles', 1, true),
+    "party vehicle orders must reuse existing companion vehicle actions")
 assert(service:find('No more seats.', 1, true),
     "full vehicles must give the player-facing wait message")
 
@@ -30,5 +33,11 @@ local context = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorContextMen
 assert(context:find('Enter My Vehicle', 1, true)
     and context:find('Exit Vehicle', 1, true),
     "companion Orders menu must expose vehicle commands")
+
+local party = read(rootPath .. "/mod/42/media/lua/client/KS_PartyCommands.lua")
+assert(party:find('"Vehicle Orders"', 1, true)
+    and party:find('KnoxOrderCatalog.label("enter_vehicle")', 1, true)
+    and party:find('KnoxOrderCatalog.label("exit_vehicle")', 1, true),
+    "party menu must expose shared vehicle controls")
 
 print("Companion vehicles PASS vanilla_actions=true passenger_only=true context_commands=true")
