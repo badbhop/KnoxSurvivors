@@ -79,11 +79,16 @@ namespace KnoxSurvivors.Launcher.Verifier
                 GameBatchPath = Path.Combine(game, "ProjectZomboid64.bat"),
             };
             new InstallationValidator().Validate(installation);
+            string previousJavaToolOptions = Environment.GetEnvironmentVariable("JAVA_TOOL_OPTIONS");
+            Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", "-agentlib:zbNative -Xmx2G");
             GameLaunchPlan plan = new GameLauncher().CreatePlan(installation);
+            Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", previousJavaToolOptions);
             Require(plan.WorkingDirectory == game, "Game working directory changed");
             Require(plan.Arguments.Contains(installation.GameBatchPath), "Game batch path missing");
             Require(plan.JavaToolOptions.Contains(installation.AgentJarPath), "Agent path missing");
             Require(plan.JavaToolOptions.EndsWith("=pz-game", StringComparison.Ordinal), "Agent mode missing");
+            Require(plan.JavaToolOptions.Contains("-agentlib:zbNative"), "Existing agent option was not preserved");
+            Require(plan.JavaToolOptions.Contains("-Xmx2G"), "Existing JVM option was not preserved");
 
             string marker = Path.Combine(root, "launch-environment.txt");
             File.WriteAllText(

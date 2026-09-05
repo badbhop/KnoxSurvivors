@@ -35,7 +35,9 @@ The launcher:
   `KnoxSurvivors`;
 - verifies both Build 42 `mod.info` files;
 - verifies the Java-agent manifest and its published SHA-256 sidecar;
-- passes `-javaagent` through a child-process-only `JAVA_TOOL_OPTIONS` value;
+- passes Knox's `-javaagent` through a child-process-only `JAVA_TOOL_OPTIONS` value while
+  preserving options already supplied by Steam, the game launch files, or compatible agents
+  such as `-agentlib:zbNative`;
 - starts the normal, unmodified platform game launcher.
 
 It does not copy files into the game, patch the game launcher, create services, request

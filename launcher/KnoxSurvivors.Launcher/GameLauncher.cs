@@ -28,14 +28,33 @@ namespace KnoxSurvivors.Launcher
                 );
             }
             string agentOption = "-javaagent:\"" + installation.AgentJarPath + "\"=pz-game";
+            string existingOptions = Environment.GetEnvironmentVariable("JAVA_TOOL_OPTIONS");
 
             return new GameLaunchPlan
             {
                 CommandInterpreter = commandInterpreter,
                 Arguments = "/d /s /c \"\"" + installation.GameBatchPath + "\"\"",
                 WorkingDirectory = installation.GameDirectory,
-                JavaToolOptions = agentOption,
+                JavaToolOptions = MergeJavaToolOptions(existingOptions, agentOption),
             };
+        }
+
+        internal static string MergeJavaToolOptions(string existingOptions, string knoxOption)
+        {
+            string existing = (existingOptions ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(existing))
+            {
+                return knoxOption;
+            }
+
+            // Keep options supplied by Steam, the game batch file, or other
+            // compatible agents (for example -agentlib:zbNative).  Only add
+            // Knox when this exact option is not already present.
+            if (existing.IndexOf(knoxOption, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return existing;
+            }
+            return existing + " " + knoxOption;
         }
 
         public void Launch(LauncherInstallation installation)

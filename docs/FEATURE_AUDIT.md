@@ -6254,3 +6254,11 @@ residents cannot indefinitely retain an invalid automatic claim.
 - Player-facing regression and Lua syntax pass; Workshop staging includes the
   correction. No launcher change. Live nameplate and human-combat verification
   remain pending.
+### Launcher JVM option preservation — 2026-09-05
+
+The launcher previously replaced the inherited `JAVA_TOOL_OPTIONS` value with only the Knox
+agent. That could hide compatible options such as ZombieBuddy's `-agentlib:zbNative` and other
+user/Steam JVM flags. `GameLauncher.MergeJavaToolOptions` now preserves the inherited value and
+adds Knox once, leaving the normal batch/json launch configuration untouched. The launcher
+verifier now covers preservation of an existing agent and memory option. Launcher build and
+verifier pass locally; a real ZombieBuddy + Knox launch remains live-only verification.
