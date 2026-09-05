@@ -6233,3 +6233,15 @@ residents cannot indefinitely retain an invalid automatic claim.
   refresh timer elapsed. Focused controller regressions cover both directives;
   Lua syntax and the full Java verification suite remain clean. Live combat,
   guard positioning and save/reload acceptance remain pending. No launcher change.
+
+### Native corpse pickup load-order hardening — 2026-09-05
+
+- `KS_BaseCorpseHandling` now explicitly loads Build 42's `ISGrabCorpseAction`
+  before queueing a haul. This closes a load-order path where a corpse job could
+  reach its transition without the native grab constructor and fall back into
+  unrelated character input. The native grab/drop actions and real corpse state
+  remain authoritative; no simulated carrying was added.
+- Regression verifies the explicit import and existing async grab/drop, removed
+  body, reach, and retry checks. Lua syntax and full Java checks were previously
+  clean; Workshop staging will be refreshed with this Lua-only change. Live
+  corpse pickup animation and persistence remain pending. No launcher patch.

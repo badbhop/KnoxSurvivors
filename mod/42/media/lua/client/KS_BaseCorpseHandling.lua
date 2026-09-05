@@ -1,5 +1,6 @@
 require "TimedActions/ISGrabCorpseAction"
 require "TimedActions/ISDropCorpseAction"
+require "TimedActions/ISGrabCorpseAction"
 require "TimedActions/ISUnequipAction"
 require "TimedActions/ISTimedActionQueue"
 

@@ -7,6 +7,11 @@ package.loaded["TimedActions/ISUnequipAction"] = true
 package.loaded["TimedActions/ISTimedActionQueue"] = true
 
 local queued = {}
+local sourceFile = assert(io.open(rootPath .. "/mod/42/media/lua/client/KS_BaseCorpseHandling.lua", "r"))
+local source = sourceFile:read("*a")
+sourceFile:close()
+assert(string.find(source, 'require "TimedActions/ISGrabCorpseAction"', 1, true),
+    "corpse haul must explicitly load the native grab action")
 ISGrabCorpseAction = {
     new = function(_, character, body)
         return { kind = "grab", character = character, body = body }
