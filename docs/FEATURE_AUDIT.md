@@ -6245,3 +6245,12 @@ residents cannot indefinitely retain an invalid automatic claim.
   body, reach, and retry checks. Lua syntax and full Java checks were previously
   clean; Workshop staging will be refreshed with this Lua-only change. Live
   corpse pickup animation and persistence remain pending. No launcher patch.
+
+### Nameplate PvP side-effect removal — 2026-09-05
+
+- Removed the nameplate refresh's `setFactionPvp` mutation. Name rendering is a
+  presentation concern and must not alter native combat policy each visibility
+  tick. Relationship-aware human eligibility now lives only in the combat gate.
+- Player-facing regression and Lua syntax pass; Workshop staging includes the
+  correction. No launcher change. Live nameplate and human-combat verification
+  remain pending.

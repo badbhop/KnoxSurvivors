@@ -28,6 +28,8 @@ end
 assert(string.find(nameplates, "player:CanSee(character)", 1, true)
     and string.find(nameplates, "character:setShowTag(true)", 1, true),
     "native player-style tags must remain line-of-sight gated")
+assert(not string.find(nameplates, "setFactionPvp", 1, true),
+    "nameplates must not mutate engine PvP state")
 assert(string.find(relations, "Events.OnWeaponHitCharacter", 1, true)
     and string.find(relations, "setSurvivorHostileToPlayer", 1, true),
     "a native player hit must create a durable hostile response")

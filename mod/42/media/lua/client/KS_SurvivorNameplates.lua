@@ -84,9 +84,6 @@ function Nameplates.update(ticks)
                 end
                 labels[#labels + 1] = { character = character, name = fullName(id), colors = colors }
             end
-            pcall(function()
-                character:setFactionPvp(KnoxSettings.allowSurvivorPlayerCombat())
-            end)
             local player = enabled and nearestVisiblePlayer(character, distance * distance) or nil
             if player == nil then
                 setVisible(character, false)
