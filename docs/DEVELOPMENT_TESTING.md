@@ -7,6 +7,17 @@ scenario or use the in-world right-click menu described in
 
 ## One-click combat tests
 
+### Human-combat eligibility regression (pending live)
+
+Use a disposable test save with coop PvP off and Knox survivor/player combat on.
+Attack an independent neutral survivor: verify a real native hit, health/injury
+change, and hostility only after contact. Miss once and confirm no hostility from
+the miss. Check a recruited companion and a friendly survivor remain protected.
+Then test a hostile survivor attacking the player and another hostile survivor;
+verify two-way native damage, godmode protection, death cleanup and movement resume.
+Repeat the player swing with Knox survivor/player combat disabled. Do not enable
+global PvP to make this test pass. Multiplayer combat is not covered by this adapter.
+
 With developer tools enabled, right-click the ground and open
 **Knox Survivors - Developer Tools > Run Combat Scenario**. The menu provides a one-on-one
 fight, one survivor against a zombie group, a travel group fight, a faction fight, and a

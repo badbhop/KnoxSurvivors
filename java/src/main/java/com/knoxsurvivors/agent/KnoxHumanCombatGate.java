@@ -8,6 +8,7 @@ import java.util.IdentityHashMap;
 public final class KnoxHumanCombatGate {
     private static final String SHELL = "com.knoxsurvivors.engine.KnoxIsoPlayerShell";
     private static final Pairs PAIRS = new Pairs();
+    private static final PlayerAttacks PLAYER_ATTACKS = new PlayerAttacks();
     private static final ClassValue<Api> API = new ClassValue<>() {
         @Override protected Api computeValue(Class<?> type) {
             try {
@@ -19,7 +20,7 @@ public final class KnoxHumanCombatGate {
                     Class.forName("zombie.network.GameClient", false, loader).getField("client"),
                     Class.forName("zombie.network.GameServer", false, loader).getField("server"),
                     player, player.getMethod("isGodMod"), player.getMethod("isDead"),
-                    player.getMethod("getCurrentSquare"));
+                    player.getMethod("getCurrentSquare"), player.getMethod("isLocalPlayer"));
             } catch (ReflectiveOperationException exception) {
                 throw new IllegalStateException("Native human combat API unavailable", exception);
             }
@@ -37,13 +38,38 @@ public final class KnoxHumanCombatGate {
 
     public static void clear(Object owner) { PAIRS.remove(owner); }
 
+    public static void clearPlayerAttacks() { PLAYER_ATTACKS.clear(); }
+
+    public static boolean beginPlayerAttack(Object player) {
+        if (player == null || SHELL.equals(player.getClass().getName())) return false;
+        try {
+            Api api = API.get(player.getClass());
+            if (!api.player.isInstance(player) || !(Boolean) api.local.invoke(player)
+                || (Boolean) api.client.get(null) || (Boolean) api.server.get(null)) return false;
+            PLAYER_ATTACKS.begin(player, System.nanoTime());
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException exception) { return false; }
+    }
+
+    public static void setPlayerAttackTarget(Object player, Object body, boolean allowed) {
+        if (body != null && SHELL.equals(body.getClass().getName()))
+            PLAYER_ATTACKS.set(player, body, allowed, System.nanoTime());
+    }
+
     public static boolean checkPVP(Object attacker, Object victim, boolean checkFaction) {
         Object anchor = attacker != null ? attacker : victim;
         if (anchor == null) return true; // Native checkPVP(null, null) permits non-player objects.
         try {
             Api api = API.get(anchor.getClass());
+            boolean client = (Boolean) api.client.get(null), server = (Boolean) api.server.get(null);
+            Boolean playerPermission = PLAYER_ATTACKS.permission(attacker, victim, System.nanoTime());
+            if (!client && !server && playerPermission != null) {
+                return playerPermission && canHit((Boolean) api.god.invoke(victim),
+                    (Boolean) api.dead.invoke(attacker), (Boolean) api.dead.invoke(victim),
+                    api.square.invoke(attacker) != null, api.square.invoke(victim) != null);
+            }
             boolean paired = PAIRS.contains(attacker, victim, System.nanoTime());
-            if (usesPair(paired, (Boolean) api.client.get(null), (Boolean) api.server.get(null),
+            if (usesPair(paired, client, server,
                 api.player.isInstance(attacker), api.player.isInstance(victim))) {
                 return canHit((Boolean) api.god.invoke(victim),
                     (Boolean) api.dead.invoke(attacker), (Boolean) api.dead.invoke(victim),
@@ -65,7 +91,34 @@ public final class KnoxHumanCombatGate {
     }
 
     private record Api(Method original, Field client, Field server, Class<?> player,
-                       Method god, Method dead, Method square) { }
+                       Method god, Method dead, Method square, Method local) { }
+
+    /** Refreshed at native swing/hit-point events; never authorizes the reverse direction. */
+    static final class PlayerAttacks {
+        static final long TTL = 1_000_000_000L;
+        private final IdentityHashMap<Object, Attack> attacks = new IdentityHashMap<>();
+        synchronized void begin(Object player, long now) {
+            prune(now);
+            if (player != null) attacks.put(player, new Attack(now));
+        }
+        synchronized void set(Object player, Object victim, boolean allowed, long now) {
+            prune(now);
+            Attack attack = attacks.get(player);
+            if (attack != null && victim != null && victim != player) attack.targets.put(victim, allowed);
+        }
+        synchronized Boolean permission(Object player, Object victim, long now) {
+            prune(now);
+            Attack attack = attacks.get(player);
+            return attack == null ? null : attack.targets.get(victim);
+        }
+        synchronized void clear() { attacks.clear(); }
+        private void prune(long now) { attacks.values().removeIf(attack -> now - attack.time >= TTL); }
+        private static final class Attack {
+            final long time;
+            final IdentityHashMap<Object, Boolean> targets = new IdentityHashMap<>();
+            Attack(long time) { this.time = time; }
+        }
+    }
 
     /** Short lease prevents a missed cleanup from granting indefinite attack permission. */
     static final class Pairs {

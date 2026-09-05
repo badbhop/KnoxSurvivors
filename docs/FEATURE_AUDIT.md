@@ -4425,6 +4425,24 @@ patch is required.
 
 ### Scoped native human eligibility — 2026-09-05
 
+**Follow-up: player-first attack eligibility implemented, live-unverified.** Native
+OnWeaponSwing/OnWeaponSwingHitPoint now rebuild directional permissions over active
+survivors, using existing affiliation/faction/trust state. Owned companions/settlers,
+allied factions and friendly personal relations are protected; neutral/hostile
+survivors can be eligible when the combat setting permits. Hit-point refresh revokes
+windup grants after recruitment. No hostility is created on a miss: the existing
+native post-hit event remains authoritative. One-second expiry and world teardown
+clear temporary player permissions. No player/global PvP setting is changed.
+
+Verification: 86 Lua regressions, all 84 mod Lua syntax checks, Java checks/build,
+transformer/runtime checks and Workshop staging pass. Java 25 verification now also
+resolves the actual cached native API without initializing a game world. Regressions
+cover neutral eligibility, friendly/companion protection, faction relations,
+recruitment during windup, disabled settings, NPC exclusion, older bridge fallback,
+directionality, lease expiry and world cleanup. No launcher code change is needed;
+the matching Lua, agent JAR and checksum are staged together for a later upload.
+No release or Workshop upload performed. Below describes the preceding boundary.
+
 - Added exact-descriptor/offset redirects for the three installed 42.20.4
   CombatManager checkPVP callers. Mismatched call shapes fail closed. The native
   checkPVP implementation remains available for unrelated objects and multiplayer.

@@ -312,6 +312,14 @@ public final class KnoxBridge {
         return npcRegistry.beginLiveCombat(id, target, approachSquare);
     }
 
+    public boolean beginPlayerHumanAttack(Object player) {
+        return com.knoxsurvivors.agent.KnoxHumanCombatGate.beginPlayerAttack(player);
+    }
+
+    public void setPlayerHumanAttackTarget(Object player, String survivorId, boolean allowed) {
+        npcRegistry.setPlayerAttackTarget(player, survivorId, allowed);
+    }
+
     public String beginNpcLockedDoorCombat(String id) {
         return npcRegistry.beginLockedDoorCombat(id);
     }

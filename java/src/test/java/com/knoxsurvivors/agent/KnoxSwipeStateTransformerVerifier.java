@@ -32,6 +32,7 @@ public final class KnoxSwipeStateTransformerVerifier {
             throw new AssertionError("Human gate shape must fail closed");
         } catch (java.io.IOException expected) { }
         verifyPairs();
+        verifyPlayerAttacks();
         if (Arrays.equals(impact, impactOriginal)) throw new AssertionError("Impact audio gate not patched");
         try {
             KnoxSwipeStateTransformer.patchImpactForVerification(impact);
@@ -90,5 +91,31 @@ public final class KnoxSwipeStateTransformerVerifier {
         pairs.put(owner, npc, npc, 6);
         if (pairs.contains(npc, npc, 7)) throw new AssertionError("Self hit cannot be authorized");
         System.out.println("human pair gates verified calls=3 scope=true replacement=true cleanup=true expiry=true");
+    }
+
+    private static void verifyPlayerAttacks() {
+        KnoxHumanCombatGate.PlayerAttacks attacks = new KnoxHumanCombatGate.PlayerAttacks();
+        Object player = new Object(), otherPlayer = new Object(), npc = new Object(), ally = new Object();
+        attacks.set(player, npc, true, 0);
+        if (attacks.permission(player, npc, 0) != null) throw new AssertionError("No attack owner");
+        attacks.begin(player, 1);
+        attacks.set(player, npc, true, 1);
+        attacks.set(player, ally, false, 1);
+        if (!Boolean.TRUE.equals(attacks.permission(player, npc, 2))
+            || !Boolean.FALSE.equals(attacks.permission(player, ally, 2))
+            || attacks.permission(npc, player, 2) != null
+            || attacks.permission(otherPlayer, npc, 2) != null)
+            throw new AssertionError("Player permission must be directional and protect allies");
+        attacks.begin(player, 3);
+        if (attacks.permission(player, npc, 3) != null) throw new AssertionError("Hit point rebuild clears windup state");
+        attacks.set(player, npc, false, 3);
+        if (!Boolean.FALSE.equals(attacks.permission(player, npc, 3))) throw new AssertionError("Recruitment revokes permission");
+        if (attacks.permission(player, npc, 3 + KnoxHumanCombatGate.PlayerAttacks.TTL) != null)
+            throw new AssertionError("Missed attack expires");
+        attacks.begin(player, 4);
+        attacks.set(player, npc, true, 4);
+        attacks.clear();
+        if (attacks.permission(player, npc, 5) != null) throw new AssertionError("World teardown clears attacks");
+        System.out.println("player attack eligibility verified directional=true friendly=true expiry=true cleanup=true");
     }
 }

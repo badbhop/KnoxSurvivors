@@ -38,6 +38,36 @@ function HumanCombat.onWeaponHitCharacter(attacker, target)
     end
 end
 
+-- Read the existing relationship state; no hostility is created by swinging or missing.
+function HumanCombat.canPlayerAttack(playerId, survivorId)
+    if not KnoxSettings.enabled() or not KnoxSettings.allowSurvivorPlayerCombat() then return false end
+    local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId)
+    if affiliation == nil or affiliation.kind == "player" then return false end
+    if KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId) then return true end
+    local faction = KnoxPersistence.getPlayerFaction(playerId)
+    if faction ~= nil and affiliation.factionId ~= nil then
+        if faction.id == affiliation.factionId then return false end
+        local relation = KnoxPersistence.getFactionRelationship(affiliation.factionId, faction.id)
+        if relation ~= nil and relation.disposition == "allied" then return false end
+    end
+    local personal = KnoxPersistence.getPlayerRelationshipSnapshot(playerId, survivorId)
+    return personal == nil or (tonumber(personal.trust) or 0) < 30
+end
+
+function HumanCombat.onWeaponSwing(attacker)
+    local playerId = localPlayerId(attacker)
+    if playerId == nil then return end
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil or bridge.beginPlayerHumanAttack == nil
+        or bridge.setPlayerHumanAttackTarget == nil then return end
+    if not bridge:beginPlayerHumanAttack(attacker) then return end
+    -- Active bodies only, at native attack events, not a world/per-frame scan.
+    for _, survivorId in ipairs(KnoxSurvivorRuntime.activeIds()) do
+        bridge:setPlayerHumanAttackTarget(attacker, survivorId,
+            HumanCombat.canPlayerAttack(playerId, survivorId))
+    end
+end
+
 -- Native onKilled emits OnZombieDead before DoDeath. Only its actual player
 -- attacker and current nearby survivor target count; there is no radius-wide XP.
 function HumanCombat.onZombieDead(zombie)
@@ -73,5 +103,9 @@ if Events.OnWeaponHitCharacter ~= nil then
 end
 
 if Events.OnZombieDead ~= nil then Events.OnZombieDead.Add(HumanCombat.onZombieDead) end
+
+if Events.OnWeaponSwing ~= nil then Events.OnWeaponSwing.Add(HumanCombat.onWeaponSwing) end
+-- Recheck immediately before native collision; recruiting/peace during the windup wins.
+if Events.OnWeaponSwingHitPoint ~= nil then Events.OnWeaponSwingHitPoint.Add(HumanCombat.onWeaponSwing) end
 
 return HumanCombat

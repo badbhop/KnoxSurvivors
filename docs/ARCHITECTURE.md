@@ -422,8 +422,14 @@ target replacement and failed startup revoke it; an unrefreshed lease expires af
 five seconds. Godmode, dead/detached actors, unrelated pairs and multiplayer do not
 gain this exception. Native checkPVP itself is unmodified, as are hit calculation,
 damage and ammunition. No player/global PvP settings are changed. This is not a
-general permission to attack neutral humans: player-initiated first aggression
-still needs a separate pre-hit relationship boundary and live proof.
+general permission for NPC aggression against neutral humans. Player-first attacks
+use native OnWeaponSwing and OnWeaponSwingHitPoint to refresh directional permission
+for loaded survivor bodies only. The existing affiliation, faction relations and
+personal trust determine friendly protection; the combat sandbox toggle is honored.
+Hit-point refresh discards windup permission if recruitment or peace intervened.
+The one-second transient permission does not authorize NPC retaliation by itself:
+only the existing post-hit event records aggression. No persistent schema changes.
+Both directions still require native animation/collision/BodyDamage live proof.
 
 Purposeful exploration considers useful nearby supplies before undirected roaming. A
 survivor searches reachable containers for stronger melee weapons, better protective clothing,

@@ -262,6 +262,12 @@ public final class KnoxNpcRegistry {
         return beginCombat(id, zombie, approachSquare, true);
     }
 
+    public synchronized void setPlayerAttackTarget(Object player, String id, boolean allowed) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime != null) com.knoxsurvivors.agent.KnoxHumanCombatGate.setPlayerAttackTarget(
+            player, runtime.npc().getBody(), allowed);
+    }
+
     public synchronized String beginLockedDoorCombat(String id) {
         KnoxNpcRuntime runtime = activeNpcs.get(id);
         if (runtime == null) {
@@ -848,6 +854,7 @@ public final class KnoxNpcRegistry {
     }
 
     public synchronized void abandonForEnvironmentChange() {
+        com.knoxsurvivors.agent.KnoxHumanCombatGate.clearPlayerAttacks();
         if (activeNpcs.isEmpty()) {
             return;
         }

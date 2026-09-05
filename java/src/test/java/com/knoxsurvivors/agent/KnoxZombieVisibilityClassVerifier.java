@@ -43,6 +43,11 @@ public final class KnoxZombieVisibilityClassVerifier {
                     KnoxSwipeStateTransformer.patchImpactForVerification(impact)));
             Class<?> impactClass = Class.forName("zombie.CombatManager", false, impactLoader);
             if (impactClass.getClassLoader() != impactLoader) throw new AssertionError("Impact patch not defined");
+            java.lang.reflect.Field api = KnoxHumanCombatGate.class.getDeclaredField("API");
+            api.setAccessible(true);
+            ((ClassValue<?>) api.get(null)).get(Class.forName("zombie.characters.IsoPlayer", false,
+                KnoxZombieVisibilityClassVerifier.class.getClassLoader()));
+            System.out.println("human combat native reflection API verified without game initialization");
             System.out.println("combat impact transformed class verified runtime=" + Runtime.version().feature());
         }
         System.out.println("zombie visibility transformed class verified runtime="
