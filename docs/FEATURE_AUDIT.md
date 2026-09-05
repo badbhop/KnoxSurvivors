@@ -4401,6 +4401,28 @@ patch is required.
 - **Status:** implemented; Lua-only order-boundary correction, so no launcher
   patch is required.
 
+### Human combat player-safety correction — 2026-09-05
+
+- Inspected installed Build 42.20.4 `zombie.CombatManager.checkPVP` bytecode.
+  Instructions 64–67 skip multiplayer faction handling in single-player;
+  205–222 require `IsoPlayer.getCoopPVP()`. Setting `factionPvp` cannot
+  enable single-player human damage.
+- Removed combat startup's unconditional `setFactionPvp(true)` calls on both
+  participants. The old code altered the real player's setting without restoring
+  it. No global PvP switch, artificial damage, or broad engine bypass was added.
+- Added a source regression prohibiting player/global PvP-setting mutation in
+  the combat controller. Renamed the existing source-only human-combat test
+  result to `human_target_dispatch`, since it does not verify native damage.
+- Native hostile-human damage with coop PvP disabled remains **incomplete**.
+  A future bridge must authorize specific hostile pairs, preserve godmode,
+  exclude friendlies, and leave unrelated player/multiplayer checks native.
+  Player-initiated aggression must also be evaluated before hit acceptance;
+  the post-hit relationship event alone cannot bypass a rejected first hit.
+- Verification: player-facing source regression, all Java checks/runtime and
+  transformer verifiers, Java build, checksum generation and Workshop staging
+  pass. No launcher protocol/API change; no launcher release was created.
+  No live test was run for this correction.
+
 ### Unarmed combat rejection recovery (2026-09-05)
 
 - Follow-up menu inspection: party/survivor/trade construction passes explicit

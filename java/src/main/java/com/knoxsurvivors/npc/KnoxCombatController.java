@@ -213,10 +213,9 @@ final class KnoxCombatController {
             body.getClass().getMethod("setZombiesDontAttack", boolean.class).invoke(body, false);
             target.getClass().getMethod("setCanWalk", boolean.class).invoke(target, true);
             target.getClass().getMethod("setUseless", boolean.class).invoke(target, false);
-        } else {
-            body.getClass().getMethod("setFactionPvp", boolean.class).invoke(body, true);
-            target.getClass().getMethod("setFactionPvp", boolean.class).invoke(target, true);
         }
+        // Human targeting must not change either participant's player safety settings.
+        // Native checkPVP uses coopPVP in single-player; factionPvp is not an NPC bypass.
 
         npc.setCombatActive(true);
         body.getClass().getMethod("setSneaking", boolean.class).invoke(body, false);
