@@ -60,6 +60,8 @@ end
 function Runtime.unregister(id, controller)
     local entry = validId(id) and entries[id] or nil
     if entry ~= nil and (controller == nil or entry.controller == controller) then
+        local vehicles = rawget(_G, "KnoxCompanionVehicles")
+        if vehicles ~= nil and vehicles.cancel ~= nil then vehicles.cancel(entry.character) end
         entries[id] = nil
         return true
     end
@@ -115,11 +117,14 @@ function Runtime.snapshot(id)
     local character = Runtime.getCharacter(id)
     local square = character ~= nil and character:getCurrentSquare() or nil
     local state = controller ~= nil and tostring(controller.state or "IDLE") or "IDLE"
+    local vehicles = rawget(_G, "KnoxCompanionVehicles")
+    local vehicleActivity = character ~= nil and vehicles ~= nil and vehicles.activity ~= nil
+        and vehicles.activity(character) or nil
     return {
         id = id,
         loaded = square ~= nil,
         state = state,
-        activity = ACTIVITY_BY_STATE[state] or "busy",
+        activity = vehicleActivity or ACTIVITY_BY_STATE[state] or "busy",
         decision = controller ~= nil and controller.activeDecision or nil,
         x = square ~= nil and square:getX() or nil,
         y = square ~= nil and square:getY() or nil,
@@ -134,6 +139,15 @@ function Runtime.notifyDutyChanged(id)
         entry.controller:onDutyChanged()
     end
     return true
+end
+
+function Runtime.prepareVehicle(id)
+    local entry = getEntry(id)
+    if entry == nil or entry.controller == nil then return false end
+    local character = Runtime.getCharacter(id)
+    local queue = ISTimedActionQueue.queues[character]
+    if queue ~= nil and #queue.queue > 0 then return false end
+    return entry.controller:interruptForDirective() == true
 end
 
 -- Transient action lease only. Identity, orders and inventory stay in their
@@ -178,6 +192,10 @@ function Runtime.nearestToSquare(square, maximumDistance)
 end
 
 function Runtime.clear()
+    local vehicles = rawget(_G, "KnoxCompanionVehicles")
+    if vehicles ~= nil and vehicles.cancel ~= nil then
+        for _, entry in pairs(entries) do vehicles.cancel(entry.character) end
+    end
     entries = {}
 end
 

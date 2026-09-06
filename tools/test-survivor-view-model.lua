@@ -175,4 +175,10 @@ KnoxPersistence.isSurvivorAlive = function() return false end
 local dead = viewModel.getSurvivor("survivor-1", 0)
 assert(dead.alive == false and dead.activity == "Dead" and dead.locationLabel == "Deceased")
 assert(#viewModel.getForPlayer(0) == 0, "dead persisted companion must leave HUD before roster cleanup")
+KnoxPersistence.isSurvivorAlive = function() return true end
+KnoxSurvivorRuntime.snapshot = function() return {loaded = false, activity = "away"} end
+KnoxPersistence.getSurvivorLifeIntent = function() return nil end
+KnoxPersistence.getUnloadedSurvivalState = function() return {activity = "returning_to_base"} end
+assert(viewModel.getSurvivor("survivor-1", 0).activity == "Returning to base",
+    "real unloaded runtime snapshot must allow persisted activity projection")
 print("survivor view-model tests passed")

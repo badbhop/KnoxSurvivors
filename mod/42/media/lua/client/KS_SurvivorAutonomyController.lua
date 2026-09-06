@@ -2429,6 +2429,8 @@ function Controller.shouldDelegateNeedToGroup(kind, leaderDistanceSquared)
 end
 
 function Controller:interruptForDirective()
+    local vehicles = rawget(_G, "KnoxCompanionVehicles")
+    if vehicles ~= nil and vehicles.cancel ~= nil then vehicles.cancel(self.character) end
     self:cancelTrade("directive_changed")
     local safe = self.state == "IDLE" or self.state == "ROAMING"
         or self.state == "EVENT_TRAVEL" or self.state == "EVENT_WAIT"
@@ -5882,6 +5884,14 @@ end
 
 function Controller:tick(ticks)
     self.currentTicks = ticks
+    local vehicles = rawget(_G, "KnoxCompanionVehicles")
+    if self.character ~= nil and vehicles ~= nil and vehicles.isBusy ~= nil then
+        -- Native passenger actions own their route and inputs until completion.
+        local busy, result = vehicles.isBusy(self.character)
+        if busy then return end
+        if result == "interrupted" then self.nextThreatScan = 0; self.nextThink = 0 end
+        if self.character.getVehicle ~= nil and self.character:getVehicle() ~= nil then return end
+    end
     if self.tradeAction ~= nil and self.state ~= "TRADING" then self:cancelTrade("behavior_changed") end
     if self.character == nil or self.character:getCurrentSquare() == nil then
         self:cancelTrade("detached")

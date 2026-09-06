@@ -10,9 +10,87 @@ require "Vehicles/TimedActions/ISCloseVehicleDoor"
 local CompanionVehicles = rawget(_G, "KnoxCompanionVehicles") or {}
 _G.KnoxCompanionVehicles = CompanionVehicles
 
+-- Short-lived native action ownership; no seats or actions enter save data.
+local pending = setmetatable({}, { __mode = "k" })
+local ACTION_TIMEOUT_MS = 45000
+
+local function health(character)
+    if character == nil or character.getBodyDamage == nil then return nil end
+    local ok, value = pcall(function() return character:getBodyDamage():getHealth() end)
+    return ok and tonumber(value) or nil
+end
+
+function CompanionVehicles.cancel(character)
+    local request = pending[character]
+    if request == nil then return end
+    pending[character] = nil
+    local queue = ISTimedActionQueue.queues[character]
+    if queue ~= nil then
+        for _, action in ipairs(queue.queue) do
+            if request.actions[action] then
+                ISTimedActionQueue.clear(character)
+                break
+            end
+        end
+    end
+end
+
+function CompanionVehicles.isBusy(character)
+    local request = pending[character]
+    if request == nil then return false end
+    local currentHealth = health(character)
+    if getTimestampMs() >= request.deadline
+        or (character.isDead ~= nil and character:isDead())
+        or (currentHealth ~= nil and request.health ~= nil and currentHealth < request.health) then
+        CompanionVehicles.cancel(character)
+        return false, "interrupted"
+    end
+    local queue = ISTimedActionQueue.queues[character]
+    for _, action in ipairs(queue ~= nil and queue.queue or {}) do
+        if request.actions[action] then return true end
+    end
+    pending[character] = nil
+    return false
+end
+
+function CompanionVehicles.activity(character)
+    -- Read-only presentation: expiry/cleanup belongs to isBusy in the controller.
+    if pending[character] ~= nil then return "boarding" end
+    if character ~= nil and character:getVehicle() ~= nil then return "riding" end
+    return nil
+end
+
+local function reserved(vehicle, seat, character)
+    for other, request in pairs(pending) do
+        if other ~= character and request.vehicle == vehicle and request.seat == seat
+            and CompanionVehicles.isBusy(other) then return true end
+    end
+    return false
+end
+
+local function queueActions(character, vehicle, seat, actions)
+    local runtime = rawget(_G, "KnoxSurvivorRuntime")
+    local id = runtime ~= nil and runtime.idForCharacter(character) or nil
+    if id == nil or runtime.prepareVehicle == nil or not runtime.prepareVehicle(id) then
+        return false, "survivor_busy"
+    end
+    local request = { vehicle = vehicle, seat = seat,
+        deadline = getTimestampMs() + ACTION_TIMEOUT_MS, health = health(character), actions = {} }
+    for _, action in ipairs(actions) do request.actions[action] = true end
+    pending[character] = request
+    local ok = pcall(function()
+        for _, action in ipairs(actions) do ISTimedActionQueue.add(action) end
+    end)
+    if not ok then
+        CompanionVehicles.cancel(character)
+        return false, "vehicle_action_failed"
+    end
+    return true
+end
+
 local function usablePassengerSeat(character, vehicle, seat)
     if character == nil or vehicle == nil or seat == nil
-        or vehicle:isSeatOccupied(seat) then
+        or vehicle:isSeatOccupied(seat) or reserved(vehicle, seat, character) then
         return false
     end
     if vehicle.isSeatInstalled ~= nil and not vehicle:isSeatInstalled(seat) then
@@ -52,6 +130,7 @@ function CompanionVehicles.board(character, vehicle)
     if character:getVehicle() ~= nil then
         return false, "already_in_vehicle"
     end
+    if CompanionVehicles.isBusy(character) then return false, "vehicle_action_pending" end
     if ISTimedActionQueue == nil or ISPathFindAction == nil or ISEnterVehicle == nil then
         return false, "vanilla_vehicle_actions_unavailable"
     end
@@ -59,13 +138,17 @@ function CompanionVehicles.board(character, vehicle)
     if seat == nil then
         return false, "no_free_passenger_seat"
     end
-    ISTimedActionQueue.add(ISPathFindAction:pathToVehicleSeat(character, vehicle, seat))
-    ISTimedActionQueue.add(ISEnterVehicle:new(character, vehicle, seat))
+    local actions = {
+        ISPathFindAction:pathToVehicleSeat(character, vehicle, seat),
+        ISEnterVehicle:new(character, vehicle, seat),
+    }
     local doorPart = vehicle:getPassengerDoor(seat)
     if doorPart ~= nil and doorPart:getDoor() ~= nil and doorPart:getDoor():isOpen()
         and ISCloseVehicleDoor ~= nil then
-        ISTimedActionQueue.add(ISCloseVehicleDoor:new(character, vehicle, doorPart))
+        actions[#actions + 1] = ISCloseVehicleDoor:new(character, vehicle, doorPart)
     end
+    local queued, reason = queueActions(character, vehicle, seat, actions)
+    if not queued then return false, reason end
     return true, "boarding_seat=" .. tostring(seat)
 end
 
@@ -76,7 +159,10 @@ function CompanionVehicles.exit(character)
     if ISTimedActionQueue == nil or ISExitVehicle == nil then
         return false, "vanilla_vehicle_actions_unavailable"
     end
-    ISTimedActionQueue.add(ISExitVehicle:new(character))
+    if CompanionVehicles.isBusy(character) then return false, "vehicle_action_pending" end
+    local queued, reason = queueActions(character, character:getVehicle(), nil,
+        { ISExitVehicle:new(character) })
+    if not queued then return false, reason end
     return true, "exiting"
 end
 

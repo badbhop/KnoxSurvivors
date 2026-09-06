@@ -16,6 +16,14 @@ Project Zomboid owns the active `IsoPlayer` representation and normal world mech
 
 ## Runtime layers
 
+Passenger vehicle orders take a temporary lease over their exact native timed actions.
+`KS_CompanionVehicles` reserves a seat only for the queued request; `KS_SurvivorRuntime`
+hands off through the existing controller interruption boundary before queueing.
+Ground AI waits during that lease and while seated. Expiry, injury, queue removal,
+retirement and world reset release transient ownership. Persistent companion duty
+remains authoritative, so it resumes after disembarking. Seats/actions are never
+serialized into Knox identity data, and no driver behavior is implied by this path.
+
 1. **Identity model** — stable IDs and persistent human state independent of a loaded engine object.
 2. **World representation** — an `IsoPlayer` created only while its cell is active.
 3. **Controller** — converts goals into movement, combat, and interaction intent.

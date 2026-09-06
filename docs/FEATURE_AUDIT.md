@@ -1,5 +1,38 @@
 # Feature-completion audit
 
+### Passenger action ownership and persisted activity — 2026-09-06
+
+**Implemented, offline verified; live convoy/vehicle animation acceptance deferred.**
+
+Confirmed defects: party boarding selected the same unoccupied seat for multiple
+queued companions; repeat orders appended duplicate native actions; the existing
+Follow route was not released before the native seat path began; seated companions
+could continue ground AI. Vehicle service calls also lacked an ownership check.
+
+Passenger requests now reserve distinct seats while their real native actions remain
+queued. The runtime first refuses unrelated timed work and releases movement through
+the existing directive interruption boundary. The controller defers to the native
+action queue and pauses ground AI while seated. Completion/queue removal, exceptions,
+45-second timeout, injury and runtime retirement release the transient request. Injury
+or timeout requests immediate ordinary threat/decision reevaluation. Repeated entry
+or exit requests do not append actions, and orders require player companion ownership.
+Boarding reaches companions within 30 tiles on the same floor; conversational range
+remains unchanged. No teleport, driver control, new persisted vehicle state, or
+parallel movement implementation was added.
+
+The production runtime returns a table for unloaded survivors, not nil. The view
+model now recognizes loaded=false and projects saved offscreen activity, correcting
+a fallback only exercised by a nil-returning test fixture. Camp, trade and passenger
+activity labels now cover existing runtime states.
+
+Verification: 90 standalone Lua tests and full mod syntax pass; Java check/build and
+Workshop staging pass. New executable regression covers simultaneous seats, duplicate
+entry/exit, queue failure, route cancellation/timeout, busy rejection, injury,
+retirement/reset cleanup and controller deferral during boarding/seating. No launcher
+change is required. No release or Workshop publication performed. Vehicle door/entry
+animation, moving-car behavior, normal departure/return and full save/reload remain
+live acceptance items; this does not claim completed autonomous driving.
+
 ### Notebook, lifecycle presentation and diagnostic cleanup — 2026-09-05
 
 **Implemented; offline checks pass.** Current code is broader than the historical

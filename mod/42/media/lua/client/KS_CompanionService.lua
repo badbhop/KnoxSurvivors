@@ -112,7 +112,7 @@ local function displayName(id)
     return name ~= "" and name or "Survivor"
 end
 
-local function validateInteraction(player, survivorId)
+local function validateInteraction(player, survivorId, maximumDistanceSquared)
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
     local playerSquare = player ~= nil and player:getCurrentSquare() or nil
     local survivorSquare = character ~= nil and character:getCurrentSquare() or nil
@@ -131,7 +131,7 @@ local function validateInteraction(player, survivorId)
     end
     local dx = playerSquare:getX() - survivorSquare:getX()
     local dy = playerSquare:getY() - survivorSquare:getY()
-    if dx * dx + dy * dy > INTERACTION_DISTANCE_SQUARED then
+    if dx * dx + dy * dy > (maximumDistanceSquared or INTERACTION_DISTANCE_SQUARED) then
         return nil, "too_far_away"
     end
     return character, "ready"
@@ -796,7 +796,8 @@ function CompanionService.setWeaponPreferenceAll(player, preference)
 end
 
 function CompanionService.boardPlayerVehicle(player, survivorId)
-    local character, reason = validateInteraction(player, survivorId)
+    if not isPlayerCompanion(player, survivorId) then return false, "not_companion" end
+    local character, reason = validateInteraction(player, survivorId, 30 * 30)
     if character == nil then return false, reason end
     local vehicle = player:getVehicle()
     if vehicle == nil then return false, "player_not_in_vehicle" end
@@ -810,6 +811,7 @@ function CompanionService.boardPlayerVehicle(player, survivorId)
 end
 
 function CompanionService.exitVehicle(player, survivorId)
+    if not isPlayerCompanion(player, survivorId) then return false, "not_companion" end
     local character, reason = validateInteraction(player, survivorId)
     if character == nil then return false, reason end
     local success, result = KnoxCompanionVehicles.exit(character)

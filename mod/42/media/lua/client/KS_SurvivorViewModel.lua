@@ -26,6 +26,13 @@ local ACTIVITY_LABELS = {
     scouting_base = "Looking for a base",
     meeting = "Talking",
     stopped = "Stopped",
+    waiting = "Waiting",
+    idle = "Taking a moment",
+    trading = "Trading",
+    returning_to_shelter = "Returning to shelter",
+    at_shelter = "At shelter",
+    riding = "In vehicle",
+    boarding = "Using vehicle",
 }
 
 local ROLE_LABELS = {
@@ -253,7 +260,7 @@ local function runtimeActivity(id)
     local success, snapshot = pcall(function()
         return KnoxSurvivorRuntime.snapshot(id)
     end)
-    if not success or type(snapshot) ~= "table" then
+    if not success or type(snapshot) ~= "table" or snapshot.loaded == false then
         local intent = KnoxPersistence.getSurvivorLifeIntent ~= nil
             and KnoxPersistence.getSurvivorLifeIntent(id) or nil
         local intentLabel = intent ~= nil
