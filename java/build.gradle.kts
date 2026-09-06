@@ -194,6 +194,14 @@ val verifyInventorySnapshot by tasks.registering(JavaExec::class) {
     mainClass.set("com.knoxsurvivors.npc.KnoxInventorySnapshotVerifier")
 }
 
+// Synthetic verifier failures must never contaminate the player's live log.
+tasks.withType<JavaExec>().configureEach {
+    systemProperty("knox.logDirectory", layout.buildDirectory.dir("verification-logs/$name").get().asFile.absolutePath)
+}
+tasks.withType<Test>().configureEach {
+    systemProperty("knox.logDirectory", layout.buildDirectory.dir("verification-logs/$name").get().asFile.absolutePath)
+}
+
 tasks.check {
     dependsOn(
         verifyCombatTransformer,

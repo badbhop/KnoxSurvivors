@@ -1,5 +1,10 @@
 # Development testing
 
+Java Gradle verifiers write diagnostics to `java/build/verification-logs/<task>/`
+instead of the player's `Zomboid/KnoxIsoPlayer.log`. Synthetic failure cases are
+expected there. Use game `console.txt` and the normal agent log for live evidence;
+a verifier run should not update either gameplay log.
+
 Knox Survivors now exposes its test harness through real Build 42 sandbox settings.
 Developer tools are off by default. Enable them on a test save, then select one automatic
 scenario or use the in-world right-click menu described in

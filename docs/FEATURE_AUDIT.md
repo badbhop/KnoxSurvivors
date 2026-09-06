@@ -1,5 +1,45 @@
 # Feature-completion audit
 
+### Notebook, lifecycle presentation and diagnostic cleanup — 2026-09-05
+
+**Implemented; offline checks pass.** Current code is broader than the historical
+feature table below; historical entries are not a current completion percentage.
+
+- Exact installed vanilla `ISScrollingListBox.addItem(name, item, tooltip)` stores
+  the first argument as visible text. Notebook rows passed internal keys first,
+  hiding descriptions, stock counts, task status and faction details. All six tabs
+  now bind readable text and full-text tooltips while retaining stable row keys and
+  the existing task/zone data used by commands.
+- Vanilla `ISLabel.new` right-aligns unless its final argument is true. Notebook
+  headings now explicitly left-align, correcting negative heading positions.
+- Notebook updates only its visible tab, on activation and every two seconds.
+  Selection follows stable identity across reordering; scroll and the selected
+  resident are retained. Hidden/collapsed pages perform no periodic data refresh.
+- Away only projects the local player's active teams and owned unloaded survivors;
+  completed/blocked teams, unrelated faction residents, and duplicate team-member
+  rows are excluded. Existing mission records and execution are unchanged.
+- Survivor presentation respects durable death even after body removal; stale dead
+  companions are excluded from the HUD. Assignment to a base no longer implies
+  physical presence there. Loaded containment uses the existing base boundary.
+- Java verifiers now write under `java/build/verification-logs/<task>` through an
+  optional log-directory property. The game's default log path stays unchanged.
+  Synthetic failure tests no longer pollute player logs or suggest a fresh live run.
+
+Verification: 89 Lua tests, full mod Lua syntax, Java check/build and Workshop staging
+pass. Gameplay log length was unchanged by the full verifier run. Added behavioral
+tests cover tab ownership, row descriptions/tooltips, bounded active-only refresh,
+selection retention, persisted death, and base presence. No launcher protocol or
+packaging change is required. Nothing was published to Workshop or as a release.
+
+Remaining route: finish existing movement/traversal and combat recovery at demonstrated
+boundaries; prove native corpse/settlement jobs consume resources and complete; then
+finish population/group/base integration and responsive UI layout across small viewports.
+Driving, expanded foraging/cooking, advanced construction and broader offscreen encounters
+remain separate unfinished breadth, not implicitly supplied by generic job infrastructure.
+Runtime animation, crowded-area decisions, all-resolution layout, multi-day persistence
+and measured gameplay FPS still require deferred in-game acceptance. Offline test success
+does not establish a finished replacement or a defensible overall completion percentage.
+
 ### Companion synchronization recovery — 2026-09-05
 
 Implemented; behavioral regression passes, live follow/base-supply verification pending.

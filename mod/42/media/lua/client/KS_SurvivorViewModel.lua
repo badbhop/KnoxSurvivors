@@ -227,7 +227,15 @@ end
 local function locationLabelFor(duty, character, distance, sameLevel)
     if duty.mode == "base" and type(duty.baseId) == "string" then
         local base = KnoxPersistence.getBase(duty.baseId)
-        return "At " .. tostring(base ~= nil and base.name or "Home Base")
+        local name = tostring(base ~= nil and base.name or "Home Base")
+        local manager = rawget(_G, "KnoxBaseManager")
+        if character ~= nil and manager ~= nil and manager.containsSquare ~= nil then
+            local ok, inside = pcall(function()
+                return manager.containsSquare(base, character:getCurrentSquare())
+            end)
+            if ok and inside then return "At " .. name end
+        end
+        return (character == nil and "Away - assigned to " or "Outside ") .. name
     end
     if character == nil then
         return "Away"
@@ -373,12 +381,13 @@ function ViewModel.getSurvivor(id, playerNum)
     local knownSince = relationship ~= nil and relationship.firstMetHours
         or affiliation.joinedAtHours
     local role = roleFor(affiliation, duty)
-    local alive = true
+    local alive = KnoxPersistence.isSurvivorAlive == nil
+        or KnoxPersistence.isSurvivorAlive(id) ~= false
     if character ~= nil then
         local success, dead = pcall(function()
             return character:isDead()
         end)
-        alive = not (success and dead == true)
+        alive = alive and not (success and dead == true)
     end
 
     return {
@@ -398,7 +407,7 @@ function ViewModel.getSurvivor(id, playerNum)
         ageYears = ageYears ~= nil and math.floor(ageYears) or nil,
         daysSurvived = daysSurvived,
         daysKnown = wholeDaysSince(knownSince, nowHours),
-        locationLabel = locationLabelFor(duty, character, distance, sameLevel),
+        locationLabel = alive and locationLabelFor(duty, character, distance, sameLevel) or "Deceased",
         orderLabel = orderLabelFor(duty, id),
         order = tostring(duty.order or "survive"),
         activity = activityFor(duty, state, character ~= nil, alive, currentActivity),
@@ -460,7 +469,7 @@ function ViewModel.getForPlayer(playerNum)
     local ids = KnoxCompanionService.getCompanionIds(player)
     for _, id in ipairs(ids or {}) do
         local snapshot = ViewModel.getSurvivor(id, playerIndex)
-        if snapshot ~= nil and snapshot.role == "companion" then
+        if snapshot ~= nil and snapshot.alive and snapshot.role == "companion" then
             snapshots[#snapshots + 1] = snapshot
         end
     end

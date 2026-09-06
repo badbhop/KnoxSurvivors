@@ -165,4 +165,14 @@ local resident = viewModel.getSurvivor("survivor-1", 0)
 assert(resident.orderLabel == "Plant Crops",
     "base resident status should project the claimed canonical task")
 
+assert(resident.locationLabel == "Outside Home Base")
+KnoxBaseManager = { containsSquare = function() return true end }
+assert(viewModel.getSurvivor("survivor-1", 0).locationLabel == "At Home Base")
+liveCharacter = nil
+assert(viewModel.getSurvivor("survivor-1", 0).locationLabel == "Away - assigned to Home Base")
+duty.mode = "companion"
+KnoxPersistence.isSurvivorAlive = function() return false end
+local dead = viewModel.getSurvivor("survivor-1", 0)
+assert(dead.alive == false and dead.activity == "Dead" and dead.locationLabel == "Deceased")
+assert(#viewModel.getForPlayer(0) == 0, "dead persisted companion must leave HUD before roster cleanup")
 print("survivor view-model tests passed")

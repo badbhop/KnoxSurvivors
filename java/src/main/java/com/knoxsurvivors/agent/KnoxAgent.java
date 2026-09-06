@@ -48,10 +48,13 @@ public final class KnoxAgent {
     }
 
     public static void writeLog(String message) {
-        Path logFile = Path.of(System.getProperty("user.home"), "Zomboid", LOG_NAME);
         String line = Instant.now() + " [KnoxSurvivors] " + message + System.lineSeparator();
 
         try {
+            String logDirectory = System.getProperty("knox.logDirectory");
+            Path logFile = (logDirectory == null || logDirectory.isBlank()
+                ? Path.of(System.getProperty("user.home"), "Zomboid")
+                : Path.of(logDirectory)).resolve(LOG_NAME);
             Files.createDirectories(logFile.getParent());
             Files.writeString(
                 logFile,
@@ -60,7 +63,7 @@ public final class KnoxAgent {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.APPEND
             );
-        } catch (IOException exception) {
+        } catch (IOException | java.nio.file.InvalidPathException exception) {
             System.err.print(line);
             exception.printStackTrace(System.err);
         }
