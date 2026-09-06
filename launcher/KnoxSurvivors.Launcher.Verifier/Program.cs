@@ -89,6 +89,12 @@ namespace KnoxSurvivors.Launcher.Verifier
             Require(plan.JavaToolOptions.EndsWith("=pz-game", StringComparison.Ordinal), "Agent mode missing");
             Require(plan.JavaToolOptions.Contains("-agentlib:zbNative"), "Existing agent option was not preserved");
             Require(plan.JavaToolOptions.Contains("-Xmx2G"), "Existing JVM option was not preserved");
+            string agentOption = "-javaagent:\"" + installation.AgentJarPath + "\"=pz-game";
+            string duplicate = GameLauncher.MergeJavaToolOptions(agentOption, agentOption);
+            Require(
+                duplicate.Split(new[] { "=pz-game" }, StringSplitOptions.None).Length == 2,
+                "Knox agent option was duplicated"
+            );
 
             string marker = Path.Combine(root, "launch-environment.txt");
             File.WriteAllText(
