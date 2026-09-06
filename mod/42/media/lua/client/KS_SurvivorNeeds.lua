@@ -3,6 +3,7 @@ require "TimedActions/ISDrinkFromBottle"
 require "TimedActions/ISTimedActionQueue"
 require "KS_SurvivalMedical"
 require "KS_SurvivorMedicalActions"
+require "KS_SurvivorInventoryActions"
 
 local Needs = rawget(_G, "KnoxSurvivorNeeds") or {}
 _G.KnoxSurvivorNeeds = Needs
@@ -17,11 +18,16 @@ Needs.thresholds = {
 
 local NEED_CHANGE_EPSILON = 0.001
 
+local function actionAccepted(character, action)
+    local queue = ISTimedActionQueue.getTimedActionQueue(character)
+    return action ~= nil and queue:indexOf(action) ~= -1
+end
+
 local function walkInventory(container, visitor)
     local items = container:getItems()
     for index = 0, items:size() - 1 do
         local item = items:get(index)
-        visitor(item)
+        visitor(item, container)
         if item:IsInventoryContainer() then
             walkInventory(item:getInventory(), visitor)
         end
@@ -201,11 +207,28 @@ function Needs.execute(character, decision)
             bodyPart = decision.bodyPart,
         }
     end
+    if decision.kind == "drink" or decision.kind == "eat" then
+        local inventory, source = character:getInventory(), nil
+        walkInventory(inventory, function(item, container)
+            if item == decision.item then source = container end
+        end)
+        if source == nil then return nil, "supply_no_longer_carried" end
+        if source ~= inventory then
+            -- Native eating validates main-inventory ownership. Retrieving a
+            -- bagged meal is a separate verified action, never consumption.
+            local action, reason = KnoxInventoryActions.queueTransfer(
+                character, decision.item, source, inventory)
+            if not actionAccepted(character, action) then return nil, "supply_transfer_rejected" end
+            return action, reason, { kind = "prepare_supply", before = decision.state,
+                item = decision.item }
+        end
+    end
     if decision.kind == "drink" then
         local thirst = decision.state.thirst
         local uses = math.max(1, math.ceil(math.max(0, thirst - 0.15) / 0.1))
         local action = ISDrinkFromBottle:new(character, decision.item, uses)
         ISTimedActionQueue.add(action)
+        if not actionAccepted(character, action) then return nil, "drink_queue_rejected" end
         return action, "queued_drink", {
             kind = "drink",
             before = decision.state,
@@ -220,6 +243,7 @@ function Needs.execute(character, decision)
         )
         local action = ISEatFoodAction:new(character, decision.item, percentage)
         ISTimedActionQueue.add(action)
+        if not actionAccepted(character, action) then return nil, "eat_queue_rejected" end
         return action, "queued_eat percentage=" .. tostring(percentage), {
             kind = "eat",
             before = decision.state,
@@ -248,6 +272,9 @@ function Needs.verify(character, intent)
         return false, "missing_intent"
     end
     local after = Needs.snapshot(character)
+    if intent.kind == "prepare_supply" then
+        return character:getInventory():contains(intent.item), "supply_main_inventory"
+    end
     if intent.kind == "eat" then
         return after.hunger < intent.before.hunger - NEED_CHANGE_EPSILON,
             "hunger=" .. tostring(intent.before.hunger) .. "->" .. tostring(after.hunger)

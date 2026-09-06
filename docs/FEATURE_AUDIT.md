@@ -1,5 +1,32 @@
 # Feature-completion audit
 
+### Reported food loop and launcher memory follow-up — 2026-09-06
+
+**Implemented and offline verified; reported gameplay case needs a live retest.**
+
+- Carried-food selection searches nested bags, but installed 42.20.3
+  `ISEatFoodAction:isValid()` requires main-inventory ownership in single player;
+  native `ItemContainer.contains(InventoryItem)` checks only direct contents.
+  Eating/drinking now stages a native transfer out of a bag, verifies arrival,
+  then chooses consumption on the next decision. Preparation never counts as
+  hunger/thirst relief. Removed items and rejected native queues fail explicitly.
+- Regression covers bagged meal selection, transfer verification, subsequent
+  eating, real hunger reduction, stale inventory and silent queue rejection.
+  All 180 verification checks pass. The report did not specify food type or bag
+  location, so this fixes a confirmed failure path without asserting it explains
+  every reported instance. The reviewed long-session log contains no completed
+  eating trace establishing live acceptance.
+- Sibling Windows launcher prefers `ProjectZomboid64.exe`, whose normal JSON
+  configuration supplies the user's JVM heap setting, over the alternate BAT's
+  fixed 3072 MB. Game configuration is not edited. BAT remains a compatibility
+  fallback when the native executable is absent. Launcher and bootstrap verifiers
+  pass; integration with a real game launch still needs testing.
+
+Live follow-up: hungry recruited companion with safe food in main inventory, then
+inside a backpack; observe actual hunger reduction and inventory consumption.
+Repeat after collecting from assigned base storage, interrupt with danger, and
+save/reload. Verify the launched game's heap with a nondefault JSON allocation.
+
 ### Long-session follow-up, companion orders and central storage — 2026-09-06
 
 **Implemented and offline verified; integrated live acceptance pending.**

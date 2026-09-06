@@ -19,6 +19,10 @@ isClient = function() return false end
 local queued = {}
 ISTimedActionQueue = {
     add = function(action) queued[#queued + 1] = action end,
+    getTimedActionQueue = function() return { indexOf = function(_, action)
+        for index, value in ipairs(queued) do if value == action then return index end end
+        return -1
+    end } end,
 }
 ISEatFoodAction = {
     new = function(_, character, item, percentage)
@@ -200,7 +204,38 @@ statsValues.hunger = 0.40
 assert(action ~= nil and Needs.verify(character, intent),
     "real native hunger reduction verifies eating")
 
+local bagValues = { meal }
+local bagInventory = inventory(bagValues)
+local bag = { IsFood = function() return false end,
+    getFluidContainer = function() return nil end,
+    IsInventoryContainer = function() return true end,
+    getInventory = function() return bagInventory end }
+carried = { bag }
+statsValues.hunger = 0.8
+KnoxInventoryActions = { queueTransfer = function(_, item, source, destination)
+    assert(item == meal and source == bagInventory)
+    local transfer = { item = item }
+    ISTimedActionQueue.add(transfer)
+    return transfer, "queued"
+end }
+decision = Needs.decide(character, nil)
+assert(decision.kind == "eat" and decision.item == meal)
+action, _, intent = Needs.execute(character, decision)
+assert(action and intent.kind == "prepare_supply" and not Needs.verify(character, intent),
+    "bagged meals must transfer before eating and cannot claim hunger relief")
+table.remove(bagValues, 1)
+carried[#carried + 1] = meal
+assert(Needs.verify(character, intent), "real main-inventory arrival verifies preparation")
+action, _, intent = Needs.execute(character, Needs.decide(character, nil))
+assert(action and intent.kind == "eat" and not Needs.verify(character, intent))
+statsValues.hunger = 0.4
+assert(Needs.verify(character, intent), "actual eating still requires hunger reduction")
+local acceptAction = ISTimedActionQueue.add
+ISTimedActionQueue.add = function() end
+assert(Needs.execute(character, decision) == nil, "native queue rejection cannot be reported as eating")
+ISTimedActionQueue.add = acceptAction
 carried = {}
+assert(Needs.execute(character, decision) == nil, "stale removed meal cannot be consumed")
 statsValues.thirst = 0.80
 assert(Needs.decide(character, nil).kind == "find_water",
     "missing carried water fails into the existing bounded world-search decision")
