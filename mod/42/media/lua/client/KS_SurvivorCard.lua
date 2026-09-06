@@ -8,7 +8,13 @@ require "XpSystem/ISUI/ISHealthPanel"
 require "XpSystem/ISUI/ISCharacterProtection"
 require "XpSystem/ISUI/ISClothingInsPanel"
 require "KS_SurvivorViewModel"
-require "KS_CompanionInventory"
+local CompanionInventory = require "KS_CompanionInventory"
+-- Keep the card usable when the module was loaded earlier by another UI.
+-- Lua's `require` returns the canonical table, while the global is only an
+-- implementation detail of the inventory module.
+if CompanionInventory == nil then
+    CompanionInventory = rawget(_G, "KnoxCompanionInventory")
+end
 
 local SurvivorCard = rawget(_G, "KnoxSurvivorCard") or {}
 _G.KnoxSurvivorCard = SurvivorCard
@@ -201,6 +207,7 @@ end
 
 function KnoxPanel:onInventoryButton()
     if self.window == nil or self.window.snapshot == nil then return end
+    if CompanionInventory == nil or CompanionInventory.show == nil then return end
     CompanionInventory.show(self.window.playerNum, self.window.survivorId)
 end
 
@@ -284,6 +291,11 @@ local function ensureViews(window)
         view.char = survivor
         view.playerNum = survivor ~= nil and survivor:getPlayerNum() or -1
         view.knoxWindow = window
+        -- The card is intentionally read-only.  Build 42's health context
+        -- menu is local-player UI and calls ISContextMenu.get(playerNum);
+        -- off-slot survivors have no valid menu slot, so suppress that path
+        -- instead of allowing a vanilla nil-menu exception.
+        view.doBodyPartContextMenu = function() end
         -- These vanilla menus own local-player UI panels and crash when their
         -- callback is invoked for an off-slot survivor. The survivor card is
         -- read-only; disable the callbacks as well as hiding their buttons.

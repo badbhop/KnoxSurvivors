@@ -6262,3 +6262,11 @@ user/Steam JVM flags. `GameLauncher.MergeJavaToolOptions` now preserves the inhe
 adds Knox once, leaving the normal batch/json launch configuration untouched. The launcher
 verifier now covers preservation of an existing agent and memory option. Launcher build and
 verifier pass locally; a real ZombieBuddy + Knox launch remains live-only verification.
+### Survivor-card off-slot UI error hardening — 2026-09-05
+
+The latest console log contained two UI exceptions from the survivor card: the inventory
+shortcut referenced an unbound local module table, and the read-only health panel opened
+Build 42's local-player body-part context menu with an invalid off-slot player index. The card
+now binds the table returned by `require`, fails safely if it is unavailable, and suppresses
+the vanilla health context-menu path for this read-only view. The card and inventory regression
+tests, all 86 Lua tests, and Lua syntax checks pass. A live card click remains pending.
