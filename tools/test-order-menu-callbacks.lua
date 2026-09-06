@@ -54,6 +54,26 @@ corpses.callback(corpses.target, unpack(corpses.args))
 assert(calls[#calls] == "hauling")
 
 local party = dofile(root .. "/mod/42/media/lua/client/KS_PartyCommands.lua")
+local formationCall
+KnoxCompanionService.setFormation = function(player, id, shape, spacing)
+    assert(player == actor and id == "resident")
+    formationCall = { shape = shape, spacing = spacing }; return true
+end
+KnoxPersistence.getSurvivorDuty = function() return { mode = "companion", order = "follow" } end
+KnoxPersistence.getSurvivorPolicies = function() return {} end
+actor.getCurrentSquare = function() return nil end
+local personal = newMenu()
+assert(context.populate(personal, 0, "resident"))
+local choice = personal.options.Orders.sub.options.Formation.sub.options["Single File - spacing 3"]
+choice.callback(choice.target, unpack(choice.args))
+assert(formationCall.shape == "single_file" and formationCall.spacing == 3)
+KnoxCompanionService.getCompanionIds = function() return { "resident" } end
+KnoxActivityFeed = { event = function() end }
+local formationParty = party.openMenu(0, 0, 0, nil)
+choice = formationParty.options.Formation.sub.options["Paired - spacing 2"]
+choice.callback(choice.target, unpack(choice.args))
+assert(formationCall.shape == "paired" and formationCall.spacing == 2,
+    "party menu routes formation and spacing to each owned companion")
 menu = party.openMenu(0, 0, 0, nil)
 local vehicle = menu.options["Vehicle Orders"].sub
 assert(vehicle.options["Get In My Vehicle"].notAvailable,

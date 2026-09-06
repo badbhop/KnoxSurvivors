@@ -1,5 +1,13 @@
 VERSION = 1,
 
+option KnoxSurvivors.SpawnWithSpouse = {
+    type = boolean, default = false, page = KnoxSurvivors_Main, translation = KnoxSurvivors_SpawnWithSpouse,
+}
+
+option KnoxSurvivors.ToolCupboardCapacity = {
+    type = integer, min = 100, max = 2000, default = 500, page = KnoxSurvivors_Main, translation = KnoxSurvivors_ToolCupboardCapacity,
+}
+
 option KnoxSurvivors.Enabled = {
     type = boolean, default = true, page = KnoxSurvivors_Main, translation = KnoxSurvivors_Enabled,
 }

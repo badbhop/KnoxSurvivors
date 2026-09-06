@@ -6,6 +6,7 @@ require "KS_SurvivorRuntime"
 require "KS_SurvivorCapabilities"
 require "KS_CompanionService"
 require "KS_Settings"
+require "KS_SpouseStart"
 require "KS_ZombieAwareness"
 require "KS_WorldPopulation"
 require "KS_SurvivorStartingGear"
@@ -40,6 +41,7 @@ local function hibernationDistanceSquared()
 end
 local DETACHED_GRACE_CHECKS = 3
 local detachedGrace = {}
+local recentlyDetached = {}
 local departureRetryAt = {}
 local departureFailures = {}
 local DECISIONS_REQUIRED = 2
@@ -677,10 +679,11 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                 KnoxSurvivorRuntime.unregister(entry.id, entry.controller)
                 controllers[entry.id] = nil
                 removeActiveId(entry.id)
+                if entry.reason == "detached" then recentlyDetached[entry.id] = ticks end
                 print(TAG .. " id=" .. entry.id
                     .. " state=HIBERNATED reason=" .. tostring(entry.reason)
                     .. " playerDistance=" .. tostring(distance)
-                    .. " save=" .. tostring(evidence)
+                    .. " saved=true"
                     .. " remove=" .. tostring(removed))
             else
                 print(TAG .. " id=" .. entry.id
@@ -732,6 +735,14 @@ end
 
 local function reconcileWorldPopulation(bridge)
     local players = currentPlayers()
+    for _, player in ipairs(players) do
+        if KnoxSpouseStart.update(player, function(id, square, record)
+            return activateWorldCandidate(bridge, { id = id, square = square, record = record,
+                mode = record ~= nil and "restore" or "spawn" })
+        end) then
+            KnoxActivityFeed.event("Your spouse is here. They will follow you; use Orders to guide them.")
+        end
+    end
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     local awayChanged = KnoxPersistence.advanceAwayTeams ~= nil
         and KnoxPersistence.advanceAwayTeams(now) or 0
@@ -743,7 +754,11 @@ local function reconcileWorldPopulation(bridge)
         bridge,
         activeIds,
         remaining,
-        { players = players, maximumDistance = activationDistance() }
+        { players = players, maximumDistance = activationDistance(),
+            acceptCandidate = function(candidate)
+                return KnoxSurvivorLifecyclePolicy.restoreAfterDetach(
+                    recentlyDetached[candidate.id], ticks, candidate.distanceSquared)
+            end }
     )
     -- Away missions are normally excluded from proximity activation. Once a
     -- destination or return point is inside the loaded player band, add those
@@ -793,8 +808,13 @@ local function reconcileWorldPopulation(bridge)
     local activated = 0
     for _, candidate in ipairs(candidates) do
         if activated >= remaining then break end
-        local ready, evidence = activateWorldCandidate(bridge, candidate)
+        local ready, evidence = false, "streaming_edge_cooldown"
+        if KnoxSurvivorLifecyclePolicy.restoreAfterDetach(
+            recentlyDetached[candidate.id], ticks, candidate.distanceSquared) then
+            ready, evidence = activateWorldCandidate(bridge, candidate)
+        end
         if ready then
+            recentlyDetached[candidate.id] = nil
             activated = activated + 1
             local distance = candidate.distanceSquared ~= nil
                 and math.sqrt(candidate.distanceSquared)
@@ -998,6 +1018,8 @@ local function onGameStart()
         return
     end
     ticks = 0
+    recentlyDetached = {}
+    detachedGrace = {}
     controllers = {}
     KnoxSurvivorRuntime.clear()
     reservations = {

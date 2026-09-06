@@ -2,6 +2,7 @@ require "KS_Persistence"
 require "KS_SurvivorCapabilities"
 require "KS_SurvivorRuntime"
 require "KS_BaseStorage"
+require "KS_ToolCupboard"
 require "KS_Settings"
 
 local BaseManager = rawget(_G, "KnoxBaseManager") or {}
@@ -321,6 +322,9 @@ local function ensureFactionStorage(base)
         return nil
     end
     for index, entry in ipairs(found) do
+        if base.toolCupboardKey == nil and KnoxToolCupboard ~= nil then
+            KnoxToolCupboard.designate(base, entry.object, entry.containerIndex, BaseManager)
+        end
         local preferred = string.find(entry.kind, "fridge", 1, true) and "food"
             or string.find(entry.kind, "freezer", 1, true) and "food"
             or (string.find(entry.kind, "water", 1, true)
@@ -634,6 +638,11 @@ function BaseManager.containerReference(object, requestedContainerIndex, baseId)
 end
 
 function BaseManager.setStoragePolicy(baseId, object, category, containerIndex)
+    local base = KnoxPersistence.getBase(baseId)
+    if base ~= nil and base.toolCupboardKey ~= nil then
+        local current = BaseManager.containerReference(object, containerIndex, baseId)
+        if current ~= nil and current.key == base.toolCupboardKey then category = "depot" end
+    end
     if BaseManager.STORAGE_CATEGORIES[category] ~= true then
         return nil, "unknown_storage_category"
     end

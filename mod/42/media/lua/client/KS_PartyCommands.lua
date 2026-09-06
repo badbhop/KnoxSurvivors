@@ -75,6 +75,17 @@ function PartyCommands.followAll(_, playerNum)
     KnoxCompanionService.issueOrderAll(player(playerNum), "follow")
 end
 
+function PartyCommands.formationAll(_, playerNum, formation, spacing)
+    local actor = player(playerNum)
+    local changed = 0
+    for _, id in ipairs(KnoxCompanionService.getCompanionIds(actor)) do
+        if KnoxCompanionService.setFormation(actor, id, formation, spacing) then changed = changed + 1 end
+    end
+    if KnoxActivityFeed ~= nil then
+        KnoxActivityFeed.event("Formation updated for " .. tostring(changed) .. " companions.")
+    end
+end
+
 function PartyCommands.holdAll(_, playerNum)
     KnoxCompanionService.issueOrderAll(player(playerNum), "hold")
 end
@@ -233,6 +244,15 @@ local function populate(menu, playerNum, square)
     local disallow = traversalMenu:addOption(KnoxOrderCatalog.label("disallow_climbing"), PartyCommands, PartyCommands.climbingAll, playerNum, false)
     traversalMenu:setOptionChecked(allow, common.climbing == true)
     traversalMenu:setOptionChecked(disallow, common.climbing == false)
+    local formation = menu:addOption("Formation", nil, nil)
+    local formationMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(formation, formationMenu)
+    for _, shape in ipairs({ { "Paired", "paired" }, { "Single File", "single_file" } }) do
+        for spacing = 1, 3 do
+            formationMenu:addOption(shape[1] .. " - spacing " .. tostring(spacing), PartyCommands,
+                PartyCommands.formationAll, playerNum, shape[2], spacing)
+        end
+    end
     local combat = menu:addOption(catalogLabel("combat_stance", "Combat Stance"), nil, nil)
     local combatMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(combat, combatMenu)

@@ -408,6 +408,9 @@ function ViewModel.getSurvivor(id, playerNum)
     local relationship = playerId ~= nil
         and KnoxPersistence.getPlayerRelationshipSnapshot(playerId, id)
         or nil
+    local playerData = player ~= nil and player.getModData ~= nil and player:getModData() or nil
+    local spouseStart = playerData ~= nil and playerData.KnoxSurvivors ~= nil
+        and playerData.KnoxSurvivors.spouseStart or nil
     local capabilities = KnoxPersistence.getSurvivorCapabilities(id) or {}
     local lifeIntent = KnoxPersistence.getSurvivorLifeIntent ~= nil
         and KnoxPersistence.getSurvivorLifeIntent(id) or nil
@@ -438,6 +441,7 @@ function ViewModel.getSurvivor(id, playerNum)
         skills = capabilities.skills or {},
         trust = relationship ~= nil and tonumber(relationship.trust) or nil,
         relationshipMeetings = relationship ~= nil and tonumber(relationship.meetings) or nil,
+        isSpouse = type(spouseStart) == "table" and spouseStart.id == id,
         factionName = faction ~= nil and tostring(faction.name or faction.id or "") or nil,
         ageYears = ageYears ~= nil and math.floor(ageYears) or nil,
         daysSurvived = daysSurvived,

@@ -45,4 +45,8 @@ assert(registry:find("CORPSE_PENDING_CLEANUP", 1, true),
 assert(registry:find("runtime.corpseRetirement().corpseCreated()", 1, true),
     "cleanup retry must not construct a second native corpse")
 
+assert(not KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 400, 90 * 90), "streaming edge does not rebuild immediately")
+assert(KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 400, 60 * 60), "closer player releases edge cooldown")
+assert(KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 1000, 90 * 90), "streaming cooldown is bounded")
+assert(KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 1, 90 * 90), "clock reset cannot strand a survivor")
 print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true vehicle_safe=true dead_teardown=true corpse_handoff=true cleanup_retry=true save_boundary=true")

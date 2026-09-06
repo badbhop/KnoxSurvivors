@@ -106,6 +106,12 @@ local recruited, recruitResult = KnoxPersistence.setPlayerCompanion(
     24
 )
 assert(recruited and recruitResult == "companion", tostring(recruitResult))
+assert(KnoxPersistence.setCompanionFormation("independent", playerId, "single_file", 3, 24))
+assert(KnoxPersistence.getSurvivorDuty("independent").followerFormation == "single_file"
+    and KnoxPersistence.getSurvivorDuty("independent").followerSpacing == 3)
+assert(not KnoxPersistence.setCompanionFormation("independent", "other-owner", "paired", 1, 24))
+assert(not KnoxPersistence.setCompanionFormation("independent", playerId, "unknown", 1, 24))
+assert(not KnoxPersistence.setCompanionFormation("independent", playerId, "paired", 99, 24))
 assert(KnoxPersistence.getSurvivorLifeIntent("independent") == nil,
     "companion duty clears incompatible autonomous intent")
 assert(KnoxPersistence.getSurvivorDuty("independent").mode == "companion")

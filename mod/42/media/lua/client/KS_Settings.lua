@@ -16,6 +16,8 @@ local DEFAULTS = {
     CompanionLimit = 4,
     FollowerFormation = 1,
     FollowerSpacing = 1,
+    ToolCupboardCapacity = 500,
+    SpawnWithSpouse = false,
     RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
     EnableKnoxEvents = false,
@@ -142,6 +144,14 @@ end
 
 function Settings.followerSpacing()
     return integer("FollowerSpacing", 1, 3)
+end
+
+function Settings.toolCupboardCapacity()
+    return integer("ToolCupboardCapacity", 100, 2000)
+end
+
+function Settings.spawnWithSpouse()
+    return Settings.enabled() and value("SpawnWithSpouse") == true
 end
 
 function Settings.allowNPCFactions()

@@ -1,4 +1,8 @@
 {
+    "Sandbox_KnoxSurvivors_SpawnWithSpouse": "Start with a Spouse",
+    "Sandbox_KnoxSurvivors_SpawnWithSpouse_tooltip": "New characters begin with one trusted spouse companion nearby. They use ordinary survivor needs, injuries and permanent death. No replacement is created after death or dismissal. Enable before starting the character.",
+    "Sandbox_KnoxSurvivors_ToolCupboardCapacity": "Base Tool Cupboard Capacity",
+    "Sandbox_KnoxSurvivors_ToolCupboardCapacity_tooltip": "Capacity of one designated dry-storage container per base. Default 500, range 100-2000. Residents deposit and withdraw real supplies here. Right-click a container in your base to designate it. NPC bases select one automatically. Lowering capacity never deletes contents.",
     "Sandbox_KnoxSurvivors_Main": "Knox Survivors",
     "Sandbox_KnoxSurvivors_Developer": "Knox Survivors - Developer Tools",
 

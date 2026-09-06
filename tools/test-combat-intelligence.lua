@@ -717,3 +717,9 @@ do
     assert(replacement == urgent, "full tick must replace distant commitment with an immediate attacker")
 end
 print("combat intelligence focused tests passed")
+assert(Controller.fleePace({endurance=0.9, health=100, immediate=0, close=0}) == "run",
+    "distant crowd retreat saves sprint endurance")
+assert(Controller.fleePace({endurance=0.9, health=100, immediate=1}) == "sprint",
+    "close attacker permits an urgent sprint")
+assert(Controller.fleePace({endurance=0.2, health=100, immediate=2}) == "run",
+    "exhausted survivor does not demand sprint")

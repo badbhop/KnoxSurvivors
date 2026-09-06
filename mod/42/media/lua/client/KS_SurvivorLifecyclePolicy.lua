@@ -32,4 +32,11 @@ function LifecyclePolicy.distanceEligible(
         and distanceSquared > activeDistanceSquared
 end
 
+-- A just-streamed-out square can briefly resolve again at the cell edge.
+-- Wait for a closer player or a bounded retry instead of rebuilding repeatedly.
+function LifecyclePolicy.restoreAfterDetach(detachedAt, ticks, distanceSquared)
+    return detachedAt == nil or ticks < detachedAt or ticks - detachedAt >= 900
+        or (distanceSquared ~= nil and distanceSquared <= 64 * 64)
+end
+
 return LifecyclePolicy

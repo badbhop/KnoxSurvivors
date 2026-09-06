@@ -1405,6 +1405,10 @@ function WorldPopulation.activationCandidates(bridge, activeIds, limit, options)
     for _, id in ipairs(KnoxPersistence.getActivatableSurvivorIds()) do
         if not active[id] then
             local candidate, result = WorldPopulation.activationCandidate(id, bridge, options)
+            if candidate ~= nil and options ~= nil and options.acceptCandidate ~= nil
+                and not options.acceptCandidate(candidate) then
+                candidate, result = nil, "streaming_edge_cooldown"
+            end
             if candidate ~= nil then
                 candidates[#candidates + 1] = candidate
             else

@@ -2382,6 +2382,19 @@ function KnoxPersistence.setCompanionCombatStance(id, playerId, stance, worldAge
     return true
 end
 
+function KnoxPersistence.setCompanionFormation(id, playerId, formation, spacing, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId or survivor.duty.mode ~= "companion"
+        or (formation ~= "paired" and formation ~= "single_file")
+        or (spacing ~= 1 and spacing ~= 2 and spacing ~= 3) then return false end
+    survivor.duty.followerFormation = formation
+    survivor.duty.followerSpacing = spacing
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
 function KnoxPersistence.getSurvivorPolicies(id)
     local survivor = ensureSurvivorState(id)
     return survivor ~= nil and copyFlat(survivor.policies) or nil
@@ -4434,6 +4447,7 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
         containerType = tostring(reference.containerType or "container"),
         category = tostring(category or "general"),
         depot = depot == true,
+        toolCupboard = base.toolCupboardKey == reference.key,
     }
     base.storage[policy.key] = policy
     return policy, "saved"

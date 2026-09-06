@@ -1,5 +1,41 @@
 # Feature-completion audit
 
+### Long-session follow-up, companion orders and central storage — 2026-09-06
+
+**Implemented and offline verified; integrated live acceptance pending.**
+
+- Reviewed the approximately four-hour run `dev-runs/20260906-063939`.
+  Streaming-edge detach/restore churn now has a bounded cooldown, waived when
+  the player approaches within 64 tiles. Cooling candidates are excluded before
+  applying activation limits. Hibernation diagnostics no longer dump save payloads.
+- Fleeing reserves sprinting for close contact with sufficient health/endurance.
+  Arrival allows the existing two-observation safety check to finish before
+  starting another escape route. Native movement, obstacles and combat still
+  determine outcomes; this is not a guarantee of survival.
+- Personal Orders and party orders now offer paired/single-file formations at
+  three spacings. Choices persist per owned companion and override sandbox
+  defaults; they use the existing follower movement controller.
+- Optional Spawn With Spouse starts a new character with one stable, high-trust
+  companion. Blocked/occupied adjacent tiles defer creation; partial creation
+  retries restore the reserved identity. Reloads and existing characters do not
+  manufacture additional spouses. Survivor cards show the relationship.
+- Base storage menus can designate an existing dry container as the central tool
+  cupboard, default capacity 500 (sandbox range 100–2000). Residents prefer it
+  for deposits and can retrieve actual task supplies. Sorting does not empty it.
+  NPC bases designate suitable existing storage. Reassignment restores the old
+  container's capacity without moving/deleting items; unloaded cupboards must be
+  visited first. A destroyed cupboard can be replaced.
+- Assigned storage resolves durable object identities after tile object indices
+  change; a replacement container cannot inherit the previous owner's policy.
+
+Verification: 86 Lua syntax checks, 93 regression scripts, Java check/build;
+180 checks passed. Tests include real persistence/menu callbacks, formation
+movement selection, spouse retries, cupboard designation/reassignment, storage
+deposit/withdrawal selection and lifecycle activation-budget filtering.
+No public release or Workshop publication is part of this pass.
+
+See [long-session evidence and live checks](LONG_SESSION_REVIEW_2026-09-06.md).
+
 ### Replacement-quality review, formations and sandbox coherence — 2026-09-06
 
 **Implemented; offline verification passes. Live acceptance remains pending.**

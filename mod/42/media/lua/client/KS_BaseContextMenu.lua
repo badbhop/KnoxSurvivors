@@ -145,6 +145,13 @@ local function addStorageMenu(parent, base, object)
                 targetMenu = ISContextMenu:getNew(objectMenu)
                 objectMenu:addSubMenu(containerOption, targetMenu)
             end
+            targetMenu:addOption("Use as Base Tool Cupboard (" .. tostring(KnoxSettings.toolCupboardCapacity()) .. ")",
+                base.id, function(baseId, selected, selectedIndex)
+                    local cupboard, reason = KnoxToolCupboard.designate(KnoxBaseManager.get(baseId),
+                        selected, selectedIndex, KnoxBaseManager)
+                    KnoxActivityFeed.event(cupboard ~= nil and "Base tool cupboard ready. Residents store and take supplies here."
+                        or ("Could not assign cupboard: " .. tostring(reason)))
+                end, object, containerIndex)
             for _, definition in ipairs(STORAGE_LABELS) do
                 targetMenu:addOption(
                     definition[1],

@@ -185,4 +185,21 @@ local controllerSource = assert(io.open(rootPath
 assert(controllerSource:find("Base job blocked:", 1, true),
     "blocked base supply requirements must give the player a visible reason")
 
+base.storage.depot.toolCupboard = true
+assert(storage.findNearbyDeposit(base, worker, depotItem).policy.key == "depot",
+    "cupboard is preferred over ordinary categorized storage")
+assert(storage.findTransfer(base) == nil, "sorting must not empty the central cupboard")
+assert(storage.findRequiredTransfer(base, worker, { items = { ["Base.Plank"] = 1 } }).sourcePolicy.key == "depot",
+    "residents can withdraw real job supplies from the cupboard")
+
+local stableKey = "base:container:10:20:0:1:0"
+local stablePolicy = { key = stableKey, x = 10, y = 20, z = 0, objectIndex = 99,
+    containerIndex = 0, containerType = "crate" }
+depotObject.getModData = function() return { KnoxSurvivors = { storageIds = { original = stableKey } } } end
+assert(storage.resolvePolicy(stablePolicy).container == depot,
+    "same physical container still resolves after square object indices shift")
+depotObject.getModData = function() return {} end
+stablePolicy.objectIndex = 1
+assert(storage.resolvePolicy(stablePolicy) == nil,
+    "replacement container at old index cannot inherit original storage ownership")
 print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true task_supply=true feedback=true")

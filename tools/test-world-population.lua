@@ -373,6 +373,13 @@ for _, candidate in ipairs(durableCandidates) do
     end
 end
 assert(developerRestored, "saved non-population survivor is eligible after reload")
+local eligible = durableCandidates[#durableCandidates].id
+local filtered = KnoxWorldPopulation.activationCandidates(bridge, {}, 1, {
+    players = { player }, maximumDistance = 150,
+    acceptCandidate = function(candidate) return candidate.id == eligible end,
+})
+assert(#filtered == 1 and filtered[1].id == eligible,
+    "cooling candidates must not consume the activation budget ahead of eligible survivors")
 
 squareState[squareKey(400, 500, 0)] = nil
 local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(

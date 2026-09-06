@@ -203,6 +203,7 @@ function KnoxPanel:prerender()
     local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
     local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_DIM)) or COL_DIM
     keyValue("Trust", trustLabel, trustCol)
+    if snapshot.isSpouse then keyValue("Relationship", "Spouse", COL_ACCENT) end
     keyValue("Group", snapshot.affiliation and snapshot.affiliation.kind or "independent")
 end
 
@@ -340,6 +341,7 @@ local function ensureViews(window)
             kv("Faction", snap.factionName or "None")
             local trustVal = snap.trust ~= nil and math.floor(snap.trust) or nil
             kv("Trust", trustVal ~= nil and tostring(trustVal) or "Unknown")
+            if snap.isSpouse then kv("Relationship", "Spouse") end
             kv("Group", snap.affiliation and snap.affiliation.kind or "independent")
             local job = snap.duty and snap.duty.jobPreference or nil
             if KnoxOrderCatalog ~= nil and KnoxOrderCatalog.normalizeBasePreference ~= nil then

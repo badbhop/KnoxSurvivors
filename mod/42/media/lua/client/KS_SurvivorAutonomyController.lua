@@ -289,7 +289,7 @@ local function directionComponent(value)
     return 0
 end
 
-local function findFormationTarget(anchor, follower, slotIndex)
+local function findFormationTarget(anchor, follower, slotIndex, survivorId)
     local anchorSquare = anchor ~= nil and anchor:getCurrentSquare() or nil
     local followerSquare = follower ~= nil and follower:getCurrentSquare() or nil
     local cell = getCell()
@@ -307,8 +307,19 @@ local function findFormationTarget(anchor, follower, slotIndex)
     local side = slot % 2 == 1 and -1 or 1
     local spacing = KnoxSettings ~= nil and KnoxSettings.followerSpacing ~= nil
         and KnoxSettings.followerSpacing() or 1
-    if KnoxSettings ~= nil and KnoxSettings.followerFormation ~= nil
-        and KnoxSettings.followerFormation() == "single_file" then
+    local formation = KnoxSettings ~= nil and KnoxSettings.followerFormation ~= nil
+        and KnoxSettings.followerFormation() or "paired"
+    local duty = survivorId ~= nil and KnoxPersistence.getSurvivorDuty ~= nil
+        and KnoxPersistence.getSurvivorDuty(survivorId) or nil
+    if duty ~= nil and duty.mode == "companion" then
+        if duty.followerFormation == "paired" or duty.followerFormation == "single_file" then
+            formation = duty.followerFormation
+        end
+        if duty.followerSpacing == 1 or duty.followerSpacing == 2 or duty.followerSpacing == 3 then
+            spacing = duty.followerSpacing
+        end
+    end
+    if formation == "single_file" then
         row, side = slot, 0
     end
     local lateralX = -forwardY
@@ -3308,7 +3319,7 @@ function Controller:beginGroupFollow(ticks)
     local approach = findFormationTarget(
         self.groupLeader,
         self.character,
-        self.groupFormationSlot
+        self.groupFormationSlot, self.id
     )
     if approach == nil then
         self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
@@ -3387,7 +3398,7 @@ function Controller:beginCompanionFollow(ticks)
     local approach = findFormationTarget(
         self.companionTarget,
         self.character,
-        self.companionFormationSlot
+        self.companionFormationSlot, self.id
     )
     if approach == nil then
         self.state = "COMPANION_WAIT"
@@ -3435,7 +3446,7 @@ function Controller:refreshFormationFollow(ticks)
         return true
     end
     local anchor = groupFollow and self.groupLeader or self.companionTarget
-    local target = findFormationTarget(anchor, self.character, slot)
+    local target = findFormationTarget(anchor, self.character, slot, self.id)
     local current = self.character:getCurrentSquare()
     self.nextFormationRefresh = ticks + FORMATION_REFRESH_TICKS
         + (groupFollow and formationRefreshDelay(slot) or 0)
@@ -5192,6 +5203,15 @@ function Controller:recoverFleeMovement(result, ticks)
     self.stateStartedAt = ticks
 end
 
+function Controller.fleePace(assessment)
+    if assessment == nil then return "run" end
+    -- Sprint only to break close contact; sustained sprinting through a distant
+    -- crowd burns the endurance needed when a real escape becomes urgent.
+    return (assessment.endurance or 0) >= 0.48 and (assessment.health or 0) > 25
+        and ((assessment.immediate or 0) > 0 or (assessment.close or 0) > 0)
+        and "sprint" or "run"
+end
+
 function Controller:beginFlee(ticks, assessment)
     local settings = rawget(_G, "KnoxSettings")
     if settings ~= nil and settings.allowSurvivorFleeing ~= nil
@@ -5261,8 +5281,7 @@ function Controller:beginFlee(ticks, assessment)
     self.fleeSafeScans = 0
     self.fleeTarget = target
     self.fleeRecoveryUntil = nil
-    local pace = assessment ~= nil and assessment.endurance >= 0.48
-        and assessment.health > 25 and "sprint" or "run"
+    local pace = Controller.fleePace(assessment)
     local result = tostring(self.bridge:moveNpcWithPace(self.id, target, pace))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         self:recoverFleeMovement(result, ticks)
@@ -5736,7 +5755,7 @@ function Controller:think(ticks)
         local formationTarget = findFormationTarget(
             self.companionTarget,
             self.character,
-            self.companionFormationSlot
+            self.companionFormationSlot, self.id
         )
         local distance = formationTarget ~= nil and navigationDistanceSquared(
             self.character:getCurrentSquare(),
@@ -5914,7 +5933,7 @@ function Controller:think(ticks)
         local formationTarget = findFormationTarget(
             self.groupLeader,
             self.character,
-            self.groupFormationSlot
+            self.groupFormationSlot, self.id
         )
         local distance = formationTarget ~= nil and navigationDistanceSquared(
             self.character:getCurrentSquare(),
@@ -7200,7 +7219,10 @@ function Controller:tick(ticks)
                     self.nextThink = ticks + 5
                 else
                     self.fleeTarget = nil
-                    self.fleeRecoveryUntil = ticks + 5
+                    -- Give the second safe observation time to occur. Starting
+                    -- another route immediately resets fleeSafeScans and can
+                    -- keep a survivor fleeing after useful separation exists.
+                    self.fleeRecoveryUntil = ticks + (unsafe and 5 or FLEE_RECHECK_TICKS)
                 end
                 return
             end

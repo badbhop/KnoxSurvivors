@@ -1,4 +1,5 @@
 require "KS_Persistence"
+require "KS_ToolCupboard"
 require "KS_SurvivorNeeds"
 require "KS_SurvivorInventoryActions"
 require "Util/AdjacentFreeTileFinder"
@@ -93,13 +94,25 @@ function Storage.resolvePolicy(policy)
     for index = 0, objects:size() - 1 do
         local object = objects:get(index)
         local objectIndex = object ~= nil and object:getObjectIndex() or -1
-        if object ~= nil and objectIndex == tonumber(policy.objectIndex) then
+        local stablePolicy = type(policy.key) == "string" and string.find(policy.key, ":container:", 1, true) ~= nil
+        local matches = not stablePolicy and objectIndex == tonumber(policy.objectIndex)
+        if stablePolicy and object ~= nil and object.getModData ~= nil then
+            local data = object:getModData()
+            local ids = data ~= nil and data.KnoxSurvivors ~= nil and data.KnoxSurvivors.storageIds or {}
+            for _, id in pairs(ids or {}) do
+                if id == policy.key then matches = true; break end
+            end
+        end
+        if object ~= nil and matches then
             local containerIndex = tonumber(policy.containerIndex) or 0
             local container = object:getContainerByIndex(containerIndex)
             if container ~= nil and container:isExistYet() then
                 local actualType = tostring(container:getType() or "container")
                 local expectedType = tostring(policy.containerType or actualType)
                 if expectedType == actualType or expectedType == "container" then
+                    if KnoxToolCupboard ~= nil and KnoxToolCupboard.apply(object, container, policy.key) then
+                        policy.toolCupboard = true
+                    end
                     return {
                         policy = policy,
                         square = square,
@@ -110,7 +123,7 @@ function Storage.resolvePolicy(policy)
             end
         end
     end
-    return nil, "storage_object_unloaded"
+    return nil, "storage_object_missing"
 end
 
 function Storage.policies(base)
@@ -277,7 +290,8 @@ local function findDeposit(base, character, item, trip, excluded, ticks, policyK
                         and not approach:isSomethingTo(resolved.square)))
                 if clear then
                     resolved.approach = approach
-                    resolved.preference = (category == "depot" or category == "general") and 1 or 0
+                    resolved.preference = policy.toolCupboard == true and -1
+                        or ((category == "depot" or category == "general") and 1 or 0)
                     resolved.distance = dx * dx + dy * dy
                     candidates[#candidates + 1] = resolved
                 end
@@ -413,7 +427,7 @@ function Storage.findTransfer(base)
     local depots = {}
     local destinations = {}
     for _, policy in ipairs(policies) do
-        if policy.depot == true or policy.category == "depot" then
+        if policy.toolCupboard ~= true and (policy.depot == true or policy.category == "depot") then
             depots[#depots + 1] = policy
         elseif policy.category ~= nil and policy.category ~= "general" then
             destinations[#destinations + 1] = policy

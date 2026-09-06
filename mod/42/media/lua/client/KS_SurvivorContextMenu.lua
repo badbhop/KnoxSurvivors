@@ -214,6 +214,12 @@ local function onCombatStance(_, playerNum, survivorId, stance)
     end, survivorId)
 end
 
+local function onFormation(_, playerNum, survivorId, formation, spacing)
+    runService(playerNum, function(player, id)
+        return KnoxCompanionService.setFormation(player, id, formation, spacing)
+    end, survivorId)
+end
+
 local function onWeaponPreference(_, playerNum, survivorId, preference)
     runService(playerNum, function(player, id)
         return KnoxCompanionService.issueOrder(player, id, "weapon_preference", { preference = preference })
@@ -542,6 +548,17 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         elseif player:getVehicle() ~= nil then
             ordersMenu:addOption("Enter My Vehicle", SurvivorContextMenu,
                 onBoardPlayerVehicle, playerNum, survivorId)
+        end
+        local formationRoot = ordersMenu:addOption("Formation", nil, nil)
+        local formationMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(formationRoot, formationMenu)
+        for _, shape in ipairs({ { "Paired", "paired" }, { "Single File", "single_file" } }) do
+            for spacing = 1, 3 do
+                local option = formationMenu:addOption(shape[1] .. " - spacing " .. tostring(spacing),
+                    SurvivorContextMenu, onFormation, playerNum, survivorId, shape[2], spacing)
+                formationMenu:setOptionChecked(option,
+                    duty.followerFormation == shape[2] and duty.followerSpacing == spacing)
+            end
         end
         local stanceRoot = ordersMenu:addOption("Combat Stance", nil, nil)
         local stanceMenu = ISContextMenu:getNew(ordersMenu)

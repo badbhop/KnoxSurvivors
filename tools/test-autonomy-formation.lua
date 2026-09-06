@@ -254,6 +254,15 @@ local spread = followerController("spread", 2)
 assert(spread:beginGroupFollow(10))
 assert(captured.spread:getX() == 8 and captured.spread:getY() == 12,
     "paired spacing scales both trailing and lateral separation")
+local originalDuty = KnoxPersistence.getSurvivorDuty
+KnoxPersistence.getSurvivorDuty = function(id)
+    if id == "ordered" then return { mode = "companion", followerFormation = "single_file", followerSpacing = 3 } end
+end
+local ordered = followerController("ordered", 2)
+assert(ordered:beginGroupFollow(10))
+assert(captured.ordered:getX() == 4 and captured.ordered:getY() == 10,
+    "persistent in-game formation order overrides the sandbox default on actual route requests")
+KnoxPersistence.getSurvivorDuty = originalDuty
 -- An unavailable preferred tile still uses the ordinary bounded fallback.
 local normalLookup = cell.getGridSquare
 cell.getGridSquare = function() return nil end

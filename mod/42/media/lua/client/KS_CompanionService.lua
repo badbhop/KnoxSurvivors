@@ -735,6 +735,16 @@ function CompanionService.exitAllVehicles(player)
     return exited > 0, exited
 end
 
+function CompanionService.setFormation(player, survivorId, formation, spacing)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionFormation(
+        survivorId, playerId, formation, spacing, worldAge()) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, "formation_updated"
+end
+
 function CompanionService.setCombatStance(player, survivorId, stance)
     local playerId = CompanionService.getPlayerId(player)
     if playerId == nil or not KnoxPersistence.setCompanionCombatStance(
