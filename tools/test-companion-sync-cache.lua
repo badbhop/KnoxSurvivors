@@ -13,5 +13,8 @@ assert(source:find("syncCache[survivorId] = cacheKey", 1, true),
     "changed companion state must update the cache")
 assert(source:find("roster = table.concat(parts, \",\")", 1, true),
     "formation roster changes must invalidate the cached sync")
+assert(source:find("tostring(jobPreference)", 1, true)
+    and source:find("tostring(revision)", 1, true),
+    "base preference and persisted duty revisions must invalidate the cached sync")
 
 print("Companion sync cache PASS state_key=true roster_key=true")

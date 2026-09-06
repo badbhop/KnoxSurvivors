@@ -1106,6 +1106,10 @@ function CompanionService.syncController(survivorId, controller)
         local order = duty ~= nil and duty.order or ""
         local stance = duty ~= nil and duty.combatStance or ""
         local directive = duty ~= nil and tostring(duty.directive) or ""
+        local baseId = duty ~= nil and duty.baseId or ""
+        local jobPreference = duty ~= nil and duty.jobPreference or ""
+        local revision = duty ~= nil and duty.revision or ""
+        local supplyOrder = duty ~= nil and tostring(duty.baseSupplyOrder) or ""
         local climbing = policies.allowClimbing ~= false and "1" or "0"
         local roster = ""
         if duty ~= nil and duty.mode == "companion" then
@@ -1116,7 +1120,8 @@ function CompanionService.syncController(survivorId, controller)
         end
         local cacheKey = table.concat({
             tostring(controller), tostring(mode), tostring(owner), tostring(order),
-            tostring(stance), directive, roster, tostring(policies.weaponPreference or "auto"), climbing,
+            tostring(stance), directive, tostring(baseId), tostring(jobPreference),
+            tostring(revision), supplyOrder, roster, tostring(policies.weaponPreference or "auto"), climbing,
         }, "|")
         local previousKey = syncCache[survivorId]
         if previousKey == cacheKey then
