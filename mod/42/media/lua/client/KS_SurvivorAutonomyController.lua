@@ -1,6 +1,7 @@
 require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISRestAction"
 require "TimedActions/ISSitOnGround"
+require "TimedActions/ISSmashWindow"
 require "Util/AdjacentFreeTileFinder"
 require "KS_SurvivorNeeds"
 require "KS_FirearmSupport"
@@ -25,7 +26,6 @@ require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
 require "KS_BaseRepairs"
 require "KS_BaseConstruction"
-require "KS_BaseSupplyPlanner"
 require "KS_CompanionPatrol"
 require "KS_AwayTeamExecutor"
 require "KS_FactionCamps"
@@ -1394,6 +1394,35 @@ local function markPendingAreaBlocked(self, ticks, reason)
     )
 end
 
+function Controller:hasNeedEscort()
+    if self.baseId ~= nil or self.baseTask ~= nil then return false end
+    return self.companionOrder ~= nil and self.companionDirective == nil
+        or self.groupLeaderId ~= nil or self.groupLeader ~= nil
+end
+
+function Controller:allowNeedDetour(square, ticks, checkRoute)
+    if not self:hasNeedEscort() then return true end
+    if self.companionOrder == "hold" then return false end
+    local leader = self.companionOrder ~= nil and self.companionTarget or self.groupLeader
+    local anchor = leader ~= nil and leader:getCurrentSquare() or nil
+    local origin = self.character:getCurrentSquare()
+    if square == nil or anchor == nil or origin == nil
+        or square:getZ() ~= anchor:getZ() or square:getZ() ~= origin:getZ()
+        or distanceSquared(origin, square) > 16
+        or distanceSquared(anchor, square) > 36
+        or safeMethod(leader, "isDead", true) then return false end
+    -- Reuse short-lived perceptions; do not add a population scan per container.
+    for threat, memory in pairs(self.perceivedThreats or {}) do
+        local threatSquare = safeMethod(threat, "getCurrentSquare", nil)
+        if ticks - (memory.lastSeen or 0) <= THREAT_MEMORY_TICKS
+            and not safeMethod(threat, "isDead", true)
+            and threatSquare ~= nil and threatSquare:getZ() == square:getZ()
+            and (distanceSquared(threatSquare, square) <= 36
+                or distanceSquared(threatSquare, origin) <= 36) then return false end
+    end
+    return checkRoute == false or fleeLaneClear(origin, square)
+end
+
 local function findSupply(self, goal, ticks, matcher)
     local origin = self.character:getCurrentSquare()
     if origin == nil or getCell() == nil then
@@ -1408,7 +1437,7 @@ local function findSupply(self, goal, ticks, matcher)
                         origin:getY() + dy,
                         origin:getZ()
                     )
-                    if square ~= nil then
+                    if square ~= nil and self:allowNeedDetour(square, ticks, false) then
                         local objects = square:getObjects()
                         for objectIndex = 0, objects:size() - 1 do
                             local object = objects:get(objectIndex)
@@ -1433,7 +1462,7 @@ local function findSupply(self, goal, ticks, matcher)
                                                 square,
                                                 self.character
                                             )
-                                            if approach ~= nil then
+                                            if approach ~= nil and self:allowNeedDetour(approach, ticks) then
                                                 return {
                                                     goal = goal,
                                                     item = item,
@@ -1927,7 +1956,7 @@ function Controller.entryCandidateScore(
     return nil
 end
 
-local function findAlternateEntry(self, supply)
+local function findAlternateEntry(self, supply, ticks)
     local targetSquare = supply ~= nil and supply.container ~= nil
         and supply.container:getSourceGrid()
         or nil
@@ -1949,6 +1978,7 @@ local function findAlternateEntry(self, supply)
     local allowForcedEntry = urgent and KnoxBaseManager.canDamageStructure(self.id, targetSquare)
         and KnoxSurvivorNeeds.snapshot(self.character).endurance >= LOCKED_DOOR_MIN_ENDURANCE
     local roomSquares = targetRoom:getSquares()
+    local attempts = supply.entryAttempts or {}
     for index = 0, roomSquares:size() - 1 do
         local inside = roomSquares:get(index)
         if inside ~= nil and inside:getZ() == origin:getZ()
@@ -1982,7 +2012,7 @@ local function findAlternateEntry(self, supply)
                         false,
                         false
                     ) or nil
-                    if not isFailedEdge and doorScore ~= nil then
+                    if not isFailedEdge and doorScore ~= nil and attempts[door] == nil then
                         score = doorScore
                         candidate = {
                             outside = outside,
@@ -2011,19 +2041,29 @@ local function findAlternateEntry(self, supply)
                             or safeWindowCanClimb(window, self.character),
                         allowForcedEntry
                     ) or nil
-                    if not isFailedEdge and candidate == nil and windowScore ~= nil then
+                    -- Lock metadata is not permission to skip trying the handle.
+                    -- Each distinct window gets a non-destructive attempt first.
+                    if window ~= nil and not safeObjectBoolean(window, "isBarricaded", true)
+                        and not windowOpen and not windowSmashed and attempts[window] == nil then
+                        windowScore = 3
+                    end
+                    local forceWindow = attempts[window] == "closed" and allowForcedEntry
+                        and not windowOpen and not windowSmashed and windowScore ~= nil
+                    if candidate == nil and windowScore ~= nil
+                        and ((not isFailedEdge and attempts[window] == nil) or forceWindow) then
                         -- After a failed entrance, try usable windows first;
                         -- smashing remains after every non-destructive option.
-                        score = windowScore < 4 and windowScore - 4 or windowScore
+                        score = forceWindow and 4 or (windowScore < 4 and windowScore - 4 or windowScore)
                         candidate = {
                             outside = outside,
                             inside = inside,
                             object = window,
                             kind = "window",
+                            force = forceWindow,
                         }
                     end
 
-                    if candidate ~= nil then
+                    if candidate ~= nil and self:allowNeedDetour(outside, ticks or 0) then
                         local distance = distanceSquared(origin, outside)
                         if score < bestScore
                             or (score == bestScore and distance < bestDistance) then
@@ -4124,14 +4164,17 @@ function Controller:completeGroupSupport(ticks)
 end
 
 function Controller:beginWindowDetour(ticks, resumeState)
-    if self.pendingSupply == nil or self.pendingSupply.entryAttempted == true then
+    if self.pendingSupply == nil or (self.pendingSupply.entryAttemptCount or 0) >= 8 then
         return false
     end
-    self.pendingSupply.entryAttempted = true
-    local entry = findAlternateEntry(self, self.pendingSupply)
+    self.pendingSupply.entryAttempts = self.pendingSupply.entryAttempts or {}
+    local entry = findAlternateEntry(self, self.pendingSupply, ticks)
     if entry == nil then
         return false
     end
+    self.pendingSupply.entryAttemptCount = (self.pendingSupply.entryAttemptCount or 0) + 1
+    self.pendingSupply.entryAttempts[entry.object] = "attempted"
+    self.bridge:cancelNpcMove(self.id)
     local result = tostring(self.bridge:moveNpc(self.id, entry.outside))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         return false
@@ -4189,6 +4232,22 @@ function Controller:crossWindowDetour(ticks)
     if self.entryDetour == nil then
         return false
     end
+    if self.entryDetour.force then
+        -- Revalidate protection and the real world object at the action boundary.
+        local window = self.entryDetour.object
+        if not KnoxBaseManager.canDamageStructure(self.id, self.entryDetour.inside)
+            or KnoxSurvivorNeeds.snapshot(self.character).endurance < LOCKED_DOOR_MIN_ENDURANCE
+            or safeObjectBoolean(window, "isBarricaded", true) then return false end
+        self.entryDetour.force = false
+        if not safeObjectBoolean(window, "IsOpen", false)
+            and not safeObjectBoolean(window, "isSmashed", false) then
+            self.bridge:cancelNpcMove(self.id)
+            ISTimedActionQueue.add(ISSmashWindow:new(self.character, window))
+            self.state = "OPENING_ENTRY_WINDOW"
+            self.stateStartedAt = ticks
+            return true
+        end
+    end
     local result = tostring(self.bridge:crossNpc(self.id, self.entryDetour.inside))
     if string.find(result, "CROSS_STARTED", 1, true) ~= 1 then
         return false
@@ -4196,6 +4255,32 @@ function Controller:crossWindowDetour(ticks)
     self.state = "CROSSING_WINDOW_ENTRY"
     self.stateStartedAt = ticks
     return true
+end
+
+function Controller:retryWindowDetour(ticks, movement)
+    local entry = self.entryDetour
+    if entry == nil or self.pendingSupply == nil then return false end
+    local attempts = self.pendingSupply.entryAttempts or {}
+    self.pendingSupply.entryAttempts = attempts
+    if entry.kind == "window" and not entry.smashedAttempt
+        and string.find(tostring(movement), "FAILED_LOCKED_OR_UNUSABLE_WINDOW", 1, true)
+        and not safeObjectBoolean(entry.object, "IsOpen", false)
+        and not safeObjectBoolean(entry.object, "isSmashed", false) then
+        attempts[entry.object] = "closed"
+    end
+    return self:beginWindowDetour(ticks, entry.resumeState)
+end
+
+function Controller:updateEntryWindow(ticks)
+    if not self.character:getCharacterActions():isEmpty() then return end
+    local entry = self.entryDetour
+    if entry ~= nil and safeObjectBoolean(entry.object, "isSmashed", false) then
+        entry.smashedAttempt = true
+        if self:crossWindowDetour(ticks) then return end
+    end
+    if not self:retryWindowDetour(ticks, "smash_failed") then
+        self:abandonCurrentDecision(ticks, "window_smash_failed")
+    end
 end
 
 function Controller:resumeAfterWindowDetour(ticks)
@@ -4565,7 +4650,10 @@ function Controller:beginRecovery(decision, ticks)
         kind = decision,
         before = KnoxSurvivorNeeds.snapshot(self.character),
     }
-    local spot = findBestRestSpot(self, decision == "sleep")
+    local spot = findBestRestSpot(self, decision == "sleep", function(square)
+        return self:allowNeedDetour(square, ticks, false)
+    end)
+    if spot ~= nil and not self:allowNeedDetour(spot.approach, ticks) then spot = nil end
     if spot ~= nil and reserve(
         self.reservations,
         "restSpots",
@@ -5508,11 +5596,10 @@ function Controller:think(ticks)
     if decision.kind == "find_food" or decision.kind == "find_water"
         or decision.kind == "find_medical" then
         self:sayNeedIfGrouped(decision.kind, ticks)
-        if self.companionOrder ~= nil and self.companionDirective == nil then
-            -- A companion may use supplies already carried, but must not drop
-            -- Follow/Hold and wander into the world because one is missing.
-            -- The callout tells the player what is needed; explicit Find Food,
-            -- Find Water, or Find Medical orders still authorize a supply run.
+        if self:hasNeedEscort() then
+            -- Only a short clear detour is automatic. If none is safe, retain
+            -- the real shortage and regroup instead of starting a roam search.
+            if self:beginWorldSearch(decision.kind, ticks) then return end
             self.selfCareRetryAt[decision.kind] = ticks + SELF_CARE_RETRY_TICKS
             decision = { kind = "roam", state = decision.state }
         else
@@ -5959,6 +6046,7 @@ function Controller:tick(ticks)
         or self.state == "AWAY_RETURN"
         or self.state == "FLEEING"
     local actionState = self.state == "LOOTING"
+        or self.state == "OPENING_ENTRY_WINDOW"
         or self.state == "INVENTORY_CLEANUP"
         or self.state == "SEARCHING"
         or self.state == "TIMED_ACTION"
@@ -6702,6 +6790,23 @@ function Controller:tick(ticks)
         return
     end
 
+    if (self.state == "MOVING_TO_SUPPLY" or self.state == "MOVING_TO_REST") and self:hasNeedEscort()
+        and ticks >= (self.nextNeedEscortCheck or 0) then
+        self.nextNeedEscortCheck = ticks + 30
+        local destination = self.state == "MOVING_TO_SUPPLY" and self.pendingSupply or self.pendingRest
+        if destination ~= nil and not self:allowNeedDetour(destination.approach, ticks) then
+            self.bridge:cancelNpcMove(self.id)
+            if self.state == "MOVING_TO_SUPPLY" then self:releaseSupply()
+            else self:releaseRestSpot() end
+            self:finishDecision(ticks)
+            self.nextThink = ticks + 1
+            return
+        end
+    end
+    if self.state == "OPENING_ENTRY_WINDOW" then
+        self:updateEntryWindow(ticks)
+        return
+    end
     if self.state == "COMBAT" then
         if threatScanDue then
             local firearmState, firearmResult = KnoxFirearmSupport.currentCombatState(
@@ -7039,7 +7144,9 @@ function Controller:tick(ticks)
             end
             if self.state == "MOVING_TO_WINDOW_ENTRY" then
                 if not self:crossWindowDetour(ticks) then
-                    self:abandonCurrentDecision(ticks, "window_cross_failed")
+                    if not self:retryWindowDetour(ticks, "cross_start_failed") then
+                        self:abandonCurrentDecision(ticks, "window_cross_failed")
+                    end
                 end
                 return
             end
@@ -7518,6 +7625,8 @@ function Controller:tick(ticks)
                 self:continueBaseResourceRun(ticks, false)
                 return
             end
+            if (self.state == "MOVING_TO_WINDOW_ENTRY" or self.state == "CROSSING_WINDOW_ENTRY")
+                and self:retryWindowDetour(ticks, movement) then return end
             if Controller.isEntryTraversalFailure(movement)
                 and (self.state == "MOVING_TO_SUPPLY"
                     or self.state == "MOVING_TO_EXPLORE") then

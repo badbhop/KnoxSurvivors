@@ -383,7 +383,8 @@ function Panel:prerender()
         local textX = OUTER_PADDING + self.portraitSize + 5
         local textRight = self.width - OUTER_PADDING - 5
         local textWidth = math.max(30, textRight - textX)
-        local order = snapshot.order == "hold" and "HOLD" or "FOLLOW"
+        local order = snapshot.order == "hold" and "HOLD"
+            or (snapshot.order == "relax" and "RELAX" or "FOLLOW")
         local badgeWidth = getTextManager():MeasureStringX(UIFont.Small, order) + 8
         self:drawRect(textRight - badgeWidth, y + 5, badgeWidth, self.smallFontHeight + 2,
             0.78, 0.14, 0.14, 0.14)
@@ -400,9 +401,12 @@ function Panel:prerender()
         end
         self:drawText(trimText(UIFont.Small, status, textWidth), textX,
             y + 8 + self.mediumFontHeight, 0.72, 0.72, 0.70, 1, UIFont.Small)
-        self:drawText(trimText(UIFont.Small, snapshot.weaponName, textWidth), textX,
+        local detail = snapshot.needSummary ~= nil and ("Needs: " .. snapshot.needSummary)
+            or snapshot.weaponName
+        self:drawText(trimText(UIFont.Small, detail, textWidth), textX,
             y + 10 + self.mediumFontHeight + self.smallFontHeight,
-            0.62, 0.62, 0.60, 1, UIFont.Small)
+            snapshot.needSummary ~= nil and 0.95 or 0.62,
+            snapshot.needSummary ~= nil and 0.76 or 0.62, 0.60, 1, UIFont.Small)
 
         local barY = y + self.rowHeight - BAR_HEIGHT - 5
         local gap = 4

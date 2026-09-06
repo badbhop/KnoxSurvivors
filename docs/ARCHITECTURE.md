@@ -16,6 +16,14 @@ Project Zomboid owns the active `IsoPlayer` representation and normal world mech
 
 ## Runtime layers
 
+Automatic follower self-care excursions share the existing movement owner and a
+short leader-relative safety envelope. They are not persisted orders; ordinary
+Follow/Hold/group duties survive rejection or cancellation. Entrance attempts are
+similarly scoped to one pending container search, with a bounded object-keyed
+history. Forced window entry uses native timed actions and verified world state.
+Settlement discovery caches are runtime-only, keyed by base object and worker;
+they never replace real resources or persist claims beyond the task board.
+
 Passenger vehicle orders take a temporary lease over their exact native timed actions.
 `KS_CompanionVehicles` reserves a seat only for the queued request; `KS_SurvivorRuntime`
 hands off through the existing controller interruption boundary before queueing.

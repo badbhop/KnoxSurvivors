@@ -1,5 +1,58 @@
 # Feature-completion audit
 
+### Building entry, escorted needs and settlement upkeep — 2026-09-06
+
+**Implemented and offline verified; integrated live acceptance remains pending.**
+
+- Supply/building-search entry recovery previously allowed only one alternate
+  entrance. It now remembers distinct attempted objects for the current search,
+  tries other usable windows, and bounds the search to eight attempts. Closed
+  windows receive a native open attempt regardless of lock metadata. A verified
+  failed open may become a last-resort native smash only for an actual survival
+  shortage, after remaining non-destructive alternatives. Protected structures,
+  barricades and insufficient endurance still reject forced entry. Native action
+  completion alone is insufficient: the window must actually be smashed before
+  crossing. Failed detours can select another entrance without abandoning the
+  original container goal. This is not a new general-purpose building router.
+- Exact installed IsoPlayer bytecode rejects canClimbOverWall immediately while
+  sprinting. Knox checked before releasing sprint approach input. Wall handling
+  now stops approach input and faces the edge before asking the native predicate.
+  Non-climbable geometry, roof restrictions and native climb outcomes remain
+  authoritative. Opened/smashed entrances can be reevaluated during old edge
+  cooldowns, while unchanged obstacles remain suppressed.
+- Automatic follower need searches now allow only short clear detours: at most
+  four tiles from the actor and six from the leader, same floor, no recent nearby
+  perceived threat. Missing/unloaded leaders and Hold reject excursions. Supply
+  and furniture approaches revalidate while travelling; leader departure cancels
+  the temporary route, retaining the underlying order and real need. Nearby
+  independent group followers share these limits. Assigned base logistics and
+  explicit companion supply orders retain their existing authority. Needs remain
+  unresolved when nothing safe is available; no supplies or healing are invented.
+- HUD/card now expose concurrent food, water, bleeding, endurance and rest needs
+  separately from current activity. Busy/looting status no longer hides shortages.
+  Relax displays its own badge. Unknown vitals are explicitly unknown.
+- Base claim reconciliation moved its deadline forward on every poll and could
+  therefore never run again during frequent activity. It now retains the actual
+  last reconciliation time. World-backed job discovery has a two-second lease
+  per worker; depot discovery is shared per base. Changed task state, clock rollback
+  and recreated base objects invalidate caches. Cache keys are weak and transient;
+  inventory/skill differences between workers are not merged. A ten-poll regression
+  reduces identical worker discovery from eleven calls to one, without claiming
+  a measured in-game FPS improvement.
+
+Verification: 91 executable Lua test scripts; focused entry/escort, native-action
+completion, needs projection, discovery counting and reconciliation-deadline cases;
+affected Lua syntax; Java check/build and transformer/runtime verifiers; Workshop
+staging including refreshed agent checksum. Existing group/faction, population,
+camp, job and persistence regression scripts remain green. No save schema changes.
+
+Pending live: multiple locked windows and real smash/climb animations; sprint
+approach to a native climbable tall wall; moving-leader supply/rest cancellation;
+HUD at alternate font/scaling settings; group formation and sustained real base
+work under normal gameplay. No new public release or Workshop upload performed.
+Launcher protocol/package paths are unchanged; this requires the updated Workshop
+Java payload and a game restart, not a launcher code patch.
+
 ### Active combat decision starvation — 2026-09-06
 
 **Implemented, offline verified; live crowded-combat acceptance deferred.**

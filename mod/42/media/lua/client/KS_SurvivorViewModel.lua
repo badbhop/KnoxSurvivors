@@ -287,6 +287,19 @@ local function runtimeActivity(id)
     return ACTIVITY_LABELS[tostring(snapshot.activity or "")]
 end
 
+local function needSummary(state, available, alive)
+    if not alive then return nil end
+    if not available then return "Unknown" end
+    local labels = {}
+    local thresholds = KnoxSurvivorNeeds.thresholds
+    if (tonumber(state.bleedingParts) or 0) > 0 then labels[#labels + 1] = "Bleeding" end
+    if (tonumber(state.thirst) or 0) >= thresholds.thirst then labels[#labels + 1] = "Water" end
+    if (tonumber(state.hunger) or 0) >= thresholds.hunger then labels[#labels + 1] = "Food" end
+    if (tonumber(state.endurance) or 1) <= thresholds.lowEndurance then labels[#labels + 1] = "Catch breath" end
+    if (tonumber(state.fatigue) or 0) >= thresholds.fatigue then labels[#labels + 1] = "Sleep / rest" end
+    return #labels > 0 and table.concat(labels, ", ") or nil
+end
+
 local function activityFor(duty, state, loaded, alive, currentActivity)
     if not alive then
         return "Dead"
@@ -418,6 +431,7 @@ function ViewModel.getSurvivor(id, playerNum)
         orderLabel = orderLabelFor(duty, id),
         order = tostring(duty.order or "survive"),
         activity = activityFor(duty, state, character ~= nil, alive, currentActivity),
+        needSummary = needSummary(state, vitalsAvailable, alive),
         lifeIntent = lifeIntent ~= nil and {
             kind = lifeIntent.kind,
             phase = lifeIntent.phase,

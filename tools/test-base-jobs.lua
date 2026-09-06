@@ -675,4 +675,32 @@ assert(string.find(controllerSource, "function Controller:suspendBaseTaskForThre
     and string.find(controllerSource, 'self:suspendBaseTaskForThreat("combat_interrupt")', 1, true)
     and string.find(controllerSource, 'self:suspendBaseTaskForThreat("survival_flee")', 1, true),
     "temporary threat interruption must preserve the resident base-task claim")
-print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true animal_care=true repairs=true construction=true target_resolution=true kahlua_requirements=true")
+-- Count actual discovery calls while continuously polling an unchanged base.
+depotTransfer, corpseTarget, animalTarget, repairTarget, constructionTarget = nil, nil, nil, nil, nil
+local quietBase = {id = 'quiet-base', zones = {}, tasks = {}}
+local workerA, workerB = {}, {}
+local millis, discoveries, depotDiscoveries = 1000, 0, 0
+getTimestampMs = function() return millis end
+KnoxBaseFarming.findTask = function() discoveries = discoveries + 1; return nil end
+KnoxBaseStorage.findTransfer = function() depotDiscoveries = depotDiscoveries + 1; return nil end
+local reconciledBefore = reconcileCalls
+jobs.prepareWorkforce(quietBase, workerA, 100)
+for i = 1, 10 do jobs.prepareWorkforce(quietBase, workerA, 100 + i * 0.02) end
+assert(discoveries == 1 and depotDiscoveries == 1, 'repeated worker polling coalesces world discovery')
+assert(reconcileCalls == reconciledBefore + 1)
+jobs.prepareWorkforce(quietBase, workerB, 100.21)
+assert(discoveries == 2 and depotDiscoveries == 1, 'different worker gets capability-specific discovery, shared depot does not rescan')
+jobs.prepareWorkforce(quietBase, workerA, 100.26)
+assert(reconcileCalls == reconciledBefore + 2, 'frequent calls must not postpone claim reconciliation forever')
+local beforeExpiry = discoveries
+millis = 3100
+jobs.prepareWorkforce(quietBase, workerA, 100.27)
+assert(discoveries == beforeExpiry + 1, 'new world/inventory work is rediscovered within two seconds')
+quietBase.tasks.changed = {id = 'changed', state = 'claimed', type = 'guard', claimedBy = 'other'}
+local beforeChange = discoveries
+jobs.prepareWorkforce(quietBase, workerA, 100.28)
+assert(discoveries == beforeChange + 1, 'task ownership changes invalidate cached discovery')
+local beforeReload = discoveries
+jobs.prepareWorkforce({id = quietBase.id, zones = {}, tasks = {}}, workerA, 100.28)
+assert(discoveries == beforeReload + 1, 'restored base object cannot inherit old runtime leases')
+print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true discovery_bounded=true reconciliation_not_starved=true")

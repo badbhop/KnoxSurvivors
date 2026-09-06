@@ -890,7 +890,7 @@ function BaseJobs.selectEligibleTask(tasks, survivorId, baseId, preference, canP
     return nil, nil
 end
 
-local workforcePreparation = {}
+local workforcePreparation = setmetatable({}, { __mode = "k" })
 
 local function workforceSignature(base)
     local parts = {}
@@ -920,25 +920,37 @@ function BaseJobs.prepareWorkforce(base, character, now)
     if base == nil then return false end
     now = tonumber(now) or worldAge()
     local signature = workforceSignature(base)
-    local cached = workforcePreparation[tostring(base.id or base)]
+    local cached = workforcePreparation[base]
     local recent = cached ~= nil and cached.signature == signature
         and now >= (cached.atHours or 0)
         and now - (cached.atHours or 0) < 0.25
     if not recent and KnoxPersistence.reconcileBaseTaskClaims ~= nil then
         KnoxPersistence.reconcileBaseTaskClaims(base.id, now)
     end
-    -- World-backed finders intentionally run every call. A new corpse, crop,
-    -- repair target, or storage transfer can appear without changing the
-    -- persisted task signature, so discovery must not be hidden behind the
-    -- reconciliation throttle.
-    ensureDepotTask(base, now)
-    ensureFarmingTask(base, now, character)
-    ensureWoodcuttingTask(base, now, character)
-    ensureCorpseTask(base, now, character)
-    ensureAnimalCareTask(base, now, character)
-    ensureRepairTask(base, now, character)
-    ensureConstructionTask(base, now, character)
-    ensureBarricadeTask(base, now, character)
+    -- Settlement-wide depot discovery and character-sensitive work discovery
+    -- have a short real-time lease, not the long claim-reconciliation cadence.
+    -- Different workers still inspect their own capabilities/resources. A new
+    -- world object or inventory change becomes visible within two seconds.
+    local discovery = cached ~= nil and cached.discovery
+        or setmetatable({}, { __mode = "k" })
+    local clock = getTimestampMs ~= nil and tonumber(getTimestampMs()) or nil
+    local lastDiscovery = character ~= nil and discovery[character] or nil
+    local discover = not recent or clock == nil or lastDiscovery == nil
+        or clock < lastDiscovery or clock - lastDiscovery >= 2000
+    local discoverDepot = not recent or clock == nil or cached.depotAt == nil
+        or clock < cached.depotAt or clock - cached.depotAt >= 2000
+    if discoverDepot then ensureDepotTask(base, now) end
+    local depotAt = discoverDepot and clock or (cached ~= nil and cached.depotAt or nil)
+    if discover then
+        ensureFarmingTask(base, now, character)
+        ensureWoodcuttingTask(base, now, character)
+        ensureCorpseTask(base, now, character)
+        ensureAnimalCareTask(base, now, character)
+        ensureRepairTask(base, now, character)
+        ensureConstructionTask(base, now, character)
+        ensureBarricadeTask(base, now, character)
+        if character ~= nil and clock ~= nil then discovery[character] = clock end
+    end
     for _, zone in ipairs(sortedZones(base)) do
         local existing = taskForZone(base, zone)
         if existing ~= nil then
@@ -964,8 +976,9 @@ function BaseJobs.prepareWorkforce(base, character, now)
             end
         end
     end
-    workforcePreparation[tostring(base.id or base)] = {
-        signature = workforceSignature(base), atHours = now,
+    workforcePreparation[base] = {
+        signature = workforceSignature(base), atHours = recent and cached.atHours or now,
+        discovery = discovery, depotAt = depotAt,
     }
     return true
 end

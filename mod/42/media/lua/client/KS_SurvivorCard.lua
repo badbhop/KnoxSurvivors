@@ -195,6 +195,7 @@ function KnoxPanel:prerender()
         status = status .. " (" .. tostring(math.floor(snapshot.distanceTiles + 0.5)) .. " tiles)"
     end
     keyValue("Activity", status)
+    keyValue("Needs", snapshot.needSummary or "None urgent")
     y = y + 4
     sectionHeader("Relationship")
     keyValue("Faction", snapshot.factionName or "None")

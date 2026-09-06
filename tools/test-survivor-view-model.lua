@@ -139,6 +139,17 @@ assert(loaded.vitals.health == 0.65)
 assert(loaded.vitals.hunger == 0.8)
 assert(math.abs(loaded.needs.food - 0.2) < 0.000001)
 assert(loaded.locationLabel == "With you - 5 tiles")
+assert(loaded.needSummary == 'Bleeding, Food', 'needs stay visible while another activity is active')
+local originalNeedsSnapshot = KnoxSurvivorNeeds.snapshot
+KnoxSurvivorNeeds.snapshot = function() return {
+    health = 100, bleedingParts = 0, hunger = 0.8, thirst = 0.8, fatigue = 0.9, endurance = 0.1,
+} end
+assert(viewModel.getSurvivor('survivor-1', 0).needSummary == 'Water, Food, Catch breath, Sleep / rest')
+KnoxSurvivorNeeds.snapshot = function() return {
+    health = 100, bleedingParts = 0, hunger = 0, thirst = 0, fatigue = 0, endurance = 1,
+} end
+assert(viewModel.getSurvivor('survivor-1', 0).needSummary == nil, 'healthy survivor does not show false alarms')
+KnoxSurvivorNeeds.snapshot = originalNeedsSnapshot
 
 loaded.affiliation.kind = "changed"
 assert(affiliation.kind == "player")

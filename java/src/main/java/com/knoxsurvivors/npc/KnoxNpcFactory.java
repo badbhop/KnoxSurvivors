@@ -602,7 +602,12 @@ final class KnoxNpcFactory {
             return blocked ? "FAILED_BLOCKED_DIAGONAL" : "CLEAR";
         }
 
-        if (npc.isTraversalCoolingDown(
+        Object door = invoke(currentSquare, "getDoorTo", currentSquare.getClass(), nextSquare);
+        Object window = invoke(currentSquare, "getWindowTo", currentSquare.getClass(), nextSquare);
+        boolean entryChanged = door != null && (Boolean) invoke(door, "IsOpen")
+            || window != null && !(Boolean) invoke(window, "isBarricaded")
+                && ((Boolean) invoke(window, "IsOpen") || (Boolean) invoke(window, "isSmashed"));
+        if (!entryChanged && npc.isTraversalCoolingDown(
             currentX,
             currentY,
             currentZ,
@@ -613,7 +618,6 @@ final class KnoxNpcFactory {
             return "FAILED_EDGE_COOLDOWN";
         }
 
-        Object door = invoke(currentSquare, "getDoorTo", currentSquare.getClass(), nextSquare);
         if (door != null) {
             npc.useTraversalInteractionTarget(door);
             boolean open = (Boolean) invoke(door, "IsOpen");
@@ -641,7 +645,6 @@ final class KnoxNpcFactory {
             return (Boolean) invoke(door, "IsOpen") ? "OPENING_DOOR" : "FAILED_LOCKED_DOOR";
         }
 
-        Object window = invoke(currentSquare, "getWindowTo", currentSquare.getClass(), nextSquare);
         if (window != null) {
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
@@ -808,6 +811,14 @@ final class KnoxNpcFactory {
             npc.useTraversalInteractionTarget(wallHoppable);
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
+            }
+            // IsoPlayer.canClimbOverWall rejects sprinting before checking the
+            // wall. Release approach input first, just as a player must stop
+            // sprinting to climb; retain all native safety/fitness checks.
+            clearHumanMovementIntent(body);
+            invoke(body, "faceDirection", classFor(body, "zombie.iso.IsoDirections"), direction);
+            if ((Boolean) invoke(body, "shouldBeTurning")) {
+                return "TURNING_TO_WALL";
             }
             boolean canClimb = (Boolean) invoke(
                 body,
