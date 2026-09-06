@@ -13,6 +13,7 @@ local TALK_GAIN = 8
 local TALK_COOLDOWN_HOURS = 0.5
 local RECRUIT_REFUSAL_COOLDOWN_HOURS = 0.5
 local INTERACTION_DISTANCE_SQUARED = 16
+local syncCache = {}
 
 local TALK_LINES = {
     "Been keeping out of trouble?",
@@ -1100,7 +1101,31 @@ function CompanionService.syncController(survivorId, controller)
     end
     if controller.setWeaponPreference ~= nil then
         local policies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
+        local mode = duty ~= nil and duty.mode or "independent"
+        local owner = duty ~= nil and duty.ownerId or ""
+        local order = duty ~= nil and duty.order or ""
+        local stance = duty ~= nil and duty.combatStance or ""
+        local directive = duty ~= nil and tostring(duty.directive) or ""
+        local climbing = policies.allowClimbing ~= false and "1" or "0"
+        local roster = ""
+        if duty ~= nil and duty.mode == "companion" then
+            local ids = KnoxPersistence.getCompanionIds(duty.ownerId) or {}
+            local parts = {}
+            for _, id in ipairs(ids) do parts[#parts + 1] = tostring(id) end
+            roster = table.concat(parts, ",")
+        end
+        local cacheKey = table.concat({
+            tostring(controller), tostring(mode), tostring(owner), tostring(order),
+            tostring(stance), directive, roster, tostring(policies.weaponPreference or "auto"), climbing,
+        }, "|")
+        local previousKey = syncCache[survivorId]
+        if previousKey == cacheKey then
+            return
+        end
+        syncCache[survivorId] = cacheKey
         controller:setWeaponPreference(policies.weaponPreference)
+    else
+        syncCache[survivorId] = nil
     end
     local bridge = rawget(_G, "KnoxJavaBridge")
     if bridge ~= nil and bridge.setNpcPartyVisible ~= nil then

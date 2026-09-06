@@ -6281,6 +6281,14 @@ The ignored Windows launcher archive was rebuilt locally with `tools/build-launc
 the JVM-option compatibility change. The repeatable build/verify step produces the release
 archive without committing machine-specific binaries.
 
+### Companion synchronization hot-path cache — 2026-09-05
+
+`syncController` was reapplying weapon, party visibility, formation, order, stance, policy, and
+directive setters for every active survivor on every tick. It now fingerprints the authoritative
+duty/policy/roster state and skips unchanged synchronization while still invalidating when a
+controller, order, roster, stance, policy, or directive changes. The new source guard plus all 87
+Lua tests and syntax checks pass; live frame pacing remains pending.
+
 ### Awareness hot-path batching — 2026-09-05
 
 Zombie awareness was resolving every active controller, square, death state, and native attack
