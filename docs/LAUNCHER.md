@@ -79,6 +79,10 @@ are not generated or overwritten by this task.
 Steam then keeps Lua and Java runtime versions in the same subscribed item. The launcher
 itself only needs a new GitHub release when launcher discovery or validation code changes.
 
+After launcher source changes, `tools/build-launcher.ps1` rebuilds and verifies the Windows
+archive under `launcher/artifacts/`. Those generated archives remain ignored build output; publish
+them only through the separate launcher release workflow.
+
 The mod source repository can remain private: neither discovery nor launch downloads
 anything from it. Linux/macOS builds and command fixtures are automated checks, not
 proof that a real game installation has launched on those platforms.

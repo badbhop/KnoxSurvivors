@@ -6276,3 +6276,7 @@ The off-slot health panel's child list/body-part controls could still forward ri
 Build 42's local-player context-menu path even after the parent callback was disabled. Both child
 callbacks are now suppressed for the read-only survivor card. The UI regression test, full Lua
 suite (86 tests), and syntax scan pass; confirmation in a fresh game session remains pending.
+
+The ignored Windows launcher archive was rebuilt locally with `tools/build-launcher.ps1` after
+the JVM-option compatibility change. The repeatable build/verify step produces the release
+archive without committing machine-specific binaries.
