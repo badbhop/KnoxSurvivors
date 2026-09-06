@@ -172,6 +172,7 @@ local scoutOrigin = assert(KnoxWorldPopulation.nearestScoutingOrigin(
 assert(scoutOrigin.key ~= "100,100,0" and scoutOrigin.z == 0,
     "faction scouting chooses a different same-floor real origin")
 
+SandboxVars.KnoxSurvivors.PopulationRefillDays = 0
 local firstInitialBatch = KnoxWorldPopulation.maintain(10, {
     players = { player }, initialAllocationBudget = 2,
 })
@@ -192,6 +193,10 @@ assert(#initialized.addedIds == 2 and initialized.living == 6,
     "initial population reaches target without one unbounded pass")
 local initialAddedIds = KnoxPersistence.getLivingWorldSurvivorIds()
 assert(#initialAddedIds == 6, "all initial batches retain their durable identities")
+assert(KnoxPersistence.getPopulationState().nextRefillHours == 0
+    and KnoxWorldPopulation.maintain(10).status == "refill_disabled",
+    "disabling refill preserves the full bounded initial population")
+SandboxVars.KnoxSurvivors.PopulationRefillDays = 3
 
 local regionCounts = {}
 local used = {}
@@ -378,6 +383,25 @@ local unloaded, unloadedReason = KnoxWorldPopulation.activationCandidate(
 assert(unloaded == nil and unloadedReason == "saved_square_not_loaded",
     "saved survivor waits instead of falling back to origin")
 
+SandboxVars.KnoxSurvivors.WorldPopulation = 1
+local finiteLiving = #KnoxPersistence.getLivingWorldSurvivorIds()
+SandboxVars.KnoxSurvivors.PopulationRefillDays = 0
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
+local finite = KnoxWorldPopulation.maintain(99)
+assert(finite.status == "refill_disabled" and #finite.addedIds == 0
+    and finite.nextRefillHours == 0,
+    "finite population suppresses uncapped arrivals and clears old deadlines")
+SandboxVars.KnoxSurvivors.DisableSurvivorCaps = false
+SandboxVars.KnoxSurvivors.WorldPopulation = finiteLiving + 1
+assert(KnoxWorldPopulation.maintain(99999).status == "refill_disabled"
+    and #KnoxPersistence.getLivingWorldSurvivorIds() == finiteLiving,
+    "finite population never replaces losses, even after a large time skip")
+SandboxVars.KnoxSurvivors.PopulationRefillDays = 3
+local resumed = KnoxWorldPopulation.maintain(100000)
+assert(resumed.status == "waiting" and resumed.nextRefillHours == 100072,
+    "re-enabling arrivals starts a full interval with no accumulated catch-up")
+assert(#KnoxWorldPopulation.maintain(100071).addedIds == 0,
+    "re-enabled replacement waits until the full interval has passed")
 SandboxVars.KnoxSurvivors.WorldPopulation = 1
 local oldLiving = #KnoxPersistence.getLivingWorldSurvivorIds()
 assert(KnoxWorldPopulation.maintain(100).status == "at_target", "configured target still limits ordinary refill")

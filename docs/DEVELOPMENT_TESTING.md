@@ -1,5 +1,24 @@
 # Development testing
 
+## Repeatable offline verification
+
+Run `./tools/verify.ps1` from PowerShell. It checks every mod Lua source with Lua 5.1,
+runs every `tools/test-*.lua` script, then runs Java check/build. All checks run even
+if an earlier test fails; the command exits nonzero on any failure. Per-check output
+and `summary.json` are written to the ignored `build/verification` directory.
+Use `-Lua` and `-Luac` for explicit interpreter paths, `-GameDirectory` when native
+Lua fixtures need a non-default game installation, or `-SkipJava` for a focused Lua
+pass (the summary records that omission). This does not stage, deploy or start a game.
+
+The [replacement-quality delivery gates](RELEASE_QUALITY.md) define the integrated
+acceptance order. For the current additions, check paired and single-file followers
+at spacing 1 and 3 through doorways and turns; no movement to an unloaded/blocked
+slot or leader tile should be issued. Verify injured companions show both current
+activity and needs. Try boarding while native actions cannot start, then retry when
+available: no phantom seat reservation or queued duplicate should remain. A save
+with refill days 0 retains its initial people but never replaces routine population
+losses; enabling refill later waits a full configured interval.
+
 Java Gradle verifiers write diagnostics to `java/build/verification-logs/<task>/`
 instead of the player's `Zomboid/KnoxIsoPlayer.log`. Synthetic failure cases are
 expected there. Use game `console.txt` and the normal agent log for live evidence;

@@ -139,8 +139,21 @@ assert(loaded.vitals.health == 0.65)
 assert(loaded.vitals.hunger == 0.8)
 assert(math.abs(loaded.needs.food - 0.2) < 0.000001)
 assert(loaded.locationLabel == "With you - 5 tiles")
+assert(loaded.activity == "Looting", "injury must not hide the survivor's actual activity")
 assert(loaded.needSummary == 'Bleeding, Food', 'needs stay visible while another activity is active')
 local originalNeedsSnapshot = KnoxSurvivorNeeds.snapshot
+KnoxSurvivorNeeds.snapshot = function() return {
+    health = 65, bleedingParts = 0, hunger = 0, thirst = 0, fatigue = 0, endurance = 1,
+} end
+assert(viewModel.getSurvivor('survivor-1', 0).needSummary == 'Hurt',
+    'non-bleeding injury remains visible alongside activity')
+local originalRuntimeSnapshot = KnoxSurvivorRuntime.snapshot
+for activity, label in pairs({ fighting = "Fighting", resting = "Resting", following = "Following" }) do
+    KnoxSurvivorRuntime.snapshot = function() return {activity = activity} end
+    assert(viewModel.getSurvivor('survivor-1', 0).activity == label,
+        'injury must not obscure ' .. activity)
+end
+KnoxSurvivorRuntime.snapshot = originalRuntimeSnapshot
 KnoxSurvivorNeeds.snapshot = function() return {
     health = 100, bleedingParts = 0, hunger = 0.8, thirst = 0.8, fatigue = 0.9, endurance = 0.1,
 } end
@@ -175,6 +188,15 @@ end
 local resident = viewModel.getSurvivor("survivor-1", 0)
 assert(resident.orderLabel == "Plant Crops",
     "base resident status should project the claimed canonical task")
+for kind, label in pairs({ find_water = "Find Water", find_food = "Find Food",
+    find_medical = "Find Medical Supplies", find_weapon = "Find Better Weapon", find_tools = "Find Useful Tools" }) do
+    duty.baseSupplyOrder = { kind = kind, attempts = 0 }
+    assert(viewModel.getSurvivor("survivor-1", 0).orderLabel == label,
+        "explicit resident supply order must be visible even before its task is claimed: " .. kind)
+end
+duty.baseSupplyOrder = nil
+assert(viewModel.getSurvivor("survivor-1", 0).orderLabel == "Plant Crops",
+    "clearing a supply order restores the claimed base task label")
 
 assert(resident.locationLabel == "Outside Home Base")
 KnoxBaseManager = { containsSquare = function() return true end }
@@ -192,4 +214,14 @@ KnoxPersistence.getSurvivorLifeIntent = function() return nil end
 KnoxPersistence.getUnloadedSurvivalState = function() return {activity = "returning_to_base"} end
 assert(viewModel.getSurvivor("survivor-1", 0).activity == "Returning to base",
     "real unloaded runtime snapshot must allow persisted activity projection")
+KnoxPersistence.getSurvivorLifeIntent = function() return {kind = "find_food"} end
+for activity, label in pairs({
+    returning_to_base = "Returning to base", sleeping = "Sleeping", resting = "Resting",
+    base_working = "Working at base", waiting_for_leader = "Waiting for leader",
+    away_mission = "On a mission", seeking_supplies = "Looking for food",
+}) do
+    KnoxPersistence.getUnloadedSurvivalState = function() return {activity = activity} end
+    assert(viewModel.getSurvivor("survivor-1", 0).activity == label,
+        "persisted activity must take precedence over an old intent: " .. activity)
+end
 print("survivor view-model tests passed")

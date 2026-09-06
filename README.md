@@ -13,6 +13,12 @@ release and does not include this rebuild yet.
 
 ## Current rebuild
 
+For current implementation status use the [Feature Audit](docs/FEATURE_AUDIT.md).
+The [replacement-quality delivery plan](docs/RELEASE_QUALITY.md) puts integrated
+companion reliability, group travel and settlement survival ahead of broader driving
+and convoy work. Run `./tools/verify.ps1` for the complete offline regression pass;
+passing it does not establish in-game release readiness.
+
 The active three-survivor test currently covers:
 
 - persistent identity, appearance, clothing, bags, inventory, equipment, health, and needs;

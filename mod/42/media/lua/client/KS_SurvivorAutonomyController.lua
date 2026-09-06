@@ -305,11 +305,17 @@ local function findFormationTarget(anchor, follower, slotIndex)
     local slot = math.max(1, tonumber(slotIndex) or 1)
     local row = math.floor((slot - 1) / 2) + 1
     local side = slot % 2 == 1 and -1 or 1
+    local spacing = KnoxSettings ~= nil and KnoxSettings.followerSpacing ~= nil
+        and KnoxSettings.followerSpacing() or 1
+    if KnoxSettings ~= nil and KnoxSettings.followerFormation ~= nil
+        and KnoxSettings.followerFormation() == "single_file" then
+        row, side = slot, 0
+    end
     local lateralX = -forwardY
     local lateralY = forwardX
     local target = cell:getGridSquare(
-        anchorSquare:getX() - forwardX * row + lateralX * side,
-        anchorSquare:getY() - forwardY * row + lateralY * side,
+        anchorSquare:getX() + (-forwardX * row + lateralX * side) * spacing,
+        anchorSquare:getY() + (-forwardY * row + lateralY * side) * spacing,
         anchorSquare:getZ()
     )
     if target ~= nil and target ~= anchorSquare

@@ -201,6 +201,10 @@ local function orderLabelFor(duty, survivorId)
         return directiveLabel
     end
     if duty.mode == "base" then
+        local supplyOrder = type(duty.baseSupplyOrder) == "table" and duty.baseSupplyOrder or nil
+        local supplyLabel = supplyOrder ~= nil
+            and KnoxOrderCatalog.statusLabel(supplyOrder.kind, nil) or nil
+        if supplyLabel ~= nil then return supplyLabel end
         local task = claimedBaseTaskFor(survivorId, duty)
         if task ~= nil then
             return KnoxOrderCatalog.label(
@@ -269,6 +273,7 @@ local function runtimeActivity(id)
             and KnoxPersistence.getUnloadedSurvivalState(id) or nil
         local labels = {
             base_life = "Living at base",
+            base_working = "Working at base",
             group_travel = "Travelling with group",
             group_waiting = "Waiting for group",
             group_regrouping = "Regrouping",
@@ -282,7 +287,14 @@ local function runtimeActivity(id)
             waiting_for_leader = "Waiting for leader",
             away_mission = "On a mission",
         }
-        return intentLabel or (stored ~= nil and labels[stored.activity] or nil)
+        -- A life intent is a longer-term goal; it must not hide the current
+        -- rest, return, mission or base-work activity. It only refines an
+        -- active supply search (or supplies a fallback without known activity).
+        local storedActivity = stored ~= nil and stored.activity or nil
+        if storedActivity == "seeking_supplies" and intentLabel ~= nil then
+            return intentLabel
+        end
+        return labels[storedActivity] or intentLabel
     end
     return ACTIVITY_LABELS[tostring(snapshot.activity or "")]
 end
@@ -293,6 +305,9 @@ local function needSummary(state, available, alive)
     local labels = {}
     local thresholds = KnoxSurvivorNeeds.thresholds
     if (tonumber(state.bleedingParts) or 0) > 0 then labels[#labels + 1] = "Bleeding" end
+    if (tonumber(state.bleedingParts) or 0) == 0 and (tonumber(state.health) or 100) < 75 then
+        labels[#labels + 1] = "Hurt"
+    end
     if (tonumber(state.thirst) or 0) >= thresholds.thirst then labels[#labels + 1] = "Water" end
     if (tonumber(state.hunger) or 0) >= thresholds.hunger then labels[#labels + 1] = "Food" end
     if (tonumber(state.endurance) or 1) <= thresholds.lowEndurance then labels[#labels + 1] = "Catch breath" end
@@ -307,11 +322,11 @@ local function activityFor(duty, state, loaded, alive, currentActivity)
     if not loaded then
         return currentActivity or "Away"
     end
-    if (tonumber(state.bleedingParts) or 0) > 0 or (tonumber(state.health) or 100) < 75 then
-        return "Hurt"
-    end
     if currentActivity ~= nil then
         return currentActivity
+    end
+    if (tonumber(state.bleedingParts) or 0) > 0 or (tonumber(state.health) or 100) < 75 then
+        return "Hurt"
     end
     if (tonumber(state.thirst) or 0) >= KnoxSurvivorNeeds.thresholds.thirst then
         return "Needs water"

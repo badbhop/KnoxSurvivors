@@ -1,5 +1,45 @@
 # Feature-completion audit
 
+### Replacement-quality review, formations and sandbox coherence — 2026-09-06
+
+**Implemented; offline verification passes. Live acceptance remains pending.**
+
+- Passenger requests now verify that native queues accepted every action. Silent
+  rejection cancels partial sequences and releases reservations. Missing/throwing
+  action constructors fail before interrupting Follow. Regression executes the
+  installed native queue, including its refusal while asleep.
+- HUD/card projection shows current activity alongside injury needs. Resident
+  supply orders outrank stale base-task labels; known offscreen activity outranks
+  an old life intent. No simulated health or duty is changed by presentation.
+- Follower Formation selects the existing paired layout or a single-file column;
+  Follower Spacing selects 1–3 grid tiles per axis. Both feed the existing native
+  movement owner, slot refresh and blocked-tile recovery for groups and companions.
+  Defaults preserve existing positions. These are preferred positions, not new
+  obstacle routing, combat formations, convoy controls or autonomous driving.
+- Population Refill Days now accepts zero: initial allocation remains bounded and
+  complete, while routine replacement/uncapped arrivals stop. Existing identities
+  remain. Re-enabling starts a full interval without accumulated arrivals. Named
+  events retain their own controls. Invalid non-finite numeric settings fall back
+  to defaults. Effective encounter range retains a ten-tile band beyond minimum
+  spawn distance; faction capacity cannot be below its formation threshold.
+- The sibling launcher review fixes Windows batch argument quoting, trailing
+  backslash parsing, and rejects shell syntax/control characters in custom options.
+  Existing uncommitted launcher work was retained. Native batch-to-Java argument,
+  launcher and Windows bootstrap verifiers pass; archives were built locally.
+- `tools/verify.ps1` now runs all mod Lua syntax and regression checks plus Java
+  check/build, retains per-check output and a machine-readable summary, and fails
+  when any check fails. It does not deploy or run the game.
+
+See [Replacement quality](RELEASE_QUALITY.md) for ordered delivery and measurable
+acceptance gates. Next live case is one ordinary companion day through movement,
+needs, combat, passenger actions and save/reload; then small-group and settlement
+integration. Autonomous driving, sustained gameplay performance, full UI scaling
+and multi-day persistence remain unproven or unfinished. No public publication.
+
+Verification: 91 Lua regression scripts and 84 mod Lua syntax checks; Java check/build
+and runtime verifiers; launcher build and Windows bootstrap checks. No save schema
+changes. Latest collected gameplay run was inspected once and provides no new pass.
+
 ### Building entry, escorted needs and settlement upkeep — 2026-09-06
 
 **Implemented and offline verified; integrated live acceptance remains pending.**

@@ -234,6 +234,36 @@ local function followerController(id, slot)
 end
 
 local left = followerController("left", 1)
+-- Execute the actual controller route request with the real sandbox adapter.
+-- Missing settings in older saves retain the paired one-tile layout below.
+local priorSettings = KnoxSettings
+assert(loadfile(projectRoot .. "/mod/42/media/lua/client/KS_Settings.lua"))()
+SandboxVars = { KnoxSurvivors = { FollowerFormation = 2, FollowerSpacing = 2 } }
+local column = followerController("column", 3)
+assert(column:beginGroupFollow(10), "configured column starts native follow route")
+assert(captured.column:getX() == 4 and captured.column:getY() == 10,
+    "third single-file member trails by three configured intervals")
+leaderForwardX, leaderForwardY = 0, -1
+column = followerController("column-turn", 2)
+assert(column:beginGroupFollow(10))
+assert(captured["column-turn"]:getX() == 10 and captured["column-turn"]:getY() == 14,
+    "single-file layout rotates behind the leader")
+leaderForwardX, leaderForwardY = 1, 0
+SandboxVars.KnoxSurvivors.FollowerFormation = 1
+local spread = followerController("spread", 2)
+assert(spread:beginGroupFollow(10))
+assert(captured.spread:getX() == 8 and captured.spread:getY() == 12,
+    "paired spacing scales both trailing and lateral separation")
+-- An unavailable preferred tile still uses the ordinary bounded fallback.
+local normalLookup = cell.getGridSquare
+cell.getGridSquare = function() return nil end
+local blocked = followerController("blocked-column", 2)
+local movesBeforeBlocked = moveCount
+assert(not blocked:beginGroupFollow(10) and moveCount == movesBeforeBlocked,
+    "blocked slots never turn the leader's own tile into a destination")
+cell.getGridSquare = normalLookup
+SandboxVars = nil
+KnoxSettings = priorSettings
 local right = followerController("right", 2)
 local rear = followerController("rear", 3)
 assert(left:beginGroupFollow(10), "left formation movement")

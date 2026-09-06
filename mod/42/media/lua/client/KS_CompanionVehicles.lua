@@ -78,10 +78,22 @@ local function queueActions(character, vehicle, seat, actions)
         deadline = getTimestampMs() + ACTION_TIMEOUT_MS, health = health(character), actions = {} }
     for _, action in ipairs(actions) do request.actions[action] = true end
     pending[character] = request
-    local ok = pcall(function()
-        for _, action in ipairs(actions) do ISTimedActionQueue.add(action) end
+    local ok, queued = pcall(function()
+        for _, action in ipairs(actions) do
+            ISTimedActionQueue.add(action)
+            -- Native add can silently refuse an action (for example during
+            -- sleep). Never queue entry after a rejected path or report success
+            -- without the actual native action owning the character.
+            local queue = ISTimedActionQueue.queues[character]
+            local found = false
+            for _, queuedAction in ipairs(queue ~= nil and queue.queue or {}) do
+                if queuedAction == action then found = true; break end
+            end
+            if not found then return false end
+        end
+        return true
     end)
-    if not ok then
+    if not ok or not queued then
         CompanionVehicles.cancel(character)
         return false, "vehicle_action_failed"
     end
@@ -138,15 +150,20 @@ function CompanionVehicles.board(character, vehicle)
     if seat == nil then
         return false, "no_free_passenger_seat"
     end
-    local actions = {
-        ISPathFindAction:pathToVehicleSeat(character, vehicle, seat),
-        ISEnterVehicle:new(character, vehicle, seat),
-    }
-    local doorPart = vehicle:getPassengerDoor(seat)
-    if doorPart ~= nil and doorPart:getDoor() ~= nil and doorPart:getDoor():isOpen()
-        and ISCloseVehicleDoor ~= nil then
-        actions[#actions + 1] = ISCloseVehicleDoor:new(character, vehicle, doorPart)
-    end
+    -- Construct the complete sequence before interrupting the controller.
+    -- A missing path must not leave a sparse array that silently skips entry.
+    local built, actions = pcall(function()
+        local path = assert(ISPathFindAction:pathToVehicleSeat(character, vehicle, seat))
+        local enter = assert(ISEnterVehicle:new(character, vehicle, seat))
+        local result = { path, enter }
+        local doorPart = vehicle:getPassengerDoor(seat)
+        if doorPart ~= nil and doorPart:getDoor() ~= nil and doorPart:getDoor():isOpen()
+            and ISCloseVehicleDoor ~= nil then
+            result[#result + 1] = assert(ISCloseVehicleDoor:new(character, vehicle, doorPart))
+        end
+        return result
+    end)
+    if not built then return false, "vehicle_action_failed" end
     local queued, reason = queueActions(character, vehicle, seat, actions)
     if not queued then return false, reason end
     return true, "boarding_seat=" .. tostring(seat)
@@ -160,8 +177,9 @@ function CompanionVehicles.exit(character)
         return false, "vanilla_vehicle_actions_unavailable"
     end
     if CompanionVehicles.isBusy(character) then return false, "vehicle_action_pending" end
-    local queued, reason = queueActions(character, character:getVehicle(), nil,
-        { ISExitVehicle:new(character) })
+    local built, action = pcall(function() return assert(ISExitVehicle:new(character)) end)
+    if not built then return false, "vehicle_action_failed" end
+    local queued, reason = queueActions(character, character:getVehicle(), nil, { action })
     if not queued then return false, reason end
     return true, "exiting"
 end

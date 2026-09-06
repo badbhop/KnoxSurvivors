@@ -31,6 +31,8 @@ assert(trustOptionAt ~= nil
 assert(string.find(sandboxEnglish, "Sandbox_KnoxSurvivors_RequireTrustForRecruitment", 1, true),
     "trust recruitment setting has player-facing English text")
 assertDefault("WorldPopulation", 48)
+assertDefault("FollowerFormation", 1)
+assertDefault("FollowerSpacing", 1)
 assertDefault("InitialGroupChance", 65)
 assertDefault("InitialGroupMaxSize", 4)
 assertDefault("InitialGroupCount", 3)
@@ -55,6 +57,8 @@ require "KS_Settings"
 
 assert(KnoxSettings.enabled(), "mod enabled default")
 assert(KnoxSettings.companionLimit() == 4, "companion limit default")
+assert(KnoxSettings.followerFormation() == "paired" and KnoxSettings.followerSpacing() == 1,
+    "old saves retain compact paired follow positions")
 assert(not KnoxSettings.requireTrustForRecruitment(), "trust requirement defaults off")
 assert(not KnoxSettings.capsDisabled(), "caps remain enabled by default")
 assert(KnoxSettings.worldPopulation() == 48, "balanced world population default")
@@ -120,6 +124,29 @@ assert(KnoxSettings.allowDestructiveDeveloperTests(), "destructive opt-in")
 SandboxVars.KnoxSurvivors.AllowNPCFactions = true
 SandboxVars.KnoxSurvivors.AllowHostileEncounters = true
 assert(KnoxSettings.allowFactionRaids(), "experimental raids remain available by explicit opt-in")
+
+SandboxVars.KnoxSurvivors.PopulationRefillDays = 0
+SandboxVars.KnoxSurvivors.FollowerFormation = 2
+SandboxVars.KnoxSurvivors.FollowerSpacing = 99
+assert(KnoxSettings.followerFormation() == "single_file" and KnoxSettings.followerSpacing() == 3,
+    "single-file preference and bounded separation are available")
+assert(KnoxSettings.populationRefillDays() == 0, "zero disables routine arrivals")
+SandboxVars.KnoxSurvivors.MinimumSpawnDistance = 150
+SandboxVars.KnoxSurvivors.SurvivorEncounterDistance = 120
+assert(KnoxSettings.survivorEncounterDistance() == 160,
+    "conflicting distances retain a hidden first-appearance band")
+SandboxVars.KnoxSurvivors.NPCFactionMinimumMembers = 8
+SandboxVars.KnoxSurvivors.NPCFactionMaxMembers = 3
+assert(KnoxSettings.npcFactionMaxMembers() == 8,
+    "faction capacity cannot be below its formation requirement")
+for _, malformed in ipairs({ 0 / 0, math.huge, -math.huge, "invalid", {} }) do
+    SandboxVars.KnoxSurvivors.WorldPopulation = malformed
+    SandboxVars.KnoxSurvivors.ActivationsPerUpdate = malformed
+    assert(KnoxSettings.worldPopulation() == 48 and KnoxSettings.activationsPerUpdate() == 2,
+        "malformed settings fall back to bounded balanced defaults")
+end
+SandboxVars.KnoxSurvivors.ActivationsPerUpdate = nil
+SandboxVars.KnoxSurvivors.WorldPopulation = nil
 
 SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
 assert(KnoxSettings.capsDisabled(), "explicit sandbox opt-in disables caps")

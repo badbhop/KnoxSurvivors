@@ -860,7 +860,7 @@ function WorldPopulation.maintain(worldAgeHours, options)
         formInitialGroups(startingIds, now, state)
         state.initialized = true
         state.lastTarget = target
-        if living < target or uncapped then
+        if refillHours > 0 and (living < target or uncapped) then
             state.belowTargetSinceHours = now
             state.nextRefillHours = now + refillHours
         else
@@ -873,6 +873,16 @@ function WorldPopulation.maintain(worldAgeHours, options)
     end
 
     state.lastTarget = target
+    -- Zero means a finite starting population, including in uncapped games.
+    -- Clear the old deadline so enabling arrivals later starts a full interval
+    -- rather than immediately replacing losses accumulated while disabled.
+    if refillHours == 0 then
+        state.belowTargetSinceHours = nil
+        state.nextRefillHours = 0
+        result.status = "refill_disabled"
+        result.nextRefillHours = 0
+        return result
+    end
     if living >= target and not uncapped then
         state.belowTargetSinceHours = nil
         state.nextRefillHours = 0

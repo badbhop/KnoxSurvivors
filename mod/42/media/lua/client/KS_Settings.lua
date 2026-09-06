@@ -14,6 +14,8 @@ local DEFAULTS = {
     MinimumSpawnDistance = 40,
     SurvivorEncounterDistance = 280,
     CompanionLimit = 4,
+    FollowerFormation = 1,
+    FollowerSpacing = 1,
     RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
     EnableKnoxEvents = false,
@@ -62,7 +64,11 @@ local function value(name)
 end
 
 local function integer(name, minimum, maximum)
-    local number = math.floor(tonumber(value(name)) or DEFAULTS[name])
+    local number = tonumber(value(name))
+    if number == nil or number ~= number or number == math.huge or number == -math.huge then
+        number = DEFAULTS[name]
+    end
+    number = math.floor(number)
     return math.max(minimum, math.min(maximum, number))
 end
 
@@ -107,7 +113,7 @@ function Settings.activationBudget(activeCount)
 end
 
 function Settings.populationRefillDays()
-    return integer("PopulationRefillDays", 1, 30)
+    return integer("PopulationRefillDays", 0, 30)
 end
 
 function Settings.minimumSpawnDistance()
@@ -115,7 +121,10 @@ function Settings.minimumSpawnDistance()
 end
 
 function Settings.survivorEncounterDistance()
-    return integer("SurvivorEncounterDistance", 120, 500)
+    -- Keep a usable hidden-spawn band even when independently valid settings
+    -- overlap. Never weaken the player's minimum appearance distance.
+    return math.max(integer("SurvivorEncounterDistance", 120, 500),
+        Settings.minimumSpawnDistance() + 10)
 end
 
 function Settings.companionLimit()
@@ -125,6 +134,14 @@ end
 
 function Settings.requireTrustForRecruitment()
     return value("RequireTrustForRecruitment") == true
+end
+
+function Settings.followerFormation()
+    return integer("FollowerFormation", 1, 2) == 2 and "single_file" or "paired"
+end
+
+function Settings.followerSpacing()
+    return integer("FollowerSpacing", 1, 3)
 end
 
 function Settings.allowNPCFactions()
@@ -144,7 +161,8 @@ function Settings.npcFactionMinimumMembers()
 end
 
 function Settings.npcFactionMaxMembers()
-    return integer("NPCFactionMaxMembers", 3, 24)
+    return math.max(Settings.npcFactionMinimumMembers(),
+        integer("NPCFactionMaxMembers", 3, 24))
 end
 
 function Settings.allowHostileEncounters()
