@@ -6280,3 +6280,12 @@ suite (86 tests), and syntax scan pass; confirmation in a fresh game session rem
 The ignored Windows launcher archive was rebuilt locally with `tools/build-launcher.ps1` after
 the JVM-option compatibility change. The repeatable build/verify step produces the release
 archive without committing machine-specific binaries.
+
+### Awareness hot-path batching — 2026-09-05
+
+Zombie awareness was resolving every active controller, square, death state, and native attack
+eligibility flag once per zombie during each scheduled pass. It now snapshots the active NPC set
+once per pass and reuses those entries for LOS/target selection, preserving the existing 15-tick
+cadence and close-combat refresh behavior while removing redundant hot-path calls. The dedicated
+awareness regression, all 86 Lua tests, and syntax checks pass; multi-NPC frame pacing remains a
+live performance verification item.

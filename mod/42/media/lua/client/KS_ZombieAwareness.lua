@@ -155,6 +155,24 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
         return
     end
 
+    -- Snapshot the small active NPC set once per awareness pass.  The old inner
+    -- loop repeatedly resolved controllers, squares, death state, and the native
+    -- attack gate for every zombie.  That multiplied hot-path work without
+    -- changing the decision.  A per-pass snapshot keeps the same LOS/target
+    -- semantics while avoiding redundant reflection-backed character calls.
+    local candidates = {}
+    local candidatesById = {}
+    for _, id in ipairs(orderedIds or {}) do
+        local controller = controllers ~= nil and controllers[id] or nil
+        local npc = controller ~= nil and controller.character or nil
+        if validNpc(npc) then
+            pcall(function() npc:setZombiesDontAttack(false) end)
+            local candidate = { id = id, npc = npc, square = npc:getCurrentSquare() }
+            candidates[#candidates + 1] = candidate
+            candidatesById[id] = candidate
+        end
+    end
+
     for zombieIndex = 0, zombies:size() - 1 do
         local zombie = zombies:get(zombieIndex)
         local zombieSquare = zombie ~= nil and zombie:getCurrentSquare() or nil
@@ -165,15 +183,12 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
             local nearestId = nil
             local nearestDistance = AWARENESS_RADIUS_SQUARED + 1
 
-            for _, id in ipairs(orderedIds or {}) do
-                local controller = controllers ~= nil and controllers[id] or nil
-                local npc = controller ~= nil and controller.character or nil
-                if validNpc(npc) then
-                    npc:setZombiesDontAttack(false)
+            for _, candidate in ipairs(candidates) do
+                local id, npc, npcSquare = candidate.id, candidate.npc, candidate.square
+                if npcSquare ~= nil then
                     if currentTarget == npc then
                         currentNpcId = id
                     end
-                    local npcSquare = npc:getCurrentSquare()
                     if npcSquare:getZ() == zombieSquare:getZ() then
                         local distance = distanceSquared(zombieSquare, npcSquare)
                         local visible = distance <= AWARENESS_RADIUS_SQUARED
@@ -208,10 +223,8 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
             local preferredId = rawget(_G, "KnoxCombatTestScenarios") ~= nil
                 and KnoxCombatTestScenarios.preferredNpcId ~= nil
                 and KnoxCombatTestScenarios.preferredNpcId(zombie) or nil
-            local preferredController = preferredId ~= nil and controllers[preferredId] or nil
-            local preferredSquare = preferredController ~= nil
-                and validNpc(preferredController.character)
-                and preferredController.character:getCurrentSquare() or nil
+            local preferredCandidate = preferredId ~= nil and candidatesById[preferredId] or nil
+            local preferredSquare = preferredCandidate ~= nil and preferredCandidate.square or nil
             if preferredSquare == nil or preferredSquare:getZ() ~= zombieSquare:getZ() then
                 preferredId = nil
             end
@@ -242,8 +255,8 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
             end
 
             if selectedId ~= nil then
-                local controller = controllers[selectedId]
-                local npc = controller ~= nil and controller.character or nil
+                local selectedCandidate = candidatesById[selectedId]
+                local npc = selectedCandidate ~= nil and selectedCandidate.npc or nil
                 local sameNativeTarget = validNpc(npc) and zombie:getTarget() == npc
                 local perceived = preferredId == selectedId or canSeeTarget(zombie, npc)
                 local shouldRefresh = not sameNativeTarget
@@ -261,9 +274,9 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                 else
                     rememberTarget(zombie, selectedId, ticks, perceived, false)
                 end
-                if validNpc(npc) and zombie:getTarget() == npc
+                if selectedCandidate ~= nil and zombie:getTarget() == npc
                     and perceived
-                    and distanceSquared(zombieSquare, npc:getCurrentSquare())
+                    and distanceSquared(zombieSquare, selectedCandidate.square)
                         <= CLOSE_ATTACK_REFRESH_RADIUS_SQUARED then
                     closeCombatTargets[zombie] = {
                         id = selectedId,
