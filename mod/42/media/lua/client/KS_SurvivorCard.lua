@@ -296,6 +296,8 @@ local function ensureViews(window)
         -- off-slot survivors have no valid menu slot, so suppress that path
         -- instead of allowing a vanilla nil-menu exception.
         view.doBodyPartContextMenu = function() end
+        if view.listbox ~= nil then view.listbox.onRightMouseUp = function() end end
+        if view.bodyPartPanel ~= nil then view.bodyPartPanel.onRightMouseUp = function() end end
         -- These vanilla menus own local-player UI panels and crash when their
         -- callback is invoked for an off-slot survivor. The survivor card is
         -- read-only; disable the callbacks as well as hiding their buttons.

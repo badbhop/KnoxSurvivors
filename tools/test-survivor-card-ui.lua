@@ -20,6 +20,9 @@ assert(string.find(source, 'CompanionInventory == nil or CompanionInventory.show
     "survivor card must fail safely when the inventory module is unavailable")
 assert(string.find(source, 'view.doBodyPartContextMenu = function() end', 1, true),
     "survivor card health view must remain read-only for off-slot characters")
+assert(string.find(source, 'view.listbox.onRightMouseUp = function() end', 1, true)
+    and string.find(source, 'view.bodyPartPanel.onRightMouseUp = function() end', 1, true),
+    "survivor card health child panels must not open local-player menus")
 assert(string.find(source, 'context.medicalCheck', 1, true),
     "survivor card must expose the shared medical-check shortcut")
 assert(string.find(source, 'progressBar.char = self.char', 1, true)

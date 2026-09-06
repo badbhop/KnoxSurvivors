@@ -6270,3 +6270,9 @@ Build 42's local-player body-part context menu with an invalid off-slot player i
 now binds the table returned by `require`, fails safely if it is unavailable, and suppresses
 the vanilla health context-menu path for this read-only view. The card and inventory regression
 tests, all 86 Lua tests, and Lua syntax checks pass. A live card click remains pending.
+### Survivor-card health child-menu guard — 2026-09-05
+
+The off-slot health panel's child list/body-part controls could still forward right-clicks into
+Build 42's local-player context-menu path even after the parent callback was disabled. Both child
+callbacks are now suppressed for the read-only survivor card. The UI regression test, full Lua
+suite (86 tests), and syntax scan pass; confirmation in a fresh game session remains pending.
