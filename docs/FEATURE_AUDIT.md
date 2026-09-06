@@ -1,5 +1,24 @@
 # Feature-completion audit
 
+### Active combat decision starvation — 2026-09-06
+
+**Implemented, offline verified; live crowded-combat acceptance deferred.**
+The general danger block advanced `nextThreatScan` before the active COMBAT block
+checked that same deadline. Consequently the scheduled reload-readiness check,
+invalid/irrelevant target release and urgent target replacement could never execute
+on a normal combat tick. Pure target-policy tests did not expose this integration
+defect. Both blocks now share a captured due flag; the deadline advances once,
+native combat still ticks between observations, and existing target commitment,
+role leash, preemption and movement handoff rules remain authoritative.
+
+The executable full-tick regression covers bounded reevaluation, continued native
+attack ticks, dead-target cleanup, reload handoff, preserved Hold and switching
+from a distant valid target to a close active attacker. All 90 Lua tests, affected
+Lua syntax, and Workshop staging pass. No Java or launcher changes required.
+Runtime crowd positioning, visible attack timing and post-combat travel still
+need the deferred integrated gameplay test; this fixes scheduling, not every
+movement or tactical behavior.
+
 ### Passenger action ownership and persisted activity — 2026-09-06
 
 **Implemented, offline verified; live convoy/vehicle animation acceptance deferred.**

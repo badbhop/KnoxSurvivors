@@ -5989,7 +5989,10 @@ function Controller:tick(ticks)
     end
 
     local traversalBusy = movementState and nativeTraversalBusy(self.character)
-    if ticks >= self.nextThreatScan and not traversalBusy then
+    -- Both danger evaluation and active-combat decisions consume this scheduled
+    -- observation. Advancing the deadline must not starve the combat branch.
+    local threatScanDue = ticks >= self.nextThreatScan and not traversalBusy
+    if threatScanDue then
         self.nextThreatScan = ticks + THREAT_SCAN_TICKS
         local stealthCrowd = self.state ~= "COMBAT" and self.state ~= "FLEEING"
             and shouldRemainStealthy(self)
@@ -6700,8 +6703,7 @@ function Controller:tick(ticks)
     end
 
     if self.state == "COMBAT" then
-        if ticks >= self.nextThreatScan then
-            self.nextThreatScan = ticks + THREAT_SCAN_TICKS
+        if threatScanDue then
             local firearmState, firearmResult = KnoxFirearmSupport.currentCombatState(
                 self.character
             )

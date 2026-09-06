@@ -667,4 +667,53 @@ assert(relaxFinished == 1 and relaxing.nextThink == 640,
 relaxing.companionOrder = "follow"
 relaxing:updateCompanionRelax(641)
 assert(relaxFinished == 2, "replacement order ends relax immediately")
+-- Exercise the full tick: general danger scanning must not consume the deadline
+-- before combat can check invalid targets, replacement threats and preparation.
+do
+    fleeingEnabled = false
+    zombies = {}
+    local decisions, nativeTicks, finished = 0, 0, 0
+    local mode = "ready"
+    KnoxFirearmSupport.currentCombatState = function()
+        decisions = decisions + 1
+        return mode, "test"
+    end
+    local combat = controller("scheduled")
+    local target = zombieAt(1, 0, character)
+    combat.state, combat.combatTarget = "COMBAT", target
+    combat.companionOrder = "hold"
+    combat.bridge = {
+        tickNpcCombat = function() nativeTicks = nativeTicks + 1; return "COMBAT_ATTACKING" end,
+        resetNpcCombat = function() end,
+    }
+    combat.finishDecision = function(self)
+        finished = finished + 1; self.state = "IDLE"
+    end
+    combat:tick(1000)
+    assert(decisions == 1 and nativeTicks == 1, "combat must share scheduled danger scan")
+    local deadline = combat.nextThreatScan
+    combat:tick(1001)
+    assert(decisions == 1 and nativeTicks == 2, "native combat ticks between bounded decisions")
+    target:setDead(true)
+    combat:tick(deadline)
+    assert(decisions == 2 and finished == 1 and combat.combatTarget == nil,
+        "invalid target cleanup must actually run in the full tick")
+    assert(combat.companionOrder == "hold", "combat cleanup preserves durable Hold")
+    mode = "reloading"
+    combat.state, combat.combatTarget = "COMBAT", zombieAt(1, 0, character)
+    combat:tick(combat.nextThreatScan)
+    assert(decisions == 3 and finished == 2 and combat.combatTarget == nil,
+        "scheduled reload handoff must release combat instead of starving")
+    mode = "ready"
+    local urgent = zombieAt(1, 0, character)
+    zombies = {urgent}
+    combat.state, combat.combatTarget = "COMBAT", zombieAt(5, 0, nil)
+    local replacement
+    combat.beginCombat = function(self, candidate)
+        replacement = candidate; self.combatTarget = candidate; self.state = "COMBAT"
+        return true
+    end
+    combat:tick(combat.nextThreatScan)
+    assert(replacement == urgent, "full tick must replace distant commitment with an immediate attacker")
+end
 print("combat intelligence focused tests passed")
