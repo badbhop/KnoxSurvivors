@@ -1,5 +1,17 @@
 # Feature-completion audit
 
+### Companion synchronization recovery — 2026-09-05
+
+Implemented; behavioral regression passes, live follow/base-supply verification pending.
+The recent synchronization cache recorded success before setters completed, ignored
+replacement player bodies/late Java bridge availability, and skipped base supply-trip
+reconciliation whenever persisted duty was unchanged. Cache entries now commit only
+after successful synchronization, compare the resolved player and bridge, and leave
+base reconciliation active. Weak controller keys release retired runtime entries.
+The regression executes the service with failure injection and covers retry, reverting
+after partial failure, unchanged-update suppression, roster changes, player replacement,
+late bridge availability, and base progress/replacement. No save schema or launcher change.
+
 This audit compares the current rebuild with the feature-complete goal. It is a
 current-state map, not a claim that passing standalone checks proves gameplay.
 

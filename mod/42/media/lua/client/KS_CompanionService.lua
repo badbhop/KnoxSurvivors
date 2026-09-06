@@ -13,7 +13,7 @@ local TALK_GAIN = 8
 local TALK_COOLDOWN_HOURS = 0.5
 local RECRUIT_REFUSAL_COOLDOWN_HOURS = 0.5
 local INTERACTION_DISTANCE_SQUARED = 16
-local syncCache = {}
+local syncCache = setmetatable({}, { __mode = "k" })
 
 local TALK_LINES = {
     "Been keeping out of trouble?",
@@ -1099,6 +1099,10 @@ function CompanionService.syncController(survivorId, controller)
         eventRuntime.syncController(survivorId, controller)
         duty = KnoxPersistence.getSurvivorDuty(survivorId)
     end
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    local player = duty ~= nil and duty.mode == "companion"
+        and CompanionService.resolvePlayer(duty.ownerId) or nil
+    local cacheKey
     if controller.setWeaponPreference ~= nil then
         local policies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
         local mode = duty ~= nil and duty.mode or "independent"
@@ -1118,21 +1122,25 @@ function CompanionService.syncController(survivorId, controller)
             for _, id in ipairs(ids) do parts[#parts + 1] = tostring(id) end
             roster = table.concat(parts, ",")
         end
-        local cacheKey = table.concat({
+        cacheKey = table.concat({
             tostring(controller), tostring(mode), tostring(owner), tostring(order),
             tostring(stance), directive, tostring(baseId), tostring(jobPreference),
             tostring(revision), supplyOrder, roster, tostring(policies.weaponPreference or "auto"), climbing,
         }, "|")
-        local previousKey = syncCache[survivorId]
-        if previousKey == cacheKey then
+        local previous = syncCache[controller]
+        -- Base assignment also reconciles an active supply trip. Its runtime
+        -- progress is not represented by the persisted duty fingerprint.
+        if mode ~= "base" and previous ~= nil and previous.key == cacheKey
+            and previous.player == player and previous.bridge == bridge then
             return
         end
-        syncCache[survivorId] = cacheKey
+        -- A failed setter must be retried, including when reverting to an older
+        -- duty after a partially applied update.
+        syncCache[controller] = nil
         controller:setWeaponPreference(policies.weaponPreference)
     else
-        syncCache[survivorId] = nil
+        syncCache[controller] = nil
     end
-    local bridge = rawget(_G, "KnoxJavaBridge")
     if bridge ~= nil and bridge.setNpcPartyVisible ~= nil then
         bridge:setNpcPartyVisible(survivorId, duty ~= nil and duty.mode == "companion")
     end
@@ -1149,7 +1157,7 @@ function CompanionService.syncController(survivorId, controller)
         end
         controller:setCompanionOrder(
             duty.ownerId,
-            CompanionService.resolvePlayer(duty.ownerId),
+            player,
             duty.order,
             formationSlot
         )
@@ -1184,6 +1192,9 @@ function CompanionService.syncController(survivorId, controller)
         if controller.setCompanionDirective ~= nil then
             controller:setCompanionDirective(nil)
         end
+    end
+    if cacheKey ~= nil then
+        syncCache[controller] = { key = cacheKey, player = player, bridge = bridge }
     end
 end
 
