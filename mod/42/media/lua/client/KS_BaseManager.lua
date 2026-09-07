@@ -26,16 +26,6 @@ BaseManager.ZONE_TYPES = {
 
 BaseManager.STORAGE_CATEGORIES = {
     depot = true,
-    general = true,
-    food = true,
-    water = true,
-    medical = true,
-    weapons = true,
-    ammunition = true,
-    tools = true,
-    building = true,
-    farming = true,
-    clothing = true,
 }
 
 local function worldAge()
@@ -606,6 +596,9 @@ function BaseManager.containerReference(object, requestedContainerIndex, baseId)
 end
 
 function BaseManager.setStoragePolicy(baseId, object, category, containerIndex)
+    if category ~= "depot" then
+        return nil, "central_cupboard_only"
+    end
     local base = KnoxPersistence.getBase(baseId)
     if base ~= nil and base.toolCupboardKey ~= nil then
         local current = BaseManager.containerReference(object, containerIndex, baseId)

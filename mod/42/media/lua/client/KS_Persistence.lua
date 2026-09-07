@@ -4441,6 +4441,9 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
     if base == nil or type(reference) ~= "table" or type(reference.key) ~= "string" then
         return nil, "invalid_container"
     end
+    if tostring(category or "") ~= "depot" or depot ~= true then
+        return nil, "central_cupboard_only"
+    end
     local policy = {
         key = reference.key,
         x = tonumber(reference.x),
@@ -4449,21 +4452,25 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
         objectIndex = tonumber(reference.objectIndex),
         containerIndex = tonumber(reference.containerIndex) or 0,
         containerType = tostring(reference.containerType or "container"),
-        category = tostring(category or "general"),
-        depot = depot == true,
+        category = "depot",
+        depot = true,
         toolCupboard = base.toolCupboardKey == reference.key,
     }
-    base.storage[policy.key] = policy
+    base.toolCupboardKey = reference.key
+    base.storage = { [policy.key] = policy }
     return policy, "saved"
 end
 
 function KnoxPersistence.removeBaseStoragePolicy(baseId, key)
     local base = KnoxPersistence.getBase(baseId)
     if base == nil or base.storage[key] == nil then
-        return false
+        return false, "storage_missing"
+    end
+    if base.toolCupboardKey == key then
+        return false, "central_cupboard_required"
     end
     base.storage[key] = nil
-    return true
+    return true, "removed"
 end
 
 local function baseTaskTargetSignature(target)

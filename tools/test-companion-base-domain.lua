@@ -320,8 +320,16 @@ local policy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     objectIndex = 2,
     containerIndex = 1,
     containerType = "crate",
-}, "food", false))
-assert(policy.containerIndex == 1 and policy.category == "food")
+}, "depot", true))
+assert(policy.containerIndex == 1 and policy.category == "depot"
+    and base.toolCupboardKey == "container-stable-1")
+local rejectedStorage, rejectedStorageReason = KnoxPersistence.setBaseStoragePolicy(base.id, {
+    key = "container-stable-2", x = 11, y = 20, z = 0,
+    objectIndex = 3, containerIndex = 0, containerType = "crate",
+}, "food", false)
+assert(rejectedStorage == nil and rejectedStorageReason == "central_cupboard_only"
+    and base.storage["container-stable-1"] ~= nil,
+    "retired category storage cannot be recreated through persistence")
 
 local firstTask = assert(KnoxPersistence.queueBaseTask(base.id, "chop_tree", {
     x = 30, y = 40, z = 0,
