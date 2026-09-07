@@ -101,7 +101,7 @@ Catalog.taskAliases = {
 Catalog.basePreferences = {
     auto = { label = "Automatic" }, guard = { label = "Guard" }, patrol = { label = "Patrol" },
     farming = { label = "Farming" }, woodwork = { label = "Woodwork & Defense" },
-    hauling = { label = "Hauling & Sorting" }, animal_care = { label = "Animal Care" },
+    hauling = { label = "Move Corpses" }, animal_care = { label = "Animal Care" },
     repair = { label = "Repair" }, rest = { label = "Rest / Recover", description = "Stay available at base and recover." },
 }
 

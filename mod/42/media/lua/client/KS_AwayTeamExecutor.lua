@@ -58,7 +58,7 @@ end
 -- container, or is not present in the survivor inventory, never enters the
 -- persistent mission ledger.
 function Executor.transferredItemTypes(supply, character)
-    local types, seen = {}, {}
+    local types, seenItems = {}, {}
     if type(supply) ~= "table" then return types end
     local candidates = supply.items
     if type(candidates) ~= "table" and supply.item ~= nil then
@@ -67,8 +67,11 @@ function Executor.transferredItemTypes(supply, character)
     for _, candidate in ipairs(candidates or {}) do
         local item = type(candidate) == "table" and candidate.item or candidate
         local fullType = itemType(item)
-        if fullType ~= nil and itemInInventory(character, item) and not seen[fullType] then
-            seen[fullType] = true
+        -- Two real items may share a full type. Deduplicate by object identity
+        -- so a mission records every item actually moved, while repeated
+        -- references to the same object cannot inflate the result.
+        if fullType ~= nil and itemInInventory(character, item) and not seenItems[item] then
+            seenItems[item] = true
             types[#types + 1] = fullType
         end
     end

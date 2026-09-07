@@ -35,18 +35,28 @@ assert(KnoxAwayTeamExecutor.beginCollection(team.id, 2).state == "collecting",
 local item = {
     getFullType = function() return "Base.CannedSoup" end,
 }
+local secondItem = {
+    getFullType = function() return "Base.CannedSoup" end,
+}
 local inventory = {
-    contains = function(_, candidate) return candidate == item end,
+    contains = function(_, candidate)
+    return candidate == item or candidate == secondItem
+    end,
 }
 local character = { getInventory = function() return inventory end }
 local collection, result = KnoxAwayTeamExecutor.recordCollection(
-    team.id, "one", { items = { { item = item }, { item = { getFullType = function() return "Base.WaterBottleFull" end } } } },
+    team.id, "one", { items = {
+        { item = item },
+        { item = item },
+        { item = secondItem },
+        { item = { getFullType = function() return "Base.WaterBottleFull" end } },
+    } },
     character, 2.5
 )
 assert(collection ~= nil and result == "recorded"
-    and collection.resources["Base.CannedSoup"] == 1
+    and collection.resources["Base.CannedSoup"] == 2
     and collection.resources["Base.WaterBottleFull"] == nil,
-    "only items present in the survivor inventory enter the ledger")
+    "only unique real items present in the survivor inventory enter the ledger")
 assert(KnoxAwayTeamExecutor.collectionReady(team.id),
     "one-member collection acknowledges after a real search")
 assert(KnoxAwayTeamExecutor.beginReturn(team.id, 2.6) ~= nil,

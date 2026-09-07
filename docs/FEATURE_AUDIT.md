@@ -107,15 +107,16 @@ save/reload. Verify the launched game's heap with a nondefault JSON allocation.
   manufacture additional spouses. Survivor cards show the relationship.
 - Base storage menus can designate an existing dry container as the central tool
   cupboard, default capacity 500 (sandbox range 100–2000). Residents prefer it
-  for deposits and can retrieve actual task supplies. Sorting does not empty it.
+  for deposits and can retrieve actual task supplies. No category sorting task is
+  created; the cupboard is the shared general store.
   NPC bases designate suitable existing storage. Reassignment restores the old
   container's capacity without moving/deleting items; unloaded cupboards must be
   visited first. A destroyed cupboard can be replaced.
 - Assigned storage resolves durable object identities after tile object indices
   change; a replacement container cannot inherit the previous owner's policy.
 
-Verification: 86 Lua syntax checks, 93 regression scripts, Java check/build;
-180 checks passed. Tests include real persistence/menu callbacks, formation
+Verification: 86 Lua syntax checks, 94 regression scripts, Java check/build;
+181 checks passed. Tests include real persistence/menu callbacks, formation
 movement selection, spouse retries, cupboard designation/reassignment, storage
 deposit/withdrawal selection and lifecycle activation-budget filtering.
 No public release or Workshop publication is part of this pass.
@@ -1563,8 +1564,9 @@ parallel. The current order is:
    supply loops can operate beyond the loaded area;
 5. live-verify native firearms, death/reanimation, unloaded recovery, and long-session
    performance together rather than treating isolated checks as release proof;
-6. add vehicles, raids, named events, and deeper diplomacy only after ordinary
-   survivor/faction life is stable.
+6. live-verify passenger use and the opt-in native driving slice, then add raids,
+   named events, and deeper diplomacy only after ordinary survivor/faction life is
+   stable.
 
 ### Faction leader first-contact recruitment (2026-09-04)
 
