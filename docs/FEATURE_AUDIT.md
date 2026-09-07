@@ -1,5 +1,19 @@
 # Feature-completion audit
 
+### Launcher updater integrity milestone — 2026-09-07
+
+Sibling launcher fixes replace broken regex release parsing with an order-independent
+JSON reader; require complete release assets from the expected repository/tag;
+compare numeric preview versions correctly; validate exact, nonduplicate checksum
+entries; normalize v-prefixed release tags for manifest checks; and retain verified
+cached copies until replacement validation succeeds. A corrupt newer cache no
+longer hides an older verified cache. Packaging now checksums the standalone JAR.
+
+Windows launcher build, metadata/cache regression tests and bootstrap checks pass.
+Real download interruption/concurrency, updated-process startup acceptance and
+Linux/macOS execution remain unverified. This milestone does not satisfy the
+release-ready goal or any live survivor acceptance gate. No release published.
+
 ### Single cupboard, corpse haulers and routine deposits — 2026-09-07
 
 **Implemented; offline verification passed. New live acceptance pending.**
