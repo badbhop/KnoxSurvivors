@@ -453,6 +453,25 @@ assert(not trapped:beginFlee(315, { health = 100, endurance = .8 })
     and trapped.state == "COMBAT" and trapped.combatTarget == zombies[1],
     "no escape lane hands an adjacent attacker to existing combat instead of waiting for a bite")
 assert(trapped.companionOrder == "follow", "trapped defense retains companion intent")
+local passivePanic = controller("passive-panic")
+passivePanic.companionOrder = "follow"
+passivePanic.companionCombatStance = "passive"
+local panicMoves = 0
+passivePanic.bridge = {
+    cancelNpcMove = function() end,
+    resetNpcCombat = function() end,
+    moveNpcWithPace = function(_, _, target, pace)
+        panicMoves = panicMoves + 1
+        assert(target ~= nil and pace == "sprint",
+            "passive survivor panic route still uses a bounded sprint")
+        return "MOVE_STARTED"
+    end,
+}
+assert(passivePanic:findEmergencyFleeTarget(316) ~= nil,
+    "passive survivor gets a last-resort target when every checked lane is blocked")
+assert(passivePanic:beginFlee(316, { health = 100, endurance = .8 })
+    and passivePanic.state == "FLEEING" and panicMoves == 1,
+    "passive survivor starts panic movement instead of standing in a fatal surround")
 blockedEdge = function() return false end
 zombies = surrounding
 

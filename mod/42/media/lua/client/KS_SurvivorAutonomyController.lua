@@ -1294,6 +1294,65 @@ function Controller:findFleeTarget(ticks)
     return findFleeTarget(self, ticks)
 end
 
+-- If a survivor is forbidden from fighting, waiting for a perfectly clear
+-- lane is equivalent to standing still while the horde closes.  This is a
+-- last-resort panic route only: normal fleeing still requires a checked lane,
+-- and an armed survivor gets the existing adjacent-combat fallback.  The
+-- native mover owns the actual traversal, so this target is deliberately short
+-- and chosen by threat distance rather than by a long speculative route.
+local function findEmergencyFleeTarget(self, ticks)
+    local origin = self.character:getCurrentSquare()
+    local cell = getCell()
+    if origin == nil or cell == nil then return nil end
+    local threats = nearbyZombies(self, FLEE_SCAN_RADIUS + FLEE_TARGET_DISTANCE)
+    if #threats == 0 then return nil end
+    local currentNearest = math.huge
+    for _, zombie in ipairs(threats) do
+        currentNearest = math.min(currentNearest,
+            distanceSquared(origin, zombie:getCurrentSquare()))
+    end
+    local best, bestScore = nil, -math.huge
+    local directions = {
+        { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 },
+        { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 },
+    }
+    for distance = math.min(FLEE_TARGET_DISTANCE, 8), 1, -1 do
+        for _, direction in ipairs(directions) do
+            local square = cell:getGridSquare(
+                origin:getX() + direction[1] * distance,
+                origin:getY() + direction[2] * distance,
+                origin:getZ()
+            )
+            local failed = self.failedFleeTarget
+            local recentlyFailed = failed ~= nil and ticks < failed.untilTick
+                and square ~= nil and square:getZ() == failed.z
+                and (square:getX() - failed.x)^2 + (square:getY() - failed.y)^2 <= 9
+            if square ~= nil and square:canStand() and not recentlyFailed then
+                local nearest = math.huge
+                local occupied = false
+                for _, zombie in ipairs(threats) do
+                    local threatSquare = zombie:getCurrentSquare()
+                    local threatDistance = distanceSquared(square, threatSquare)
+                    nearest = math.min(nearest, threatDistance)
+                    if threatDistance <= 2.25 then occupied = true end
+                end
+                if not occupied and nearest > currentNearest + 0.25 then
+                    local score = nearest + distance * 0.25
+                    if score > bestScore then
+                        best, bestScore = square, score
+                    end
+                end
+            end
+        end
+        if best ~= nil then return best end
+    end
+    return nil
+end
+
+function Controller:findEmergencyFleeTarget(ticks)
+    return findEmergencyFleeTarget(self, ticks)
+end
+
 local function groupFleeKey(self)
     if self.groupLeaderId ~= nil then
         return self.groupLeaderId
@@ -5221,6 +5280,7 @@ function Controller:beginFlee(ticks, assessment)
     self:cancelTrade("danger")
     self.combatDisengageUntil = ticks + FLEE_DISENGAGE_TICKS
     local target, hadGroupPlan = groupFleeTarget(self, ticks)
+    local emergency = false
     if target == nil then
         target = findFleeTarget(self, ticks)
         local key = groupFleeKey(self)
@@ -5229,6 +5289,18 @@ function Controller:beginFlee(ticks, assessment)
                 x = target:getX(), y = target:getY(), z = target:getZ(),
                 expiresAt = ticks + FLEE_PLAN_TICKS,
             }
+        end
+    end
+    if target == nil then
+        -- Passive followers and other non-combat survivors need a final
+        -- movement attempt when every checked lane is blocked.  Do not use
+        -- this branch for a survivor who can legally engage the adjacent
+        -- attacker; that existing combat handoff is safer than forcing a
+        -- route through an obstruction.
+        local threat = nearestThreat(self, ticks)
+        if threat == nil or not self:allowsCompanionThreat(threat) then
+            target = findEmergencyFleeTarget(self, ticks)
+            emergency = target ~= nil
         end
     end
     if target == nil then
@@ -5281,7 +5353,7 @@ function Controller:beginFlee(ticks, assessment)
     self.fleeSafeScans = 0
     self.fleeTarget = target
     self.fleeRecoveryUntil = nil
-    local pace = Controller.fleePace(assessment)
+    local pace = emergency and "sprint" or Controller.fleePace(assessment)
     local result = tostring(self.bridge:moveNpcWithPace(self.id, target, pace))
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         self:recoverFleeMovement(result, ticks)
