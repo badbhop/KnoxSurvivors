@@ -182,6 +182,16 @@ local resident, residentResult = KnoxPersistence.setPlayerBaseResident(
     24
 )
 assert(resident and residentResult == "base_resident", tostring(residentResult))
+assert(KnoxPersistence.setPlayerCompanion("independent", playerId, "follow", 24))
+assert(KnoxPersistence.setCompanionFormation("independent", playerId, "single_file", 3, 24))
+assert(KnoxPersistence.setPlayerBaseResident("independent", playerId, base.id, 24))
+assert(KnoxPersistence.getSurvivorDuty("independent").followerSpacing == 3,
+    "sending home retains formation preferences")
+assert(KnoxPersistence.setPlayerCompanion("independent", playerId, "follow", 24))
+local recalledDuty = KnoxPersistence.getSurvivorDuty("independent")
+assert(recalledDuty.followerFormation == "single_file" and recalledDuty.followerSpacing == 3,
+    "recalling a resident restores the selected formation")
+assert(KnoxPersistence.setPlayerBaseResident("independent", playerId, base.id, 24))
 assert(#KnoxPersistence.getCompanionIds(playerId) == 0)
 assert(#KnoxPersistence.getBaseResidentIds(base.id) == 1)
 assert(KnoxPersistence.setBaseJobPreference(

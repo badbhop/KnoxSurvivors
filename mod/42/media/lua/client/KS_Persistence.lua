@@ -2045,6 +2045,8 @@ function KnoxPersistence.setPlayerCompanion(id, playerId, order, worldAgeHours)
     survivor.duty = {
         mode = "companion",
         order = order == "hold" and "hold" or "follow",
+        followerFormation = survivor.duty.followerFormation,
+        followerSpacing = survivor.duty.followerSpacing,
         combatStance = "defensive",
         ownerId = playerId,
         changedAtHours = tonumber(worldAgeHours) or 0,
@@ -2073,6 +2075,8 @@ function KnoxPersistence.setPlayerBaseResident(id, playerId, baseId, worldAgeHou
         mode = "base",
         order = "available",
         jobPreference = survivor.duty ~= nil and survivor.duty.jobPreference or "auto",
+        followerFormation = survivor.duty.followerFormation,
+        followerSpacing = survivor.duty.followerSpacing,
         ownerId = playerId,
         baseId = baseId,
         changedAtHours = tonumber(worldAgeHours) or 0,

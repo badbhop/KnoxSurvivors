@@ -36,6 +36,13 @@ assert(base.toolCupboardKey == oldKey and oldCapacity == 200)
 KnoxBaseStorage.resolvePolicy = function()
     return { object = oldObject, container = oldContainer }
 end
+local savePolicy = manager.setStoragePolicy
+manager.setStoragePolicy = function() return nil, "assignment_rejected" end
+assert(not KnoxToolCupboard.designate(base, object, 0, manager))
+assert(base.toolCupboardKey == oldKey and oldCapacity == 200
+    and oldData.KnoxToolCupboard ~= nil and base.storage[oldKey].toolCupboard,
+    "failed replacement leaves current cupboard ownership and capacity intact")
+manager.setStoragePolicy = savePolicy
 assert(KnoxToolCupboard.designate(base, object, 0, manager), "loaded cupboard can be reassigned")
 assert(oldCapacity == 40 and oldData.KnoxToolCupboard == nil and base.toolCupboardKey == key,
     "reassignment restores old capacity and transfers only designation")

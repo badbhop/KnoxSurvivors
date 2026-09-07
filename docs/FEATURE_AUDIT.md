@@ -1,5 +1,20 @@
 # Feature-completion audit
 
+### Cupboard reassignment and companion duty transitions — 2026-09-07
+
+Fixed a confirmed reassignment failure path: the current cupboard is no longer
+stripped of its marker/capacity before the replacement storage policy is accepted.
+Rejected assignment leaves existing ownership, capacity and supplies intact.
+Companion formation/spacing now survive assignment as a base resident and recall
+to Follow. Regression tests execute both transitions through real persistence.
+A spouse-start regression confirms that death after completed creation does not
+produce a replacement with the sandbox option still enabled.
+
+All 180 verification checks pass; the strengthened spouse assertion was rerun
+after ensuring its option remains enabled. Live base reassignment and companion
+recall remain unverified. No game session, release or Workshop publication was
+performed for this milestone. The full release-ready goal remains incomplete.
+
 ### Launcher updater integrity milestone — 2026-09-07
 
 Sibling launcher fixes replace broken regex release parsing with an order-independent

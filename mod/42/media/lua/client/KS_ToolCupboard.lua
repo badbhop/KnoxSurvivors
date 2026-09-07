@@ -24,6 +24,7 @@ function Cupboard.designate(base, object, containerIndex, manager)
         or string.find(kind, "rain", 1, true) then return nil, "use_dry_storage" end
     local reference = manager.containerReference(object, containerIndex, base.id)
     if reference == nil then return nil, "not_a_container" end
+    local oldResolved, oldPolicy
     if base.toolCupboardKey ~= nil and base.toolCupboardKey ~= reference.key then
         local storage = rawget(_G, "KnoxBaseStorage")
         local previous = base.storage ~= nil and base.storage[base.toolCupboardKey] or nil
@@ -40,15 +41,20 @@ function Cupboard.designate(base, object, containerIndex, manager)
             if type(marker) ~= "table" or marker.key ~= previous.key then
                 return nil, "cupboard_identity_mismatch"
             end
-            resolved.container:setCapacity(tonumber(marker.originalCapacity) or 40)
-            oldData.KnoxToolCupboard = nil
-            if resolved.object.transmitModData ~= nil then resolved.object:transmitModData() end
         end
-        previous.toolCupboard = false
-        base.toolCupboardKey = nil
+        oldResolved, oldPolicy = resolved, previous
     end
     local policy, reason = manager.setStoragePolicy(base.id, object, "depot", containerIndex)
     if policy == nil then return nil, reason end
+    -- Do not retire the current cupboard until the replacement policy has
+    -- actually been accepted. A rejected assignment must leave it usable.
+    if oldResolved ~= nil then
+        local oldData = oldResolved.object:getModData()
+        oldResolved.container:setCapacity(tonumber(oldData.KnoxToolCupboard.originalCapacity) or 40)
+        oldData.KnoxToolCupboard = nil
+        if oldResolved.object.transmitModData ~= nil then oldResolved.object:transmitModData() end
+    end
+    if oldPolicy ~= nil then oldPolicy.toolCupboard = false end
     local data = object:getModData()
     local previous = data.KnoxToolCupboard
     data.KnoxToolCupboard = { key = policy.key, baseId = base.id,

@@ -46,6 +46,9 @@ assert(KnoxSpouseStart.update(retry, function(_, tile, record)
     assert(tile == nil and record == "partial-record", "partial successful capture restores instead of respawning")
     return true
 end))
+assert(KnoxPersistence.markSurvivorDead(id, 12, "test_death"))
+assert(not KnoxSpouseStart.update(first, activate) and calls == 2,
+    "completed spouse start never creates a replacement after death")
 SandboxVars.KnoxSurvivors.SpawnWithSpouse = false
 local disabled = player()
 assert(not KnoxSpouseStart.update(disabled, activate))
