@@ -674,6 +674,9 @@ assert(string.find(controllerSource, "function Controller:suspendBaseTaskForThre
     and string.find(controllerSource, 'self:suspendBaseTaskForThreat("combat_interrupt")', 1, true)
     and string.find(controllerSource, 'self:suspendBaseTaskForThreat("survival_flee")', 1, true),
     "temporary threat interruption must preserve the resident base-task claim")
+assert(not string.find(controllerSource, "base_task_sort_depot", 1, true)
+    and not string.find(controllerSource, "KnoxBaseStorage.queueTransfer", 1, true),
+    "retired category storage must not have a live controller executor")
 -- Count actual discovery calls while continuously polling an unchanged base.
 depotTransfer, corpseTarget, animalTarget, repairTarget, constructionTarget = nil, nil, nil, nil, nil
 local quietBase = {id = 'quiet-base', zones = {}, tasks = {}}

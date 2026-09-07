@@ -2296,7 +2296,6 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.base = nil
     self.baseTask = nil
     self.baseTaskStartedAt = nil
-    self.baseTaskTransfer = nil
     self.baseTaskSupplyTransfer = nil
     self.baseResupplyAttempts = 0
     self.baseTaskRetryAt = 0
@@ -3646,7 +3645,6 @@ function Controller:finishBaseTask(succeeded, reason)
     end
     self.baseTask = nil
     self.baseTaskStartedAt = nil
-    self.baseTaskTransfer = nil
     self.baseTaskSupplyTransfer = nil
     self.baseResupplyAttempts = 0
     self.baseTaskActionQueued = false
@@ -3694,7 +3692,6 @@ end
 function Controller:suspendBaseTaskForThreat(reason)
     if self.baseTask == nil then return false end
     self:releaseSupply()
-    self.baseTaskTransfer = nil
     self.baseTaskRetryAt = 0
     self.baseTaskStartedAt = nil
     self.baseTaskActionQueued = false
@@ -6345,7 +6342,7 @@ function Controller:tick(ticks)
             local completionLines = {
                 guard = "All clear here.", patrol = "Patrol route is clear.",
                 barricade = "That opening is secured.", construct_defense = "The defense work is done.",
-                repair = "That repair is finished.", sort_depot = "The supplies are sorted.",
+                repair = "That repair is finished.",
                 haul_corpse = "The body is out of the way.", animal_water = "The animals have water.",
                 animal_feed = "The animals are fed.", farm_water = "The crops are watered.",
                 farm_harvest = "The harvest is gathered.", farm_plow = "The soil is ready.",
@@ -6377,8 +6374,7 @@ function Controller:tick(ticks)
 
     if self.state == "BASE_TASK_ACTION" then
         if self.baseTask == nil
-            or (self.baseTask.type ~= "sort_depot"
-                and self.baseTask.type ~= "barricade"
+            or (self.baseTask.type ~= "barricade"
                 and self.baseTask.type ~= "farm_water"
                 and self.baseTask.type ~= "farm_harvest"
                 and self.baseTask.type ~= "farm_plow"
@@ -6844,50 +6840,6 @@ function Controller:tick(ticks)
             self:finishDecision(ticks)
             return
         end
-        if not self.baseTaskActionQueued then
-            local transfer = self.baseTaskTransfer
-            if transfer == nil then
-                transfer = KnoxBaseStorage.resolveTransfer(
-                    self.base,
-                    self.baseTask.target
-                )
-                self.baseTaskTransfer = transfer
-            end
-            if transfer == nil then
-                self:finishBaseTask(false, "item_no_longer_available")
-                self:finishDecision(ticks)
-                return
-            end
-            local action, actionResult = KnoxBaseStorage.queueTransfer(
-                self.character,
-                transfer
-            )
-            if action == nil then
-                if actionResult == "turning_to_storage" then
-                    return
-                end
-                self:finishBaseTask(false, "storage_transfer_queue:" .. tostring(actionResult))
-                self:finishDecision(ticks)
-                return
-            end
-            self.baseTaskActionQueued = true
-            self.baseTaskStartedAt = ticks
-            return
-        end
-        if not self.character:getCharacterActions():isEmpty() then
-            return
-        end
-        local transfer = self.baseTaskTransfer
-        local source = transfer ~= nil and transfer.source ~= nil
-            and transfer.source.container or nil
-        local item = transfer ~= nil and transfer.item or nil
-        local moved = source ~= nil and item ~= nil and not source:contains(item)
-        self:finishBaseTask(moved, moved and "sorted_depot" or "transfer_not_completed")
-        if moved then
-            KnoxActivityFeed.speak(self.character, "That belongs in storage.")
-        end
-        self:finishDecision(ticks)
-        return
     end
 
     if (self.state == "MOVING_TO_SUPPLY" or self.state == "MOVING_TO_REST") and self:hasNeedEscort()
@@ -7416,22 +7368,6 @@ function Controller:tick(ticks)
                     self.state = "BASE_TASK_ACTION"
                     return
                 end
-                if self.baseTask ~= nil and self.baseTask.type == "sort_depot" then
-                    self.baseTaskTransfer = KnoxBaseStorage.resolveTransfer(
-                        self.base,
-                        self.baseTask.target
-                    )
-                    if self.baseTaskTransfer == nil then
-                        self:finishBaseTask(false, "item_no_longer_available")
-                        self:finishDecision(ticks)
-                        return
-                    end
-                    self.baseTaskStartedAt = ticks
-                    self.baseTaskActionQueued = false
-                    self.activeDecision = "base_task_sort_depot"
-                    self.state = "BASE_TASK_ACTION"
-                    return
-                end
                 if self.baseTask ~= nil and self.baseTask.type == "barricade" then
                     self.baseTaskBarricadeTarget = KnoxBaseBarricades.resolveTarget(
                         self.base,
@@ -7556,6 +7492,11 @@ function Controller:tick(ticks)
                     self.baseTaskActionQueued = false
                     self.activeDecision = "base_task_chop_tree"
                     self.state = "BASE_TASK_ACTION"
+                    return
+                end
+                if self.baseTask ~= nil and self.baseTask.type == "sort_depot" then
+                    self:finishBaseTask(false, "central_cupboard_storage_retired")
+                    self:finishDecision(ticks)
                     return
                 end
                 self.baseTaskStartedAt = ticks
