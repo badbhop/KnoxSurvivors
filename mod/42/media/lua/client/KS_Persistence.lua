@@ -57,7 +57,7 @@ end
 -- small local compatibility map in addition to the catalogue helper. This
 -- normalizes only stored task vocabulary; executors remain Knox-owned.
 local LEGACY_TASK_TYPES = {
-    haul = "sort_depot", storage_sorting = "sort_depot", sort_loot = "sort_depot",
+    haul = "haul_corpse", storage_sorting = "sort_depot", sort_loot = "sort_depot",
     corpse = "haul_corpse", corpse_cleanup = "haul_corpse",
     woodcutting = "chop_tree", wood_processing = "saw_logs",
     log_processing = "saw_logs", farming = "farm_seed",

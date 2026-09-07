@@ -34,14 +34,14 @@ assert(KnoxOrderCatalog.normalize("cancel") == "resume_normal_duty")
 assert(KnoxOrderCatalog.label("explore") == KnoxOrderCatalog.label("loot_area"))
 assert(KnoxOrderCatalog.normalize("stop") == "resume_normal_duty")
 assert(KnoxOrderCatalog.normalize("barricade") == "woodwork")
-assert(KnoxOrderCatalog.normalizeTaskType("haul") == "sort_depot",
+assert(KnoxOrderCatalog.normalizeTaskType("haul") == "haul_corpse",
     "legacy haul tasks must converge on the existing depot executor")
 assert(KnoxOrderCatalog.normalizeTaskType("patrol_area") == "patrol",
     "legacy patrol-area tasks must converge on the recurring patrol executor")
 local persistenceFile = assert(io.open(rootPath .. "/mod/42/media/lua/client/KS_Persistence.lua", "r"))
 local persistenceText = persistenceFile:read("*a")
 persistenceFile:close()
-assert(persistenceText:find("haul = \"sort_depot\"", 1, true),
+assert(persistenceText:find("haul = \"haul_corpse\"", 1, true),
     "persistence fallback must normalize haul before the catalogue loads")
 assert(persistenceText:find("patrol_area = \"patrol\"", 1, true),
     "persistence fallback must normalize patrol-area tasks before the catalogue loads")
@@ -98,9 +98,9 @@ assert(KnoxOrderCatalog.label("barricade") == "Barricade",
 assert(not KnoxOrderCatalog.preferenceMatchesTask("guard", "farm_seed"))
 assert(KnoxOrderCatalog.preferenceForTask("animal_feed") == "animal_care")
 assert(KnoxOrderCatalog.preferenceForTask("farm_seed") == "farming")
-assert(KnoxOrderCatalog.preferenceForTask("storage_sorting") == "hauling",
+assert(KnoxOrderCatalog.preferenceForTask("storage_sorting") == nil,
     "legacy task labels must map through the catalogue itself")
-assert(KnoxOrderCatalog.preferenceMatchesTask("hauling", "storage_sorting"),
+assert(not KnoxOrderCatalog.preferenceMatchesTask("hauling", "storage_sorting"),
     "preference matching must normalize legacy task labels at the public boundary")
 assert(KnoxOrderCatalog.preferenceMatchesTask("patrol_area", "patrol"),
     "legacy patrol-area resident preferences must match canonical patrol tasks")

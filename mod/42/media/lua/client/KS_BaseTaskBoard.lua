@@ -7,7 +7,6 @@ _G.KnoxBaseTaskBoard = TaskBoard
 
 TaskBoard.TASK_TYPES = {
     haul = true,
-    sort_depot = true,
     barricade = true,
     farm_seed = true,
     farm_water = true,

@@ -55,6 +55,7 @@ function Cupboard.designate(base, object, containerIndex, manager)
         originalCapacity = type(previous) == "table" and previous.key == policy.key
             and previous.originalCapacity or container:getCapacity() }
     base.toolCupboardKey = policy.key
+    base.storage = { [policy.key] = policy }
     policy.toolCupboard = true
     Cupboard.apply(object, container, policy.key)
     if object.transmitModData ~= nil then object:transmitModData() end

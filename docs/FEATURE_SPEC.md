@@ -272,7 +272,7 @@ Support player and NPC faction bases with:
 - editable territory/yard;
 - residents;
 - work zones;
-- storage policies;
+- one shared, high-capacity tool cupboard for all base supplies;
 - resources;
 - jobs/tasks;
 - defenses.
@@ -308,8 +308,8 @@ Production jobs include:
 
 - guard;
 - patrol;
-- hauling/sorting;
-- categorized storage;
+- corpse hauling to a designated Corpse Drop area;
+- automatic surplus deposits into the shared cupboard while retaining personal needs;
 - barricading;
 - farming;
 - tree cutting;

@@ -219,7 +219,7 @@ local function populate(menu, playerNum, square)
             local entry = KnoxOrderCatalog.basePreferences[preference]
             if entry ~= nil then
                 local label = preference == "woodwork" and "Woodwork / Barricade Windows"
-                    or preference == "hauling" and "Haul Supplies / Move Corpses"
+                    or preference == "hauling" and "Move Corpses"
                     or entry.label
                 local option = baseOrderMenu:addOption(label, PartyCommands,
                     PartyCommands.basePreferenceAll, playerNum, preference)

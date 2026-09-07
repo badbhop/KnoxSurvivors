@@ -5498,7 +5498,9 @@ function Controller:beginInventoryCleanup(ticks)
         or not self.character:getCharacterActions():isEmpty() then return false end
     self.nextCleanupAt = ticks + 300
     local base, requirements, duty = cleanupContext(self)
-    local plan, result = KnoxSurvivorLooting.cleanupPlan(self.character, requirements, self.cleanupInProgress)
+    local atBase = base ~= nil and KnoxBaseManager ~= nil
+        and KnoxBaseManager.containsSquare(base, self.character:getCurrentSquare())
+    local plan, result = KnoxSurvivorLooting.cleanupPlan(self.character, requirements, self.cleanupInProgress, atBase)
     self.cleanupInProgress = result == "heavy_load"
     if #plan == 0 then return false end
     local candidate, destination
@@ -5509,6 +5511,7 @@ function Controller:beginInventoryCleanup(ticks)
         if storage ~= nil then candidate, destination = entry, storage.container break end
     end
     if candidate == nil and self:beginDepositTrip(base, plan, duty, ticks) then return true end
+    if candidate == nil and atBase then return false end
     if candidate == nil then
         for _, entry in ipairs(plan) do
             if entry.canDrop then candidate = entry break end

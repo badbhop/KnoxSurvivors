@@ -65,7 +65,7 @@ Catalog.directives = {
 -- presentation metadata only; execution remains in BaseJobs and the autonomy
 -- controller.
 Catalog.tasks = {
-    haul = { label = "Haul Supplies" }, sort_depot = { label = "Sort Depot" },
+    haul = { label = "Haul Corpses" }, sort_depot = { label = "Retired Storage Job" },
     barricade = { label = "Barricade" }, farm_seed = { label = "Plant Crops" },
     farm_water = { label = "Water Crops" }, farm_harvest = { label = "Harvest Crops" },
     farm_plow = { label = "Prepare Soil" }, chop_tree = { label = "Cut Wood" },
@@ -83,7 +83,7 @@ Catalog.taskAliases = {
     -- Early settlement saves called the real container-transfer executor
     -- simply `haul`; converge that label instead of leaving an unexecutable
     -- task type in the queue.
-    haul = "sort_depot",
+    haul = "haul_corpse",
     storage_sorting = "sort_depot",
     sort_loot = "sort_depot",
     corpse = "haul_corpse",
@@ -207,7 +207,7 @@ Catalog.preferenceTaskGroups = {
     repair = { repair = true },
     farming = { farm_seed = true, farm_water = true, farm_harvest = true, farm_plow = true },
     woodwork = { chop_tree = true, saw_logs = true, barricade = true, construct_defense = true },
-    hauling = { haul = true, sort_depot = true, haul_corpse = true },
+    hauling = { haul = true, haul_corpse = true },
     animal_care = { animal_care = true, animal_water = true, animal_feed = true },
 }
 

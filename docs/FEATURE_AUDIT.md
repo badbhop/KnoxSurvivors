@@ -1,5 +1,35 @@
 # Feature-completion audit
 
+### Single cupboard, corpse haulers and routine deposits — 2026-09-07
+
+**Implemented; offline verification passed. New live acceptance pending.**
+
+- Storage category assignment menus and NPC category discovery are removed.
+  Only the selected central cupboard participates in base supply accounting,
+  deposits and withdrawals. Legacy assignments select one dry depot first,
+  deterministically; former containers and their contents remain in the world.
+  Legacy refrigerators/water containers are not automatically enlarged.
+- Automatic depot sorting discovery is removed; old sorting claims are cancelled
+  and old transfer targets fail closed. Hauling orders now mean corpse hauling,
+  using the existing native grab/carry/drop workflow and Corpse Drop work area.
+  Compatibility names remain only to recognize and retire old saved tasks.
+- Residents and eligible companions can deposit surplus at home below the heavy
+  load threshold. Full/unreachable cupboards retain carried supplies. Each
+  transfer is still native and independently verified before selecting another.
+  Keep four food items, two water containers, four bandages per type, two other
+  medical items per type, forty ammo items per type, two magazines per type and
+  one essential tool per type. Equipped/favorited items, active job supplies,
+  useful equipment and protected personal/modded items retain their safeguards.
+- Updated specification removes categorized storage and supply sorting from the
+  required feature set. Internal resource categories still describe contents and
+  task requirements; they no longer represent multiple player-assigned stores.
+
+See [current progress and remaining work](PROGRESS_2026-09-07.md). Offline checks
+cover migration, retired sorting, corpse-order dispatch, routine deposits,
+reserve retention and failed/full storage. No live gameplay or public release
+is implied by those checks.
+
+
 ### Reported food loop and launcher memory follow-up — 2026-09-06
 
 **Implemented and offline verified; reported gameplay case needs a live retest.**

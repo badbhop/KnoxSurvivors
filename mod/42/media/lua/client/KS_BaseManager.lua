@@ -305,43 +305,11 @@ local function ensureFactionStorage(base)
             end
         end
     end
-    local fallback = {
-        "depot", "food", "water", "tools", "building", "weapons",
-        "medical", "farming", "clothing",
-    }
-    local covered = {}
-    for _, policy in pairs(base.storage or {}) do
-        if policy ~= nil and type(policy.category) == "string" then
-            covered[policy.category] = true
-        end
-    end
-    local function nextMissing()
-        for _, category in ipairs(fallback) do
-            if not covered[category] then return category end
-        end
-        return nil
-    end
-    for index, entry in ipairs(found) do
+    for _, entry in ipairs(found) do
         if base.toolCupboardKey == nil and KnoxToolCupboard ~= nil then
             KnoxToolCupboard.designate(base, entry.object, entry.containerIndex, BaseManager)
         end
-        local preferred = string.find(entry.kind, "fridge", 1, true) and "food"
-            or string.find(entry.kind, "freezer", 1, true) and "food"
-            or (string.find(entry.kind, "water", 1, true)
-                or string.find(entry.kind, "rain", 1, true)) and "water"
-            or string.find(entry.kind, "medicine", 1, true) and "medical"
-            or string.find(entry.kind, "wardrobe", 1, true) and "clothing"
-            or fallback[math.min(index, #fallback)]
-        local reference = BaseManager.containerReference(
-            entry.object, entry.containerIndex, base.id
-        )
-        if reference ~= nil and base.storage[reference.key] == nil then
-            local category = not covered[preferred] and preferred or nextMissing()
-            if category == nil then break end
-            BaseManager.setStoragePolicy(base.id, entry.object, category, entry.containerIndex)
-            covered[category] = true
-        end
-        if index >= 9 then return end
+        if base.toolCupboardKey ~= nil then return end
     end
 end
 

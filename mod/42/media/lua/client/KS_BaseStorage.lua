@@ -110,6 +110,14 @@ function Storage.resolvePolicy(policy)
                 local actualType = tostring(container:getType() or "container")
                 local expectedType = tostring(policy.containerType or actualType)
                 if expectedType == actualType or expectedType == "container" then
+                    if policy.toolCupboard == true and object.getModData ~= nil
+                        and container.getCapacity ~= nil and container.setCapacity ~= nil then
+                        local data = object:getModData()
+                        if data.KnoxToolCupboard == nil then
+                            data.KnoxToolCupboard = { key = policy.key,
+                                originalCapacity = container:getCapacity() }
+                        end
+                    end
                     if KnoxToolCupboard ~= nil and KnoxToolCupboard.apply(object, container, policy.key) then
                         policy.toolCupboard = true
                     end
@@ -134,9 +142,27 @@ function Storage.policies(base)
         end
     end
     table.sort(policies, function(first, second)
+        if (first.depot == true) ~= (second.depot == true) then return first.depot == true end
         return tostring(first.key) < tostring(second.key)
     end)
-    return policies
+    if base == nil then return {} end
+    -- Legacy saves select one existing depot deterministically. Physical items
+    -- in former storage remain untouched; those containers become ordinary loot.
+    local key = base.toolCupboardKey
+    if key == nil then
+        for _, candidate in ipairs(policies) do
+            local kind = string.lower(tostring(candidate.containerType or "container"))
+            if kind ~= "corpse" and not kind:find("fridge", 1, true)
+                and not kind:find("freezer", 1, true) and not kind:find("water", 1, true)
+                and not kind:find("rain", 1, true) then key = candidate.key; break end
+        end
+    end
+    local selected = key ~= nil and base.storage[key] or nil
+    if selected == nil then return {} end
+    base.toolCupboardKey = key
+    selected.category, selected.depot, selected.toolCupboard = "depot", true, true
+    base.storage = { [key] = selected }
+    return { selected }
 end
 
 local function hasPrefix(value, prefix)
@@ -422,97 +448,10 @@ function Storage.approachSquare(transfer, character)
     return square.canStand ~= nil and square:canStand() and square or nil
 end
 
-function Storage.findTransfer(base)
-    local policies = Storage.policies(base)
-    local depots = {}
-    local destinations = {}
-    for _, policy in ipairs(policies) do
-        if policy.toolCupboard ~= true and (policy.depot == true or policy.category == "depot") then
-            depots[#depots + 1] = policy
-        elseif policy.category ~= nil and policy.category ~= "general" then
-            destinations[#destinations + 1] = policy
-        end
-    end
-    for _, sourcePolicy in ipairs(depots) do
-        local source = Storage.resolvePolicy(sourcePolicy)
-        if source ~= nil then
-            local items = source.container:getItems()
-            for index = 0, items:size() - 1 do
-                local item = items:get(index)
-                for _, destinationPolicy in ipairs(destinations) do
-                    if Storage.matchesCategory(item, destinationPolicy.category) then
-                        local destination = Storage.resolvePolicy(destinationPolicy)
-                        if destination ~= nil and destination.container ~= source.container
-                            and hasRoom(destination.container, item) then
-                            return {
-                                sourcePolicy = sourcePolicy,
-                                destinationPolicy = destinationPolicy,
-                                source = source,
-                                destination = destination,
-                                item = item,
-                                itemType = fullType(item),
-                                category = destinationPolicy.category,
-                            }, "found"
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return nil, "no_matching_depot_item"
-end
-
-function Storage.transferTarget(transfer)
-    if transfer == nil or transfer.sourcePolicy == nil
-        or transfer.destinationPolicy == nil then
-        return nil
-    end
-    return {
-        id = "sort-depot:" .. tostring(transfer.sourcePolicy.key)
-            .. ":" .. tostring(transfer.destinationPolicy.key),
-        auto = true,
-        zoneType = "sort_depot",
-        sourceKey = transfer.sourcePolicy.key,
-        destinationKey = transfer.destinationPolicy.key,
-        itemType = transfer.itemType,
-        category = transfer.category,
-        x = transfer.source.square:getX(),
-        y = transfer.source.square:getY(),
-        z = transfer.source.square:getZ(),
-    }
-end
-
-function Storage.resolveTransfer(base, target)
-    if target == nil then
-        return nil, "missing_transfer_target"
-    end
-    local sourcePolicy = base ~= nil and base.storage[target.sourceKey] or nil
-    local destinationPolicy = base ~= nil and base.storage[target.destinationKey] or nil
-    if sourcePolicy == nil or destinationPolicy == nil then
-        return nil, "storage_policy_missing"
-    end
-    local source, sourceResult = Storage.resolvePolicy(sourcePolicy)
-    local destination, destinationResult = Storage.resolvePolicy(destinationPolicy)
-    if source == nil or destination == nil then
-        return nil, source == nil and sourceResult or destinationResult
-    end
-    local items = source.container:getItems()
-    for index = 0, items:size() - 1 do
-        local item = items:get(index)
-        if fullType(item) == tostring(target.itemType or "")
-            and Storage.matchesCategory(item, target.category)
-            and hasRoom(destination.container, item) then
-            return {
-                source = source,
-                destination = destination,
-                item = item,
-                itemType = fullType(item),
-                category = target.category,
-            }, "resolved"
-        end
-    end
-    return nil, "item_no_longer_available"
-end
+-- Old saved task targets must fail closed, never resume container sorting.
+function Storage.findTransfer(base) return nil, "sorting_retired" end
+function Storage.transferTarget(transfer) return nil, "sorting_retired" end
+function Storage.resolveTransfer(base, target) return nil, "sorting_retired" end
 
 function Storage.queueTransfer(character, transfer)
     if character == nil or transfer == nil then

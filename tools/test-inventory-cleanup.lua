@@ -76,10 +76,14 @@ assert(#looting.cleanupPlan(character, {}, false) == 0, "comfortable load does n
 assert(#looting.cleanupPlan(character, {}, true) > 0, "active cleanup has lower stopping threshold")
 character.weight = 7.9
 assert(#looting.cleanupPlan(character, {}, true) == 0, "cleanup stops below preferred load")
+assert(#looting.cleanupPlan(character, {}, false, true) > 0,
+    "routine home deposits do not wait for encumbrance")
 character.weight = 11
 inventory.values = {}
 for i = 1, 4 do inventory.values[i] = item("Base.Apple", { food = true }) end
 assert(#looting.cleanupPlan(character, {}) == 0, "near-term food reserve is not discarded")
+assert(#looting.cleanupPlan(character, {}, false, true) == 0,
+    "routine home deposits retain four meals")
 inventory.values[5] = item("Base.Apple", { food = true })
 plan = looting.cleanupPlan(character, {})
 assert(#plan == 5 and plan[1].canDrop == false, "surplus food can be deposited but not thrown away")
@@ -93,6 +97,11 @@ assert(#plan == 1 and plan[1].canDrop == false and plan[1].reason == "base_mater
 assert(#looting.cleanupPlan(character, { ["Base.Plank"] = 1 }) == 0,
     "queued work retains required materials instead of depositing them in a loop")
 KnoxBaseStorage = nil
+inventory.values = {}
+for i = 1, 5 do inventory.values[i] = item("Base.Bandage", { bandage = true }) end
+assert(#looting.cleanupPlan(character, {}, false, true) > 0, "extra medical supplies go to cupboard")
+table.remove(inventory.values)
+assert(#looting.cleanupPlan(character, {}, false, true) == 0, "medical reserve survives repeated deposits")
 local bagContents = { values = {} }
 function bagContents:getItems() return list(self.values) end
 local bag = item("Base.Bag_DuffelBag", { contents = bagContents, favorite = true })

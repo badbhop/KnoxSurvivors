@@ -81,7 +81,7 @@ local function baseJobChoices()
         if entry ~= nil then
             choices[#choices + 1] = {
                 label = value == "woodwork" and "Woodwork / Barricade Windows"
-                    or value == "hauling" and "Haul Supplies / Move Corpses"
+                    or value == "hauling" and "Move Corpses"
                     or entry.label or value,
                 value = value,
             }

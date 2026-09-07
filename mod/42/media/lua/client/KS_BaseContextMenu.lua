@@ -9,19 +9,6 @@ require "KS_SurvivorAutonomy"
 local BaseContextMenu = rawget(_G, "KnoxBaseContextMenu") or {}
 _G.KnoxBaseContextMenu = BaseContextMenu
 
-local STORAGE_LABELS = {
-    { "Depot", "depot" },
-    { "Food", "food" },
-    { "Water", "water" },
-    { "Medical", "medical" },
-    { "Weapons", "weapons" },
-    { "Ammunition", "ammunition" },
-    { "Tools", "tools" },
-    { "Building Materials", "building" },
-    { "Farming", "farming" },
-    { "Clothing", "clothing" },
-    { "General", "general" },
-}
 
 local function firstSquare(worldobjects)
     for _, object in ipairs(worldobjects or {}) do
@@ -152,16 +139,6 @@ local function addStorageMenu(parent, base, object)
                     KnoxActivityFeed.event(cupboard ~= nil and "Base tool cupboard ready. Residents store and take supplies here."
                         or ("Could not assign cupboard: " .. tostring(reason)))
                 end, object, containerIndex)
-            for _, definition in ipairs(STORAGE_LABELS) do
-                targetMenu:addOption(
-                    definition[1],
-                    base.id,
-                    BaseContextMenu.setStorage,
-                    object,
-                    containerIndex,
-                    definition[2]
-                )
-            end
         end
     end
 end

@@ -504,7 +504,7 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         for _, preference in ipairs(KnoxOrderCatalog.basePreferenceOrder) do
             local choice = KnoxOrderCatalog.get(preference)
             local label = preference == "woodwork" and "Woodwork / Barricade Windows"
-                or preference == "hauling" and "Haul Supplies / Move Corpses"
+                or preference == "hauling" and "Move Corpses"
                 or (choice ~= nil and choice.label or preference)
             local option = jobsMenu:addOption(label, SurvivorContextMenu,
                 onBaseJobPreference, playerNum, survivorId, preference)

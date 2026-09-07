@@ -49,7 +49,7 @@ local barricade = work.options["Woodwork / Barricade Windows"]
 assert(barricade and barricade.callback)
 barricade.callback(barricade.target, unpack(barricade.args))
 assert(calls[#calls] == "woodwork", "resident menu must dispatch the correct player, survivor and order")
-local corpses = work.options["Haul Supplies / Move Corpses"]
+local corpses = work.options["Move Corpses"]
 corpses.callback(corpses.target, unpack(corpses.args))
 assert(calls[#calls] == "hauling")
 

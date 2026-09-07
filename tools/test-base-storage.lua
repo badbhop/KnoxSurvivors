@@ -101,105 +101,58 @@ local base = {
 }
 
 local storage = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseStorage.lua")
-assert(storage.matchesCategory(depotItem, "building"), "planks should route to building storage")
-local transfer, transferResult = storage.findTransfer(base)
-assert(transfer ~= nil and transferResult == "found")
-assert(transfer.item == depotItem and transfer.destinationPolicy.key == "building")
-local target = assert(storage.transferTarget(transfer))
-assert(target.sourceKey == "depot" and target.destinationKey == "building")
-local resolved, resolvedResult = storage.resolveTransfer(base, target)
-assert(resolved ~= nil and resolvedResult == "resolved")
-assert(resolved.item == depotItem and resolved.source.container == depot)
-destination.full = true
-assert(storage.findTransfer(base) == nil, "full destination is rejected before queuing transfer")
-destination.full = false
-
+local policies = storage.policies(base)
+assert(#policies == 1 and policies[1].key == "depot" and base.toolCupboardKey == "depot")
+assert(base.storage.building == nil and #depot.values == 2 and #destination.values == 0,
+    "legacy migration retires assignments without moving or deleting real items")
+assert(storage.findTransfer(base) == nil, "central storage has no sorting job")
 local summary = storage.summarize(base)
-assert(summary.loadedPolicies == 2 and summary.unavailablePolicies == 0,
-    "summary should only count resolved assigned containers")
-assert(summary.totals.building == 1 and summary.totals.food == 1,
-    "depot contents should be classified into real resource categories")
-
-destination.values[#destination.values + 1] = misplacedItem
-summary = storage.summarize(base)
-assert(summary.misplacedItems == 1 and summary.totals.tools == 0,
-    "misplaced assigned-container items must not inflate available resource totals")
-
-local worker = {
-    getInventory = function()
-        return { getItemCount = function() return 0 end }
-    end,
-}
+assert(summary.loadedPolicies == 1 and summary.totals.building == 1 and summary.totals.food == 1)
 local origin = square(11, 20, 0, {})
 function origin:isSomethingTo() return self.blocked == true end
-function worker:getCurrentSquare() return origin end
+local worker = { getCurrentSquare = function() return origin end,
+    getInventory = function() return container("inventory", {}) end }
 local nearby = assert(storage.findNearbyDeposit(base, worker, depotItem))
-assert(nearby.policy.key == "building", "matching assigned storage beats a generic depot")
+assert(nearby.policy.key == "depot")
 origin.blocked = true
-assert(not storage.findNearbyDeposit(base, worker, depotItem), "cleanup cannot deposit through a wall")
+assert(not storage.findNearbyDeposit(base, worker, depotItem), "no transfer through walls")
 origin.blocked = false
-assert(not storage.findNearbyDeposit(nil, worker, depotItem), "no base means no arbitrary nearby storage")
-destination.full = true
-nearby = assert(storage.findNearbyDeposit(base, worker, depotItem))
-assert(nearby.policy.key == "depot", "full categorized storage falls back to assigned depot")
-destination.full = false
-local tripApproach = square(11, 20, 0, {})
-function tripApproach:isSomethingTo() return self.blocked == true end
-AdjacentFreeTileFinder = { Find = function() return tripApproach end }
+depot.full = true
+assert(not storage.findNearbyDeposit(base, worker, depotItem), "full cupboard cannot fall back to former storage")
+depot.full = false
+local approach = square(11, 20, 0, {})
+function approach:isSomethingTo() return self.blocked == true end
+AdjacentFreeTileFinder = { Find = function() return approach end }
 origin.x = 50
-assert(not storage.findNearbyDeposit(base, worker, depotItem), "distant containers cannot transfer immediately")
-local trip = assert(storage.findDepositTrip(base, worker, depotItem, {}, 100))
-assert(trip.policy.key == "building" and trip.approach == tripApproach, "trip uses native interaction-side target")
-trip = assert(storage.findDepositTrip(base, worker, depotItem, { building = 200 }, 100))
-assert(trip.policy.key == "depot", "failed storage cools down while alternatives remain available")
-assert(storage.findDepositTrip(base, worker, depotItem, { building = 200 }, 201).policy.key == "building",
-    "failure memory expires")
-assert(not storage.findDepositTrip(base, worker, depotItem, { building = 200, depot = 200 }, 100))
-tripApproach.blocked = true
-assert(not storage.findDepositTrip(base, worker, depotItem), "blocked interaction side is not a trip target")
-tripApproach.blocked = false
+assert(not storage.findNearbyDeposit(base, worker, depotItem))
+assert(storage.findDepositTrip(base, worker, depotItem, {}, 100).policy.key == "depot")
+assert(not storage.findDepositTrip(base, worker, depotItem, { depot = 200 }, 100))
+assert(storage.findDepositTrip(base, worker, depotItem, { depot = 200 }, 201))
+approach.blocked = true
+assert(not storage.findDepositTrip(base, worker, depotItem))
+approach.blocked = false
 origin.x = 200
-assert(not storage.findDepositTrip(base, worker, depotItem), "low-value storage trip has bounded distance")
+assert(not storage.findDepositTrip(base, worker, depotItem))
 origin.x, origin.z = 50, 1
-assert(not storage.findDepositTrip(base, worker, depotItem), "this local deposit selector does not invent another-floor access")
+assert(not storage.findDepositTrip(base, worker, depotItem))
 origin.x, origin.z = 11, 0
-assert(storage.findNearbyDeposit(base, worker, depotItem, "depot").policy.key == "depot",
-    "arrival revalidates the selected policy instead of silently substituting another container")
-assert(not storage.findNearbyDeposit(base, worker, depotItem, "removed-policy"))
-local requiredTransfer, requiredResult = storage.findRequiredTransfer(
-    base, worker, { items = { ["Base.Plank"] = 1 } }
-)
-assert(requiredTransfer ~= nil and requiredResult == "found"
-    and requiredTransfer.sourcePolicy.key == "depot",
-    "a base task should retrieve exact required items only from assigned storage")
-assert(storage.requirementsAvailable(base, worker, { items = { ["Base.Plank"] = 1 } }),
-    "assigned base supplies should make a task eligible before pickup")
-local available, reason = storage.requirementsAvailable(
-    base, worker, { items = { ["Base.Nails"] = 1 } }
-)
-assert(not available and reason == "missing_assigned_item=Base.Nails",
-    "missing storage supplies must not be treated as an abstract stockpile")
-
-local controllerSource = assert(io.open(rootPath
-    .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua", "r")):read("*a")
-assert(controllerSource:find("Base job blocked:", 1, true),
-    "blocked base supply requirements must give the player a visible reason")
-
-base.storage.depot.toolCupboard = true
-assert(storage.findNearbyDeposit(base, worker, depotItem).policy.key == "depot",
-    "cupboard is preferred over ordinary categorized storage")
-assert(storage.findTransfer(base) == nil, "sorting must not empty the central cupboard")
-assert(storage.findRequiredTransfer(base, worker, { items = { ["Base.Plank"] = 1 } }).sourcePolicy.key == "depot",
-    "residents can withdraw real job supplies from the cupboard")
-
+assert(not storage.findNearbyDeposit(base, worker, depotItem, "building"), "retired policy cannot be selected")
+local required = assert(storage.findRequiredTransfer(base, worker, { items = { ["Base.Plank"] = 1 } }))
+assert(required.sourcePolicy.key == "depot")
+assert(storage.requirementsAvailable(base, worker, { items = { ["Base.Plank"] = 1 } }))
+assert(not storage.requirementsAvailable(base, worker, { items = { ["Base.Nails"] = 1 } }))
 local stableKey = "base:container:10:20:0:1:0"
 local stablePolicy = { key = stableKey, x = 10, y = 20, z = 0, objectIndex = 99,
     containerIndex = 0, containerType = "crate" }
 depotObject.getModData = function() return { KnoxSurvivors = { storageIds = { original = stableKey } } } end
 assert(storage.resolvePolicy(stablePolicy).container == depot,
-    "same physical container still resolves after square object indices shift")
+    "stable identity survives tile object reordering")
 depotObject.getModData = function() return {} end
 stablePolicy.objectIndex = 1
-assert(storage.resolvePolicy(stablePolicy) == nil,
-    "replacement container at old index cannot inherit original storage ownership")
-print("Base storage PASS policy_resolution=true category_routing=true transfer_target=true resource_summary=true task_supply=true feedback=true")
+assert(storage.resolvePolicy(stablePolicy) == nil, "replacement object cannot inherit assignment")
+base.toolCupboardKey = "missing"
+assert(#storage.policies(base) == 0, "missing cupboard never silently selects another container")
+local coldOnly = { storage = { fridge = { key = "fridge", containerType = "fridge" } } }
+assert(#storage.policies(coldOnly) == 0, "legacy fridge is not silently enlarged into a dry cupboard")
+assert(coldOnly.storage.fridge ~= nil, "migration preserves old physical-container references when no dry storage exists")
+print("Central storage PASS migration=true single=true capacity=true route=true reserves=true identity=true")

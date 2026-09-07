@@ -23,7 +23,6 @@ _G.KnoxBaseJobs = BaseJobs
 BaseJobs.AUTOMATIC_TYPES = {
     guard = true,
     patrol = true,
-    sort_depot = true,
     barricade = true,
     farm_water = true,
     farm_harvest = true,
@@ -355,45 +354,6 @@ local function itemRequirements(...)
     return next(items) ~= nil and { items = items } or {}
 end
 
-local function ensureDepotTask(base, now)
-    local transfer = KnoxBaseStorage.findTransfer(base)
-    if transfer == nil then
-        return nil, "no_matching_depot_item"
-    end
-    local target = KnoxBaseStorage.transferTarget(transfer)
-    if target == nil then
-        return nil, "invalid_depot_target"
-    end
-    local existing = taskForTargetId(base, target.id)
-    if existing ~= nil then
-        existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then
-            return existing, "existing"
-        end
-        local reopened = reopenWhenReady(existing, now)
-        if reopened ~= nil then
-            -- The item type is deliberately refreshed only between runs. A
-            -- claimed task keeps its original target until it completes.
-            reopened.target = target
-            return reopened, "reopened"
-        end
-        return nil, "retry_not_ready"
-    end
-    local task, result = KnoxBaseTaskBoard.queue(
-        base.id,
-        "sort_depot",
-        target,
-        {},
-        90
-    )
-    if task ~= nil then
-        task.baseId = base.id
-        task.auto = true
-        task.retryAtHours = now
-        return task, result
-    end
-    return nil, result
-end
 
 local function ensureBarricadeTask(base, now, character)
     if character == nil or not KnoxBaseBarricades.canPrepare(character) then
@@ -672,7 +632,7 @@ local TASK_SKILL_HINTS = {
     farm_seed = "Farming", farm_water = "Farming", farm_harvest = "Farming",
     farm_plow = "Farming", animal_care = "Farming", animal_water = "Farming",
     animal_feed = "Farming", guard = "Aiming", patrol = "Aiming",
-    haul_corpse = "Strength", sort_depot = "Organized",
+    haul_corpse = "Strength",
 }
 
 local function skillAffinity(survivorId, taskType)
@@ -937,10 +897,13 @@ function BaseJobs.prepareWorkforce(base, character, now)
     local lastDiscovery = character ~= nil and discovery[character] or nil
     local discover = not recent or clock == nil or lastDiscovery == nil
         or clock < lastDiscovery or clock - lastDiscovery >= 2000
-    local discoverDepot = not recent or clock == nil or cached.depotAt == nil
-        or clock < cached.depotAt or clock - cached.depotAt >= 2000
-    if discoverDepot then ensureDepotTask(base, now) end
-    local depotAt = discoverDepot and clock or (cached ~= nil and cached.depotAt or nil)
+    for _, task in pairs(base.tasks or {}) do
+        if task.type == "sort_depot" or task.type == "storage_sorting" or task.type == "sort_loot"
+            or (type(task.target) == "table" and task.target.sourceKey ~= nil
+                and task.target.destinationKey ~= nil) then
+            task.state, task.claimedBy, task.reason = "cancelled", nil, "central_cupboard_replaced_sorting"
+        end
+    end
     if discover then
         ensureFarmingTask(base, now, character)
         ensureWoodcuttingTask(base, now, character)
@@ -978,7 +941,7 @@ function BaseJobs.prepareWorkforce(base, character, now)
     end
     workforcePreparation[base] = {
         signature = workforceSignature(base), atHours = recent and cached.atHours or now,
-        discovery = discovery, depotAt = depotAt,
+        discovery = discovery,
     }
     return true
 end

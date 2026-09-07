@@ -122,12 +122,10 @@ assert(string.find(baseManager, 'findAnimalCareSquare', 1, true)
     "automatic base defaults must detect real vanilla feeding troughs")
 assert(string.find(baseManager, 'discarded-stale-faction-base', 1, true),
     "faction base restoration must reject a stale record owned by another domain")
-assert(string.find(baseManager, 'local function nextMissing()', 1, true),
-    "automatic faction storage must fill missing categories without overwriting existing policies")
-assert(string.find(baseManager, '"food", "water", "tools"', 1, true),
-    "automatic faction storage must provide food and water fallbacks when no special container exists")
-assert(string.find(baseManager, 'string.find(entry.kind, "rain"', 1, true),
-    "automatic faction storage must recognize rain and water containers")
+assert(string.find(baseManager, "KnoxToolCupboard.designate", 1, true),
+    "NPC bases designate one central cupboard")
+assert(not string.find(baseManager, "local function nextMissing()", 1, true),
+    "category storage discovery is retired")
 assert(string.find(baseManager, 'ensureFactionZone(base, "log_processing"', 1, true),
     "new bases must receive a dedicated log-processing work area")
 assert(string.find(baseManager, 'residentCount >= 4', 1, true)

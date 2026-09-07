@@ -176,11 +176,13 @@ local function inventoryFacts(character)
         bandages = 0,
         medical = 0,
         fullTypes = {},
+        counts = {},
     }
     walkInventory(character:getInventory(), function(item)
         local fullType = itemType(item)
         if fullType == nil then return end
         facts.fullTypes[fullType] = true
+        facts.counts[fullType] = (facts.counts[fullType] or 0) + 1
         local score = weaponScore(item)
         if score ~= nil then
             facts.bestWeapon = math.max(facts.bestWeapon, score)
@@ -377,7 +379,7 @@ end
 
 -- Utility is a retention preference, not a currency price. Unknown/modded items
 -- fail closed until their purpose is understood; never assume they are rubbish.
-function Looting.itemUtility(character, item, facts, requirements)
+function Looting.itemUtility(character, item, facts, requirements, atBase)
     local full = itemType(item)
     if full == nil then return nil, "unknown_item" end
     if full:sub(1, 5) ~= "Base." then return nil, "unclassified_mod_item" end
@@ -397,9 +399,18 @@ function Looting.itemUtility(character, item, facts, requirements)
         or full == "Base.GoldBar" or full == "Base.SmallGoldBar" then
         return nil, "valuable"
     end
-    if canBandage(item) or MEDICAL_TYPES[full] then return nil, "medical_reserve" end
-    if isAmmo(item) or isMagazine(item) then return nil, "ammunition_reserve" end
+    if canBandage(item) or MEDICAL_TYPES[full] then
+        local limit = canBandage(item) and 4 or 2
+        if atBase and (facts.counts[full] or 0) > limit then return 50, "surplus_medical", false end
+        return nil, "medical_reserve"
+    end
+    if isAmmo(item) or isMagazine(item) then
+        local limit = isMagazine(item) and 2 or 40
+        if atBase and (facts.counts[full] or 0) > limit then return 55, "surplus_ammunition", false end
+        return nil, "ammunition_reserve"
+    end
     if ESSENTIAL_TOOLS[full] and not safe(function() return item:isBroken() end, false) then
+        if atBase and (facts.counts[full] or 0) > 1 then return 50, "spare_tool", false end
         return nil, "essential_tool"
     end
     if safeFood(item) then
@@ -439,14 +450,15 @@ function Looting.itemUtility(character, item, facts, requirements)
         return 45, "base_material", false
     end
     if full:sub(1, 5) == "Base." and category == "Junk" then return 1, "junk", true end
+    if atBase then return 60, "base_supplies", false end
     return nil, "unclassified_keep"
 end
 
-function Looting.cleanupPlan(character, requirements, continuing)
+function Looting.cleanupPlan(character, requirements, continuing, atBase)
     if character == nil then return {}, "no_character" end
     local maximum = safe(function() return character:getMaxWeight() end, 0)
     local weight = safe(function() return character:getInventoryWeight() end, 0)
-    if maximum <= 0 or weight <= maximum * (continuing and .80 or .90) then
+    if not atBase and (maximum <= 0 or weight <= maximum * (continuing and .80 or .90)) then
         return {}, "comfortable_load"
     end
     local facts, candidates = inventoryFacts(character), {}
@@ -464,7 +476,7 @@ function Looting.cleanupPlan(character, requirements, continuing)
         end
         if parent ~= character:getInventory() then protected = true end
         if not protected then
-            local value, reason, canDrop = Looting.itemUtility(character, item, facts, requirements)
+            local value, reason, canDrop = Looting.itemUtility(character, item, facts, requirements, atBase)
             if value ~= nil then
                 candidates[#candidates + 1] = { item = item, source = source, value = value,
                     reason = reason, canDrop = canDrop == true,
@@ -478,7 +490,7 @@ function Looting.cleanupPlan(character, requirements, continuing)
         if a.weight ~= b.weight then return a.weight > b.weight end
         return a.sequence < b.sequence
     end)
-    return candidates, "heavy_load"
+    return candidates, atBase and "base_deposit" or "heavy_load"
 end
 
 return Looting
