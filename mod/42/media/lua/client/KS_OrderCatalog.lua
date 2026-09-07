@@ -113,6 +113,7 @@ Catalog.actions = {
     dismiss = { label = "Dismiss", description = "Release this survivor from your group." },
     check_needs = { label = "Check Party Needs", description = "Review current party needs." },
     enter_vehicle = { label = "Get In My Vehicle", description = "Take an available passenger seat." },
+    drive_ahead = { label = "Drive Ahead (Experimental)", description = "Take the driver seat and travel a short distance." },
     exit_vehicle = { label = "Get Out of Vehicles", description = "Leave the current vehicle." },
     allow_climbing = { label = "Allow", description = "Allow vaulting and climbing." },
     disallow_climbing = { label = "Disallow", description = "Do not vault or climb." },

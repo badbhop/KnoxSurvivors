@@ -44,10 +44,13 @@ loaded route before moving. A player taking the seat, driver injury/death, unava
 terrain, stuck timeout or cancelled order must stop and release control. Reload must
 restore intent without automatically accelerating a vehicle before revalidation.
 
-Follow with obstacle stopping and bounded recovery, then passenger coordination.
-Convoys require following distance and stop propagation before route breadth. Do not
-add convoy menu entries that only set a timer or position. Never report successful
-arrival without observed vehicle position and a stopped vehicle.
+The current implementation provides a disabled-by-default Drive Ahead order. It
+requires an already-running driveable vehicle, a free driver seat, a short loaded
+lane, and native control release at the target or an invalidated lane. Live
+acceptance must confirm orientation, obstacle stopping, cancellation and player
+takeover before adding longer destinations, passenger coordination or convoys.
+Convoys require following distance and stop propagation before route breadth. Never
+report successful arrival without observed vehicle position and a stopped vehicle.
 
 ## Player customization
 

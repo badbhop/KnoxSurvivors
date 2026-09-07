@@ -970,6 +970,12 @@ update = function()
         reconcileSettlementDefinitions()
     end
     KnoxZombieAwareness.update(controllers, activeIds, ticks)
+    if KnoxCompanionVehicles ~= nil and KnoxCompanionVehicles.tick ~= nil then
+        local drivingOk, drivingError = pcall(KnoxCompanionVehicles.tick, ticks)
+        if not drivingOk then
+            print(TAG .. " vehicle-driver-tick-failed=" .. tostring(drivingError))
+        end
+    end
     KnoxSurvivorNameplates.update(ticks)
     if not scenarioConfigured and #scenarioIds > 0 then
         local configured, evidence = configureScenario(player, currentScenario, scenarioIds)

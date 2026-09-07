@@ -431,6 +431,9 @@ function CompanionService.issueOrder(player, survivorId, kind, payload)
     if normalizedKind == "enter_vehicle" then
         return CompanionService.boardPlayerVehicle(player, survivorId)
     end
+    if normalizedKind == "drive_ahead" then
+        return CompanionService.drivePlayerVehicle(player, survivorId)
+    end
     if normalizedKind == "exit_vehicle" then
         return CompanionService.exitVehicle(player, survivorId)
     end
@@ -816,6 +819,22 @@ function CompanionService.boardPlayerVehicle(player, survivorId)
         KnoxActivityFeed.speak(character, "I'll take a seat.")
     elseif result == "no_free_passenger_seat" then
         KnoxActivityFeed.speak(character, "I'll wait here. No more seats.")
+    end
+    return success, result
+end
+
+function CompanionService.drivePlayerVehicle(player, survivorId)
+    if not isPlayerCompanion(player, survivorId) then return false, "not_companion" end
+    local character, reason = validateInteraction(player, survivorId, 30 * 30)
+    if character == nil then return false, reason end
+    local vehicle = player:getVehicle()
+    if vehicle == nil then return false, "player_not_in_vehicle" end
+    if vehicle.isDriver ~= nil and vehicle:isDriver(player) then
+        return false, "player_must_vacate_driver_seat"
+    end
+    local success, result = KnoxCompanionVehicles.driveAhead(character, vehicle)
+    if success then
+        KnoxActivityFeed.speak(character, "I can drive us ahead.")
     end
     return success, result
 end

@@ -17,6 +17,7 @@ local DEFAULTS = {
     FollowerFormation = 1,
     FollowerSpacing = 1,
     ToolCupboardCapacity = 500,
+    EnableExperimentalNpcDriving = false,
     SpawnWithSpouse = false,
     RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
@@ -148,6 +149,10 @@ end
 
 function Settings.toolCupboardCapacity()
     return integer("ToolCupboardCapacity", 100, 2000)
+end
+
+function Settings.enableExperimentalNpcDriving()
+    return Settings.enabled() and value("EnableExperimentalNpcDriving") == true
 end
 
 function Settings.spawnWithSpouse()

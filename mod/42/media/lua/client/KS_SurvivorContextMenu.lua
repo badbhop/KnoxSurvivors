@@ -232,6 +232,12 @@ local function onBoardPlayerVehicle(_, playerNum, survivorId)
     end, survivorId)
 end
 
+local function onDriveAhead(_, playerNum, survivorId)
+    runService(playerNum, function(player, id)
+        return KnoxCompanionService.issueOrder(player, id, "drive_ahead")
+    end, survivorId)
+end
+
 local function onExitVehicle(_, playerNum, survivorId)
     runService(playerNum, function(player, id)
         return KnoxCompanionService.issueOrder(player, id, "exit_vehicle")
@@ -548,6 +554,14 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         elseif player:getVehicle() ~= nil then
             ordersMenu:addOption("Enter My Vehicle", SurvivorContextMenu,
                 onBoardPlayerVehicle, playerNum, survivorId)
+            local drive = ordersMenu:addOption(
+                KnoxOrderCatalog.label("drive_ahead", "Drive Ahead (Experimental)"),
+                SurvivorContextMenu, onDriveAhead, playerNum, survivorId)
+            if player.getVehicle ~= nil and player:getVehicle() ~= nil
+                and player:getVehicle().isDriver ~= nil
+                and player:getVehicle():isDriver(player) then
+                drive.notAvailable = true
+            end
         end
         local formationRoot = ordersMenu:addOption("Formation", nil, nil)
         local formationMenu = ISContextMenu:getNew(ordersMenu)
