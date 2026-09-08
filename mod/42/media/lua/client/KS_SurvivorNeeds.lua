@@ -219,8 +219,8 @@ function Needs.execute(character, decision)
             local action, reason = KnoxInventoryActions.queueTransfer(
                 character, decision.item, source, inventory)
             if not actionAccepted(character, action) then return nil, "supply_transfer_rejected" end
-            return action, reason, { kind = "prepare_supply", before = decision.state,
-                item = decision.item }
+            return action, reason, { kind = "prepare_supply", needKind = decision.kind,
+                before = decision.state, item = decision.item }
         end
     end
     if decision.kind == "drink" then

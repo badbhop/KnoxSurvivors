@@ -549,6 +549,8 @@ local unarmed = controller("unarmed")
 unarmed.bridge = {
     beginNpcLiveCombat = function() return "COMBAT_FAILED NO_EQUIPPED_WEAPON" end,
     resetNpcCombat = function() end,
+    cancelNpcMove = function() return true end,
+    moveNpcWithPace = function() return "MOVE_STARTED" end,
 }
 weapon = nil
 zombies = { postRetreat }
@@ -568,6 +570,8 @@ local unarmedFlee, unarmedRisk = unarmed:assessFlee()
 assert(unarmedFlee and unarmedRisk.reason == "no_usable_weapon",
     "unarmed actor escapes instead of repeatedly chasing a zombie it cannot attack")
 weapon = meleeWeapon(10, 1.5, 5)
+unarmed.state = "IDLE"
+unarmed.combatDisengageUntil = 0
 unarmed:beginCombat(postRetreat)
 assert(rejectedCalls == 1,
     "newly equipped weapon permits immediate reevaluation before the cooldown expires")

@@ -10,7 +10,8 @@ to Follow. Regression tests execute both transitions through real persistence.
 A spouse-start regression confirms that death after completed creation does not
 produce a replacement with the sandbox option still enabled.
 
-All 180 verification checks pass; the strengthened spouse assertion was rerun
+The current verification suite passes 181 checks across 86 Lua sources and 94
+regression scripts; the strengthened spouse assertion was rerun
 after ensuring its option remains enabled. Live base reassignment and companion
 recall remain unverified. No game session, release or Workshop publication was
 performed for this milestone. The full release-ready goal remains incomplete.

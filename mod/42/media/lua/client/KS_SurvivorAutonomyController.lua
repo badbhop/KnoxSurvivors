@@ -118,6 +118,10 @@ local GROUP_SUPPORT_RETRY_TICKS = 600
 local GROUP_SUPPORT_COOLDOWN_TICKS = 1800
 local FORMATION_REPATH_SHIFT_SQUARED = 2
 local FORMATION_REFRESH_TICKS = 30
+-- Native path requests are expensive and can make a follower oscillate through
+-- doorways when its anchor is moving. Hold a route briefly and require a real
+-- slot change before replacing it.
+local FORMATION_ROUTE_COMMIT_TICKS = 45
 local FORMATION_BOTTLENECK_WAIT_TICKS = 90
 local FORMATION_FAILURE_COOLDOWN_TICKS = 180
 local FORMATION_FAILURE_MAX_COOLDOWN_TICKS = 720
@@ -2288,6 +2292,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.formationTargetZ = nil
     self.formationMovementPace = nil
     self.nextFormationRefresh = 0
+    self.formationCommitUntil = 0
     self.formationFailureCount = 0
     self.movementFailureCount = 0
     self.regroupMember = nil
@@ -3402,6 +3407,7 @@ function Controller:beginGroupFollow(ticks)
     self.formationTargetY = approach:getY()
     self.formationTargetZ = approach:getZ()
     self.formationMovementPace = pace
+    self.formationCommitUntil = ticks + FORMATION_ROUTE_COMMIT_TICKS
     self.nextFormationRefresh = ticks + FORMATION_REFRESH_TICKS
         + formationRefreshDelay(self.groupFormationSlot)
     return true
@@ -3516,6 +3522,7 @@ function Controller:refreshFormationFollow(ticks)
         self.bridge:cancelNpcMove(self.id)
         self:resetMovementRecovery()
         self.formationMovementPace = nil
+        self.formationCommitUntil = 0
         self.activeDecision = groupFollow and "follow_group" or "follow_player"
         self.state = groupFollow and "GROUP_WAIT" or "COMPANION_WAIT"
         self.nextThink = ticks + FORMATION_REFRESH_TICKS
@@ -3529,6 +3536,9 @@ function Controller:refreshFormationFollow(ticks)
             + (self.formationTargetY - target:getY()) ^ 2
                 > FORMATION_REPATH_SHIFT_SQUARED
     if not shifted then
+        return false
+    end
+    if ticks < (self.formationCommitUntil or 0) and self.formationTargetZ == target:getZ() then
         return false
     end
     local restarted
@@ -4944,6 +4954,15 @@ function Controller:beginCombat(target)
             self.nextThreatScan,
             retry
         )
+        -- An unarmed survivor must immediately change survival mode after the
+        -- native combat bridge rejects the attack. Waiting for another threat
+        -- scan leaves them stationary in the bite zone.
+        if noWeapon then
+            local flee, assessment = self:assessFlee()
+            if flee then
+                self:beginFlee(now, assessment)
+            end
+        end
         return false
     end
     self.unarmedCombatBlocked = nil
@@ -5317,7 +5336,8 @@ function Controller:beginFlee(ticks, assessment)
             if threatSquare ~= nil and origin ~= nil
                 and distanceSquared(origin, threatSquare) <= 3.0625
                 and fleeLaneClear(origin, threatSquare)
-                and self:allowsCompanionThreat(threat) then
+                and self:allowsCompanionThreat(threat)
+                and not self.unarmedCombatBlocked then
                 if self:beginCombat(threat) then
                     self.fleeRecoveryUntil = nil
                     self.fleeTarget = nil
@@ -7025,6 +7045,32 @@ function Controller:tick(ticks)
                 self.character,
                 self.selfCareIntent
             )
+            -- A meal or bottle in a bag requires a native transfer first.
+            -- Chain the real eat/drink action immediately after that transfer;
+            -- otherwise the survivor reports hunger forever while carrying the
+            -- food that the planner already fetched.
+            if completed and self.selfCareIntent ~= nil
+                and self.selfCareIntent.kind == "prepare_supply" then
+                local intent = self.selfCareIntent
+                local followup = {
+                    kind = intent.needKind,
+                    state = KnoxSurvivorNeeds.snapshot(self.character),
+                    item = intent.item,
+                }
+                local action, result, nextIntent = KnoxSurvivorNeeds.execute(
+                    self.character, followup)
+                if action ~= nil and action ~= false then
+                    self.selfCareIntent = nextIntent
+                    self.activeDecision = intent.needKind
+                    print(
+                        "[KnoxSurvivors][Autonomy] id=" .. self.id
+                            .. " self-care-supply-ready kind=" .. tostring(intent.needKind)
+                    )
+                    return
+                end
+                completed = false
+                detail = "supply_ready_action=" .. tostring(result)
+            end
             local kind = self.selfCareIntent ~= nil
                 and self.selfCareIntent.kind or tostring(self.activeDecision)
             if completed then
