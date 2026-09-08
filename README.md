@@ -91,7 +91,7 @@ Discord: https://discord.gg/cTfd2WWD4s
 
 ## Permission
 
-This is the private development repository. The [player launcher](https://github.com/exe-create/KnoxSurvivorsLauncher)
+This is the private development repository. The [current player launcher](https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.3-preview.3)
 remains public; players do not need access to this repository. No permission is granted
 to copy, modify, redistribute, repackage, publish, or reuse the project without asking
 first. Authorized testers may use it only for the testing permission they were given.

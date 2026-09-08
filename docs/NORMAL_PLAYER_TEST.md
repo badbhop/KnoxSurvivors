@@ -32,7 +32,7 @@ the download we need to verify.
 ## Launch as a subscriber
 
 1. Download `KnoxSurvivorsLauncher-windows.zip` from the public
-   [launcher preview](https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.0-preview.1).
+   [current launcher preview](https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.3-preview.3).
    Anonymous download/checksum verification is complete; this gameplay smoke test is
    still needed after Steam supplies the updated mod.
 2. Extract the full ZIP into a new folder, for example Desktop/Knox Survivors Player Test.
