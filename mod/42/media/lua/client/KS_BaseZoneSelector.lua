@@ -48,18 +48,10 @@ local function pickMouseSquare(player)
     return sq, wx, wy, z
 end
 
-local function isInsideTerritory(minX, minY, maxX, maxY, z, base)
-    if base == nil then return false end
-    local area = base.territory or base.home
-    if area == nil then return false end
-    local bMinX = tonumber(area.minX)
-    local bMinY = tonumber(area.minY)
-    local bMaxX = tonumber(area.maxX or (bMinX and area.width and bMinX + area.width - 1 or bMinX))
-    local bMaxY = tonumber(area.maxY or (bMinY and area.height and bMinY + area.height - 1 or bMinY))
-    if bMinX == nil or bMinY == nil or bMaxX == nil or bMaxY == nil then return false end
-    local bz = tonumber(area.z or z)
-    if tonumber(z) ~= bz then return false end
-    return minX >= bMinX and maxX <= bMaxX and minY >= bMinY and maxY <= bMaxY
+-- Work areas describe jobs, not ownership. They may be outside the home
+-- territory or on another floor; native routing decides reachability.
+local function isValidWorkArea(minX, minY, maxX, maxY, z, base)
+    return base ~= nil and minX <= maxX and minY <= maxY and z ~= nil
 end
 
 local function draftTick()
@@ -75,10 +67,10 @@ local function draftTick()
     local minY = math.min(y1, wy)
     local maxY = math.max(y1, wy)
     local base = KnoxPersistence.getBase(activeSelection.baseId)
-    local inside = isInsideTerritory(minX, minY, maxX, maxY, z, base)
+    local valid = isValidWorkArea(minX, minY, maxX, maxY, z, base)
     local col = ZONE_HIGHLIGHT[activeSelection.zoneType] or ZONE_HIGHLIGHT.general
-    -- Valid = inside base boundary; invalid glows BadHighlitedColor (vanilla invalid).
-    if not inside then
+    -- Preview uses the same external-area policy as persisted work zones.
+    if not valid then
         local bad = getCore() and getCore():getBadHighlitedColor() or nil
         if bad ~= nil then
             col = { r = bad:getR(), g = bad:getG(), b = bad:getB(), a = 0.38 }

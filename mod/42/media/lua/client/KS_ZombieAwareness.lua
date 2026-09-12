@@ -1,3 +1,10 @@
+require "KS_ThreatClassifier"
+require "KS_ZombieDiscovery"
+local function isCorpseProxy(character)
+    local threats = rawget(_G, "KnoxThreatClassifier")
+    return threats ~= nil and threats.isCorpseProxy(character) or false
+end
+
 local ZombieAwareness = rawget(_G, "KnoxZombieAwareness") or {}
 _G.KnoxZombieAwareness = ZombieAwareness
 
@@ -130,7 +137,7 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
         local npc = controller ~= nil and controller.character or nil
         local zombieSquare = zombie ~= nil and zombie:getCurrentSquare() or nil
         local npcSquare = npc ~= nil and npc:getCurrentSquare() or nil
-        if zombie == nil or zombie:isDead() or not validNpc(npc)
+        if zombie == nil or zombie:isDead() or isCorpseProxy(zombie) or not validNpc(npc)
             or zombieSquare == nil or npcSquare == nil
             or zombie:getTarget() ~= npc
             or zombieSquare:getZ() ~= npcSquare:getZ()
@@ -167,7 +174,8 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
         local npc = controller ~= nil and controller.character or nil
         if validNpc(npc) then
             pcall(function() npc:setZombiesDontAttack(false) end)
-            local candidate = { id = id, npc = npc, square = npc:getCurrentSquare() }
+            local candidate = { id = id, npc = npc, square = npc:getCurrentSquare(),
+                discovery = KnoxZombieDiscovery.snapshot(npc) }
             candidates[#candidates + 1] = candidate
             candidatesById[id] = candidate
         end
@@ -176,7 +184,7 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
     for zombieIndex = 0, zombies:size() - 1 do
         local zombie = zombies:get(zombieIndex)
         local zombieSquare = zombie ~= nil and zombie:getCurrentSquare() or nil
-        if zombie ~= nil and not zombie:isDead() and zombieSquare ~= nil then
+        if zombie ~= nil and not zombie:isDead() and not isCorpseProxy(zombie) and zombieSquare ~= nil then
             local currentTarget = zombie:getTarget()
             local currentNpcId = nil
             local currentNpcVisible = false
@@ -196,7 +204,10 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                         if currentTarget == npc then
                             currentNpcVisible = visible
                         end
-                        if visible and distance < nearestDistance then
+                        local discovered = currentTarget == npc and visible
+                            or KnoxZombieDiscovery.canAcquire(zombie, npc,
+                                candidate.discovery, ticks, distance, visible)
+                        if discovered and distance < nearestDistance then
                             nearestId = id
                             nearestDistance = distance
                         end

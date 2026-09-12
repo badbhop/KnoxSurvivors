@@ -1,7 +1,5 @@
 package com.knoxsurvivors.npc;
 
-import com.knoxsurvivors.engine.KnoxShellVisibility;
-
 import com.knoxsurvivors.engine.KnoxIsoPlayerShellDefinition;
 import java.lang.reflect.Array;
 import java.lang.reflect.Constructor;
@@ -871,6 +869,36 @@ final class KnoxNpcFactory {
         return directionsClass.getField(name).get(null);
     }
 
+    static KnoxTravelAwareness.Observation scanTravelThreats(
+        Object body, Object zombies, Method canSee, float x, float y, int floor
+    ) throws ReflectiveOperationException {
+        if (zombies == null) return new KnoxTravelAwareness.Observation(0, Float.POSITIVE_INFINITY, false);
+        Method size = zombies.getClass().getMethod("size");
+        Method get = zombies.getClass().getMethod("get", int.class);
+        int count = ((Number) size.invoke(zombies)).intValue();
+        int visible = 0;
+        float nearestSquared = Float.POSITIVE_INFINITY;
+        for (int i = 0; i < count; i++) {
+            Object zombie = get.invoke(zombies, i);
+            if (zombie == null || (Boolean) invoke(zombie, "isDead")
+                || (Boolean) invoke(zombie, "isReanimatedForGrappleOnly")) continue;
+            if (((Number) invoke(zombie, "getZ")).intValue() != floor) continue;
+            float dx = x - ((Number) invoke(zombie, "getX")).floatValue();
+            float dy = y - ((Number) invoke(zombie, "getY")).floatValue();
+            float distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > 144.0f) continue;
+            // A remote stale target must not disable stealth across the map.
+            if (distanceSquared <= 64.0f && invoke(zombie, "getTarget") == body) {
+                return new KnoxTravelAwareness.Observation(visible, distanceSquared, true);
+            }
+            if (Boolean.TRUE.equals(canSee.invoke(body, zombie))) {
+                visible++;
+                nearestSquared = Math.min(nearestSquared, distanceSquared);
+            }
+        }
+        return new KnoxTravelAwareness.Observation(visible, nearestSquared, false);
+    }
+
     private static void applyHumanMovementIntent(
         KnoxNpc npc,
         Object body,
@@ -933,84 +961,30 @@ final class KnoxNpcFactory {
         boolean shouldRun = locomotion.running();
         boolean shouldSprint = locomotion.sprinting();
         boolean shouldSneak = false;
-        boolean urgentMovement = "run".equals(pace) || "sprint".equals(pace);
+        boolean urgentMovement = "run".equals(pace) || "sprint".equals(pace) || "catchup".equals(pace);
         try {
-            boolean combatActive = npc.isCombatActive();
-            // If player is sneaking and survivor is near player, mirror sneak for stealth.
-            Class<?> isoPlayerClass2 = Class.forName("zombie.characters.IsoPlayer", false, body.getClass().getClassLoader());
-            Object players = isoPlayerClass2.getField("players").get(null);
-            Object localPlayer = java.lang.reflect.Array.get(players, 0);
-            if (!combatActive && !urgentMovement
-                && KnoxShellVisibility.isPartyVisible(body)
-                && localPlayer != null
-                && (Boolean) localPlayer.getClass().getMethod("isSneaking").invoke(localPlayer)) {
-                float px = ((Number) localPlayer.getClass().getMethod("getX").invoke(localPlayer)).floatValue();
-                float py = ((Number) localPlayer.getClass().getMethod("getY").invoke(localPlayer)).floatValue();
-                float pdx = x - px;
-                float pdy = y - py;
-                float pdist = (float) Math.sqrt(pdx * pdx + pdy * pdy);
-                if (pdist < 20.0f && length < 10.0f) {
-                    shouldSneak = true;
+            // Lua supplies the actual leader's pace. Do not mirror player slot 0:
+            // that player may belong to a different party in split screen.
+            if (!npc.isCombatActive() && !urgentMovement && !(Boolean) invoke(body, "isAiming")
+                && !(Boolean) invoke(body, "isDraggingCorpse")) {
+                int floor = ((Number) invoke(body, "getZ")).intValue();
+                long now = System.nanoTime();
+                if (npc.travelAwareness.needsRefresh(now, x, y, floor)) {
+                    Object cell = invoke(body, "getCell");
+                    Object zombies = cell != null ? invoke(cell, "getZombieList") : null;
+                    Method canSee = body.getClass().getMethod("CanSee", classFor(body, "zombie.iso.IsoMovingObject"));
+                    npc.travelAwareness.update(now, x, y, floor,
+                        scanTravelThreats(body, zombies, canSee, x, y, floor));
+                }
+                shouldSneak = npc.travelAwareness.shouldSneak(now,
+                    "cautious".equals(pace), "sneak".equals(pace));
+                if (shouldSneak) {
                     shouldRun = false;
                     shouldSprint = false;
                 }
             }
-            // Also sneak if very close to zombie and not in combat (cautious approach) - only when undetected.
-            if (!combatActive && !urgentMovement && !shouldSneak) {
-                // Don't sneak while aiming/fighting
-                boolean isAiming = false;
-                try {
-                    isAiming = (Boolean) body.getClass().getMethod("isAiming").invoke(body);
-                } catch (ReflectiveOperationException ignored2) {
-                }
-                if (!isAiming) {
-                    Object cell = invoke(body, "getCell");
-                    if (cell != null) {
-                        Object zombies = cell.getClass().getMethod("getZombieList").invoke(cell);
-                        int zsize = (Integer) zombies.getClass().getMethod("size").invoke(zombies);
-                        boolean isTargeted = false;
-                        int nearbyZombies = 0;
-                        float nearestZombieDistance = Float.MAX_VALUE;
-                        int bodyZ = ((Number) invoke(body, "getZ")).intValue();
-                        for (int i = 0; i < zsize; i++) {
-                            Object z = zombies.getClass().getMethod("get", int.class).invoke(zombies, i);
-                            if (z != null && !(Boolean) z.getClass().getMethod("isDead").invoke(z)) {
-                                Object zt = z.getClass().getMethod("getTarget").invoke(z);
-                                if (zt == body) {
-                                    isTargeted = true;
-                                    break;
-                                }
-                                int zombieZ = ((Number) z.getClass().getMethod("getZ").invoke(z)).intValue();
-                                if (zombieZ == bodyZ) {
-                                    float zx = ((Number) z.getClass().getMethod("getX").invoke(z)).floatValue();
-                                    float zy = ((Number) z.getClass().getMethod("getY").invoke(z)).floatValue();
-                                    float zdx = x - zx;
-                                    float zdy = y - zy;
-                                    float zdist = (float) Math.sqrt(zdx * zdx + zdy * zdy);
-                                    if (zdist < 10.0f) {
-                                        nearbyZombies++;
-                                        nearestZombieDistance = Math.min(nearestZombieDistance, zdist);
-                                    }
-                                }
-                            }
-                        }
-                        // Sneak only through a genuine same-floor crowd while still
-                        // unnoticed. One ordinary zombie does not justify crouch-walking.
-                        if (!isTargeted && nearbyZombies >= 3
-                            && nearestZombieDistance < 10.0f
-                            && length < 6.0f && endurance > 0.5f) {
-                            shouldSneak = true;
-                            shouldRun = false;
-                            shouldSprint = false;
-                        }
-                    }
-                }
-            }
-            // Don't sneak while aiming
-            if ((Boolean) body.getClass().getMethod("isAiming").invoke(body)) {
-                shouldSneak = false;
-            }
         } catch (ReflectiveOperationException ignored) {
+            // Missing perception cannot take over a route or override emergency pace.
         }
         if (shouldSprint) {
             shouldRun = true;

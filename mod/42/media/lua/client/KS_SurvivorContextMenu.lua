@@ -23,6 +23,19 @@ _G.KnoxSurvivorContextMenu = SurvivorContextMenu
 
 local WORLD_PICK_RADIUS = 2.25
 local CONVERSATION_DISTANCE = 4
+local EMOTES = {
+    { "Wave Hello", "wavehi" }, { "Wave Goodbye", "wavebye" },
+    { "Clap", "clap" }, { "Thumbs Up", "thumbsup" },
+    { "Thank You", "thankyou" }, { "Thumbs Down", "thumbsdown" },
+    { "Stop", "stop" }, { "Surrender", "surrender" },
+    { "Follow Me", "followme" }, { "Come Here", "comehere" },
+    { "Yes", "yes" }, { "No", "no" }, { "Shrug", "shrug" },
+    { "Undecided", "undecided" }, { "Cease Fire", "ceasefire" },
+    { "Signal OK", "signalok" }, { "Move Out", "moveout" },
+    { "Freeze", "freeze" }, { "Follow Behind", "followbehind" },
+    { "Signal Fire", "signalfire" }, { "Come to Front", "comefront" },
+    { "Salute", "salute" },
+}
 
 local function refreshHud(playerNum)
     local hud = rawget(_G, "KnoxCompanionHUD")
@@ -87,6 +100,17 @@ end
 
 local function onViewSurvivor(_, playerNum, survivorId)
     KnoxSurvivorCard.show(playerNum, survivorId)
+end
+
+local function onEmote(_, survivorId, emote)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character == nil or character.playEmote == nil then return end
+    local actions = character.getCharacterActions ~= nil and character:getCharacterActions() or nil
+    if (actions == nil or actions:isEmpty())
+        and (character.isAttacking == nil or not character:isAttacking())
+        and (character.isDraggingCorpse == nil or not character:isDraggingCorpse()) then
+        character:playEmote(emote)
+    end
 end
 
 local function medicalMessage(player, survivorId, reason)
@@ -453,7 +477,7 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
     if not closeEnough or hostile then
         unavailable(talk)
     end
-    local needsLabel = closeEnough and "What do you need?" or "What do you need? (too far away)"
+    local needsLabel = closeEnough and "Ask About Needs" or "Ask About Needs (too far away)"
     local needs = menu:addOption(needsLabel, SurvivorContextMenu, onAskNeeds, playerNum, survivorId)
     if not closeEnough or hostile then unavailable(needs) end
 
@@ -482,15 +506,25 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         if not closeEnough then
             unavailable(inventory)
         end
-        -- Medical Check lives inside Orders to reduce top-level clutter;
-        -- still reachable via Survivor Name -> Orders -> Medical Check.
+        local medicalLabel = closeEnough and "Medical Check" or "Medical Check (too far away)"
+        local medical = menu:addOption(medicalLabel, SurvivorContextMenu,
+            onMedicalCheck, playerNum, survivorId)
+        if not closeEnough then unavailable(medical) end
+        local emotesRoot = menu:addOption("Actions & Emotes", nil, nil)
+        local emotesMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(emotesRoot, emotesMenu)
+        for _, definition in ipairs(EMOTES) do
+            emotesMenu:addOption(definition[1], SurvivorContextMenu,
+                onEmote, survivorId, definition[2])
+        end
     end
 
     if duty.mode == "base" then
         -- Base residents can be temporarily activated as companions. Keep that
         -- transition explicit in the menu so it is not confused with the
         -- ordinary Follow command, which is already owned by companions.
-        menu:addOption(KnoxOrderCatalog.label("recruit", "Bring Along"), SurvivorContextMenu, onFollow, playerNum, survivorId)
+        menu:addOption(KnoxOrderCatalog.label("follow"), SurvivorContextMenu,
+            onFollow, playerNum, survivorId)
         local residentInventoryLabel = closeEnough and "Manage Inventory"
             or "Manage Inventory (too far away)"
         local residentInventory = menu:addOption(
@@ -517,7 +551,7 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             jobsMenu:setOptionChecked(option, duty.jobPreference == preference
                 or (duty.jobPreference == nil and preference == "auto"))
         end
-        local supply = ordersMenu:addOption("Supply Run", nil, nil)
+        local supply = ordersMenu:addOption("Survival Orders", nil, nil)
         local supplyMenu = ISContextMenu:getNew(ordersMenu)
         ordersMenu:addSubMenu(supply, supplyMenu)
         for _, kind in ipairs({ "find_food", "find_water", "find_medical", "find_weapon", "find_tools" }) do
@@ -529,7 +563,6 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             onResumeNormalDuty, playerNum, survivorId
         )
         cancelSupply.notAvailable = duty.baseSupplyOrder == nil
-        ordersMenu:addOption("Done", SurvivorContextMenu, onFinishInventory, playerNum, survivorId)
     elseif duty.mode == "companion" then
         local orders = menu:addOption("Orders", nil, nil)
         local ordersMenu = ISContextMenu:getNew(menu)
@@ -544,15 +577,18 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         local resume = ordersMenu:addOption(KnoxOrderCatalog.label("resume_normal_duty"), SurvivorContextMenu,
             onResumeNormalDuty, playerNum, survivorId)
         resume.notAvailable = duty.directive == nil
-        ordersMenu:addOption(KnoxOrderCatalog.label("go_to"), SurvivorContextMenu, onMoveToPlayer, playerNum, survivorId)
-        ordersMenu:addOption(KnoxOrderCatalog.label("guard"), SurvivorContextMenu, onGuardHere, playerNum, survivorId)
-        ordersMenu:addOption(KnoxOrderCatalog.label("patrol_area"), SurvivorContextMenu, onPatrolHere, playerNum, survivorId)
+        local movementRoot = ordersMenu:addOption("Movement", nil, nil)
+        local movementMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(movementRoot, movementMenu)
+        movementMenu:addOption(KnoxOrderCatalog.label("go_to"), SurvivorContextMenu, onMoveToPlayer, playerNum, survivorId)
+        movementMenu:addOption(KnoxOrderCatalog.label("guard"), SurvivorContextMenu, onGuardHere, playerNum, survivorId)
+        movementMenu:addOption(KnoxOrderCatalog.label("patrol_area"), SurvivorContextMenu, onPatrolHere, playerNum, survivorId)
         local companion = KnoxSurvivorRuntime.getCharacter(survivorId)
         if companion ~= nil and companion:getVehicle() ~= nil then
-            ordersMenu:addOption("Exit Vehicle", SurvivorContextMenu,
+            ordersMenu:addOption(KnoxOrderCatalog.label("exit_vehicle"), SurvivorContextMenu,
                 onExitVehicle, playerNum, survivorId)
         elseif player:getVehicle() ~= nil then
-            ordersMenu:addOption("Enter My Vehicle", SurvivorContextMenu,
+            ordersMenu:addOption(KnoxOrderCatalog.label("enter_vehicle"), SurvivorContextMenu,
                 onBoardPlayerVehicle, playerNum, survivorId)
             local drive = ordersMenu:addOption(
                 KnoxOrderCatalog.label("drive_ahead", "Drive Ahead (Experimental)"),
@@ -563,9 +599,12 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                 drive.notAvailable = true
             end
         end
-        local formationRoot = ordersMenu:addOption("Formation", nil, nil)
-        local formationMenu = ISContextMenu:getNew(ordersMenu)
-        ordersMenu:addSubMenu(formationRoot, formationMenu)
+        local tacticsRoot = ordersMenu:addOption("Tactics & Behavior", nil, nil)
+        local tacticsMenu = ISContextMenu:getNew(ordersMenu)
+        ordersMenu:addSubMenu(tacticsRoot, tacticsMenu)
+        local formationRoot = tacticsMenu:addOption("Formation", nil, nil)
+        local formationMenu = ISContextMenu:getNew(tacticsMenu)
+        tacticsMenu:addSubMenu(formationRoot, formationMenu)
         for _, shape in ipairs({ { "Paired", "paired" }, { "Single File", "single_file" } }) do
             for spacing = 1, 3 do
                 local option = formationMenu:addOption(shape[1] .. " - spacing " .. tostring(spacing),
@@ -574,9 +613,9 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                     duty.followerFormation == shape[2] and duty.followerSpacing == spacing)
             end
         end
-        local stanceRoot = ordersMenu:addOption("Combat Stance", nil, nil)
-        local stanceMenu = ISContextMenu:getNew(ordersMenu)
-        ordersMenu:addSubMenu(stanceRoot, stanceMenu)
+        local stanceRoot = tacticsMenu:addOption("Combat Stance", nil, nil)
+        local stanceMenu = ISContextMenu:getNew(tacticsMenu)
+        tacticsMenu:addSubMenu(stanceRoot, stanceMenu)
         local stance = duty.combatStance or "defensive"
         for _, choice in ipairs({
             { "Passive — stay close", "passive" },
@@ -587,9 +626,9 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                 onCombatStance, playerNum, survivorId, choice[2])
             stanceMenu:setOptionChecked(option, stance == choice[2])
         end
-        local weaponRoot = ordersMenu:addOption("Weapon Preference", nil, nil)
-        local weaponMenu = ISContextMenu:getNew(ordersMenu)
-        ordersMenu:addSubMenu(weaponRoot, weaponMenu)
+        local weaponRoot = tacticsMenu:addOption("Weapon Preference", nil, nil)
+        local weaponMenu = ISContextMenu:getNew(tacticsMenu)
+        tacticsMenu:addSubMenu(weaponRoot, weaponMenu)
         local weaponPolicies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
         for _, choice in ipairs({ { "Prefer Melee", "melee" }, { "Prefer Ranged", "ranged" },
             { "Survivor Choice", "auto" } }) do
@@ -597,9 +636,6 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                 onWeaponPreference, playerNum, survivorId, choice[2])
             weaponMenu:setOptionChecked(option, (weaponPolicies.weaponPreference or "auto") == choice[2])
         end
-        local medicalLabel = closeEnough and "Medical Check" or "Medical Check (too far away)"
-        local medical = ordersMenu:addOption(medicalLabel, SurvivorContextMenu, onMedicalCheck, playerNum, survivorId)
-        if not closeEnough then unavailable(medical) end
         local lootRoot = ordersMenu:addOption("Loot Orders", nil, nil)
         local lootMenu = ISContextMenu:getNew(ordersMenu)
         ordersMenu:addSubMenu(lootRoot, lootMenu)
@@ -639,7 +675,6 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
                 survivorId
             )
         end
-        ordersMenu:addOption("Done", SurvivorContextMenu, onFinishInventory, playerNum, survivorId)
     end
     menu:addOption(KnoxOrderCatalog.label("dismiss"), SurvivorContextMenu, onDismiss, playerNum, survivorId)
     return true

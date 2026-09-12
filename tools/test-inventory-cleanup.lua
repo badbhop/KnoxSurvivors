@@ -331,3 +331,32 @@ assert(lastAction == drop and drop.character == character and drop.destContainer
 function character:getVehicle() return {} end
 assert(not KnoxInventoryActions.queueDrop(character, junk), "vehicle drop requires its separate native interaction")
 print("Inventory cleanup PASS protection=true utility=true hysteresis=true nested=true deposit=true interruption=true")
+
+-- Supplies deliberately recovered for the base must route to storage even if the
+-- item would normally be protected as a personal reserve (food/tool/weapon).
+controller.base, controller.baseId = base, base.id
+controller.groupLeader, controller.groupMembers = {}, {"a","b","c"}
+KnoxPersistence.getSurvivorDuty=function() return {mode="base",baseId=base.id} end
+KnoxPersistence.getBase=function() return base end
+KnoxBaseManager={containsSquare=function() return true end}
+assert(controller:canMakeDepositTrip(KnoxPersistence.getSurvivorDuty()),
+    "faction residents may deposit while their group remains at home")
+controller.state, actions, moveResult = "IDLE", false, "MOVE_STARTED"
+controller.pendingBaseSupplyDeposit={item=weak}
+controller.depositRetryAt={}
+inventory.values={best,weak}
+weak.deposited,weak.favorite=false,false
+storageAvailable=false
+assert(controller:beginBaseSupplyDeposit(13000) and controller.state=="MOVING_TO_DEPOSIT",
+    "returning to the base is followed by a real route to the storage container")
+assert(controller.pendingDepositTrip.baseSupply)
+storageAvailable=true
+assert(controller:completeDepositTrip(13100) and controller.pendingCleanup.baseSupply,
+    "arrival keeps settlement-supply ownership instead of reclassifying the item as personal surplus")
+weak.deposited=true
+inventory.values={best}
+actions=false
+controller:updateInventoryCleanup(13101)
+assert(controller.pendingBaseSupplyDeposit==nil and controller.pendingDepositTrip==nil,
+    "confirmed real receipt clears the carried supply marker once")
+print("Base supply delivery PASS return_route=true faction_resident=true native_transfer=true receipt=true")

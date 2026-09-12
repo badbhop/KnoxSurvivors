@@ -10,7 +10,17 @@ local ViewModel = rawget(_G, "KnoxSurvivorViewModel") or {}
 _G.KnoxSurvivorViewModel = ViewModel
 
 local ACTIVITY_LABELS = {
+    reading = "Reading",
+    collecting_book = "Collecting a book",
+    returning_book = "Returning a book",
     fighting = "Fighting",
+    retreating = "Retreating",
+    guarding = "Keeping watch",
+    patrolling = "Patrolling",
+    collecting_job_supplies = "Collecting job supplies",
+    waiting_for_materials = "Waiting for materials",
+    sorting_inventory = "Sorting inventory",
+    storing_supplies = "Storing supplies",
     looting = "Looting",
     searching = "Searching",
     seeking_supplies = "Looking for supplies",
@@ -31,6 +41,8 @@ local ACTIVITY_LABELS = {
     trading = "Trading",
     returning_to_shelter = "Returning to shelter",
     at_shelter = "At shelter",
+    driving = "Driving",
+    waiting_for_road = "Waiting for a clear route",
     riding = "In vehicle",
     boarding = "Using vehicle",
 }
@@ -295,6 +307,12 @@ local function runtimeActivity(id)
             return intentLabel
         end
         return labels[storedActivity] or intentLabel
+    end
+    if snapshot.activity == "busy" then
+        local selfCare = { eat = "Eating", drink = "Drinking", bandage = "Treating wounds",
+            improvise_medical = "Preparing bandages" }
+        local label = selfCare[tostring(snapshot.decision or "")]
+        if label ~= nil then return label end
     end
     return ACTIVITY_LABELS[tostring(snapshot.activity or "")]
 end

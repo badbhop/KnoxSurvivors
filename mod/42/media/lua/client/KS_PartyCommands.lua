@@ -237,34 +237,37 @@ local function populate(menu, playerNum, square)
         board.notAvailable = actor.getVehicle == nil or actor:getVehicle() == nil
         vehicleMenu:addOption(KnoxOrderCatalog.label("exit_vehicle"), PartyCommands, PartyCommands.exitAll, playerNum)
     end
-    local traversal = menu:addOption(catalogLabel("traversal_orders", "Vaulting and Climbing"), nil, nil)
-    local traversalMenu = ISContextMenu:getNew(menu)
-    menu:addSubMenu(traversal, traversalMenu)
+    local tactics = menu:addOption("Tactics & Behavior", nil, nil)
+    local tacticsMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(tactics, tacticsMenu)
+    local traversal = tacticsMenu:addOption(catalogLabel("traversal_orders", "Vaulting and Climbing"), nil, nil)
+    local traversalMenu = ISContextMenu:getNew(tacticsMenu)
+    tacticsMenu:addSubMenu(traversal, traversalMenu)
     local allow = traversalMenu:addOption(KnoxOrderCatalog.label("allow_climbing"), PartyCommands, PartyCommands.climbingAll, playerNum, true)
     local disallow = traversalMenu:addOption(KnoxOrderCatalog.label("disallow_climbing"), PartyCommands, PartyCommands.climbingAll, playerNum, false)
     traversalMenu:setOptionChecked(allow, common.climbing == true)
     traversalMenu:setOptionChecked(disallow, common.climbing == false)
-    local formation = menu:addOption("Formation", nil, nil)
-    local formationMenu = ISContextMenu:getNew(menu)
-    menu:addSubMenu(formation, formationMenu)
+    local formation = tacticsMenu:addOption("Formation", nil, nil)
+    local formationMenu = ISContextMenu:getNew(tacticsMenu)
+    tacticsMenu:addSubMenu(formation, formationMenu)
     for _, shape in ipairs({ { "Paired", "paired" }, { "Single File", "single_file" } }) do
         for spacing = 1, 3 do
             formationMenu:addOption(shape[1] .. " - spacing " .. tostring(spacing), PartyCommands,
                 PartyCommands.formationAll, playerNum, shape[2], spacing)
         end
     end
-    local combat = menu:addOption(catalogLabel("combat_stance", "Combat Stance"), nil, nil)
-    local combatMenu = ISContextMenu:getNew(menu)
-    menu:addSubMenu(combat, combatMenu)
+    local combat = tacticsMenu:addOption(catalogLabel("combat_stance", "Combat Stance"), nil, nil)
+    local combatMenu = ISContextMenu:getNew(tacticsMenu)
+    tacticsMenu:addSubMenu(combat, combatMenu)
     for _, choice in ipairs({ { "Passive - stay close", "passive" },
         { "Defensive - protect us", "defensive" }, { "Aggressive - clear threats", "aggressive" } }) do
         local option = combatMenu:addOption(choice[1], PartyCommands,
             PartyCommands.combatStanceAll, playerNum, choice[2])
         combatMenu:setOptionChecked(option, common.stance == choice[2])
     end
-    local weapon = menu:addOption(catalogLabel("weapon_preference", "Weapon Preference"), nil, nil)
-    local weaponMenu = ISContextMenu:getNew(menu)
-    menu:addSubMenu(weapon, weaponMenu)
+    local weapon = tacticsMenu:addOption(catalogLabel("weapon_preference", "Weapon Preference"), nil, nil)
+    local weaponMenu = ISContextMenu:getNew(tacticsMenu)
+    tacticsMenu:addSubMenu(weapon, weaponMenu)
     for _, choice in ipairs({ { "Prefer Melee", "melee" }, { "Prefer Ranged", "ranged" },
         { "Survivor Choice", "auto" } }) do
         local option = weaponMenu:addOption(choice[1], PartyCommands,
@@ -272,15 +275,18 @@ local function populate(menu, playerNum, square)
         weaponMenu:setOptionChecked(option, common.weapon == choice[2])
     end
     if square ~= nil then
-        menu:addOption(catalogLabel("move_party", "Move Party Here"), PartyCommands, PartyCommands.directiveAll,
+        local location = menu:addOption("Orders for This Location", nil, nil)
+        local locationMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(location, locationMenu)
+        locationMenu:addOption(catalogLabel("move_party", "Move Party Here"), PartyCommands, PartyCommands.directiveAll,
             playerNum, pointDirective("go_to", square))
-        menu:addOption(catalogLabel("guard_location", "Guard This Location"), PartyCommands, PartyCommands.directiveAll,
+        locationMenu:addOption(catalogLabel("guard_location", "Guard This Location"), PartyCommands, PartyCommands.directiveAll,
             playerNum, pointDirective("guard", square))
-        menu:addOption(catalogLabel("patrol_location", "Patrol This Area"), PartyCommands, PartyCommands.directiveAll,
+        locationMenu:addOption(catalogLabel("patrol_location", "Patrol This Area"), PartyCommands, PartyCommands.directiveAll,
             playerNum, areaDirective("patrol_area", square, 10))
-        local loot = menu:addOption(catalogLabel("loot_orders", "Loot Orders"), nil, nil)
-        local lootMenu = ISContextMenu:getNew(menu)
-        menu:addSubMenu(loot, lootMenu)
+        local loot = locationMenu:addOption(catalogLabel("loot_orders", "Loot Orders"), nil, nil)
+        local lootMenu = ISContextMenu:getNew(locationMenu)
+        locationMenu:addSubMenu(loot, lootMenu)
         lootMenu:addOption(KnoxOrderCatalog.label("loot_area"), PartyCommands, PartyCommands.directiveAll,
             playerNum, areaDirective("loot_area", square, 10))
         lootMenu:addOption(KnoxOrderCatalog.label("loot_corpses"), PartyCommands, PartyCommands.directiveAll,
@@ -291,9 +297,9 @@ local function populate(menu, playerNum, square)
         if building == nil then
             buildingOption.notAvailable = true
         end
-        local survival = menu:addOption(catalogLabel("survival_orders", "Survival Orders"), nil, nil)
-        local survivalMenu = ISContextMenu:getNew(menu)
-        menu:addSubMenu(survival, survivalMenu)
+        local survival = locationMenu:addOption(catalogLabel("survival_orders", "Survival Orders"), nil, nil)
+        local survivalMenu = ISContextMenu:getNew(locationMenu)
+        locationMenu:addSubMenu(survival, survivalMenu)
         survivalMenu:addOption(KnoxOrderCatalog.label("find_food"), PartyCommands, PartyCommands.directiveAll,
             playerNum, areaDirective("find_food", square, 12))
         survivalMenu:addOption(KnoxOrderCatalog.label("find_water"), PartyCommands, PartyCommands.directiveAll,

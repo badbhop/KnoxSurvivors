@@ -5,6 +5,7 @@ require "KS_SurvivorAutonomy"
 require "KS_ActivityFeed"
 require "KS_CombatTestScenarios"
 require "KS_KnoxEvents"
+require "KS_JobTestSupplies"
 
 local DeveloperTools = rawget(_G, "KnoxDeveloperTools") or {}
 _G.KnoxDeveloperTools = DeveloperTools
@@ -51,6 +52,23 @@ function DeveloperTools.printStatus()
         end
     end
     KnoxActivityFeed.event("Developer status written to console.txt.")
+end
+
+function DeveloperTools.printFactionReadiness()
+    local seen={}
+    for _,id in ipairs(KnoxPersistence.getActivatableSurvivorIds()) do
+        local group=KnoxPersistence.getTravelGroupFor(id)
+        if group~=nil and not seen[group.id] then
+            seen[group.id]=true
+            local status=KnoxPersistence.getFactionReadiness(group.id,KnoxSettings.npcFactionMinimumMembers())
+            print("[KnoxSurvivors][DeveloperTools] group="..group.id
+                .." faction="..tostring(status.factionId or "none")
+                .." formation="..tostring(status.reason).." enabled="..tostring(KnoxSettings.allowNPCFactions())
+                .." members="..status.members.." required="..status.required
+                .." shared="..status.sharedMembers.." waitingFor="..table.concat(status.missingShared,","))
+        end
+    end
+    KnoxActivityFeed.event("Faction formation status written to console.txt.")
 end
 
 function DeveloperTools.dispatchScout(playerNum, worldObjects)
@@ -123,6 +141,16 @@ function DeveloperTools.scheduleScavengerEntry(playerNum, worldObjects)
     scheduleNamedEntry(worldObjects, "scavengers", "scavenge_world", 3, "Scavengers")
 end
 
+function DeveloperTools.stockJobTests(playerNum)
+    local actor = getSpecificPlayer(playerNum)
+    local manager = rawget(_G, "KnoxBaseManager")
+    local service = rawget(_G, "KnoxCompanionService")
+    local owner = actor ~= nil and service ~= nil and service.getPlayerId(actor) or nil
+    local base = owner ~= nil and manager ~= nil and manager.getForOwner("player", owner) or nil
+    local added, result = KnoxJobTestSupplies.ensure(base, actor, true)
+    KnoxActivityFeed.event("Job test supplies: " .. tostring(result) .. " (" .. tostring(added) .. " items added).")
+end
+
 local function onFill(playerNum, context, worldObjects, test)
     if not KnoxSettings.developerToolsEnabled() then
         return
@@ -136,39 +164,56 @@ local function onFill(playerNum, context, worldObjects, test)
     local rootOption = context:addOption("Knox Survivors - Developer Tools", nil, nil)
     local menu = ISContextMenu:getNew(context)
     context:addSubMenu(rootOption, menu)
-    local populationOption = menu:addOption("Spawn Survivor Scenarios", nil, nil)
+    local populationOption = menu:addOption("Population Scenarios", nil, nil)
     local populationMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(populationOption, populationMenu)
     for _, definition in ipairs(SCENARIOS) do
         populationMenu:addOption(definition[1], playerNum, DeveloperTools.spawn, definition[2])
     end
 
-    local combatOption = menu:addOption("Run Combat Scenario", nil, nil)
+    local jobsOption = menu:addOption("Base & Job Tests", nil, nil)
+    local jobsMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(jobsOption, jobsMenu)
+    local stock = jobsMenu:addOption("Stock Central Cupboard for Job Tests", playerNum, DeveloperTools.stockJobTests)
+    stock.notAvailable = not KnoxSettings.developerJobSuppliesEnabled()
+    jobsMenu:addOption("Write Job and Survivor Status to Log", nil, DeveloperTools.printStatus)
+
+    local combatOption = menu:addOption("Combat Tests", nil, nil)
     local combatMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(combatOption, combatMenu)
     for _, definition in ipairs(COMBAT_SCENARIOS) do
         combatMenu:addOption(definition[1], playerNum, KnoxCombatTestScenarios.start, definition[2])
     end
+    combatMenu:addOption("Write Combat Snapshot to Log", nil, KnoxCombatTestScenarios.writeSnapshot)
+    combatMenu:addOption("Cleanup Combat Test", nil, KnoxCombatTestScenarios.cleanup)
 
-    menu:addOption("Dispatch Loaded Faction Scout Here", playerNum,
+    local worldOption = menu:addOption("Faction & World Events", nil, nil)
+    local worldMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(worldOption, worldMenu)
+    worldMenu:addOption("Write Faction Formation Status to Log", nil, DeveloperTools.printFactionReadiness)
+    worldMenu:addOption("Dispatch Loaded Faction Scout Here", playerNum,
         DeveloperTools.dispatchScout, worldObjects)
 
     if KnoxSettings.allowDestructiveDeveloperTests() then
-        menu:addOption("Schedule Eligible Faction Raid Now", nil,
+        local destructiveOption = worldMenu:addOption("Destructive Tests", nil, nil)
+        local destructiveMenu = ISContextMenu:getNew(worldMenu)
+        worldMenu:addSubMenu(destructiveOption, destructiveMenu)
+        destructiveMenu:addOption("Schedule Eligible Faction Raid Now", nil,
             DeveloperTools.scheduleEligibleRaid)
-        menu:addOption("Schedule Police Entry Here", playerNum,
+        destructiveMenu:addOption("Schedule Police Entry Here", playerNum,
             DeveloperTools.schedulePoliceEntry, worldObjects)
-        menu:addOption("Schedule Scientists Exit Test Here", playerNum,
+        destructiveMenu:addOption("Schedule Scientists Entry Here", playerNum,
             DeveloperTools.scheduleScientistsEntry, worldObjects)
-        menu:addOption("Schedule Military Exit Test Here", playerNum,
+        destructiveMenu:addOption("Schedule Military Entry Here", playerNum,
             DeveloperTools.scheduleMilitaryEntry, worldObjects)
-        menu:addOption("Schedule Scavenger Search Here", playerNum,
+        destructiveMenu:addOption("Schedule Scavenger Search Here", playerNum,
             DeveloperTools.scheduleScavengerEntry, worldObjects)
     end
 
-    menu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)
-    menu:addOption("Write Combat Snapshot to Log", nil, KnoxCombatTestScenarios.writeSnapshot)
-    menu:addOption("Cleanup Combat Test", nil, KnoxCombatTestScenarios.cleanup)
+    local diagnosticsOption = menu:addOption("Diagnostics", nil, nil)
+    local diagnosticsMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(diagnosticsOption, diagnosticsMenu)
+    diagnosticsMenu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFill)

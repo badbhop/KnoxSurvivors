@@ -18,6 +18,7 @@ local DEFAULTS = {
     FollowerSpacing = 1,
     ToolCupboardCapacity = 500,
     EnableExperimentalNpcDriving = false,
+    NpcDrivingSpeed = 20,
     SpawnWithSpouse = false,
     RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
@@ -32,10 +33,15 @@ local DEFAULTS = {
     ShowCompanionHUD = true,
     ShowActivityFeed = true,
     ShowSurvivorSpeech = true,
+    OrderGestures = true,
+    CautiousTravel = true,
+    BaseReading = true,
+    ZombieEngagementDistance = 4,
     ShowSurvivorNameplates = true,
     SurvivorNameplateDistance = 24,
     AllowSurvivorPlayerCombat = true,
     EnableDeveloperTools = false,
+    DeveloperJobSupplies = false,
     DeveloperScenario = 1,
     DeveloperSpawnDistance = 10,
     AllowDestructiveDeveloperTests = false,
@@ -73,6 +79,18 @@ local function integer(name, minimum, maximum)
     end
     number = math.floor(number)
     return math.max(minimum, math.min(maximum, number))
+end
+
+function Settings.baseReadingEnabled()
+    return value("BaseReading") ~= false
+end
+
+function Settings.cautiousTravel()
+    return value("CautiousTravel") ~= false
+end
+
+function Settings.zombieEngagementDistance()
+    return integer("ZombieEngagementDistance", 2, 16)
 end
 
 function Settings.enabled()
@@ -155,6 +173,10 @@ function Settings.enableExperimentalNpcDriving()
     return Settings.enabled() and value("EnableExperimentalNpcDriving") == true
 end
 
+function Settings.npcDrivingSpeed()
+    return integer("NpcDrivingSpeed", 5, 30)
+end
+
 function Settings.spawnWithSpouse()
     return Settings.enabled() and value("SpawnWithSpouse") == true
 end
@@ -225,8 +247,16 @@ function Settings.allowSurvivorPlayerCombat()
     return Settings.enabled() and value("AllowSurvivorPlayerCombat") ~= false
 end
 
+function Settings.orderGesturesEnabled()
+    return Settings.enabled() and value("OrderGestures") ~= false
+end
+
 function Settings.developerToolsEnabled()
     return Settings.enabled() and value("EnableDeveloperTools") == true
+end
+
+function Settings.developerJobSuppliesEnabled()
+    return Settings.developerToolsEnabled() and value("DeveloperJobSupplies") == true
 end
 
 function Settings.developerScenario()

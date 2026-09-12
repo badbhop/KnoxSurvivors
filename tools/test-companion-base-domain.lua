@@ -286,10 +286,10 @@ local queuedZoneTask = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
 assert(KnoxPersistence.removeBaseZone(base.id, zone.id))
 assert(base.zones[zone.id] == nil and base.tasks[queuedZoneTask.id] == nil,
     "removing an inactive zone clears its queued work")
-local activeZone = assert(KnoxPersistence.addBaseZone(base.id, "guard", {
+local activeZone = assert(KnoxPersistence.addBaseZone(base.id, "woodcutting", {
     x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
 }, "Active gate"))
-local activeTask = assert(KnoxPersistence.queueBaseTask(base.id, "guard", {
+local activeTask = assert(KnoxPersistence.queueBaseTask(base.id, "chop_tree", {
     autoZoneId = activeZone.id, x1 = 9, y1 = 19, x2 = 12, y2 = 22, z = 0,
 }, {}, 50))
 assert(KnoxPersistence.claimBaseTask(base.id, activeTask.id, "independent", 24))
@@ -312,6 +312,13 @@ assert(KnoxPersistence.requeueBaseTasksForSurvivor(
     "independent", base.id, "test_release"
 ) == 1, "test claimant must release its active task before claiming another")
 
+local watchZone=assert(KnoxPersistence.addBaseZone(base.id,"guard",{x1=12,y1=22,x2=12,y2=22,z=0},"Watch"))
+local watchTask={id="release-watch",type="guard",state="claimed",claimedBy="independent",target={autoZoneId=watchZone.id}}
+base.tasks[watchTask.id]=watchTask
+assert(KnoxPersistence.removeBaseZone(base.id,watchZone.id), "an indefinite guard area can be explicitly removed")
+assert(watchTask.state=="cancelled" and watchTask.claimedBy==nil and base.tasks[watchTask.id]==nil,
+    "the loaded task reference sees its release before the persisted target disappears")
+
 local policy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     key = "container-stable-1",
     x = 10,
@@ -323,13 +330,22 @@ local policy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
 }, "depot", true))
 assert(policy.containerIndex == 1 and policy.category == "depot"
     and base.toolCupboardKey == "container-stable-1")
-local rejectedStorage, rejectedStorageReason = KnoxPersistence.setBaseStoragePolicy(base.id, {
+local foodPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     key = "container-stable-2", x = 11, y = 20, z = 0,
-    objectIndex = 3, containerIndex = 0, containerType = "crate",
-}, "food", false)
-assert(rejectedStorage == nil and rejectedStorageReason == "central_cupboard_only"
-    and base.storage["container-stable-1"] ~= nil,
-    "retired category storage cannot be recreated through persistence")
+    objectIndex = 3, containerIndex = 0, containerType = "fridge",
+}, "food", false))
+assert(foodPolicy.storageRole == "food" and not foodPolicy.toolCupboard
+    and base.storage["container-stable-1"] ~= nil, "optional food storage preserves main supplies")
+assert(not KnoxPersistence.setBaseStoragePolicy(base.id, {key=base.toolCupboardKey}, "food", false),
+    "the main cupboard cannot be accidentally relabeled as food only")
+assert(KnoxPersistence.setBaseStoragePolicy(base.id, {key="new-main"}, "depot", true))
+assert(base.storage["container-stable-2"] == foodPolicy and base.storage["container-stable-1"] == nil,
+    "replacing main supplies preserves the kitchen")
+assert(KnoxPersistence.removeBaseStoragePolicy(base.id, foodPolicy.key)
+    and base.storage[foodPolicy.key] == nil, "food assignment can be removed without discarding main supplies")
+assert(not KnoxPersistence.removeBaseStoragePolicy(base.id, base.toolCupboardKey))
+assert(not KnoxPersistence.setBaseStoragePolicy(base.id, {key="old-category"}, "building", false),
+    "legacy sorting categories remain retired")
 
 local firstTask = assert(KnoxPersistence.queueBaseTask(base.id, "chop_tree", {
     x = 30, y = 40, z = 0,

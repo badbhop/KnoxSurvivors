@@ -1,5 +1,238 @@
 # Feature-completion audit
 
+### Earned faction formation - 2026-09-12
+
+Opening cohorts can now use the configured group size instead of being hard-capped
+at three (below the default four-member faction threshold). Compact smaller groups
+remain a fallback; existing worlds, population limits and the group-chance option
+are preserved. Both never-materialized cohorts and stored survivor groups record
+bounded shared survival time through their existing travel owner. Only canonical,
+autonomous members remaining nearby on the same floor qualify; no bodies, supplies,
+combat wins or meetings are invented. Partial activation and repeated/backwards
+clock updates cannot supply duplicate evidence. Faction creation respects its option
+and normal membership/shared-survival requirements.
+
+Developer Tools > Faction & World Events > **Write Faction Formation Status to Log**
+reports the actual membership threshold and members missing shared-survival evidence.
+Survivor status also includes the current decision, base and latest failure/tick.
+
+Validation: **201 Lua checks passed** (94 sources and 107 execution/regression
+scripts), including real population allocation → shared travel → earned promotion,
+stored physiology/group coordination, partial activation, disabling factions and
+read-only readiness diagnostics. Java is unchanged from the passing check/build/native
+verifiers below. New live faction growth, camp/base acquisition and long-term
+population acceptance remain pending. Local candidate refreshed: all 103 mod files
+and the built agent match; native layout/checksum/payload validation passes. Nothing
+was published.
+
+
+### Calmer travel, base reading and map driving - 2026-09-12
+
+**Implemented; live acceptance pending.** This checkpoint supersedes the older
+reading/travel/driving status below; it does not complete the full gameplay goal.
+
+- Routine routes walk and crouch around undetected zombies; actual leader posture
+  drives follower pace. Cached Java travel perception avoids per-frame whole-list
+  scans. Automatic zombie engagement defaults to 4 tiles, with separate immediate
+  defense/current-fight bounds and the existing duty/hostile-human rules.
+- Zombie discovery now separates geometric LOS from initial visual acquisition:
+  facing, sustained exposure and native sneak modifiers matter. This is an original
+  Knox discovery policy because native spotting reads an unavailable NPC lighting
+  channel. It does not reproduce native lighting/spotting probabilities. Existing
+  target memory, hearing assignments and native attack refresh remain separate.
+- Idle residents read eligible literature through native reading actions, borrowing
+  from assigned storage and returning actual items. Loan metadata survives an
+  interruption; returns handle carried bags and removed storage without deleting
+  books. Needs/orders/threats release the activity. TV/cooking remain unfinished.
+- Companion Hold/Guard now check needs without deleting their directive; displaced
+  guards recheck their post. This closes the stationary-companion starvation path.
+- Experimental driving now survives the boarding interruption boundary and uses
+  native forward vectors. Map > **Drive Here (Experimental)** / **Stop Driving**
+  use the existing companion authorization and native seat actions. Nearby loaded
+  outdoor routes use vehicle-width clearance and detours; speed limits, obstacle
+  braking, bounded waiting/replanning, injury cancellation and player takeover are
+  explicit. New speed option: 5–30 km/h, default 20. Driving remains off by default.
+  Long-distance road navigation, trailers, garages, swept turning geometry and
+  measured live braking/steering acceptance are still outstanding.
+
+Validation: **200 checks passed** (93 Lua sources, 106 regression scripts and the
+Java check/build/native verifiers). Map callbacks, boarding cancellation, stationary
+needs, physical book returns, exposure/pursuit, route geometry and driver release
+have focused execution tests. Local candidate refreshed: all **102 mod source files**
+and the Java agent match their staged bytes; the installed game's native payload,
+layout, checksum and agent-manifest checks pass. Workshop metadata/preview are not
+prepared and nothing was published. This proves offline integration, not live AI
+behavior, performance, animations or vehicle physics.
+
+
+### Base storage, permanent duties and corpse targeting - 2026-09-09
+
+**Implemented; offline checks passed. New live acceptance pending.** The user's
+latest playtest reports combat/population mostly working; jobs/base life/travel
+are the current priority.
+
+- Setup now offers **Main Supplies** plus optional **Food & Drink** containers.
+  Fridges/freezers keep native capacity; food assignments survive main-cupboard
+  replacement. Right-click shows assignment/removal; the notebook lists locations
+  and base highlights mark supplies/food. AI settlements designate cold storage
+  through the same boundary. Legacy sorting categories/jobs remain retired.
+- Deposits prefer food storage with capacity and fall back to main supplies.
+  Raw ingredients can be stored without being counted as safe meals. Residents
+  seek personal meals at home before nearby houses, including loaded upstairs
+  storage. Restocking excludes the base's existing stock. Returning scavengers
+  route to the actual container and clear delivery only after a real transfer;
+  faction membership no longer prevents residents making local deposit trips.
+- Guard jobs retain their post; patrol jobs repeat circuits with observation
+  pauses. Needs/threat interruptions retain the claim. Removing a security area
+  explicitly releases even an active patrol; finite native work remains protected.
+  Duty combat boundaries prevent workers hunting unrelated street zombies.
+- Player orders and NPC leader signals share native emotes, action ownership and
+  the **Use Gestures When Giving Orders** setting. Guard/patrol activity labels
+  reflect the real current state rather than hiding it behind generic work.
+- Corpse hauling's native grapple-only zombie proxy is excluded from combat,
+  retreat, secure-area counts and zombie attack steering. Actual reanimated
+  zombies remain threats. Pickup/drop still use the native corpse actions.
+- **Job Tests: Provide Tools and Materials**, off by default and requiring Developer
+  Tools, stocks real main-cupboard items for repeatable job tests. It preserves
+  native actions, placement/skill checks and real inventory ownership.
+
+Validation: **192 checks passed**: 89 Lua sources, 102 regression scripts, and
+Java check/build/native verifiers. Focused regressions cover storage menu callbacks, capacities, kitchen
+migration, upstairs meal collection, reservation/unsafe-food rejection, no stock
+recycling, actual supply receipt, guard release, patrol continuity and corpse proxies.
+The local candidate at `build/candidate-workshop/KnoxSurvivors` was refreshed;
+all 98 source-file hashes and the built/staged Java agent match. The installed
+game's native payload/layout/checksum validator passes. Upload metadata/preview
+are not prepared; this is a local test artifact, not a Steam/public release.
+
+Still active: richer idle reading/TV/cooking, cautious roaming and avoidance,
+map-directed driving, broader repeatable developer scenarios, faction formation
+acceptance, and an integrated owned/unowned long gameplay session. Launcher work
+remains last. This checkpoint does not establish full gameplay completion.
+
+### Settlement supply loop, social ownership and retreat - 2026-09-09
+
+**Implemented; offline validation passed. Live gameplay acceptance pending.**
+
+- Successful player conversations briefly stop safe nearby survivors and retain
+  their underlying Follow/base/group duty. Attention expires after ten seconds
+  and yields to needs, departure, floor changes, danger and new orders. Active
+  jobs, queued native actions, traversal and combat cannot be taken over by talk.
+- NPC encounters verify that both participants still belong to the greeting
+  before advancing or completing it. Fleeing, treatment or a new activity releases
+  the waiting partner without cancelling the interrupted survivor's new behavior.
+  Ambient rest releases its native action and furniture before social movement;
+  unrelated queued actions, traversal and retained job claims remain protected.
+- Retreat risk and escape planning now include hostile survivors and, when enabled,
+  hostile players. Native sight/active attacks and bounded memory gate perceived
+  risk; current hostility is rechecked so peace removes people from that risk.
+  A quiet zombie crowd cannot suppress a visible hostile human. Retreat diagnostics
+  distinguish human and zombie counts.
+- Builders and barricade workers can discover tasks using real central-cupboard
+  stock with empty inventories. Work still requires normal item delivery, native
+  skill/material validation and an observable world result. Construction caches
+  stock checks per stage within each discovery pass, skips already finished edges,
+  and builds the wall opposite the intentional gate instead of leaving a second gap.
+- Farming, woodwork, barricading and construction declare usable tool/water rules.
+  Task eligibility, cupboard acquisition and local supply searches use those same
+  rules. Broken tools and empty bottles no longer satisfy work; usable nested
+  inventory supplies prevent duplicate withdrawals. New rules are serializable;
+  existing queued/reopened automatic work refreshes them with its target. Existing
+  claimed/manual records are retained and retain their original requirements.
+- Offscreen residents, away-team returns and retargeted base returns use persisted
+  inclusive territory bounds. Residents no longer collapse to a one-tile corner
+  because width/height fields are absent; relocating return destinations follows
+  the same geometry.
+- Survivor cards show retreating, job supply collection/waits, base work, patrol,
+  sorting, deposits, returning home and immediate self-care instead of generic Busy.
+
+Validation: `tools/verify.ps1` passes **184 checks** (86 Lua syntax checks,
+97 Lua regression scripts and Java check/build including native runtime verifiers).
+Regressions cover cupboard discovery versus actual execution, broken/empty items,
+recursive inventory, completed perimeters, social interruption, player attention,
+hostile-human retreat, territory returns and activity presentation. These counts
+describe the earlier checkpoint; the entry above supersedes them. No gameplay
+session, public upload or launcher release was part of that checkpoint.
+
+The whole living-world goal is still incomplete. Next acceptance is a full owned
+and independent settlement cycle: obtain supplies, transfer to cupboard, eat/drink,
+claim and finish several jobs, survive an interruption, return to duty, stream out
+and save/reload without duplicate identities or claims. Use the dated scenarios in
+`DEVELOPMENT_TESTING.md`. Remaining development includes native reading/TV/cooking,
+fuller door etiquette, autonomous driving, broader construction/offscreen resource
+acquisition and measured population/frame-time behavior. Existing implementations
+of groups, factions, camps and base jobs are not equivalent to live acceptance.
+
+
+
+### Combat, perception and outdoor work reconciliation - 2026-09-08
+
+**Implemented; offline validation passed. Gameplay acceptance pending.**
+
+- Stealth scans no longer stop after three quiet zombies before checking later
+  attackers. Crowd-list order cannot suppress the fight/flee handoff. Visibility
+  checks stop once the crowd threshold is established, while target checks continue.
+- Injury and exhaustion without a perceived threat no longer trigger retreat.
+  Retreat uses native visibility, attacks on self/allies and bounded threat memory,
+  so unseen idle zombies behind walls cannot repeatedly evict base residents.
+  Escape-route checks still consider physical zombies in the route's surroundings.
+- Stale enemy targeting no longer overrides the maximum combat pursuit distance.
+  Close self-defense remains available. Threat evaluation rejects distant zombies
+  before relationship/target analysis; no frame-rate improvement is claimed yet.
+- Queued/reopened farming, woodwork and barricading refresh requirements together
+  with their discovered targets. Active claims and manual assignments are preserved.
+- External work areas permit task continuation and claimed-duty recovery without a
+  forced home detour. Pending deliveries and explicit supply orders retain priority.
+  Removed/disabled areas, incorrect floors and arbitrary wilderness do not qualify.
+- Yard selection uses the actual persisted min/max territory representation. The
+  earlier width/height assumption could direct every resident toward one corner.
+
+Validation: all 182 Lua syntax/regression checks pass. Java check/build and all
+native movement, combat, traversal, snapshot and shell verifiers also pass. New
+regressions reproduce attacker list-order loss, threat-free retreat, pursuit without
+bounds, stale recurring materials, saved territory sampling and external-duty
+continuation. The standalone Workshop validator now initializes an isolated native
+filesystem context and checks the agent checksum and premain entry. It accepts the
+candidate and rejects an intentionally corrupted checksum; the sidecar was restored.
+All 95 staged mod files and the agent match this working checkout. Candidate payload:
+`build/candidate-workshop/KnoxSurvivors/Contents/mods/KnoxSurvivors`.
+No Steam upload, launcher release, game launch or live frame-time measurement occurred.
+
+Next acceptance: observe an injured resident indoors with unseen zombies outside;
+then expose a real attacker and verify retreat, treatment and return to duty. Observe
+farm/wood workers in external zones over several completed tasks and one combat
+interruption, including stairs. Follow with a companion day and faction/camp streaming
+session at supported population settings. Reading/TV/cooking, fuller door etiquette,
+hostile-human retreat assessment and measured performance remain open work.
+
+
+### Base work and calmer resident movement - 2026-09-08
+
+**Implemented; offline regressions passed. Live acceptance pending.**
+
+- Farming discovers real seed, water and digging tools in the central cupboard
+  when workers have none. Execution still requires native inventory transfers.
+- Log processing uses installed Build 42's `ISHandcraftAction` and `Base.SawLogs`
+  craft recipe. Jobs require a real log and saw, validate recipe eligibility,
+  and only complete after log consumption plus native plank output. Discovery
+  searches beyond a blocked work-area corner.
+- External work-area previews agree with persistence: areas may sit outside
+  base territory or on another floor without expanding ownership.
+- Ambient base movement has a cooldown, slower activity changes, daytime yard
+  destinations, occupied-tile avoidance and current-floor targets. Companion
+  following now applies the route commitment already used by group following.
+- Group leaders signal follow/regroup with native emotes, rate limited and
+  suppressed during queued native work.
+
+Validation: 183 full-suite checks passed before the final regression additions;
+182 Lua syntax/regression checks passed afterward (Java unchanged in this pass).
+Remaining: live owned and independent residents must harvest/water/plant, fetch
+cupboard supplies, chop trees and saw logs without repeated failed tasks. Verify
+external work routes, stair traversal, doorway congestion and leader signals in
+motion. Reading, TV and cooking routines are not completed by this milestone;
+full door etiquette and productive outdoor task chaining still need review.
+This is not evidence that all base jobs or all player actions are supported.
+
 ### Cupboard reassignment and companion duty transitions — 2026-09-07
 
 Fixed a confirmed reassignment failure path: the current cupboard is no longer

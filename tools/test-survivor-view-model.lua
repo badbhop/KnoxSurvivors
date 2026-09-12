@@ -225,3 +225,30 @@ for activity, label in pairs({
         "persisted activity must take precedence over an old intent: " .. activity)
 end
 print("survivor view-model tests passed")
+
+-- Project real controller states through Runtime and the shared HUD/Card model.
+local runtime = dofile("mod/42/media/lua/client/KS_SurvivorRuntime.lua")
+local sq = { getX = function() return 10 end, getY = function() return 10 end,
+    getZ = function() return 0 end }
+local actor = { getCurrentSquare = function() return sq end }
+local controller = { character = actor }
+assert(runtime.register("survivor-1", controller))
+for state, label in pairs({ FLEEING = "Retreating", BASE_TASK_MOVE = "Working at base",
+    BASE_TASK_ACTION = "Working at base", BASE_TASK_SUPPLY_MOVE = "Collecting job supplies",
+    BASE_TASK_SUPPLY_WAIT = "Waiting for materials", BASE_AMBIENT_REST = "Resting",
+    PLAYER_CONVERSATION = "Talking", COMPANION_GUARD = "Keeping watch",
+    MOVING_TO_DEPOSIT = "Storing supplies" }) do
+    controller.state = state
+    assert(viewModel.getSurvivor("survivor-1", 0).activity == label, "live state label: " .. state)
+end
+controller.state, controller.activeDecision = "TIMED_ACTION", "eat"
+assert(viewModel.getSurvivor("survivor-1", 0).activity == "Eating", "self-care is explained")
+
+controller.baseTask={type="guard"}
+controller.state="BASE_TASK_WORK"
+assert(viewModel.getSurvivor("survivor-1",0).activity=="Keeping watch")
+controller.baseTask.type="patrol"
+controller.state="BASE_TASK_PATROL_WAIT"
+assert(runtime.snapshot("survivor-1").activity=="patrolling")
+controller.state="FLEEING"
+assert(viewModel.getSurvivor("survivor-1",0).activity=="Retreating", "retained security job never hides the current emergency")

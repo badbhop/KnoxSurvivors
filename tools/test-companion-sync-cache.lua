@@ -1,6 +1,6 @@
 local root = arg[1] or "."
 for _, name in ipairs({ "KS_Persistence", "KS_SurvivorRuntime", "KS_ActivityFeed",
-    "KS_Settings", "KS_CompanionVehicles", "KS_OrderCatalog" }) do
+    "KS_Settings", "KS_CompanionVehicles", "KS_OrderCatalog", "KS_OrderSignals" }) do
     package.loaded[name] = true
 end
 local duty = { mode = "companion", ownerId = "player", order = "follow" }

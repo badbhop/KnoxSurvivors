@@ -59,12 +59,14 @@ KnoxSettings = {
 KnoxFirearmSupport = {
     prepareForThreat = function() return "ready", "MELEE" end,
 }
-KnoxSurvivorNeeds = {
+KnoxSurvivorNeeds = { decide=function() return {kind="roam"} end,
     wakeForDanger = function(character)
         character.asleep = false
         return true
     end,
 }
+
+dofile(projectRoot .. "/mod/42/media/lua/client/KS_ThreatClassifier.lua")
 
 local controllerPath = projectRoot
     .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua"
@@ -307,7 +309,7 @@ local defending = zombieAt(6, 0, ally)
 assert(c:allowsCompanionThreat(defending),
     "defensive companion can protect a nearby group member")
 
-local reservationThreat = zombieAt(7, 0, nil)
+local reservationThreat = zombieAt(4, 0, nil)
 local first = controller("first")
 local second = controller("second")
 first.reservations = c.reservations
@@ -317,7 +319,7 @@ assert(first:selectCombatThreat(200) == reservationThreat,
     "first survivor sees an unclaimed ordinary threat")
 first.reservations.threats[reservationThreat] = { first = true }
 assert(second:selectCombatThreat(200) == nil,
-    "ordinary distant threat is not needlessly dog-piled")
+    "ordinary non-immediate threat is not needlessly dog-piled")
 
 weapon = meleeWeapon(10, 1.4, 6)
 health, endurance, bodyParts = 100, 0.8, {}
@@ -537,9 +539,9 @@ assert(flee.state == "IDLE" and flee.movementFailureCount == 0,
 zombies = surrounding
 assert(flee.companionOrder == "follow",
     "completed retreat leaves the durable Follow order available to resume")
-local postRetreat = zombieAt(5, 0, nil)
+local postRetreat = zombieAt(4, 0, nil)
 assert(flee:evaluateCombatThreat(postRetreat, 511) == nil,
-    "completed retreat cannot immediately reacquire a five-tile chase")
+    "completed retreat cannot immediately reacquire an ordinary four-tile fight")
 assert(flee:evaluateCombatThreat(zombieAt(1, 0, character), 512) ~= nil,
     "disengagement still permits adjacent self defense")
 assert(flee:evaluateCombatThreat(postRetreat, flee.combatDisengageUntil) ~= nil,
@@ -746,3 +748,175 @@ assert(Controller.fleePace({endurance=0.9, health=100, immediate=1}) == "sprint"
     "close attacker permits an urgent sprint")
 assert(Controller.fleePace({endurance=0.2, health=100, immediate=2}) == "run",
     "exhausted survivor does not demand sprint")
+
+-- Input list order must never hide an attacker behind three quiet zombies.
+fleeingEnabled = true
+survivorSquare = square(0, 0, 0)
+local cautious = controller("cautious")
+zombies = { zombieAt(4, 0, nil), zombieAt(4, 1, nil), zombieAt(4, -1, nil),
+    zombieAt(1, 0, character) }
+assert(not Controller.shouldRemainStealthy(cautious),
+    "a later active attacker must release stealth even after three quiet zombies")
+zombies = {}
+health, endurance, weapon = 20, 0.05, nil
+bodyParts = { wound({bleeding = true, deep = true}), wound({bleeding = true, deep = true}) }
+assert(not cautious:assessFlee(), "injury without a threat requires care, not endless fleeing")
+local pursuing = zombieAt(40, 0, character)
+cautious.combatTarget = pursuing
+assert(cautious:shouldDropCombatTarget(2000),
+    "stale targeting cannot drag self-defense into an unlimited chase")
+pursuing:setCurrentSquare(square(2, 0, 0))
+assert(not cautious:shouldDropCombatTarget(2001), "nearby active attacker still permits self-defense")
+local targetLookups = 0
+local far = zombieAt(100, 0, character)
+far.getTarget = function() targetLookups = targetLookups + 1; return character end
+assert(cautious:evaluateCombatThreat(far, 2002) == nil and targetLookups == 0,
+    "distant zombies skip social and target analysis outside all acquisition radii")
+print("Threat-order, injury and chase boundaries PASS")
+
+local indoors = controller("indoors")
+indoors.currentTicks = 3000
+zombies = { zombieAt(2, 0, nil), zombieAt(-2, 0, nil), zombieAt(0, 2, nil) }
+for _, value in ipairs(zombies) do value.visible = false end
+assert(not indoors:assessFlee(), "unseen idle zombies behind walls cannot evict an injured resident")
+zombies[1]:setTarget(character)
+assert(indoors:assessFlee(), "an actual attacker releases indoor safety even without LOS")
+zombies[1]:setTarget(nil)
+zombies[1].visible = true
+assert(indoors:assessFlee(), "a visible threat still triggers critical-health retreat")
+zombies[1].visible = false
+indoors.currentTicks = 3001
+assert(indoors:assessFlee(), "brief loss of sight retains recent danger")
+indoors.currentTicks = 3121
+assert(not indoors:assessFlee(), "lost danger memory expires without repeated sighting")
+print("Retreat perception consistency PASS")
+
+-- Survivor/player hostility must enter the same risk and escape model as zombies.
+zombies = {}
+local hostile = true
+local enemy = zombieAt(2, 0, nil)
+local threatened = controller("threatened")
+threatened.currentTicks = 4000
+runtimeIds[enemy] = "enemy"
+KnoxSurvivorRuntime.activeIds = function() return {"enemy"} end
+KnoxSurvivorRuntime.getCharacter = function(id) return id == "enemy" and enemy or nil end
+KnoxPersistence.areSurvivorsHostile = function(a, b)
+    return hostile and a == "threatened" and b == "enemy"
+end
+local retreat, risk = threatened:assessFlee()
+assert(retreat and risk.humans == 1 and risk.zombies == 0,
+    "critically injured survivor retreats from a hostile human")
+assert(threatened:findFleeTarget(4000) ~= nil, "human threat informs a real escape destination")
+hostile = false
+assert(not threatened:assessFlee(), "peace immediately removes a human from retreat risk")
+hostile = true
+enemy.visible = false
+threatened.perceivedThreats = {}
+assert(not threatened:assessFlee(), "unseen hostile humans do not grant wall awareness")
+enemy.visible = true
+zombies = { zombieAt(4, 0, nil), zombieAt(4, 1, nil), zombieAt(4, -1, nil) }
+assert(not Controller.shouldRemainStealthy(threatened),
+    "quiet zombie crowd cannot suppress a visible human threat")
+zombies = {}
+KnoxSurvivorRuntime.activeIds = function() return {} end
+runtimeIds[enemy], player = nil, enemy
+KnoxPersistence.ensurePlayerId = function() return "hostile-player" end
+KnoxPersistence.isSurvivorHostileToPlayer = function() return true end
+KnoxSettings.allowSurvivorPlayerCombat = function() return false end
+assert(not threatened:assessFlee(), "disabled player combat excludes player retreat threats")
+KnoxSettings.allowSurvivorPlayerCombat = function() return true end
+assert(threatened:assessFlee(), "enabled hostile player combat participates in retreat")
+print("Human retreat and faction peace PASS")
+
+-- A working resident must not abandon home to clear the neighborhood.
+player = nil
+KnoxSurvivorRuntime.activeIds = function() return {} end
+health, endurance, bodyParts, weapon = 100, 0.8, {}, meleeWeapon(10, 1.2, 4)
+survivorSquare = square(0, 0, 0)
+local workerDuty = controller("worker-duty")
+workerDuty.base = {territory = {minX = -10, minY = -10, maxX = 10, maxY = 10, allFloors = true}}
+workerDuty.baseTask = {type = "haul_corpse", target = {}}
+local distraction = zombieAt(8, 0, nil)
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) == nil,
+    "a visible idle zombie does not interrupt a corpse hauler")
+distraction:setTarget(character)
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) == nil,
+    "a distant approaching zombie does not make a worker abandon the task early")
+distraction:setCurrentSquare(square(2, 0, 0))
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) ~= nil,
+    "nearby attacks still interrupt a base job")
+workerDuty.baseTask = {type = "guard", target = {x1=0, y1=0, x2=0, y2=0, z=0}}
+distraction:setCurrentSquare(square(8, 0, 0))
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) == nil,
+    "guard post cannot turn a stale target into a neighborhood pursuit")
+distraction:setCurrentSquare(square(2, 0, 0))
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) ~= nil, "guard retains immediate defense")
+workerDuty.baseTask = {type="patrol", target={x1=-5,y1=-5,x2=5,y2=5,z=0}}
+survivorSquare = square(5, 0, 0)
+distraction:setCurrentSquare(square(8, 0, 0))
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) == nil,
+    "patrol pursuit stops at the selected area")
+distraction:setCurrentSquare(square(6, 0, 0))
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) ~= nil,
+    "an attacker in reach can still be defended against at the boundary")
+workerDuty.baseTask = nil
+survivorSquare = square(0, 0, 0)
+distraction:setCurrentSquare(square(8, 0, 0))
+distraction:setTarget(nil)
+assert(workerDuty:evaluateCombatThreat(distraction, 5000) == nil,
+    "idle residents do not initiate long hunts within their yard")
+print("Base duty combat boundaries PASS work=true guard=true patrol=true immediate_defense=true")
+
+local carriedBody = zombieAt(1,0,character)
+carriedBody.isReanimatedForGrappleOnly = function() return true end
+local hauling = controller("hauling")
+hauling.currentTicks = 6000
+hauling.baseTask = {type="haul_corpse"}
+zombies = {carriedBody}
+health, endurance = 20, 0.05
+assert(hauling:evaluateCombatThreat(carriedBody,6000)==nil, "carried corpse proxy is never a combat target")
+assert(not hauling:assessFlee(), "carried corpse proxy does not scare an injured hauler")
+hauling.perceivedThreats = {[carriedBody]={lastSeen=6000}}
+assert(hauling:selectCombatThreat(6001)==nil, "old perception cannot resurrect a corpse proxy as a threat")
+carriedBody.isReanimatedForGrappleOnly = function() return false end
+assert(hauling:evaluateCombatThreat(carriedBody,6002)~=nil and hauling:assessFlee(),
+    "a real reanimated zombie remains a threat")
+print("Corpse combat classification PASS proxy_excluded=true actual_reanimation_preserved=true")
+
+-- Routine travel perceives danger without treating every sighting as an order to hunt.
+local traveler=controller("traveler")
+local streetZombie=zombieAt(9,0,nil)
+zombies={streetZombie}
+health,endurance=100,0.8
+assert(traveler:evaluateCombatThreat(streetZombie,7000)==nil and traveler.perceivedThreats[streetZombie]~=nil,
+    "distant visible zombie is remembered for caution but not selected for a fight")
+assert(Controller.shouldRemainStealthy(traveler), "one quiet visible zombie can be passed cautiously")
+streetZombie:setCurrentSquare(square(2,0,0))
+assert(not Controller.shouldRemainStealthy(traveler)
+    and traveler:evaluateCombatThreat(streetZombie,7001)~=nil, "contact danger immediately releases stealth")
+streetZombie:setCurrentSquare(square(8,0,0));streetZombie:setTarget(character)
+assert(traveler:evaluateCombatThreat(streetZombie,7002)~=nil, "active nearby attacks still trigger defense")
+streetZombie:setCurrentSquare(square(9,0,0))
+traveler.combatTarget=streetZombie
+assert(traveler:shouldDropCombatTarget(7003), "a stale attack target cannot extend pursuit across the neighborhood")
+streetZombie:setTarget(nil);streetZombie:setCurrentSquare(square(5,0,0))
+assert(not traveler:shouldDropCombatTarget(7004), "an existing close fight has a small continuation margin")
+traveler.combatTarget=nil
+KnoxSettings.zombieEngagementDistance=function() return 2 end
+streetZombie:setCurrentSquare(square(3,0,0))
+assert(traveler:evaluateCombatThreat(streetZombie,7005)==nil, "sandbox distance customizes automatic engagement")
+KnoxSettings.zombieEngagementDistance=nil
+traveler.companionOrder,traveler.companionCombatStance="follow","aggressive"
+assert(not Controller.shouldRemainStealthy(traveler), "explicit aggressive orders are not suppressed by quiet travel")
+traveler.companionOrder=nil
+carriedBody.isReanimatedForGrappleOnly=function() return true end
+traveler.combatTarget=carriedBody
+assert(traveler:shouldDropCombatTarget(7006), "an already-targeted corpse proxy is released too")
+KnoxSettings.cautiousTravel=function() return false end
+assert(not Controller.shouldRemainStealthy(traveler), "disabling caution restores the ordinary crowd threshold")
+KnoxSettings.cautiousTravel=nil
+runtimeIds[enemy]="enemy"
+enemy:setCurrentSquare(square(12,0,0));enemy.visible=true
+assert(threatened:evaluateCombatThreat(enemy,7007)~=nil, "zombie engagement settings do not disable hostile human encounters")
+runtimeIds[enemy]=nil
+print("Cautious encounter policy PASS sightings=true contact=true pursuit=true customization=true human_combat=true")

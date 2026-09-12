@@ -1,6 +1,5 @@
 require "TimedActions/ISGrabCorpseAction"
 require "TimedActions/ISDropCorpseAction"
-require "TimedActions/ISGrabCorpseAction"
 require "TimedActions/ISUnequipAction"
 require "TimedActions/ISTimedActionQueue"
 
@@ -8,8 +7,8 @@ local CorpseHandling = rawget(_G, "KnoxBaseCorpseHandling") or {}
 _G.KnoxBaseCorpseHandling = CorpseHandling
 
 local MAX_SOURCE_SCAN_RADIUS = 36
-local GRAB_SETTLE_TICKS = 30
-local GRAB_RETRY_SETTLE_TICKS = 90
+local GRAB_SETTLE_TICKS = 180
+local GRAB_RETRY_SETTLE_TICKS = 180
 
 local function safeCall(object, method, ...)
     if object == nil or object[method] == nil then
@@ -359,7 +358,6 @@ function CorpseHandling.grabTransitionState(character)
         return "dragging"
     end
     if safeCall(character, "isGrappling") == true
-        or safeCall(character, "isPerformingAnyGrappleAnimation") == true
         or safeCall(character, "isPerformingGrappleAnimation") == true then
         return "transitioning"
     end
@@ -369,8 +367,8 @@ end
 -- Build 42's pickUpCorpse starts a grapple handshake. isDraggingCorpse becomes
 -- true only after the native grapple target accepts, so checking it in the same
 -- Lua call incorrectly treats a valid pickup as a failure. This helper gives the
--- native transition one bounded settle window, permits one native retry, and
--- then terminates cleanly instead of leaving the job owned forever.
+-- native transition one bounded settle window and then terminates cleanly.
+-- Replaying pickup here would restart the same grapple animation.
 function CorpseHandling.nextGrabStep(character, retryIssued, verifyUntil, ticks)
     local state = CorpseHandling.grabTransitionState(character)
     if state == "dragging" then
@@ -385,42 +383,11 @@ function CorpseHandling.nextGrabStep(character, retryIssued, verifyUntil, ticks)
     if ticks < deadline then
         return "wait", state, deadline
     end
-    if retryIssued ~= true then
-        return "retry", state, ticks + GRAB_RETRY_SETTLE_TICKS
-    end
     return "failed", state, deadline
 end
 
--- The visible vanilla action remains the normal path. This requests the exact
--- same native pickup only once when its first asynchronous handoff never began.
 function CorpseHandling.requestGrabRetry(character, target)
-    if character == nil or target == nil or target.body == nil then
-        return false, "missing_corpse"
-    end
-    if CorpseHandling.isDragging(character) then
-        return true, "already_dragging"
-    end
-    if not haulable(target.body) then
-        return false, "corpse_removed_or_reanimated"
-    end
-    if CorpseHandling.grabTransitionState(character) == "transitioning" then
-        return true, "native_pickup_in_progress"
-    end
-    -- Match the timed action's reach check. A retry must not bypass a door,
-    -- floor change, or corpse movement that invalidated the original action.
-    local characterSquare = safeCall(character, "getCurrentSquare")
-    local corpseSquare = safeCall(target.body, "getSquare")
-    if characterSquare == nil or corpseSquare == nil
-        or safeCall(characterSquare, "canReachTo", corpseSquare) ~= true then
-        return false, "corpse_no_longer_reachable"
-    end
-    local success = pcall(function()
-        character:pickUpCorpse(target.body, "BwdDrag")
-    end)
-    if success then
-        return true, "native_retry_requested"
-    end
-    return false, "native_pickup_failed"
+    return false, "native_pickup_retry_disabled"
 end
 
 function CorpseHandling.nextDropStep(character, retryIssued, verifyUntil, ticks)

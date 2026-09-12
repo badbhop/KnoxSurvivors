@@ -95,8 +95,8 @@ assert(string.find(context, '"Move Home Base Here"', 1, true)
     "claiming another building must use a confirmation-backed base relocation")
 
 local survivorContext = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorContextMenu.lua")
-assert(string.find(survivorContext, "Bring Along", 1, true),
-    "base residents expose an explicit temporary companion activation")
+assert(string.find(survivorContext, 'KnoxOrderCatalog.label("follow")', 1, true),
+    "base residents expose Follow for temporary companion activation")
 assert(string.find(survivorContext, "residentInventoryLabel", 1, true),
     "base residents expose the same native inventory access as companions")
 

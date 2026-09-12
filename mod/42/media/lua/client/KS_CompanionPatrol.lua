@@ -20,6 +20,13 @@ local function boundsOf(directive)
         math.max(minX, maxX), math.max(minY, maxY), tonumber(directive.z) or 0
 end
 
+function Patrol.contains(directive, square)
+    local minX, minY, maxX, maxY, z = boundsOf(directive)
+    return minX ~= nil and square ~= nil and square:getZ() == z
+        and square:getX() >= minX and square:getX() <= maxX
+        and square:getY() >= minY and square:getY() <= maxY
+end
+
 function Patrol.waypoints(directive)
     local minX, minY, maxX, maxY, z = boundsOf(directive)
     if minX == nil then return {} end

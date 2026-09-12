@@ -1,5 +1,120 @@
 # Development testing
 
+## Faction development replay - 2026-09-12
+
+Use a fresh disposable world with initial group maximum 4 and faction minimum 4.
+Opening-group chance still applies; established saves keep existing cohorts. Observe
+normal groups rather than the developer command that directly spawns a faction.
+Let a cohesive group travel/shelter together for at least one game hour, including
+an offscreen interval. Developer Tools > Faction & World Events > **Write Faction
+Formation Status to Log** shows member count, required count and missing shared
+survival evidence. Follow formation into camp/home selection and resume after
+save/reload. Repeat with factions disabled and with members separated or partly
+active. Offline formation tests pass; this live development loop remains pending.
+
+
+## Travel, reading and driver replay - 2026-09-12
+
+Pending live acceptance; automated doubles do not establish in-game physics or
+animation quality. Use a disposable save with the matching freshly built agent.
+
+1. Walk past one zombie, then a small crowd. Compare facing/behind, crouched/upright,
+   blocked LOS and an actual pursuing attacker. Routine travel should not provoke
+   a neighborhood hunt. Contact must remain dangerous. Repeat with cautious travel
+   disabled, an aggressive companion and a crouching/running actual group leader.
+2. Stock a suitable book in Main Supplies. An idle resident should collect, read
+   and return it through visible native actions. Interrupt with thirst, an order
+   and a threat; then repeat after save/load, after moving the book into a carried
+   bag, and after removing the storage assignment. Confirm no lost/duplicated book.
+3. Hold/Guard a hungry companion carrying safe food and water. They should consume
+   supplies and resume the same order. Shove a guard away from the assigned post.
+4. Enable Experimental NPC Driving on a quiet outdoor road. Start the engine, take
+   a passenger seat, right-click the map 20–40 tiles ahead and select **Drive Here
+   (Experimental) > [companion]**. Repeat with the NPC already a passenger and then
+   already driving. Verify native entry/switch, correct heading and measured speed.
+5. Place parked vehicles/walls beside the centreline, a bend, a pedestrian and a
+   temporary obstruction. Check braking, waiting, detour and arrival. Use **Stop
+   Driving** and take over the driver seat; NPC inputs must stop controlling the car.
+   Test a different vehicle size, route failure and injury while driving.
+6. Reject unloaded/distant destinations and a trailer clearly. Try map annotations
+   and debug options. Current routes are limited to 160 tiles of loaded outdoor
+   ground; this is not yet general long-distance road navigation.
+
+
+## Base storage and permanent duty replay - 2026-09-09
+
+Use a disposable save for **Developer Tools + Job Tests: Provide Tools and
+Materials**. Normal play leaves this off. Right-click main supplies to manage
+storage; Developer Tools > Base & Job Tests can stock real materials for testing.
+
+1. Right-click a dry cupboard/crate inside your base > Knox Survivors > Set Storage
+   > **Use as Main Supplies**. Right-click a fridge/pantry > **Use for Food & Drink**.
+   A fridge/freezer object offers each compartment separately. Check the Work tab
+   for assigned locations and the Base highlights for marked tiles.
+2. Put edible food, raw meat, a water bottle and tools in the assigned stores.
+   Empty one resident's carried food. They should collect a safe meal at home,
+   eat it, and resume work. Repeat with the pantry upstairs. Spoiled/unsafe food
+   must not be selected for eating. A full kitchen falls back to main supplies.
+3. Send a resident to find base supplies. Existing assigned stock must not be
+   taken and redeposited as a new find. Watch them return from an actual find,
+   approach the assigned container, transfer the item and resume base life.
+   Repeat for a faction resident and after streaming/reload.
+4. Assign guard and patrol work. Guards hold their post until released; patrols
+   walk successive points and repeat. Add hunger/thirst, then a nearby attack:
+   duty should resume after the interruption. Remove the security area while
+   staffed/moving and verify the resident stops that duty.
+5. Set a corpse drop area and a hauler. Watch native pickup, continuous dragging,
+   arrival and release. The temporary dragged-body proxy must not draw weapon
+   swings or bite steering. Place a real attacking zombie nearby to check a
+   genuine emergency still takes priority. Confirm the dropped body is in the area.
+6. Issue Follow/Hold/Guard and watch gestures; busy actors must finish their native
+   action. Disable order gestures and confirm player and NPC leaders both comply.
+
+All six are pending live acceptance; Lua tests verify control flow and invariants,
+not the visual animation, stairs, doors or driving behavior inside the game.
+
+## Integrated settlement and encounter acceptance - 2026-09-09
+
+These scenarios are pending live acceptance on the installed Build 42 runtime.
+Use a disposable save and normal player commands; record the relevant survivor
+IDs and base IDs so streaming/reload results refer to the same people.
+
+1. Recruit a roaming survivor and Talk within four tiles in clear sight. They
+   should stop briefly without losing their Follow order, then resume. Walk away,
+   change floors, issue an order, or expose an attacker during attention: the new
+   activity must win. An active worker must finish/release work before casual talk.
+2. Give a base one central cupboard with seeds, crop water, axe, saw, hammer, logs,
+   planks and nails. Keep builders'/farmers' inventories empty; create work areas,
+   including an external wood lot. Watch native transfers before real planting,
+   watering, chopping, sawing, barricading and construction. Add two hinges and a
+   doorknob for a door; construction skill requirements still apply. No manual
+   inventory injection should be necessary to get cupboard-backed discovery started.
+3. Put a broken tool and empty bottle ahead of usable copies in storage, and put
+   broken/empty duplicates on a worker. They must acquire usable instances, not
+   repeatedly walk to work with invalid supplies. Remove real required stock:
+   no task may succeed or create materials. Restore supplies and check recovery.
+4. Complete a small rectangular construction area. Keep exactly the intended gate;
+   the opposite wall must be filled and finished edges must not attract repeated
+   frame-building attempts. Interrupt one worker during gathering and one during
+   work; verify native cancellation, retained items and coherent task recovery.
+5. Observe two independent survivors greeting. Introduce danger during approach
+   and again during the greeting. The escaping survivor must keep escaping and
+   the waiting partner must return to normal activity. A resting resident must
+   get up before walking over, without leaving a stuck furniture reservation.
+6. Test an injured/unarmed survivor against a visible hostile human. Verify an
+   escape route, then recovery and return to duty when safe. Repeat with unseen
+   people behind walls, established peace, and player combat disabled; those must
+   not generate inappropriate retreat. Keep zombie/self-defense checks enabled.
+7. Observe independent residents and a returning supply team across streaming and
+   save/reload, using a base whose territory is larger than its home. Verify real
+   stock, IDs, membership and claims persist; arrival/resident positions must use
+   the actual territory rather than a single corner. Check clear activity labels
+   while workers gather, wait, retreat, eat, deposit and return.
+
+Record frame times at the configured population during ordinary play and crowded
+job/combat situations. Offline regressions do not establish frame-time performance,
+multiplayer support, native animation quality or multi-day survival balance.
+
 ## Repeatable offline verification
 
 Run `./tools/verify.ps1` from PowerShell. It checks every mod Lua source with Lua 5.1,

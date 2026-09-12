@@ -102,3 +102,56 @@ resolved.square.special = { { getName = function() return "WoodenWallFrame" end,
 assert(construction.isComplete(resolved), "completion requires the actual expected world object")
 
 print("Base construction PASS perimeter=true gate_first=true materials=true entity_action=true completion=true")
+
+-- The intentional gate on one side must not leave a matching hole opposite it.
+local function builtWall(north)
+    return { getName = function() return "WoodenWallLvl1" end, getNorth = function() return north end }
+end
+for x = 10, 14 do
+    square(x, 10, 0).special = {builtWall(true)}
+    if x ~= 12 then square(x, 14, 0).special = {builtWall(true)} end
+end
+for y = 11, 13 do
+    square(10, y, 0).special = {builtWall(false)}
+    square(14, y, 0).special = {builtWall(false)}
+end
+square(12, 10, 0).special = {}
+local gapTask = assert(construction.findTask(base, character), "perimeter must finish the wall opposite its gate")
+assert(gapTask.x == 12 and gapTask.y == 10 and gapTask.kind == "wall_frame")
+square(12, 10, 0).special = {builtWall(true)}
+assert(not construction.findTask(base, character), "completed perimeter cannot repeatedly queue replacement frames")
+square(12, 10, 0).special = {}
+
+-- A builder must be able to start from the communal cupboard with empty hands.
+inventory.items, inventory.counts = {}, {}
+local storedHammer = item("Base.Hammer")
+local stock = { ["Base.Hammer"] = 1, ["Base.Plank"] = 20, ["Base.Nails"] = 40,
+    ["Base.Hinge"] = 2, ["Base.Doorknob"] = 1 }
+local supplyChecks = 0
+KnoxBaseStorage = {
+    findItemType = function(owner, predicate)
+        assert(owner == base)
+        if stock["Base.Hammer"] > 0 and predicate(storedHammer) then return "Base.Hammer", storedHammer end
+    end,
+    requirementsAvailable = function(owner, actor, required)
+        assert(owner == base and actor == character)
+        assert(required.itemRules["Base.Hammer"].usable)
+        supplyChecks = supplyChecks + 1
+        for kind, count in pairs(required.items) do
+            if (stock[kind] or 0) < count then return false end
+        end
+        return true
+    end,
+}
+local suppliedTask = assert(construction.findTask(base, character), "cupboard materials enable an empty-handed builder")
+local suppliedRequirements = assert(construction.requirements(suppliedTask, character, base))
+assert(suppliedRequirements.items["Base.Hammer"] == 1)
+local suppliedTarget = assert(construction.resolveTarget(base, suppliedTask, character))
+local beforeQueue = queued
+assert(not construction.queueAction(character, suppliedTarget) and queued == beforeQueue,
+    "cupboard discovery does not skip native item delivery before building")
+stock["Base.Plank"] = 0
+supplyChecks = 0
+assert(not construction.findTask(base, character), "insufficient real stock cannot create a construction task")
+assert(supplyChecks <= 4, "unavailable materials are checked once per construction stage, not per perimeter tile")
+print("Cupboard construction PASS discovery=true native_delivery_required=true shortage=true bounded=true")

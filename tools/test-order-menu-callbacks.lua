@@ -44,6 +44,8 @@ dofile(root .. "/mod/42/media/lua/client/KS_OrderCatalog.lua")
 local context = dofile(root .. "/mod/42/media/lua/client/KS_SurvivorContextMenu.lua")
 local menu = newMenu()
 assert(context.populate(menu, 0, "resident"))
+assert(menu.options.Follow ~= nil and menu.options.Recruit == nil,
+    "owned base residents must offer Follow, never first-time Recruit")
 local work = menu.options.Orders.sub.options["Base Work Orders"].sub
 local barricade = work.options["Woodwork / Barricade Windows"]
 assert(barricade and barricade.callback)
@@ -64,13 +66,15 @@ KnoxPersistence.getSurvivorPolicies = function() return {} end
 actor.getCurrentSquare = function() return nil end
 local personal = newMenu()
 assert(context.populate(personal, 0, "resident"))
-local choice = personal.options.Orders.sub.options.Formation.sub.options["Single File - spacing 3"]
+local choice = personal.options.Orders.sub.options["Tactics & Behavior"].sub
+    .options.Formation.sub.options["Single File - spacing 3"]
 choice.callback(choice.target, unpack(choice.args))
 assert(formationCall.shape == "single_file" and formationCall.spacing == 3)
 KnoxCompanionService.getCompanionIds = function() return { "resident" } end
 KnoxActivityFeed = { event = function() end }
 local formationParty = party.openMenu(0, 0, 0, nil)
-choice = formationParty.options.Formation.sub.options["Paired - spacing 2"]
+choice = formationParty.options["Tactics & Behavior"].sub
+    .options.Formation.sub.options["Paired - spacing 2"]
 choice.callback(choice.target, unpack(choice.args))
 assert(formationCall.shape == "paired" and formationCall.spacing == 2,
     "party menu routes formation and spacing to each owned companion")

@@ -355,3 +355,33 @@ KnoxPersistence.releaseBaseTaskClaim = originalRelease
 KnoxPersistence.finishBaseTask = originalFinish
 KnoxPersistence.requeueBaseTask = originalRequeue
 print("Unloaded survival PASS stored_resources=true proportional=true transaction=true recovery=true durable_death=true virtual_life=true")
+
+local actualBase = { id = "actual-base", territory = {
+    minX = 190, minY = 290, maxX = 210, maxY = 310, allFloors = true } }
+local oldBaseLookup = KnoxPersistence.getBase
+KnoxPersistence.getBase = function(id)
+    return id == actualBase.id and actualBase or oldBaseLookup(id)
+end
+local returningResident = stored("actual-return", .1, .9)
+duties["actual-return"] = { mode = "base", baseId = actualBase.id }
+assert(simulation.beginBaseReturn("actual-return", actualBase, 0))
+assert(returningResident.baseReturn.targetX == 200 and returningResident.baseReturn.targetY == 300,
+    "offscreen return uses persisted min/max bounds")
+actualBase.territory.maxX = 230
+simulation.advanceHibernated("actual-return", .01)
+assert(returningResident.baseReturn.targetX == 210,
+    "moving base territory retargets a stored trip with the same geometry")
+local destinations = {}
+for index = 1, 8 do
+    local id = "actual-resident-" .. index
+    local state = stored(id, .1, .9)
+    duties[id] = { mode = "base", baseId = actualBase.id }
+    simulation.advanceHibernated(id, .1)
+    assert(state.virtualX >= 190 and state.virtualX <= 230
+        and state.virtualY >= 290 and state.virtualY <= 310, "resident stays in territory")
+    destinations[state.virtualX .. ":" .. state.virtualY] = true
+end
+local distinct = 0
+for _ in pairs(destinations) do distinct = distinct + 1 end
+assert(distinct > 1, "stored residents do not all gather at one corner")
+print("Stored territory geometry PASS")

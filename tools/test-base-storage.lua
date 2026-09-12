@@ -134,7 +134,10 @@ approach.blocked = false
 origin.x = 200
 assert(not storage.findDepositTrip(base, worker, depotItem))
 origin.x, origin.z = 50, 1
-assert(not storage.findDepositTrip(base, worker, depotItem))
+assert(storage.findDepositTrip(base, worker, depotItem), "native deposit routes can reach another loaded floor")
+assert(not storage.findNearbyDeposit(base, worker, depotItem), "cross-floor transfers require walking first")
+origin.z = 3
+assert(not storage.findDepositTrip(base, worker, depotItem), "cross-floor search remains bounded")
 origin.x, origin.z = 11, 0
 assert(not storage.findNearbyDeposit(base, worker, depotItem, "building"), "retired policy cannot be selected")
 local required = assert(storage.findRequiredTransfer(base, worker, { items = { ["Base.Plank"] = 1 } }))
@@ -156,3 +159,85 @@ local coldOnly = { storage = { fridge = { key = "fridge", containerType = "fridg
 assert(#storage.policies(coldOnly) == 0, "legacy fridge is not silently enlarged into a dry cupboard")
 assert(coldOnly.storage.fridge ~= nil, "migration preserves old physical-container references when no dry storage exists")
 print("Central storage PASS migration=true single=true capacity=true route=true reserves=true identity=true")
+
+-- Readiness, cupboard withdrawal and local supply searches must agree on usable stock.
+base.toolCupboardKey = "depot"
+local brokenAxe, goodAxe = item("Base.HandAxe"), item("Base.HandAxe")
+brokenAxe.isBroken = function() return true end
+goodAxe.isBroken = function() return false end
+local emptyWater, fullWater = item("Base.WaterBottle"), item("Base.WaterBottle")
+emptyWater.uses, fullWater.uses = 0, 4
+ISFarmingMenu = { getWaterUsesInteger = function(candidate) return candidate.uses or 0 end }
+local carried = container("inventory", {brokenAxe, emptyWater})
+carried.getItemCount = function(_, fullType)
+    return (fullType == "Base.HandAxe" or fullType == "Base.WaterBottle") and 1 or 0
+end
+worker.getInventory = function() return carried end
+local axeRequirement = { items = { ["Base.HandAxe"] = 1 },
+    itemRules = { ["Base.HandAxe"] = { usable = true } } }
+local waterRequirement = { items = { ["Base.WaterBottle"] = 1 },
+    itemRules = { ["Base.WaterBottle"] = { water = true } } }
+depot.values = {brokenAxe, emptyWater}
+assert(not storage.requirementsAvailable(base, worker, axeRequirement),
+    "broken carried and stored tools cannot make a job ready")
+assert(not storage.requirementsAvailable(base, worker, waterRequirement),
+    "empty bottles cannot make watering ready")
+depot.values = {brokenAxe, emptyWater, goodAxe, fullWater}
+assert(storage.requirementsAvailable(base, worker, axeRequirement))
+assert(storage.findRequiredTransfer(base, worker, axeRequirement).item == goodAxe,
+    "worker replaces a broken tool with the usable stored instance")
+assert(storage.findRequiredTransfer(base, worker, waterRequirement).item == fullWater,
+    "worker skips empty bottles when gathering crop water")
+local planner = KnoxBaseSupplyPlanner
+assert(not planner.matchesMissingRequirement(brokenAxe, axeRequirement, carried)
+    and planner.matchesMissingRequirement(goodAxe, axeRequirement, carried),
+    "world resupply uses the same usable-tool requirement")
+assert(not planner.matchesMissingRequirement(emptyWater, waterRequirement, carried)
+    and planner.matchesMissingRequirement(fullWater, waterRequirement, carried),
+    "world resupply uses the same nonempty-water requirement")
+local bag = item("Base.Bag")
+bag.IsInventoryContainer = function() return true end
+bag.getInventory = function() return container("bag", {goodAxe, fullWater}) end
+carried.values = {brokenAxe, emptyWater, bag}
+local transfer, status = storage.findRequiredTransfer(base, worker, axeRequirement)
+assert(transfer == nil and status == "requirements_ready", "usable nested tools prevent duplicate withdrawals")
+transfer, status = storage.findRequiredTransfer(base, worker, waterRequirement)
+assert(transfer == nil and status == "requirements_ready", "usable nested water prevents duplicate withdrawals")
+print("Job supply usability PASS broken_tools=true empty_water=true nested=true world_search=true")
+
+-- Kitchen assignments preserve raw ingredients and prefer food deposits, without
+-- making unsafe food edible or changing native refrigerator capacity.
+local rawFood = item("Base.RawChicken")
+rawFood.IsFood = function() return true end
+foodItem.IsFood = function() return true end
+local waterItem = item("Base.WaterBottleFull")
+local pantry = {key="pantry", x=12,y=20,z=0,objectIndex=2,containerIndex=0,
+    containerType="crate",category="food",storageRole="food"}
+base.storage.pantry = pantry
+origin.x,origin.y,origin.z=11,20,0
+carried.values = {}
+depot.values, destination.values = {}, {foodItem,rawFood,waterItem,goodAxe}
+assert(#storage.policies(base)==2 and base.storage.pantry==pantry)
+assert(storage.findNearbyDeposit(base,worker,rawFood).policy.key=="pantry", "raw food belongs in kitchen storage")
+assert(storage.findNearbyDeposit(base,worker,foodItem).policy.key=="pantry")
+assert(storage.findNearbyDeposit(base,worker,waterItem).policy.key=="pantry")
+assert(storage.findNearbyDeposit(base,worker,depotItem).policy.key=="depot", "building supplies stay out of food storage")
+destination.full=true
+assert(storage.findNearbyDeposit(base,worker,foodItem).policy.key=="depot", "full kitchen falls back to main supplies")
+destination.full=false
+summary=storage.summarize(base)
+assert(summary.loadedPolicies==2 and summary.totals.food==1 and summary.totals.water==1
+    and summary.totals.other==1 and summary.misplacedItems==1, "raw food is stored but not counted as ready-to-eat meals")
+assert(storage.requirementsAvailable(base,worker,axeRequirement)
+    and storage.findRequiredTransfer(base,worker,axeRequirement).item==goodAxe,
+    "actual supplies can be recovered even if the player puts a tool in food storage")
+local foodOnly={storage={pantry=pantry}}
+assert(#storage.policies(foodOnly)==1 and storage.mainPolicy(foodOnly)==nil and not pantry.toolCupboard,
+    "food-only bases never silently enlarge a pantry")
+local capacityChanges=0
+local originalApply=KnoxToolCupboard.apply
+KnoxToolCupboard.apply=function() capacityChanges=capacityChanges+1;return true end
+storage.resolvePolicy(pantry)
+assert(capacityChanges==0, "food storage never reapplies an old cupboard capacity marker")
+KnoxToolCupboard.apply=originalApply
+print("Kitchen storage PASS persistence=true food=true raw_ingredients=true fallback=true capacity=true withdrawal=true")

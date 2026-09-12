@@ -15,10 +15,46 @@ function Planner.matchesRequirement(item, requirements)
     local items = requirements.items
     if type(items) ~= "table" then return false end
     local fullType = safe(function() return item:getFullType() end, nil)
-    return type(fullType) == "string" and (tonumber(items[fullType]) or 0) > 0
+    if type(fullType) ~= "string" or (tonumber(items[fullType]) or 0) <= 0 then return false end
+    local rule = type(requirements.itemRules) == "table" and requirements.itemRules[fullType] or nil
+    if type(rule) ~= "table" then return true end
+    if rule.usable == true and safe(function() return item:isBroken() end, false) == true then
+        return false
+    end
+    if rule.water == true then
+        local uses = safe(function() return ISFarmingMenu.getWaterUsesInteger(item) end, 0)
+        if (tonumber(uses) or 0) <= 0 then return false end
+    end
+    return true
 end
 
-local function inventoryCount(inventory, fullType)
+-- Plain material counts retain the native recursive fast path. Tools and
+-- water inspect real instances, so a broken/empty duplicate cannot satisfy work.
+function Planner.inventoryCount(inventory, fullType, requirements)
+    local rules = requirements ~= nil and requirements.itemRules or nil
+    if type(rules) == "table" and type(rules[fullType]) == "table" then
+        local count, seen = 0, {}
+        local function walk(container)
+            if container == nil or seen[container] then return end
+            seen[container] = true
+            local items = safe(function() return container:getItems() end, nil)
+            if items == nil then return end
+            for index = 0, items:size() - 1 do
+                local item = items:get(index)
+                if safe(function() return item:getFullType() end, nil) == fullType
+                    and Planner.matchesRequirement(item, requirements) then
+                    count = count + math.max(1, math.floor(tonumber(safe(function()
+                        return item:getCount()
+                    end, 1)) or 1))
+                end
+                if safe(function() return item:IsInventoryContainer() end, false) == true then
+                    walk(safe(function() return item:getInventory() end, nil))
+                end
+            end
+        end
+        walk(inventory)
+        return count
+    end
     if inventory == nil or inventory.getItemCount == nil then return 0 end
     return math.max(0, tonumber(safe(function()
         return inventory:getItemCount(tostring(fullType), true)
@@ -35,7 +71,7 @@ function Planner.missingRequirements(requirements, inventory)
     for fullType, count in pairs(type(requirements) == "table"
         and type(requirements.items) == "table" and requirements.items or {}) do
         local required = math.max(0, math.floor(tonumber(count) or 0))
-        local outstanding = required - inventoryCount(inventory, fullType)
+        local outstanding = required - Planner.inventoryCount(inventory, fullType, requirements)
         if type(fullType) == "string" and fullType ~= "" and outstanding > 0 then
             missing[fullType] = outstanding
         end
@@ -44,7 +80,7 @@ function Planner.missingRequirements(requirements, inventory)
 end
 
 function Planner.matchesMissingRequirement(item, requirements, inventory)
-    if item == nil then return false end
+    if not Planner.matchesRequirement(item, requirements) then return false end
     local fullType = safe(function() return item:getFullType() end, nil)
     if type(fullType) ~= "string" then return false end
     return (Planner.missingRequirements(requirements, inventory)[fullType] or 0) > 0

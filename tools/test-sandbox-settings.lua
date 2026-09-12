@@ -10,6 +10,15 @@ end
 
 local sandboxDefinition = read("mod/42/media/sandbox-options.txt")
 local sandboxEnglish = read("mod/42/media/lua/shared/Translate/EN/Sandbox.json")
+for _, page in ipairs({ "General", "Companions", "World", "Developer" }) do
+    assert(sandboxDefinition:find("page = KnoxSurvivors_" .. page, 1, true),
+        "sandbox page is unused: " .. page)
+    assert(sandboxEnglish:find('"Sandbox_KnoxSurvivors_' .. page .. '"', 1, true),
+        "sandbox page translation missing: " .. page)
+end
+assert(sandboxDefinition:find("option KnoxSurvivors.Enabled", 1, true)
+    < sandboxDefinition:find("option KnoxSurvivors.WorldPopulation", 1, true),
+    "master enable must precede detailed population settings")
 local function optionBlock(name)
     local startAt = assert(string.find(sandboxDefinition,
         "option KnoxSurvivors." .. name, 1, true), name .. " sandbox option missing")
@@ -162,3 +171,30 @@ assert(not KnoxSettings.developerToolsEnabled(), "master switch disables develop
 assert(not KnoxSettings.showCompanionHUD(), "master switch disables HUD")
 
 print("sandbox settings PASS")
+
+SandboxVars.KnoxSurvivors.Enabled = true
+SandboxVars.KnoxSurvivors.DeveloperJobSupplies = nil
+assert(not KnoxSettings.developerJobSuppliesEnabled(), "test job stock defaults off")
+SandboxVars.KnoxSurvivors.DeveloperJobSupplies = true
+SandboxVars.KnoxSurvivors.EnableDeveloperTools = false
+assert(not KnoxSettings.developerJobSuppliesEnabled(), "resource assistance requires developer mode")
+SandboxVars.KnoxSurvivors.EnableDeveloperTools = true
+assert(KnoxSettings.developerJobSuppliesEnabled(), "test resources explicitly enabled")
+
+assert(KnoxSettings.orderGesturesEnabled(), "order gestures default enabled")
+SandboxVars.KnoxSurvivors.OrderGestures=false
+assert(not KnoxSettings.orderGesturesEnabled(), "order gestures can be disabled")
+
+SandboxVars=nil
+assert(KnoxSettings.cautiousTravel() and KnoxSettings.zombieEngagementDistance()==4)
+SandboxVars={KnoxSurvivors={CautiousTravel=false,ZombieEngagementDistance=1000}}
+assert(not KnoxSettings.cautiousTravel() and KnoxSettings.zombieEngagementDistance()==16)
+SandboxVars.KnoxSurvivors.ZombieEngagementDistance=0
+assert(KnoxSettings.zombieEngagementDistance()==2)
+
+SandboxVars=nil
+assert(KnoxSettings.npcDrivingSpeed()==20 and KnoxSettings.baseReadingEnabled())
+SandboxVars={KnoxSurvivors={NpcDrivingSpeed=1000,BaseReading=false}}
+assert(KnoxSettings.npcDrivingSpeed()==30 and not KnoxSettings.baseReadingEnabled())
+SandboxVars.KnoxSurvivors.NpcDrivingSpeed=0
+assert(KnoxSettings.npcDrivingSpeed()==5)

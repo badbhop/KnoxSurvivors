@@ -1,3 +1,4 @@
+require "KS_GroupCohesion"
 local Simulation = rawget(_G, "KnoxUnloadedSurvival") or {}
 _G.KnoxUnloadedSurvival = Simulation
 require "KS_BaseDutySimulation"
@@ -38,6 +39,17 @@ end
 
 local function clamp(value, low, high)
     return math.max(low, math.min(high, tonumber(value) or low))
+end
+
+-- Territory stores inclusive min/max bounds; legacy home areas store spans.
+-- Use the same geometry for return routes and dispersed offscreen base life.
+local function areaDimensions(area)
+    local minX, minY = tonumber(area.minX) or 0, tonumber(area.minY) or 0
+    local width = tonumber(area.maxX) ~= nil and tonumber(area.maxX) - minX + 1
+        or tonumber(area.width) or 1
+    local height = tonumber(area.maxY) ~= nil and tonumber(area.maxY) - minY + 1
+        or tonumber(area.height) or 1
+    return math.max(1, math.floor(width)), math.max(1, math.floor(height))
 end
 
 local function nowHours()
@@ -181,11 +193,10 @@ local function advanceWorldActivity(id, state, elapsed, hours)
         else
             -- A relocated/reassigned base supersedes the old destination from the
             -- current virtual position, never from the original departure point.
+            local width, height = areaDimensions(area)
             returning.baseId = duty.baseId
-            returning.targetX = math.floor(tonumber(area.minX))
-                + math.floor((math.max(1, tonumber(area.width) or 1) - 1) / 2)
-            returning.targetY = math.floor(tonumber(area.minY))
-                + math.floor((math.max(1, tonumber(area.height) or 1) - 1) / 2)
+            returning.targetX = math.floor(tonumber(area.minX)) + math.floor((width - 1) / 2)
+            returning.targetY = math.floor(tonumber(area.minY)) + math.floor((height - 1) / 2)
             returning.targetZ = tonumber(area.z) or z
         end
     end
@@ -222,8 +233,7 @@ local function advanceWorldActivity(id, state, elapsed, hours)
             -- real square before committing it to the persistent Java record.
             local minX = math.floor(tonumber(area.minX) or x)
             local minY = math.floor(tonumber(area.minY) or y)
-            local width = math.max(1, math.floor(tonumber(area.width) or 1))
-            local height = math.max(1, math.floor(tonumber(area.height) or 1))
+            local width, height = areaDimensions(area)
             local phase = math.floor(hours / MAX_STEP_HOURS)
             local seed = stableHash(tostring(id) .. ":base:" .. tostring(phase))
             x = minX + (seed % width)
@@ -413,8 +423,7 @@ function Simulation.beginBaseReturn(id, base, hours)
     if x == nil or y == nil then
         return false, "return_origin_unavailable"
     end
-    local width = math.max(1, math.floor(tonumber(area.width) or 1))
-    local height = math.max(1, math.floor(tonumber(area.height) or 1))
+    local width, height = areaDimensions(area)
     state.virtualX, state.virtualY, state.virtualZ = x, y, tonumber(z) or 0
     state.virtualAtHours = now
     state.baseReturn = {
@@ -754,6 +763,7 @@ local function advanceStoredGroup(group, active, hours)
         return condition()
     end
     while start < hours do
+        local socialBefore=not event and KnoxGroupCohesion.snapshot(members) or nil
         local step = math.min(hours, start + MAX_STEP_HOURS)
         shared.fatigue, shared.endurance = condition()
         advanceRestAndTravel(anchor.id, shared, step - start, step, cohort)
@@ -771,6 +781,7 @@ local function advanceStoredGroup(group, active, hours)
                     and (results[member.id] .. "," .. event) or event
             else results[member.id] = results[member.id] or "advanced" end
         end
+        if not event and not died then KnoxGroupCohesion.record(group,socialBefore,members,step) end
         shared.lastHours = step
         group.unloadedTravel = shared
         start = step

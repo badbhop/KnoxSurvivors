@@ -57,7 +57,10 @@ local survivor = actor(2, 0, 0)
 local bodyIds = { [survivor] = "neutral" }
 KnoxSettings = { enabled = function() return true end, allowSurvivorPlayerCombat = function() return true end,
     companionLimit = function() return 4 end, requireTrustForRecruitment = function() return false end }
-KnoxSurvivorRuntime = { idForCharacter = function(body) return bodyIds[body] end,
+KnoxSurvivorRuntime = {
+    beginPlayerConversation = function() return true end,
+    endPlayerConversation = function() return true end,
+    idForCharacter = function(body) return bodyIds[body] end,
     getCharacter = function() return survivor end }
 local acknowledgements, hostilityNotices, reputationNotices = 0, 0, {}
 KnoxActivityFeed = { speak = function(body) assert(body == survivor) acknowledgements = acknowledgements + 1 end,

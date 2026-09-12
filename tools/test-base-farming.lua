@@ -170,3 +170,32 @@ seedResolved.plant.state = "seeded"
 assert(farming.isComplete(seedResolved, farming.snapshot(seedResolved)))
 
 print("Base farming PASS harvest_discovery=true watering_discovery=true plow_seed=true vanilla_actions=true completion=true")
+
+-- Empty-handed workers discover real cupboard supplies, but cannot execute
+-- planting until the native supply transfer has delivered the seed.
+inventoryItems = {}
+local cupboardItems = { seed, shovel, waterBottle }
+KnoxBaseStorage = { findItemType = function(owner, predicate)
+    assert(owner == base)
+    for _, value in ipairs(cupboardItems) do
+        if predicate(value) then return value:getFullType(), value end
+    end
+end }
+dry.waterLvl = 40
+local storedTask = assert(farming.findTask(base, character))
+assert(storedTask.action == "farm_water", "cupboard water enables watering discovery")
+dry.waterLvl = 100
+squares["12:20:0"].plant = nil
+storedTask = assert(farming.findTask(base, character))
+assert(storedTask.action == "farm_plow" and storedTask.plowToolType == "Base.GardenShovel",
+    "cupboard seed and shovel enable plowing discovery")
+squares["12:20:0"].plant = plant("none", false, 0)
+squares["12:20:0"].plant.state = "plow"
+storedTask = assert(farming.findTask(base, character))
+assert(storedTask.action == "farm_seed" and storedTask.seedItemType == "Base.TomatoSeed",
+    "cupboard seed enables planting discovery")
+local unready = farming.resolveTarget(base, storedTask, character)
+assert(unready == nil or unready.seedItem == nil, "discovery cannot manufacture carried seed")
+cupboardItems = {}
+assert(farming.findTask(base, character) == nil, "empty cupboard cannot promise planting supplies")
+print("Cupboard farming discovery PASS")

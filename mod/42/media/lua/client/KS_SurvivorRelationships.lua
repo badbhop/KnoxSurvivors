@@ -523,6 +523,16 @@ local function resumeMeetingController(controller, ticks)
     end
 end
 
+local function meetingOwnsControllers(meeting, first, second)
+    if meeting.phase == "REQUESTED" then return true end
+    if meeting.phase == "APPROACHING" then
+        return (first.state == "MEETING_APPROACH" or first.state == "MEETING_READY")
+            and second.state == "MEETING_WAIT"
+    end
+    return meeting.phase == "GREETING"
+        and first.state == "GREETING" and second.state == "GREETING"
+end
+
 local function abortMeeting(key, meeting, first, second, ticks, reason)
     resumeMeetingController(first, ticks)
     resumeMeetingController(second, ticks)
@@ -683,9 +693,10 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
             abortMeeting(key, meeting, first, second, ticks, "membership_changed")
         elseif ticks - meeting.startedAt > 1200 then
             abortMeeting(key, meeting, first, second, ticks, "timeout")
-        elseif meeting.phase ~= "REQUESTED"
-            and (first.state == "COMBAT" or second.state == "COMBAT") then
-            abortMeeting(key, meeting, first, second, ticks, "combat")
+        elseif not meetingOwnsControllers(meeting, first, second) then
+            -- Escape, treatment and explicit orders release social ownership
+            -- just as combat does. Only the still-waiting partner is resumed.
+            abortMeeting(key, meeting, first, second, ticks, "activity_changed")
         elseif meeting.phase == "REQUESTED" then
             if first:canInterruptForMeeting() and second:canInterruptForMeeting()
                 and first:interruptForMeeting() and second:interruptForMeeting() then

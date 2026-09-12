@@ -96,12 +96,16 @@ end
 local function stageFor(state, gate)
     if gate then
         if state.door then return nil end
-        return state.doorFrame and "door" or (state.occupied and nil or "door_frame")
+        if state.doorFrame then return "door" end
+        if state.occupied then return nil end
+        return "door_frame"
     end
-    return state.frame and "wall" or (state.occupied and nil or "wall_frame")
+    if state.frame then return "wall" end
+    if state.occupied then return nil end
+    return "wall_frame"
 end
 
-local function findHammer(character)
+local function findHammer(character, base)
     local found = nil
     local function visit(container)
         local items = call(container, "getItems")
@@ -117,12 +121,25 @@ local function findHammer(character)
         end
     end
     visit(character ~= nil and character:getInventory() or nil)
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if found == nil and base ~= nil and storage ~= nil and storage.findItemType ~= nil then
+        local _, stored = storage.findItemType(base, function(item)
+            return HAMMERS[tostring(call(item, "getFullType") or "")] == true
+                and call(item, "isBroken") ~= true
+        end)
+        found = stored
+    end
     return found
 end
 
-local function canCarry(character, stage)
+local function canSupply(character, stage, base)
     local definition = STAGES[stage]
-    if definition == nil or findHammer(character) == nil then return false end
+    if definition == nil or findHammer(character, base) == nil then return false end
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if base ~= nil and storage ~= nil and storage.requirementsAvailable ~= nil then
+        return storage.requirementsAvailable(base, character,
+            Construction.requirements({ kind = stage }, character, base))
+    end
     local inventory = character:getInventory()
     for itemType, count in pairs(definition.items) do
         if (tonumber(call(inventory, "getItemCount", itemType, true)) or 0) < count then
@@ -150,18 +167,21 @@ local function target(base, zone, stage, square, north)
     }
 end
 
-local function consider(base, zone, cell, x, y, z, north, gate, character)
+local function consider(base, zone, cell, x, y, z, north, gate, character, availability)
     local square = cell:getGridSquare(x, y, z)
     if square == nil then return nil end
     local stage = stageFor(edgeState(square, north), gate)
-    return stage ~= nil and canCarry(character, stage)
-        and target(base, zone, stage, square, north) or nil
+    if stage == nil then return nil end
+    if availability[stage] == nil then
+        availability[stage] = canSupply(character, stage, base) == true
+    end
+    return availability[stage] and target(base, zone, stage, square, north) or nil
 end
 
 function Construction.findTask(base, character)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or character == nil or cell == nil then return nil end
-    local zones = {}
+    local zones, availability = {}, {}
     for _, zone in pairs(base.zones or {}) do
         if zone.enabled ~= false and (zone.type == "construction" or zone.type == "defense") then
             zones[#zones + 1] = zone
@@ -174,18 +194,19 @@ function Construction.findTask(base, character)
         local z = tonumber(zone.z) or 0
         if x2 - x1 >= 2 and y2 - y1 >= 2 then
             local gateX = math.floor((x1 + x2) / 2)
-            local found = consider(base, zone, cell, gateX, y2, z, true, true, character)
+            local found = consider(base, zone, cell, gateX, y2, z, true, true, character, availability)
             if found then return found, "gate" end
             for x = x1, x2 do
+                found = consider(base, zone, cell, x, y1, z, true, false, character, availability)
+                if found then return found, "wall" end
                 if x ~= gateX then
-                    found = consider(base, zone, cell, x, y1, z, true, false, character)
-                        or consider(base, zone, cell, x, y2, z, true, false, character)
+                    found = consider(base, zone, cell, x, y2, z, true, false, character, availability)
                     if found then return found, "wall" end
                 end
             end
             for y = y1 + 1, y2 - 1 do
-                found = consider(base, zone, cell, x1, y, z, false, false, character)
-                    or consider(base, zone, cell, x2, y, z, false, false, character)
+                found = consider(base, zone, cell, x1, y, z, false, false, character, availability)
+                    or consider(base, zone, cell, x2, y, z, false, false, character, availability)
                 if found then return found, "wall" end
             end
         end
@@ -193,13 +214,14 @@ function Construction.findTask(base, character)
     return nil, "no_construction_ready"
 end
 
-function Construction.requirements(targetValue, character)
+function Construction.requirements(targetValue, character, base)
     local definition = targetValue ~= nil and STAGES[targetValue.kind] or nil
-    local hammer = findHammer(character)
+    local hammer = findHammer(character, base)
     if definition == nil or hammer == nil then return nil end
     local items = { [hammer:getFullType()] = 1 }
     for itemType, count in pairs(definition.items) do items[itemType] = count end
-    return { items = items, skills = { Woodwork = definition.skill } }
+    return { items = items, skills = { Woodwork = definition.skill },
+        itemRules = { [hammer:getFullType()] = { usable = true } } }
 end
 
 function Construction.resolveTarget(base, targetValue, character)

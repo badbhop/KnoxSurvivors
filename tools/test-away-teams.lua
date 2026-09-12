@@ -20,7 +20,7 @@ data.survivors = {
 data.bases = {
     ["base-1"] = {
         id = "base-1", name = "Riverside Home",
-        territory = { minX = 10, minY = 20, width = 7, height = 5, z = 0 },
+        territory = { minX = 10, minY = 20, maxX = 16, maxY = 24, allFloors = true },
     },
 }
 
@@ -99,6 +99,9 @@ local supplyTeam = assert(persistence.createAwayTeam(
 ))
 assert(persistence.getAwayTeamReturnDestination(supplyTeam.id) ~= nil,
     "base-owned resource dispatches should derive a durable return point")
+local homeDestination = persistence.getAwayTeamReturnDestination(supplyTeam.id)
+assert(homeDestination.x == 13 and homeDestination.y == 22,
+    "away-team return uses saved territory center instead of its first corner")
 assert(persistence.advanceAwayTeams(21) == 1)
 local arrived = persistence.getAwayTeam(supplyTeam.id)
 assert(arrived.state == "awaiting_collection"

@@ -2,18 +2,12 @@ local rootPath = arg[1] or "."
 package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 
 package.loaded["TimedActions/ISChopTreeAction"] = true
-package.loaded["TimedActions/ISCraftAction"] = true
+package.loaded["Entity/TimedActions/ISHandcraftAction"] = true
 package.loaded["TimedActions/ISTimedActionQueue"] = true
 ItemTag = { CHOP_TREE = "CHOP_TREE", SAW = "SAW" }
 ISChopTreeAction = {
     new = function(_, character, tree)
         return { kind = "chop_tree", character = character, tree = tree }
-    end,
-}
-ISCraftAction = {
-    new = function(_, character, item, recipe, container, containers)
-        return { kind = "saw_logs", character = character, item = item,
-            recipe = recipe, container = container, containers = containers }
     end,
 }
 ISTimedActionQueue = {
@@ -51,6 +45,8 @@ ArrayList = { new = function()
     return {
         add = function(_, value) values[#values + 1] = value end,
         values = values,
+        size = function() return #values end,
+        get = function(_, index) return values[index + 1] end,
     }
 end }
 local recipe = { name = "Base.SawLogs" }
@@ -104,16 +100,43 @@ assert(action.kind == "chop_tree" and queuedAction == action)
 assert(character.primary == axe)
 tree.objectIndex = -1
 assert(woodcutting.isComplete(resolved), "removed tree should complete the task")
-table.insert(inventoryItems, log)
-table.insert(inventoryItems, saw)
-base.zones.timber.type = "log_processing"
+print("Base woodcutting PASS axe_gate=true target_discovery=true native_chop=true completion=true")
 
-local sawTarget, sawResult = woodcutting.findTask(base, character)
-assert(sawTarget ~= nil and sawResult == "saw_logs")
-local sawResolved = assert(woodcutting.resolveTarget(base, sawTarget, character))
-local sawAction = assert(woodcutting.queueAction(character, sawResolved))
-assert(sawAction.kind == "saw_logs" and queuedAction == sawAction)
-log.container = false
-assert(woodcutting.isComplete(sawResolved), "consumed log should complete sawing")
+-- A loaded log-processing zone can produce a real native handcraft job.
+getScriptManager = function() return { getCraftRecipe = function(_, name)
+    return name == "Base.SawLogs" and recipe or nil end } end
+local craftValid = true
+HandcraftLogic = { new = function()
+    return { setContainers = function() end, setRecipe = function() end,
+        canPerformCurrentRecipe = function() return craftValid end }
+end }
+ISHandcraftAction = { new = function(_, owner, selectedRecipe, containers)
+    assert(owner == character and selectedRecipe == recipe and containers ~= nil)
+    return { craftStarted = false }
+end }
+function square:canStand() return true end
+inventoryItems = { log, saw }
+target = assert(woodcutting.findTask(base, character))
+assert(target.action == "saw_logs", "carried log and saw discover processing work")
+resolved = assert(woodcutting.resolveTarget(base, target, character))
+action = assert(woodcutting.queueAction(character, resolved))
+assert(not woodcutting.isComplete(resolved), "queue acceptance is not log consumption")
+action.craftStarted = true
+assert(not woodcutting.isComplete(resolved), "started crafting alone is not completion")
+inventoryItems = { saw }
+assert(not woodcutting.isComplete(resolved), "a missing log alone does not prove crafting")
+action.logic = { getCreatedOutputItems = function(_, output)
+    output:add({ getFullType = function() return "Base.Plank" end })
+end }
+assert(woodcutting.isComplete(resolved), "native output and log consumption prove processing")
+inventoryItems = { log, saw }
+craftValid = false
+assert(woodcutting.resolveTarget(base, target, character) == nil,
+    "invalid native recipe never executes")
 
-print("Base woodcutting PASS axe_gate=true target_discovery=true chop=true saw_logs=true completion=true")
+base.zones.processing = { id = "processing", type = "log_processing",
+    x1 = 9, y1 = 20, x2 = 10, y2 = 20, z = 0 }
+local offsetTask = assert(woodcutting.findTask(base, character))
+assert(offsetTask.zoneId == "processing" and offsetTask.x == 10,
+    "unloaded or blocked first corner does not hide usable processing tiles")
+print("Processing area fallback PASS")

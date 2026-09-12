@@ -32,6 +32,7 @@ public final class KnoxBridgeBootstrap {
         int previousLoadedCount = -1;
         int stablePolls = 0;
         Object exposedEnvironment = null;
+        boolean bridgeClassExposed = false;
         long lastFailureLogMillis = 0L;
         Class<?> luaManagerClass = null;
 
@@ -56,12 +57,15 @@ public final class KnoxBridgeBootstrap {
                     : 0;
                 if (environment == null
                     || exposer == null
-                    || exposerEnvironment != environment
                     || loadedCount == 0) {
                     previousEnvironment = null;
                     previousExposer = null;
                     previousLoadedCount = -1;
                     stablePolls = 0;
+                    sleep();
+                    continue;
+                }
+                if (!bridgeClassExposed && exposerEnvironment != environment) {
                     sleep();
                     continue;
                 }
@@ -106,10 +110,13 @@ public final class KnoxBridgeBootstrap {
                     continue;
                 }
 
-                exposer.getClass().getMethod("setExposed", Class.class)
-                    .invoke(exposer, KnoxBridge.class);
-                exposer.getClass().getMethod("exposeLikeJava", Class.class)
-                    .invoke(exposer, KnoxBridge.class);
+                if (exposerEnvironment == environment) {
+                    exposer.getClass().getMethod("setExposed", Class.class)
+                        .invoke(exposer, KnoxBridge.class);
+                    exposer.getClass().getMethod("exposeLikeJava", Class.class)
+                        .invoke(exposer, KnoxBridge.class);
+                    bridgeClassExposed = true;
+                }
                 environment.getClass().getMethod("rawset", Object.class, Object.class)
                     .invoke(environment, "KnoxJavaBridge", BRIDGE);
 

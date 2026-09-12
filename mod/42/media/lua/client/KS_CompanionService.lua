@@ -4,9 +4,15 @@ require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_CompanionVehicles"
 require "KS_OrderCatalog"
+require "KS_OrderSignals"
 
 local CompanionService = rawget(_G, "KnoxCompanionService") or {}
 _G.KnoxCompanionService = CompanionService
+
+local function signalOrder(player, survivorId, kind)
+    local signals = rawget(_G, "KnoxOrderSignals")
+    if signals ~= nil then signals.order(player, kind, KnoxSurvivorRuntime.getCharacter(survivorId)) end
+end
 
 local RECRUIT_TRUST = 50
 local TALK_GAIN = 8
@@ -167,6 +173,12 @@ function CompanionService.talk(player, survivorId)
         return false, availability
     end
     if KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId) then return false, "hostile" end
+    local attentive, attentionReason = KnoxSurvivorRuntime.beginPlayerConversation(survivorId, player)
+    if not attentive then
+        KnoxActivityFeed.speak(character, attentionReason == "danger"
+            and "Not safe to talk here." or "Give me a moment to finish this.")
+        return false, attentionReason
+    end
     local previousRelation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
     local previousTrust = previousRelation ~= nil and (tonumber(previousRelation.trust) or 30) or 30
     local relation, result = KnoxPersistence.recordPlayerConversation(
@@ -177,9 +189,11 @@ function CompanionService.talk(player, survivorId)
         TALK_COOLDOWN_HOURS
     )
     if relation == nil then
+        KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
         return false, result
     end
     if result == "cooldown" then
+        KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
         KnoxActivityFeed.speak(character, "Give me a minute.")
         return false, result
     end
@@ -347,6 +361,7 @@ function CompanionService.command(player, survivorId, order)
                 or (order == "relax" and "I'll take a breather." or "I'll stay here.")
         )
     end
+    signalOrder(player, survivorId, order)
     return true, order
 end
 
@@ -529,6 +544,7 @@ function CompanionService.assignBaseTask(player, survivorId, baseId, taskId)
     if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
         KnoxActivityFeed.speak(character, "I'll handle that job.")
     end
+    signalOrder(player, survivorId, "job")
     return assigned, result
 end
 
@@ -839,6 +855,29 @@ function CompanionService.drivePlayerVehicle(player, survivorId)
     return success, result
 end
 
+function CompanionService.drivePlayerVehicleTo(player,survivorId,x,y)
+    if not isPlayerCompanion(player,survivorId) then return false,"not_companion" end
+    local character,reason=validateInteraction(player,survivorId,30*30)
+    if character==nil then return false,reason end
+    local vehicle=player:getVehicle()
+    if vehicle==nil then return false,"player_not_in_vehicle" end
+    if vehicle:getDriver()==player then return false,"player_must_vacate_driver_seat" end
+    local square=vehicle:getSquare()
+    if square==nil then return false,"vehicle_unavailable" end
+    local success,result=KnoxCompanionVehicles.driveTo(character,vehicle,x,y,square:getZ())
+    if success then KnoxActivityFeed.speak(character,"I'll drive us there.") end
+    return success,result
+end
+
+function CompanionService.stopPlayerVehicle(player,survivorId)
+    if not isPlayerCompanion(player,survivorId) then return false,"not_companion" end
+    local character,reason=validateInteraction(player,survivorId,30*30)
+    if character==nil then return false,reason end
+    local vehicle=player:getVehicle()
+    if vehicle==nil or character:getVehicle()~=vehicle then return false,"vehicle_unavailable" end
+    return KnoxCompanionVehicles.stopDriving(character)
+end
+
 function CompanionService.exitVehicle(player, survivorId)
     if not isPlayerCompanion(player, survivorId) then return false, "not_companion" end
     local character, reason = validateInteraction(player, survivorId)
@@ -903,6 +942,7 @@ function CompanionService.issueDirective(player, survivorId, directive)
         return false, "not_your_companion"
     end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    signalOrder(player, survivorId, directive.kind)
     return true, tostring(directive.kind)
 end
 
@@ -1021,7 +1061,7 @@ function CompanionService.setBaseJobPreference(player, survivorId, preference)
             patrol = "I'll patrol the area.",
             farming = "I'll take care of the garden.",
             woodwork = "I'll handle repairs and timber.",
-            hauling = "I'll keep supplies moving.",
+            hauling = "I'll move the bodies to the drop area.",
             animal_care = "I'll look after the animals.",
             repair = "I'll handle maintenance.",
             rest = "I'll rest and recover for now.",
@@ -1029,6 +1069,7 @@ function CompanionService.setBaseJobPreference(player, survivorId, preference)
         KnoxActivityFeed.speak(character, lines[normalizedPreference]
             or ("I'll take the " .. KnoxOrderCatalog.label(normalizedPreference, "new") .. " duty."))
     end
+    signalOrder(player, survivorId, normalizedPreference)
     return true, normalizedPreference
 end
 

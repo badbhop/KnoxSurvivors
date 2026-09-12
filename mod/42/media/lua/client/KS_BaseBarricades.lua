@@ -41,14 +41,21 @@ local function findItem(character, predicate)
     return found
 end
 
-function Barricades.findHammer(character)
-    return findItem(character, function(item)
+function Barricades.findHammer(character, base)
+    local function usableHammer(item)
         local full = fullType(item)
         if HAMMER_TYPES[full] then
             return item.isBroken == nil or not item:isBroken()
         end
         return false
-    end)
+    end
+    local found = findItem(character, usableHammer)
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if found == nil and base ~= nil and storage ~= nil and storage.findItemType ~= nil then
+        local _, stored = storage.findItemType(base, usableHammer)
+        found = stored
+    end
+    return found
 end
 
 function Barricades.findPlank(character)
@@ -57,9 +64,19 @@ function Barricades.findPlank(character)
     end)
 end
 
-function Barricades.canPrepare(character)
+function Barricades.canPrepare(character, base)
     if character == nil or character.getInventory == nil then
         return false
+    end
+    local hammer = Barricades.findHammer(character, base)
+    if hammer == nil then return false end
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if base ~= nil and storage ~= nil and storage.requirementsAvailable ~= nil then
+        local hammerType = hammer:getFullType()
+        return storage.requirementsAvailable(base, character, {
+            items = { [hammerType] = 1, ["Base.Plank"] = 1, ["Base.Nails"] = 2 },
+            itemRules = { [hammerType] = { usable = true } },
+        })
     end
     local inventory = character:getInventory()
     return Barricades.findHammer(character) ~= nil

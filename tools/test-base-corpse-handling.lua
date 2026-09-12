@@ -144,25 +144,17 @@ assert(#queued == 3 and queued[1].kind == "unequip"
     "held items should be unequipped before the vanilla grab action")
 
 local step, transition, deadline = handling.nextGrabStep(character, false, nil, 100)
-assert(step == "wait" and transition == "idle" and deadline == 130,
+assert(step == "wait" and transition == "idle" and deadline == 280,
     "queue completion allows the asynchronous native grapple to settle")
-step, transition, deadline = handling.nextGrabStep(character, false, deadline, 130)
-assert(step == "retry" and transition == "idle" and deadline == 220,
-    "an idle handoff requests at most one bounded native retry")
+step, transition, deadline = handling.nextGrabStep(character, false, deadline, 280)
+assert(step == "failed" and transition == "idle",
+    "an idle handoff must fail rather than replay the native pickup animation")
 local requested, retryResult = handling.requestGrabRetry(character, resolved)
-assert(requested and retryResult == "native_retry_requested"
-        and character.pickupRequests == 1 and character.grappling,
-    "fallback invokes the real Build 42 corpse pickup without synchronous failure")
-local alreadyRequested, activeReason = handling.requestGrabRetry(character, resolved)
-assert(alreadyRequested and activeReason == "native_pickup_in_progress"
-    and character.pickupRequests == 1,
-    "an active native pickup handshake must not receive another pickup request")
-step, transition, deadline = handling.nextGrabStep(character, true, deadline, 160)
-assert(step == "wait" and transition == "transitioning",
-    "an active grapple handshake is not cancelled before attachment")
-character.grappling = false
+assert(not requested and retryResult == "native_pickup_retry_disabled"
+        and character.pickupRequests == 0,
+    "corpse hauling must leave pickup ownership with the vanilla timed action")
 character.dragging = true
-step, transition = handling.nextGrabStep(character, true, deadline, 170)
+step, transition = handling.nextGrabStep(character, true, deadline, 281)
 assert(step == "ready" and transition == "dragging",
     "native dragging state releases the pickup phase into movement")
 
@@ -170,10 +162,10 @@ local drop, dropResult = handling.queueDrop(character, resolved)
 assert(drop ~= nil and dropResult == "queued" and queued[#queued] == drop)
 assert(handling.isDragging(character), "dragging state should be observable")
 step, transition, deadline = handling.nextDropStep(character, false, nil, 300)
-assert(step == "wait" and transition == "dragging" and deadline == 390,
+assert(step == "wait" and transition == "dragging" and deadline == 480,
     "drop completion allows the native grapple release to settle")
-step, transition, deadline = handling.nextDropStep(character, false, deadline, 390)
-assert(step == "retry" and deadline == 480,
+step, transition, deadline = handling.nextDropStep(character, false, deadline, 480)
+assert(step == "retry" and deadline == 660,
     "an attached corpse receives one bounded native release retry")
 requested, retryResult = handling.requestDropRetry(character)
 assert(requested and retryResult == "native_release_requested"
@@ -187,8 +179,8 @@ assert(step == "ready" and transition == "released",
 
 body.index = -1
 local retryRemoved, removedReason = handling.requestGrabRetry(character, resolved)
-assert(not retryRemoved and removedReason == "corpse_removed_or_reanimated",
-    "pickup retry must abandon a corpse removed during the native handshake")
+assert(not retryRemoved and removedReason == "native_pickup_retry_disabled",
+    "pickup retries remain disabled after corpse removal")
 bodySquare.bodies = { animalBody }
 local missing = handling.resolveTarget(base, target, character)
 assert(missing == nil, "moved corpse must not resolve by stale coordinates")
@@ -198,8 +190,8 @@ bodySquare.bodies = { body }
 local originalReach = approach.canReachTo
 approach.canReachTo = function() return false end
 local unreachable, unreachableReason = handling.requestGrabRetry(character, resolved)
-assert(not unreachable and unreachableReason == "corpse_no_longer_reachable",
-    "retry must retain native reach restrictions after the timed action ends")
+assert(not unreachable and unreachableReason == "native_pickup_retry_disabled",
+    "unreachable corpses must not trigger a direct native pickup retry")
 approach.canReachTo = originalReach
 local zone = base.zones.cleanup
 base.zones.cleanup = nil

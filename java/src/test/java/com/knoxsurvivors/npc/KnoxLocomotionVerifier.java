@@ -5,13 +5,14 @@ public final class KnoxLocomotionVerifier {
     private KnoxLocomotionVerifier() {
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws ReflectiveOperationException {
         verifyPaceThresholds();
         verifyPhysicalEligibility();
         verifyNativeHealthScale();
+        verifyTravelAwareness();
         System.out.println(
             "KnoxLocomotionVerifier PASS walk=true run=true sprint=true"
-                + " downgrade=true condition=true"
+                + " downgrade=true condition=true stealth=true perception=true throttle=true"
         );
     }
 
@@ -78,6 +79,79 @@ public final class KnoxLocomotionVerifier {
             "real injury still prevents sprinting");
         require(KnoxNpcFactory.locomotionHealth(new Object()) == 0.0f,
             "unreadable health fails conservatively");
+    }
+
+    public static final class TravelThreat {
+        float x, y, z;
+        boolean dead, proxy, visible = true;
+        Object target;
+        int targetReads;
+        TravelThreat(float x, float y, float z) { this.x=x; this.y=y; this.z=z; }
+        public boolean isDead() { return dead; }
+        public boolean isReanimatedForGrappleOnly() { return proxy; }
+        public float getX() { return x; }
+        public float getY() { return y; }
+        public float getZ() { return z; }
+        public Object getTarget() { targetReads++; return target; }
+    }
+
+    public static final class TravelObserver {
+        int sightChecks;
+        public boolean CanSee(TravelThreat threat) { sightChecks++; return threat.visible; }
+    }
+
+    private static void verifyTravelAwareness() throws ReflectiveOperationException {
+        KnoxNpc npc = new KnoxNpc("travel", new Object(), 0, 0, 0);
+        npc.setMovementPace("cautious");
+        require("cautious".equals(npc.getMovementPace()) && !decide(npc.getMovementPace(), 80).running(),
+            "routine cautious routes do not become runs just because they are long");
+        npc.setMovementPace("sneak");
+        require("sneak".equals(npc.getMovementPace()), "the actual leader can request sneaking");
+        TravelObserver observer = new TravelObserver();
+        java.lang.reflect.Method canSee = TravelObserver.class.getMethod("CanSee", TravelThreat.class);
+        TravelThreat quiet = new TravelThreat(6,0,0);
+        java.util.ArrayList<TravelThreat> threats = new java.util.ArrayList<>();
+        threats.add(quiet);
+        KnoxTravelAwareness.Observation seen = KnoxNpcFactory.scanTravelThreats(observer, threats, canSee, 0,0,0);
+        require(seen.visible()==1 && !seen.detected(), "native adapter records a visible unnoticed zombie");
+        KnoxTravelAwareness awareness = npc.travelAwareness;
+        long now = 1_000_000_000L;
+        require(awareness.needsRefresh(now,0,0,0), "a new body needs a real sample");
+        awareness.update(now,0,0,0,seen);
+        require(awareness.shouldSneak(now,true,false), "one nearby visible zombie warrants cautious travel");
+        require(!awareness.shouldSneak(now,false,false), "ordinary non-cautious pace retains the crowd threshold");
+        require(!awareness.needsRefresh(now+100_000_000L,1,0,0), "movement frames reuse the bounded sample");
+        require(awareness.needsRefresh(now+250_000_000L,1,0,0), "perception refreshes every quarter second");
+        require(awareness.needsRefresh(now+1,0,0,1), "stairs invalidate the old floor sample");
+        require(awareness.needsRefresh(now+1,5,0,0), "large displacement invalidates the old location");
+        KnoxTravelAwareness.Observation empty = new KnoxTravelAwareness.Observation(0,Float.POSITIVE_INFINITY,false);
+        awareness.update(now+300_000_000L,0,0,0,empty);
+        require(awareness.shouldSneak(now+400_000_000L,true,false), "brief sight loss cannot toggle posture every frame");
+        require(!awareness.shouldSneak(now+1_600_000_000L,true,false), "quiet memory expires after leaving danger");
+        require(awareness.shouldSneak(now+1_600_000_000L,false,true), "an explicit leader sneak still applies in clear terrain");
+        quiet.target=observer;
+        KnoxTravelAwareness.Observation detected=KnoxNpcFactory.scanTravelThreats(observer,threats,canSee,0,0,0);
+        awareness.update(now+2_000_000_000L,0,0,0,detected);
+        require(!awareness.shouldSneak(now+2_000_000_000L,true,true), "an active nearby attacker releases sneaking");
+        quiet.target=null; quiet.x=1;
+        awareness.update(now+3_000_000_000L,0,0,0,KnoxNpcFactory.scanTravelThreats(observer,threats,canSee,0,0,0));
+        require(!awareness.shouldSneak(now+3_000_000_000L,true,true), "contact danger never causes crouch-walking");
+        TravelThreat proxy=new TravelThreat(3,0,0); proxy.proxy=true; proxy.target=observer;
+        TravelThreat far=new TravelThreat(40,0,0); far.target=observer;
+        TravelThreat upstairs=new TravelThreat(1,0,1); upstairs.target=observer;
+        TravelThreat hidden=new TravelThreat(5,0,0); hidden.visible=false;
+        threats.clear(); threats.add(proxy); threats.add(far); threats.add(upstairs); threats.add(hidden);
+        observer.sightChecks=0;
+        KnoxTravelAwareness.Observation clear=KnoxNpcFactory.scanTravelThreats(observer,threats,canSee,0,0,0);
+        require(clear.visible()==0 && !clear.detected() && observer.sightChecks==1,
+            "proxy, wrong-floor, remote and unseen zombies do not create omniscient sneaking");
+        require(proxy.targetReads==0 && far.targetReads==0 && upstairs.targetReads==0,
+            "cheap physical filters precede target and native sight calls");
+        proxy.proxy=false; proxy.target=null;
+        require(KnoxNpcFactory.scanTravelThreats(observer,threats,canSee,0,0,0).visible()==1,
+            "a real reanimated zombie is still visible danger");
+        awareness.update(now+4_000_000_000L,0,0,1,empty);
+        require(!awareness.shouldSneak(now+4_000_000_000L,true,false), "moving upstairs drops old-floor caution");
     }
 
     private static KnoxLocomotionPolicy.Decision decide(String pace, float distance) {

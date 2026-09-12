@@ -26,6 +26,7 @@ BaseManager.ZONE_TYPES = {
 
 BaseManager.STORAGE_CATEGORIES = {
     depot = true,
+    food = true,
 }
 
 local function worldAge()
@@ -296,10 +297,14 @@ local function ensureFactionStorage(base)
         end
     end
     for _, entry in ipairs(found) do
-        if base.toolCupboardKey == nil and KnoxToolCupboard ~= nil then
+        if entry.kind:find("fridge", 1, true) or entry.kind:find("freezer", 1, true) then
+            local reference = BaseManager.containerReference(entry.object, entry.containerIndex, base.id)
+            if reference ~= nil and base.storage[reference.key] == nil then
+                BaseManager.setStoragePolicy(base.id, entry.object, "food", entry.containerIndex)
+            end
+        elseif base.toolCupboardKey == nil and KnoxToolCupboard ~= nil then
             KnoxToolCupboard.designate(base, entry.object, entry.containerIndex, BaseManager)
         end
-        if base.toolCupboardKey ~= nil then return end
     end
 end
 
@@ -596,27 +601,23 @@ function BaseManager.containerReference(object, requestedContainerIndex, baseId)
 end
 
 function BaseManager.setStoragePolicy(baseId, object, category, containerIndex)
-    if category ~= "depot" then
-        return nil, "central_cupboard_only"
-    end
     local base = KnoxPersistence.getBase(baseId)
-    if base ~= nil and base.toolCupboardKey ~= nil then
-        local current = BaseManager.containerReference(object, containerIndex, baseId)
-        if current ~= nil and current.key == base.toolCupboardKey then category = "depot" end
+    if base == nil or object == nil or not BaseManager.containsSquare(base, object:getSquare()) then
+        return nil, "outside_base"
     end
-    if BaseManager.STORAGE_CATEGORIES[category] ~= true then
-        return nil, "unknown_storage_category"
-    end
+    if BaseManager.STORAGE_CATEGORIES[category] ~= true then return nil, "unknown_storage_category" end
     local reference = BaseManager.containerReference(object, containerIndex, baseId)
-    if reference == nil then
-        return nil, "not_a_container"
+    if reference == nil then return nil, "not_a_container" end
+    local kind = string.lower(reference.containerType)
+    if kind == "corpse" or kind:find("water", 1, true) or kind:find("rain", 1, true) then
+        return nil, "use_item_storage"
     end
-    return KnoxPersistence.setBaseStoragePolicy(
-        baseId,
-        reference,
-        category,
-        category == "depot"
-    )
+    if category == "depot" and not KnoxToolCupboard.isDryContainerType(kind) then
+        return nil, "use_dry_storage"
+    end
+    -- Normalize legacy references before adding an explicit food store.
+    KnoxBaseStorage.policies(base)
+    return KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, category == "depot")
 end
 
 local function findTraitDefinition(id)

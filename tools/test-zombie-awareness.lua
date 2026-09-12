@@ -1,4 +1,6 @@
+dofile((arg[1] or ".") .. "/mod/42/media/lua/client/KS_ThreatClassifier.lua")
 require = function() return true end
+dofile((arg[1] or ".") .. "/mod/42/media/lua/client/KS_ZombieDiscovery.lua")
 
 local directed = 0
 local activePlayer = nil
@@ -17,8 +19,12 @@ local npc = {
     isDead = function(self) return self.dead end,
     setZombiesDontAttack = function(self, value) self.protected = value end,
 }
+npc.getX=function(self) return self.current:getX() end
+npc.getY=function(self) return self.current:getY() end
 local zombie = {
     visible = true,
+    getX=function() return 14 end, getY=function() return 10 end,
+    getLookDirectionX=function() return -1 end,getLookDirectionY=function() return 0 end,
     getCurrentSquare = function() return square(14, 10, 0) end,
     isDead = function() return false end,
     getTarget = function(self) return self.target end,
@@ -93,6 +99,8 @@ assert(directed == 5 and zombie.target == npc,
 activePlayer = nil
 local memoryZombie = {
     visible = false,
+    getX=function(self) return self.current:getX() end, getY=function(self) return self.current:getY() end,
+    getLookDirectionX=function() return -1 end,getLookDirectionY=function() return 0 end,
     current = square(14, 10, 0),
     getCurrentSquare = function(self) return self.current end,
     isDead = function() return false end,
@@ -107,7 +115,7 @@ assert(directed == 5, "distance alone does not reveal a survivor through blocked
 memoryZombie.visible = true
 KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 150)
 assert(directed == 6 and memoryZombie.target == npc,
-    "native LOS reveals a same-floor survivor")
+    "nearby upright survivor in front is visually discovered")
 memoryZombie.visible = false
 memoryZombie.target = nil
 KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 165)
@@ -122,3 +130,42 @@ KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 360)
 assert(directed == 7, "different-floor survivor is not treated as adjacent")
 
 print("Zombie awareness PASS nearest=true los=true memory=true floors=true refreshed=true close_attack=true balanced_switch=true")
+
+memoryZombie.current=square(10.5,10,0)
+memoryZombie.isReanimatedForGrappleOnly=function() return true end
+memoryZombie.target=npc
+local beforeProxy=directed
+KnoxZombieAwareness.update({near={character=npc}},{"near"},375)
+KnoxZombieAwareness.update({near={character=npc}},{"near"},381)
+assert(directed==beforeProxy, "corpse grapple proxies must never be directed to bite the carrier")
+memoryZombie.isReanimatedForGrappleOnly=function() return false end
+KnoxZombieAwareness.update({near={character=npc}},{"near"},390)
+assert(directed>beforeProxy, "real zombies retain native attack discovery")
+print("Corpse proxy awareness PASS")
+
+-- Initial discovery must not poison target memory when a crouching NPC only
+-- has geometric LOS. Existing pursuit still uses the paced native bridge.
+memoryZombie.target=nil
+local quietZombie={current=square(18,10,0),visible=true,
+    getCurrentSquare=function(self) return self.current end,isDead=function() return false end,
+    getTarget=function(self) return self.target end,setTarget=function(self,target) self.target=target end,
+    getX=function(self) return self.current:getX() end,getY=function(self) return self.current:getY() end,
+    getLookDirectionX=function() return -1 end,getLookDirectionY=function() return 0 end,
+    CanSee=function(self) return self.visible end}
+list.get=function(_,index) return index==0 and quietZombie or nil end
+npc.isSneaking=function() return true end
+npc.getSneakSpotMod=function() return 0.5 end
+local initial=directed
+KnoxZombieAwareness.update({near={character=npc}},{"near"},420)
+assert(quietZombie.target==nil and directed==initial)
+quietZombie.visible=false
+KnoxZombieAwareness.update({near={character=npc}},{"near"},435)
+assert(quietZombie.target==nil and directed==initial, "an unconfirmed sighting must not create pursuit memory")
+quietZombie.visible=true
+for t=450,540,15 do KnoxZombieAwareness.update({near={character=npc}},{"near"},t) end
+assert(quietZombie.target==nil)
+KnoxZombieAwareness.update({near={character=npc}},{"near"},555)
+assert(quietZombie.target==npc and directed==initial+1, "sustained real exposure acquires a target")
+KnoxZombieAwareness.update({near={character=npc}},{"near"},585)
+assert(directed==initial+2, "discovery changes must not weaken native pursuit refresh")
+print("Stealth awareness integration PASS no_false_memory=true native_pursuit=true")

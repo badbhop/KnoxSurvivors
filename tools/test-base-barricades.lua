@@ -84,3 +84,34 @@ barricade = { getNumPlanks = function() return 1 end, canAddPlank = function() r
 assert(barricades.isComplete(resolved, character, 0), "new plank should be observable")
 
 print("Base barricades PASS target_discovery=true material_gate=true vanilla_action=true completion=true")
+
+local cupboardItems = items
+items = {}
+KnoxBaseStorage = {
+    findItemType = function(owner, predicate)
+        assert(owner == base)
+        for _, value in ipairs(cupboardItems) do
+            if predicate(value) then return value:getFullType(), value end
+        end
+    end,
+    requirementsAvailable = function(owner, actor, required)
+        assert(owner == base and actor == character and required.itemRules["Base.Hammer"].usable)
+        local counts = {}
+        for _, value in ipairs(cupboardItems) do
+            local full = value:getFullType()
+            counts[full] = (counts[full] or 0) + 1
+        end
+        for full, count in pairs(required.items) do
+            if (counts[full] or 0) < count then return false end
+        end
+        return true
+    end,
+}
+assert(barricades.canPrepare(character, base), "stored materials enable barricade discovery")
+assert(barricades.findHammer(character, base) == cupboardItems[1])
+local previousAction = queuedAction
+assert(not barricades.queueAction(character, resolved) and queuedAction == previousAction,
+    "barricading cannot execute until real items are delivered")
+table.remove(cupboardItems)
+assert(not barricades.canPrepare(character, base), "one nail cannot satisfy the two-nail recipe")
+print("Cupboard barricades PASS discovery=true native_delivery_required=true material_counts=true")

@@ -1,3 +1,9 @@
+require "KS_ThreatClassifier"
+local function isCorpseProxy(character)
+    local threats = rawget(_G, "KnoxThreatClassifier")
+    return threats ~= nil and threats.isCorpseProxy(character) or false
+end
+
 require "KS_KnoxEvents"
 require "KS_SurvivorRuntime"
 require "KS_SurvivorNeeds"
@@ -269,7 +275,7 @@ local function secureAreaThreatCount(event)
     local count, radiusSquared = 0, 18 * 18
     for index = 0, zombies:size() - 1 do
         local zombie = zombies:get(index)
-        local square = zombie ~= nil and not zombie:isDead() and zombie:getCurrentSquare() or nil
+        local square = zombie ~= nil and not zombie:isDead() and not isCorpseProxy(zombie) and zombie:getCurrentSquare() or nil
         if square ~= nil and square:getZ() == target.z then
             local dx, dy = square:getX() - target.x, square:getY() - target.y
             if dx * dx + dy * dy <= radiusSquared then

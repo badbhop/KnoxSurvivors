@@ -79,15 +79,15 @@ end
 ISContextMenu = { get = menu, getNew = menu }
 local party = dofile(root .. "/mod/42/media/lua/client/KS_PartyCommands.lua")
 local partyMenu = party.openMenu(0, 0, 0, nil)
-local weapons = partyMenu.options["Weapon Preference"].child.options
+local weapons = partyMenu.options["Tactics & Behavior"].child.options["Weapon Preference"].child.options
 assert(weapons["Prefer Ranged"].checkMark and not weapons["Prefer Melee"].checkMark
     and not weapons["Survivor Choice"].checkMark, "party preference has exactly one native check")
 assert(service.setWeaponPreference({}, "a", "melee"))
 partyMenu = party.openMenu(0, 0, 0, nil)
-for _, option in pairs(partyMenu.options["Weapon Preference"].child.options) do
+for _, option in pairs(partyMenu.options["Tactics & Behavior"].child.options["Weapon Preference"].child.options) do
     assert(not option.checkMark, "mixed party preference has no misleading active check")
 end
-weapons = partyMenu.options["Weapon Preference"].child.options
+weapons = partyMenu.options["Tactics & Behavior"].child.options["Weapon Preference"].child.options
 local selected = weapons["Survivor Choice"]
 selected.callback(selected.target, unpack(selected.args))
 assert(KnoxPersistence.getSurvivorPolicies("a").weaponPreference == "auto"
@@ -95,7 +95,8 @@ assert(KnoxPersistence.getSurvivorPolicies("a").weaponPreference == "auto"
 local individual = dofile(root .. "/mod/42/media/lua/client/KS_SurvivorContextMenu.lua")
 local individualMenu = menu()
 assert(individual.populate(individualMenu, 0, "a"))
-weapons = individualMenu.options.Orders.child.options["Weapon Preference"].child.options
+weapons = individualMenu.options.Orders.child.options["Tactics & Behavior"].child
+    .options["Weapon Preference"].child.options
 assert(weapons["Survivor Choice"].checkMark and not weapons["Prefer Ranged"].checkMark)
 selected = weapons["Prefer Melee"]
 selected.callback(selected.target, unpack(selected.args))

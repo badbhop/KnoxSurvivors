@@ -709,3 +709,67 @@ local beforeReload = discoveries
 jobs.prepareWorkforce({id = quietBase.id, zones = {}, tasks = {}}, workerA, 100.28)
 assert(discoveries == beforeReload + 1, 'restored base object cannot inherit old runtime leases')
 print("Base jobs PASS automatic_guard=true recurring=true depot_sort=true priority=true discovery_bounded=true reconciliation_not_starved=true")
+
+-- Recurring discovery must refresh supplies together with the world target.
+getTimestampMs = nil
+KnoxBaseFarming.findTask = function() return {
+    id = "seed-test", action = "farm_seed", seedItemType = "Base.TomatoSeed",
+} end
+jobs.prepareWorkforce(base, nil, 200)
+assert(farmTask.requirements.items["Base.TomatoSeed"] == 1
+    and farmTask.requirements.items["Base.CarrotSeed"] == nil,
+    "queued planting must use the currently discovered seed")
+farmTask.state, farmTask.claimedBy = "claimed", "worker-a"
+KnoxBaseFarming.findTask = function() return {
+    id = "seed-test", action = "farm_seed", seedItemType = "Base.CabbageSeed",
+} end
+jobs.prepareWorkforce(base, nil, 201)
+assert(farmTask.requirements.items["Base.TomatoSeed"] == 1,
+    "another worker cannot change an active claim's supplies")
+farmTask.state, farmTask.claimedBy = "complete", nil
+farmTask.retryAtHours = 201
+jobs.prepareWorkforce(base, nil, 202)
+assert(farmTask.requirements.items["Base.CabbageSeed"] == 1
+    and farmTask.target.seedItemType == "Base.CabbageSeed",
+    "reopened planting refreshes target and supply list together")
+KnoxBaseWoodcutting.findTask = function() return {
+    id = "wood-test", action = "chop_tree", axeType = "Base.Axe",
+} end
+jobs.prepareWorkforce(base, nil, 203)
+local woodTask
+for _, task in pairs(base.tasks) do
+    if task.target.id == "wood-test" then woodTask = task end
+end
+assert(woodTask ~= nil)
+woodTask.state, woodTask.retryAtHours = "complete", 203
+KnoxBaseWoodcutting.findTask = function() return {
+    id = "wood-test", action = "chop_tree", axeType = "Base.HandAxe",
+} end
+jobs.prepareWorkforce(base, nil, 204)
+assert(woodTask.requirements.items["Base.HandAxe"] == 1
+    and woodTask.requirements.items["Base.Axe"] == nil,
+    "reopened woodwork does not send workers after a stale tool")
+print("Recurring task supplies PASS")
+
+local outdoorBase = { zones = {
+    forest = { x1 = 35, y1 = 45, x2 = 30, y2 = 40, z = 1, enabled = true },
+} }
+assert(jobs.containsWorkSquare(outdoorBase, square(33, 42, 1)), "reversed external bounds support work")
+assert(not jobs.containsWorkSquare(outdoorBase, square(33, 42, 0)), "work areas respect floors")
+assert(not jobs.containsWorkSquare(outdoorBase, square(90, 90, 1)), "areas do not authorize roaming")
+outdoorBase.zones.forest.enabled = false
+assert(not jobs.containsWorkSquare(outdoorBase, square(33, 42, 1)), "disabled area cannot retain outdoor workers")
+
+assert(woodTask.requirements.itemRules["Base.HandAxe"].usable == true
+    and woodTask.requirements.itemRules["Base.Axe"] == nil,
+    "recurring work replaces usable-tool rules together with the selected tool")
+KnoxBaseFarming.findTask = function() return {
+    id = "water-test", action = "farm_water", waterItemType = "Base.WaterBottle",
+} end
+jobs.prepareWorkforce(base, nil, 205)
+local wateringTask
+for _, task in pairs(base.tasks) do
+    if task.target.id == "water-test" then wateringTask = task end
+end
+assert(wateringTask and wateringTask.requirements.itemRules["Base.WaterBottle"].water,
+    "discovered crop watering requires a nonempty water container")

@@ -73,6 +73,11 @@ assert(not Controller.shouldDelegateNeedToGroup("find_water", 65)
     and not Controller.shouldDelegateNeedToGroup("find_weapon", 4),
     "distant and nonessential goals remain individually owned")
 
+for _,context in ipairs({"urgent","directed","return_home","travel","local"}) do
+    assert(Controller.travelPaceFor(900,false,context)=="cautious", "routine routes default to a cautious pace")
+end
+local originalPaceSettings=KnoxSettings
+KnoxSettings={cautiousTravel=function() return false end}
 assert(Controller.travelPaceFor(49, false, "urgent") == "walk",
     "short urgent movement remains a walk")
 assert(Controller.travelPaceFor(64, false, "urgent") == "run",
@@ -87,6 +92,7 @@ assert(Controller.travelPaceFor(900, true, "travel") == "walk",
     "indoor movement stays walking")
 assert(Controller.travelPaceFor(900, false, "local") == "walk",
     "local work never runs merely because its route is long")
+KnoxSettings=originalPaceSettings
 
 assert(Controller.isEntryTraversalFailure("Transition:FAILED_LOCKED_DOOR"),
     "locked door enters alternate-entry recovery")
@@ -128,6 +134,7 @@ cell.getZombieList = function()
 end
 local health = 100
 local threatCharacter = {
+    CanSee = function() return true end,
     getCurrentSquare = function() return square(0, 0, 0) end,
     getHealth = function() return health end,
     getStats = function()
@@ -383,6 +390,11 @@ assert(companion:beginCompanionFollow(10), "far companion starts catch-up")
 assert(captured["companion:pace"] == "sprint",
     "far companion requests sprint catch-up")
 local movesAfterStart = moveCount
+leader.isSneaking=function() return true end
+assert(not companion:refreshFormationFollow(40) and captured["companion:pace"]=="sneak"
+    and moveCount==movesAfterStart, "actual leader crouching changes pace without replacing the route")
+leader.isSneaking=function() return false end
+companion.nextFormationRefresh=30
 assert(not companion:refreshFormationFollow(20) and moveCount == movesAfterStart,
     "follow refresh does nothing before its cadence expires")
 
@@ -531,3 +543,81 @@ assert(clearedActions and droppedCorpse,
     "interruption should clear actions and release a dragged corpse")
 
 print("Autonomy formation PASS release=true slots=true refresh=true corpse_interrupt=true flee_policy=true")
+
+-- Ambient movement must not constantly replace work or funnel residents
+-- downstairs. Occupied tiles and outdoor nighttime targets are rejected.
+local occupied, indoors, hour = false, false, 12
+local current = square(5, 5, 1)
+local candidate = square(10, 20, 1)
+candidate.getMovingObjects = function()
+    return { size = function() return occupied and 1 or 0 end }
+end
+candidate.getRoom = function() return indoors and {} or nil end
+getGameTime = function() return { getTimeOfDay = function() return hour end } end
+local requestedZ
+local randomBounds = {}
+ZombRand = function(bound) randomBounds[#randomBounds + 1] = bound; return 0 end
+cell.getGridSquare = function(_, x, y, z) requestedZ = z; return candidate end
+local ambient = setmetatable({
+    base = { home = { minX = 10, minY = 20, width = 3, height = 3, z = 0 },
+        territory = { minX = 9, minY = 19, maxX = 13, maxY = 23, allFloors = true } },
+    character = { getCurrentSquare = function() return current end },
+}, Controller)
+assert(ambient:findBaseMovementTarget(false) == candidate and requestedZ == 1,
+    "daytime ambient movement may use outdoors but stays on current floor")
+assert(randomBounds[1] == 5 and randomBounds[2] == 5,
+    "persisted min/max territory samples the whole yard, not one corner")
+occupied = true
+assert(ambient:findBaseMovementTarget(false) == nil, "avoid gathering on occupied tiles")
+occupied, hour = false, 22
+assert(ambient:findBaseMovementTarget(false) == nil, "nighttime idling stays indoors")
+indoors = true
+assert(ambient:findBaseMovementTarget(false) == candidate, "indoor night rest target allowed")
+ambient.nextAmbientMoveAt = 500
+assert(not ambient:beginBaseMovement(100, false) and ambient.state == "BASE_IDLE",
+    "ambient cooldown prevents repeated patrol starts")
+
+dofile(projectRoot .. "/mod/42/media/lua/client/KS_OrderSignals.lua")
+local originalSignalTimestamp = getTimestampMs
+getTimestampMs=function() return 0 end
+local signals, busy = 0, false
+local commander = setmetatable({ groupMembers = { {}, {} }, character = {
+    playEmote = function(_, name) assert(name == "followme"); signals = signals + 1 end,
+    getCharacterActions = function() return { isEmpty = function() return not busy end } end,
+}}, Controller)
+assert(commander:signalFollowers("followme", 100))
+assert(not commander:signalFollowers("followme", 101) and signals == 1, "signals are rate limited")
+busy = true
+assert(not commander:signalFollowers("followme", 1100), "signals do not interrupt native work")
+busy = false
+commander.groupLeader = {}
+assert(not commander:signalFollowers("followme", 1100), "followers do not issue leader signals")
+commander.groupLeader=nil
+local originalSignalSettings=KnoxSettings
+KnoxSettings={orderGesturesEnabled=function() return false end}
+assert(not commander:signalFollowers("followme", 2100), "NPC leaders respect the same gesture setting as players")
+KnoxSettings=originalSignalSettings
+getTimestampMs=originalSignalTimestamp
+print("Base movement and leader signal policy PASS")
+
+local onWorkArea, startCalls, starts, restoredClaim = true, 0, true, nil
+KnoxBaseJobs = { containsWorkSquare = function() return onWorkArea end }
+KnoxPersistence.getClaimedBaseTaskForSurvivor = function() return restoredClaim end
+local external = setmetatable({ baseId = "base-1", id = "worker", base = {},
+    character = { getCurrentSquare = function() return current end },
+    beginBaseTask = function() startCalls = startCalls + 1; return starts end,
+}, Controller)
+assert(external:resumeExternalBaseWork(100) and startCalls == 1, "outdoor work does not require a home detour")
+external.pendingBaseSupplyDeposit = {}
+assert(not external:resumeExternalBaseWork(100) and startCalls == 1, "deliveries return home first")
+external.pendingBaseSupplyDeposit, external.baseSupplyOrder = nil, {}
+assert(not external:resumeExternalBaseWork(100) and startCalls == 1, "explicit supply orders retain priority")
+external.baseSupplyOrder, onWorkArea = nil, false
+assert(not external:resumeExternalBaseWork(100), "without a claim or work area resident returns home")
+restoredClaim = { id = "saved-duty", state = "claimed" }
+assert(external:resumeExternalBaseWork(100), "restored duty resumes after danger even outside its zone")
+starts, external.nextThink = false, 200
+assert(external:resumeExternalBaseWork(100), "failed start retains bounded recovery")
+external.nextThink = 0
+assert(not external:resumeExternalBaseWork(100), "no available work returns home")
+print("External work continuation PASS")

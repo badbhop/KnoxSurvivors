@@ -104,6 +104,12 @@ local function drawPlayer(playerNum)
                     forEachSquare(area, function(sq) setSquareHighlighted(sq, true, col) end)
                 end
             end
+            for _, policy in ipairs(KnoxBaseStorage.policies(base)) do
+                local square = getCell() ~= nil and getCell():getGridSquare(policy.x, policy.y, policy.z) or nil
+                local food = policy.storageRole == "food"
+                setSquareHighlighted(square, true, food and {r=0.2,g=0.9,b=0.8,a=zoneAlpha}
+                    or {r=0.25,g=0.55,b=1,a=zoneAlpha})
+            end
         end
     end
 end

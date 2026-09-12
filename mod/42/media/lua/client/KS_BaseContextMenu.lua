@@ -73,10 +73,18 @@ function BaseContextMenu.setStorage(baseId, object, containerIndex, category)
         containerIndex
     )
     if policy ~= nil then
-        KnoxActivityFeed.event("Storage set to " .. tostring(category) .. ".")
+        KnoxActivityFeed.event("Food & drink storage ready. Residents can store food and collect meals here.")
+        if KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
     else
         KnoxActivityFeed.event("Could not set storage: " .. tostring(result) .. ".")
     end
+end
+
+function BaseContextMenu.removeStorage(baseId, key)
+    local success, reason = KnoxPersistence.removeBaseStoragePolicy(baseId, key)
+    KnoxActivityFeed.event(success and "Storage assignment removed. Contents stay here."
+        or ("Could not remove storage: " .. tostring(reason)))
+    if success and KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
 end
 
 function BaseContextMenu.selectTerritory(player, baseId)
@@ -132,13 +140,33 @@ local function addStorageMenu(parent, base, object)
                 targetMenu = ISContextMenu:getNew(objectMenu)
                 objectMenu:addSubMenu(containerOption, targetMenu)
             end
-            targetMenu:addOption("Use as Base Tool Cupboard (" .. tostring(KnoxSettings.toolCupboardCapacity()) .. ")",
+            local reference = KnoxBaseManager.containerReference(object, containerIndex, base.id)
+            local policy = reference ~= nil and base.storage ~= nil and base.storage[reference.key] or nil
+            if policy ~= nil and (policy.toolCupboard == true or policy.storageRole == "food") then
+                local status = targetMenu:addOption("Assigned: " .. KnoxBaseStorage.label(policy), nil, nil)
+                status.notAvailable = true
+            end
+            local mainOption = targetMenu:addOption("Use as Main Supplies (" .. tostring(KnoxSettings.toolCupboardCapacity()) .. ")",
                 base.id, function(baseId, selected, selectedIndex)
                     local cupboard, reason = KnoxToolCupboard.designate(KnoxBaseManager.get(baseId),
                         selected, selectedIndex, KnoxBaseManager)
                     KnoxActivityFeed.event(cupboard ~= nil and "Base tool cupboard ready. Residents store and take supplies here."
                         or ("Could not assign cupboard: " .. tostring(reason)))
+                    if cupboard ~= nil and KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
                 end, object, containerIndex)
+            mainOption.notAvailable = not KnoxToolCupboard.isDryContainerType(container:getType())
+            if policy == nil or policy.toolCupboard ~= true then
+                if policy ~= nil and policy.storageRole == "food" then
+                    targetMenu:addOption("Stop Using for Food & Drink", base.id,
+                        BaseContextMenu.removeStorage, policy.key)
+                else
+                    local foodOption = targetMenu:addOption("Use for Food & Drink", base.id,
+                        BaseContextMenu.setStorage, object, containerIndex, "food")
+                    local kind = string.lower(tostring(container:getType() or ""))
+                    foodOption.notAvailable = kind == "corpse" or kind:find("water", 1, true) ~= nil
+                        or kind:find("rain", 1, true) ~= nil
+                end
+            end
         end
     end
 end

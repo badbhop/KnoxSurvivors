@@ -1,5 +1,6 @@
 require "KS_Persistence"
 require "KS_ToolCupboard"
+require "KS_BaseSupplyPlanner"
 require "KS_SurvivorNeeds"
 require "KS_SurvivorInventoryActions"
 require "Util/AdjacentFreeTileFinder"
@@ -118,7 +119,8 @@ function Storage.resolvePolicy(policy)
                                 originalCapacity = container:getCapacity() }
                         end
                     end
-                    if KnoxToolCupboard ~= nil and KnoxToolCupboard.apply(object, container, policy.key) then
+                    if policy.toolCupboard == true and KnoxToolCupboard ~= nil
+                        and KnoxToolCupboard.apply(object, container, policy.key) then
                         policy.toolCupboard = true
                     end
                     return {
@@ -134,35 +136,71 @@ function Storage.resolvePolicy(policy)
     return nil, "storage_object_missing"
 end
 
+-- The main cupboard holds every supply type. Optional food stores are explicit
+-- player/AI assignments, not a revival of legacy sorting jobs or virtual stock.
 function Storage.policies(base)
-    local policies = {}
-    for _, policy in pairs(base ~= nil and base.storage or {}) do
-        if policy ~= nil and type(policy.key) == "string" then
-            policies[#policies + 1] = policy
+    if base == nil then return {} end
+    local candidates, foodStores = {}, {}
+    for _, policy in pairs(base.storage or {}) do
+        if type(policy) == "table" and type(policy.key) == "string" then
+            if policy.storageRole == "food" then
+                foodStores[#foodStores + 1] = policy
+            else
+                candidates[#candidates + 1] = policy
+            end
         end
     end
-    table.sort(policies, function(first, second)
-        if (first.depot == true) ~= (second.depot == true) then return first.depot == true end
-        return tostring(first.key) < tostring(second.key)
+    table.sort(candidates, function(a, b)
+        if (a.depot == true) ~= (b.depot == true) then return a.depot == true end
+        return a.key < b.key
     end)
-    if base == nil then return {} end
-    -- Legacy saves select one existing depot deterministically. Physical items
-    -- in former storage remain untouched; those containers become ordinary loot.
+    table.sort(foodStores, function(a, b) return a.key < b.key end)
     local key = base.toolCupboardKey
     if key == nil then
-        for _, candidate in ipairs(policies) do
-            local kind = string.lower(tostring(candidate.containerType or "container"))
-            if kind ~= "corpse" and not kind:find("fridge", 1, true)
-                and not kind:find("freezer", 1, true) and not kind:find("water", 1, true)
-                and not kind:find("rain", 1, true) then key = candidate.key; break end
+        for _, policy in ipairs(candidates) do
+            if KnoxToolCupboard.isDryContainerType(policy.containerType) then
+                key = policy.key
+                break
+            end
         end
     end
     local selected = key ~= nil and base.storage[key] or nil
-    if selected == nil then return {} end
-    base.toolCupboardKey = key
-    selected.category, selected.depot, selected.toolCupboard = "depot", true, true
-    base.storage = { [key] = selected }
-    return { selected }
+    local result, retained = {}, {}
+    if selected ~= nil and selected.storageRole ~= "food" then
+        base.toolCupboardKey = key
+        selected.category, selected.depot, selected.toolCupboard = "depot", true, true
+        selected.storageRole = "supplies"
+        result[#result + 1], retained[key] = selected, selected
+    end
+    for _, policy in ipairs(foodStores) do
+        policy.category, policy.depot, policy.toolCupboard = "food", false, false
+        result[#result + 1], retained[policy.key] = policy, policy
+    end
+    -- Leave legacy references alone if no usable assignment was found. Never
+    -- replace a missing named cupboard with an unrelated container.
+    if #result > 0 then base.storage = retained end
+    return result
+end
+
+function Storage.mainPolicy(base)
+    for _, policy in ipairs(Storage.policies(base)) do
+        if policy.toolCupboard == true then return policy end
+    end
+    return nil
+end
+
+function Storage.label(policy)
+    return policy ~= nil and policy.storageRole == "food" and "Food & Drink Storage" or "Main Supplies"
+end
+
+function Storage.acceptsDeposit(policy, item)
+    if policy == nil or item == nil then return false end
+    if policy.storageRole ~= "food" then return true end
+    -- Raw ingredients belong in the kitchen too; edibility is checked separately
+    -- when choosing a meal. Keep unsafe food out of the ready-to-eat stock count.
+    return safeBoolean(item, "IsFood") == true
+        or (item.getDisplayCategory ~= nil and item:getDisplayCategory() == "Food")
+        or KnoxSurvivorNeeds.isWaterItem(item, false)
 end
 
 local function hasPrefix(value, prefix)
@@ -264,8 +302,7 @@ function Storage.summarize(base)
                 local category = Storage.classifyItem(item)
                 local quantity = itemQuantity(item)
                 local policyCategory = tostring(policy.category or "general")
-                if policyCategory == "depot" or policyCategory == "general"
-                    or policyCategory == category then
+                if Storage.acceptsDeposit(policy, item) then
                     summary.totals[category] = (summary.totals[category] or 0) + quantity
                 else
                     summary.misplacedItems = summary.misplacedItems + quantity
@@ -299,10 +336,12 @@ local function findDeposit(base, character, item, trip, excluded, ticks, policyK
         local dx, dy = (tonumber(policy.x) or math.huge) - origin:getX(),
             (tonumber(policy.y) or math.huge) - origin:getY()
         local category = tostring(policy.category or "general")
-        if tonumber(policy.z) == origin:getZ() and dx * dx + dy * dy <= (trip and 128 * 128 or 2)
+        local floorDifference = math.abs((tonumber(policy.z) or math.huge) - origin:getZ())
+        if (floorDifference == 0 or (trip and floorDifference <= 2))
+            and dx * dx + dy * dy <= (trip and 128 * 128 or 2)
             and (policyKey == nil or policy.key == policyKey)
             and (excluded == nil or (excluded[policy.key] or 0) <= (ticks or 0))
-            and (category == "depot" or category == "general" or Storage.matchesCategory(item, category)) then
+            and Storage.acceptsDeposit(policy, item) then
             local resolved = Storage.resolvePolicy(policy)
             if resolved ~= nil and hasRoom(resolved.container, item, character)
                 and safeBoolean(resolved.container, "isItemAllowed", item) == true then
@@ -316,8 +355,7 @@ local function findDeposit(base, character, item, trip, excluded, ticks, policyK
                         and not approach:isSomethingTo(resolved.square)))
                 if clear then
                     resolved.approach = approach
-                    resolved.preference = policy.toolCupboard == true and -1
-                        or ((category == "depot" or category == "general") and 1 or 0)
+                    resolved.preference = policy.storageRole == "food" and 0 or 1
                     resolved.distance = dx * dx + dy * dy
                     candidates[#candidates + 1] = resolved
                 end
@@ -356,21 +394,10 @@ local function firstMatchingItem(container, category)
     return nil
 end
 
-local function inventoryItemCount(inventory, fullType)
-    if inventory == nil or inventory.getItemCount == nil then
-        return 0
-    end
-    local success, count = pcall(inventory.getItemCount, inventory, tostring(fullType), true)
-    return success and math.max(0, tonumber(count) or 0) or 0
-end
-
-local function policyCanSupply(policy, itemType)
-    local category = Storage.classifyItem({
-        getFullType = function() return itemType end,
-    })
-    local policyCategory = tostring(policy ~= nil and policy.category or "")
-    return policyCategory == "depot" or policyCategory == "general"
-        or policyCategory == category
+-- Withdrawal follows actual contents, including a misplaced tool in a fridge.
+-- Never fabricate an item from its type: native food/fluid methods need a real item.
+local function policyCanSupply(policy)
+    return policy ~= nil
 end
 
 -- Finds one real item needed by a claimed base task.  It deliberately searches
@@ -381,7 +408,7 @@ function Storage.findRequiredTransfer(base, character, requirements)
     local requiredItems = requirements ~= nil and requirements.items or {}
     for itemType, required in pairs(requiredItems) do
         local needed = math.max(0, math.floor(tonumber(required) or 0))
-        if needed > inventoryItemCount(inventory, itemType) then
+        if needed > KnoxBaseSupplyPlanner.inventoryCount(inventory, itemType, requirements) then
             for _, policy in ipairs(Storage.policies(base)) do
                 if policyCanSupply(policy, tostring(itemType)) then
                     local resolved = Storage.resolvePolicy(policy)
@@ -389,7 +416,8 @@ function Storage.findRequiredTransfer(base, character, requirements)
                         local items = resolved.container:getItems()
                         for index = 0, items:size() - 1 do
                             local item = items:get(index)
-                            if fullType(item) == tostring(itemType) then
+                            if fullType(item) == tostring(itemType)
+                                and KnoxBaseSupplyPlanner.matchesRequirement(item, requirements) then
                                 return {
                                     sourcePolicy = policy,
                                     source = resolved,
@@ -408,12 +436,32 @@ function Storage.findRequiredTransfer(base, character, requirements)
     return nil, "requirements_ready"
 end
 
+-- Discovery may inspect assigned, loaded storage to name a concrete requirement.
+-- The normal transfer action still owns moving the selected item to the resident.
+function Storage.findItemType(base, predicate)
+    if type(predicate) ~= "function" then return nil end
+    for _, policy in ipairs(Storage.policies(base)) do
+        local resolved = Storage.resolvePolicy(policy)
+        local items = resolved ~= nil and resolved.container:getItems() or nil
+        if items ~= nil then
+            for index = 0, items:size() - 1 do
+                local item = items:get(index)
+                local success, matches = pcall(predicate, item)
+                if success and matches == true then
+                    return fullType(item), item
+                end
+            end
+        end
+    end
+    return nil
+end
+
 function Storage.requirementsAvailable(base, character, requirements)
     local inventory = character ~= nil and character:getInventory() or nil
     local requiredItems = requirements ~= nil and requirements.items or {}
     for itemType, required in pairs(requiredItems) do
         local remaining = math.max(0, math.floor(tonumber(required) or 0))
-            - inventoryItemCount(inventory, itemType)
+            - KnoxBaseSupplyPlanner.inventoryCount(inventory, itemType, requirements)
         if remaining > 0 then
             for _, policy in ipairs(Storage.policies(base)) do
                 if policyCanSupply(policy, tostring(itemType)) then
@@ -422,7 +470,8 @@ function Storage.requirementsAvailable(base, character, requirements)
                         local items = resolved.container:getItems()
                         for index = 0, items:size() - 1 do
                             local item = items:get(index)
-                            if fullType(item) == tostring(itemType) then
+                            if fullType(item) == tostring(itemType)
+                                and KnoxBaseSupplyPlanner.matchesRequirement(item, requirements) then
                                 remaining = remaining - itemQuantity(item)
                                 if remaining <= 0 then break end
                             end

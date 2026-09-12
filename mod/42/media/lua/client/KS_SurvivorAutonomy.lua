@@ -63,6 +63,7 @@ local scenarioIds = {}
 local nextPopulationUpdate = 0
 local nextHibernationUpdate = 0
 local populationStatus = nil
+local bridgeMissingReported = false
 local update
 
 -- Reconcile settlement defaults after residents join or return.  The existing
@@ -938,7 +939,15 @@ update = function()
     ticks = ticks + 1
     local bridge = rawget(_G, "KnoxJavaBridge")
     local player = getSpecificPlayer(0)
-    if bridge == nil or player == nil or player:getCurrentSquare() == nil or getCell() == nil then
+    if bridge == nil then
+        if not bridgeMissingReported or ticks % STATUS_INTERVAL_TICKS == 0 then
+            print(TAG .. " BLOCKED bridge_unavailable; launch through the Knox Survivors launcher")
+            bridgeMissingReported = true
+        end
+        return
+    end
+    bridgeMissingReported = false
+    if player == nil or player:getCurrentSquare() == nil or getCell() == nil then
         return
     end
     if not populationReady then
@@ -1001,8 +1010,15 @@ update = function()
             end)
             if not success then
                 controller.counts.failures = controller.counts.failures + 1
-                controller.state = "STOPPED"
-                print(TAG .. " id=" .. id .. " ERROR controller_tick=" .. tostring(failure))
+                local released, releaseFailure = pcall(function()
+                    controller:abandonBaseTask("controller_error=" .. tostring(failure))
+                end)
+                controller.state = "IDLE"
+                controller.nextThink = ticks + STATUS_INTERVAL_TICKS
+                print(TAG .. " id=" .. id .. " ERROR controller_tick=" .. tostring(failure)
+                    .. " taskReleased=" .. tostring(released)
+                    .. " retryAt=" .. tostring(controller.nextThink)
+                    .. (released and "" or " releaseError=" .. tostring(releaseFailure)))
             end
         end
     end
@@ -1046,6 +1062,7 @@ local function onGameStart()
     nextPopulationUpdate = 1
     nextHibernationUpdate = 1
     populationStatus = nil
+    bridgeMissingReported = false
     local scenario = KnoxSettings.developerToolsEnabled()
         and KnoxSettings.developerScenario()
         or "none"
@@ -1095,7 +1112,9 @@ function Autonomy.spawnDeveloperScenario(player, scenario)
     if not KnoxSettings.developerToolsEnabled() then
         return false, "developer_tools_disabled"
     end
-    local counts = { single = 1, companion = 1, group = 2, faction = 3, faction_base = 3 }
+    local factionMinimum = KnoxSettings.npcFactionMinimumMembers ~= nil
+        and KnoxSettings.npcFactionMinimumMembers() or 3
+    local counts = { single = 1, companion = 1, group = 2, faction = factionMinimum, faction_base = factionMinimum }
     local count = counts[scenario]
     local bridge = rawget(_G, "KnoxJavaBridge")
     if player == nil or bridge == nil or count == nil then

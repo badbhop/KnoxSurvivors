@@ -2,6 +2,13 @@ require "KS_Settings"
 local Cupboard = {}
 KnoxToolCupboard = Cupboard
 
+function Cupboard.isDryContainerType(containerType)
+    local kind = string.lower(tostring(containerType or "container"))
+    return kind ~= "corpse" and not kind:find("fridge", 1, true)
+        and not kind:find("freezer", 1, true) and not kind:find("water", 1, true)
+        and not kind:find("rain", 1, true)
+end
+
 function Cupboard.apply(object, container, key)
     local data = object ~= nil and object.getModData ~= nil and object:getModData() or nil
     local marker = data ~= nil and data.KnoxToolCupboard or nil
@@ -19,9 +26,7 @@ function Cupboard.designate(base, object, containerIndex, manager)
     local container = object:getContainerByIndex(containerIndex or 0)
     if container == nil or container.setCapacity == nil then return nil, "not_a_container" end
     local kind = string.lower(tostring(container:getType() or ""))
-    if kind == "corpse" or string.find(kind, "fridge", 1, true)
-        or string.find(kind, "freezer", 1, true) or string.find(kind, "water", 1, true)
-        or string.find(kind, "rain", 1, true) then return nil, "use_dry_storage" end
+    if not Cupboard.isDryContainerType(kind) then return nil, "use_dry_storage" end
     local reference = manager.containerReference(object, containerIndex, base.id)
     if reference == nil then return nil, "not_a_container" end
     local oldResolved, oldPolicy
@@ -61,8 +66,12 @@ function Cupboard.designate(base, object, containerIndex, manager)
         originalCapacity = type(previous) == "table" and previous.key == policy.key
             and previous.originalCapacity or container:getCapacity() }
     base.toolCupboardKey = policy.key
-    base.storage = { [policy.key] = policy }
-    policy.toolCupboard = true
+    local retained = { [policy.key] = policy }
+    for otherKey, other in pairs(base.storage or {}) do
+        if otherKey ~= policy.key and other.storageRole == "food" then retained[otherKey] = other end
+    end
+    base.storage = retained
+    policy.storageRole, policy.toolCupboard = "supplies", true
     Cupboard.apply(object, container, policy.key)
     if object.transmitModData ~= nil then object:transmitModData() end
     return policy, "cupboard_ready"

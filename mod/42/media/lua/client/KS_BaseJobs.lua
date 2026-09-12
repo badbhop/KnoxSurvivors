@@ -12,6 +12,7 @@ require "KS_BaseConstruction"
 require "KS_BaseNeeds"
 require "KS_BaseSupplyPlanner"
 require "KS_CompanionPatrol"
+require "KS_JobTestSupplies"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -37,6 +38,26 @@ BaseJobs.AUTOMATIC_TYPES = {
     repair = true,
     construct_defense = true,
 }
+
+-- Work areas are duty destinations, never ownership or safehouse boundaries.
+-- A resident already here may continue working instead of walking home between
+-- every tree/crop. Disabled areas and other floors grant no such permission.
+function BaseJobs.containsWorkSquare(base, square)
+    if base == nil or square == nil then return false end
+    local x, y, z = square:getX(), square:getY(), square:getZ()
+    for _, zone in pairs(base.zones or {}) do
+        if zone ~= nil and zone.enabled ~= false and z == (tonumber(zone.z) or 0) then
+            local x1, y1 = tonumber(zone.x1), tonumber(zone.y1)
+            local x2, y2 = tonumber(zone.x2), tonumber(zone.y2)
+            if x1 ~= nil and x2 ~= nil and y1 ~= nil and y2 ~= nil
+                and x >= math.min(x1, x2) and x <= math.max(x1, x2)
+                and y >= math.min(y1, y2) and y <= math.max(y1, y2) then
+                return true
+            end
+        end
+    end
+    return false
+end
 
 -- Shared security accounting for the scheduler and player-facing settlement
 -- views.  Keeping this beside task selection prevents migrated labels (for
@@ -344,34 +365,49 @@ end
 
 local function itemRequirements(...)
     local items = {}
+    local hasItems = false
     -- Kahlua does not expose Lua's select(). pairs also preserves arguments
     -- after an optional nil requirement, unlike ipairs or a length loop.
     for _, fullType in pairs({ ... }) do
         if type(fullType) == "string" and fullType ~= "" then
             items[fullType] = (items[fullType] or 0) + 1
+            hasItems = true
         end
     end
-    return next(items) ~= nil and { items = items } or {}
+    return hasItems and { items = items } or {}
 end
 
 
+local function requireUsableItem(requirements, fullType, rule)
+    if type(fullType) ~= "string" or fullType == "" then return end
+    requirements.itemRules = requirements.itemRules or {}
+    requirements.itemRules[fullType] = rule or { usable = true }
+end
+
 local function ensureBarricadeTask(base, now, character)
-    if character == nil or not KnoxBaseBarricades.canPrepare(character) then
+    if character == nil or not KnoxBaseBarricades.canPrepare(character, base) then
         return nil, "missing_barricade_materials"
     end
     local target = KnoxBaseBarricades.findTarget(base, character)
     if target == nil then
         return nil, "no_unbarricaded_window"
     end
+    local hammerType = KnoxBaseBarricades.findHammer(character, base):getFullType()
+    local requirements = itemRequirements(hammerType, "Base.Plank", "Base.Nails", "Base.Nails")
+    requireUsableItem(requirements, hammerType)
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
         existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then
+        if existing.state == "claimed" or existing.manual == true then
+            return existing, "existing"
+        end
+        if existing.state == "queued" then
+            existing.target, existing.requirements = target, requirements
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
         if reopened ~= nil then
-            reopened.target = target
+            reopened.target, reopened.requirements = target, requirements
             return reopened, "reopened"
         end
         return nil, "retry_not_ready"
@@ -380,12 +416,7 @@ local function ensureBarricadeTask(base, now, character)
         base.id,
         "barricade",
         target,
-        itemRequirements(
-            KnoxBaseBarricades.findHammer(character):getFullType(),
-            "Base.Plank",
-            "Base.Nails",
-            "Base.Nails"
-        ),
+        requirements,
         95
     )
     if task ~= nil then
@@ -402,15 +433,22 @@ local function ensureFarmingTask(base, now, character)
     if target == nil then
         return nil, "no_farming_action_ready"
     end
+    local requirements = itemRequirements(target.waterItemType, target.plowToolType, target.seedItemType)
+    requireUsableItem(requirements, target.plowToolType)
+    requireUsableItem(requirements, target.waterItemType, { water = true })
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
         existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then
+        if existing.state == "claimed" or existing.manual == true then
+            return existing, "existing"
+        end
+        if existing.state == "queued" then
+            existing.target, existing.requirements = target, requirements
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
         if reopened ~= nil then
-            reopened.target = target
+            reopened.target, reopened.requirements = target, requirements
             return reopened, "reopened"
         end
         return nil, "retry_not_ready"
@@ -419,11 +457,7 @@ local function ensureFarmingTask(base, now, character)
         base.id,
         target.action,
         target,
-        itemRequirements(
-            target.waterItemType,
-            target.plowToolType,
-            target.seedItemType
-        ),
+        requirements,
         target.action == "farm_harvest" and 100
             or target.action == "farm_seed" and 95
             or target.action == "farm_water" and 85
@@ -439,19 +473,26 @@ local function ensureFarmingTask(base, now, character)
 end
 
 local function ensureWoodcuttingTask(base, now, character)
-    local target = KnoxBaseWoodcutting.findTask(base, character)
+    local target, discovery = KnoxBaseWoodcutting.findTask(base, character)
     if target == nil then
-        return nil, "no_tree_ready"
+        return nil, discovery or "no_tree_ready"
     end
+    local requirements = itemRequirements(target.axeType, target.logType, target.sawType)
+    requireUsableItem(requirements, target.axeType)
+    requireUsableItem(requirements, target.sawType)
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
         existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then
+        if existing.state == "claimed" or existing.manual == true then
+            return existing, "existing"
+        end
+        if existing.state == "queued" then
+            existing.target, existing.requirements = target, requirements
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
         if reopened ~= nil then
-            reopened.target = target
+            reopened.target, reopened.requirements = target, requirements
             return reopened, "reopened"
         end
         return nil, "retry_not_ready"
@@ -460,11 +501,7 @@ local function ensureWoodcuttingTask(base, now, character)
         base.id,
         target.action,
         target,
-        itemRequirements(
-            target.axeType,
-            target.logType,
-            target.sawType
-        ),
+        requirements,
         target.action == "saw_logs" and 78 or 75
     )
     if task ~= nil then
@@ -477,9 +514,9 @@ local function ensureWoodcuttingTask(base, now, character)
 end
 
 local function ensureCorpseTask(base, now, character)
-    local target = KnoxBaseCorpseHandling.findTask(base, character)
+    local target, discovery = KnoxBaseCorpseHandling.findTask(base, character)
     if target == nil then
-        return nil, "no_corpse_ready"
+        return nil, discovery or "no_corpse_ready"
     end
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
@@ -583,7 +620,7 @@ end
 local function ensureConstructionTask(base, now, character)
     local target = KnoxBaseConstruction.findTask(base, character)
     if target == nil then return nil, "no_construction_ready" end
-    local requirements = KnoxBaseConstruction.requirements(target, character)
+    local requirements = KnoxBaseConstruction.requirements(target, character, base)
     if requirements == nil then return nil, "missing_construction_materials" end
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
@@ -879,6 +916,8 @@ end
 function BaseJobs.prepareWorkforce(base, character, now)
     if base == nil then return false end
     now = tonumber(now) or worldAge()
+    local jobTests = rawget(_G, "KnoxJobTestSupplies")
+    if jobTests ~= nil then jobTests.ensure(base, character) end
     local signature = workforceSignature(base)
     local cached = workforcePreparation[base]
     local recent = cached ~= nil and cached.signature == signature
@@ -976,13 +1015,14 @@ local function candidateSquare(cell, x, y, z, origin)
     return nil
 end
 
-local function searchAround(cell, x, y, z, origin)
+local function searchAround(cell, x, y, z, origin, area, avoidOrigin)
     for radius = 0, 6 do
         for dx = -radius, radius do
             for dy = -radius, radius do
                 if radius == 0 or math.max(math.abs(dx), math.abs(dy)) == radius then
                     local square = candidateSquare(cell, x + dx, y + dy, z, origin)
-                    if square ~= nil then
+                    if square ~= nil and (not avoidOrigin or square ~= origin)
+                        and (area == nil or KnoxCompanionPatrol.contains(area, square)) then
                         return square
                     end
                 end
@@ -1037,14 +1077,15 @@ function BaseJobs.resolveTaskSquare(task, character)
     local centerY = math.floor((y1 + y2) / 2)
     local origin = character ~= nil and character:getCurrentSquare() or nil
     if taskType == "patrol" or target.zoneType == "patrol" then
-        local point = KnoxCompanionPatrol.waypointForStep(
+        local point, count = KnoxCompanionPatrol.waypointForStep(
             target,
             task.id or task.claimedBy,
             task.patrolStep
         )
         if point ~= nil then
-            return searchAround(cell, point.x, point.y, point.z, origin)
+            return searchAround(cell, point.x, point.y, point.z, origin, target, count > 1)
         end
+        return nil
     end
     if taskType == "guard" or target.zoneType == "guard" then
         local point = KnoxCompanionPatrol.guardPost(
@@ -1052,8 +1093,9 @@ function BaseJobs.resolveTaskSquare(task, character)
             task.id or task.claimedBy
         )
         if point ~= nil then
-            return searchAround(cell, point.x, point.y, point.z, origin)
+            return searchAround(cell, point.x, point.y, point.z, origin, target)
         end
+        return nil
     end
     local candidates = {
         { centerX, centerY },

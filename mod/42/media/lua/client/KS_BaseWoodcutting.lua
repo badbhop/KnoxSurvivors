@@ -1,6 +1,6 @@
 require "TimedActions/ISChopTreeAction"
-require "TimedActions/ISCraftAction"
 require "TimedActions/ISTimedActionQueue"
+require "Entity/TimedActions/ISHandcraftAction"
 
 local Woodcutting = rawget(_G, "KnoxBaseWoodcutting") or {}
 _G.KnoxBaseWoodcutting = Woodcutting
@@ -76,6 +76,12 @@ local function logItem(character)
     return findItem(character, "Base.Log", nil)
 end
 
+local function storedItem(base, predicate)
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if storage == nil or storage.findItemType == nil then return nil end
+    return storage.findItemType(base, predicate)
+end
+
 local function craftContainers(character)
     if ArrayList == nil or character == nil or character.getInventory == nil then
         return nil
@@ -86,26 +92,21 @@ local function craftContainers(character)
 end
 
 local function sawRecipe()
-    if getScriptManager == nil then
-        return nil
-    end
-    local manager = getScriptManager()
-    return manager ~= nil and manager:getRecipe("Base.SawLogs") or nil
+    local manager = getScriptManager ~= nil and getScriptManager() or nil
+    return safeCall(manager, "getCraftRecipe", "Base.SawLogs")
 end
 
 local function canSaw(character, log, saw)
-    local recipe = sawRecipe()
-    local containers = craftContainers(character)
+    local recipe, containers = sawRecipe(), craftContainers(character)
     if recipe == nil or containers == nil or log == nil or saw == nil
-        or RecipeManager == nil or RecipeManager.IsRecipeValid == nil then
-        return nil, nil, "saw_recipe_unavailable"
-    end
-    local success, valid = pcall(function()
-        return RecipeManager.IsRecipeValid(recipe, character, log, containers)
+        or HandcraftLogic == nil then return nil, nil, "saw_recipe_unavailable" end
+    local ok, valid = pcall(function()
+        local logic = HandcraftLogic.new(character, nil, nil)
+        logic:setContainers(containers)
+        logic:setRecipe(recipe)
+        return logic:canPerformCurrentRecipe()
     end)
-    if not success or valid ~= true then
-        return nil, nil, "saw_recipe_not_valid"
-    end
+    if not ok or not valid then return nil, nil, "saw_recipe_not_valid" end
     return recipe, containers, "ready"
 end
 
@@ -189,29 +190,42 @@ function Woodcutting.findTask(base, character)
     if base == nil or cell == nil then
         return nil, "base_or_cell_unavailable"
     end
-    local log = logItem(character)
-    local saw = sawItem(character)
-    local recipe, containers = canSaw(character, log, saw)
-    local sawZones = orderedZones(base, "saw")
-    if recipe ~= nil and #sawZones > 0 then
-        local zone = sawZones[1]
-        local minX, minY, maxX, maxY, z = zoneBounds(zone)
-        local logId = log.getID ~= nil and log:getID() or log:getFullType()
-        return {
-            id = "sawlogs:" .. tostring(base.id) .. ":" .. tostring(logId),
-            auto = true,
-            zoneType = "saw_logs",
-            zoneId = zone.id,
-            action = "saw_logs",
-            x = math.floor((minX + maxX) / 2),
-            y = math.floor((minY + maxY) / 2),
-            z = z,
-            logType = "Base.Log",
-            sawType = saw:getFullType(),
-        }, "saw_logs"
+    local log, saw = logItem(character), sawItem(character)
+    local logType = log ~= nil and log:getFullType() or storedItem(base, function(item)
+        return safeCall(item, "getFullType") == "Base.Log"
+    end)
+    local sawType = saw ~= nil and saw:getFullType() or storedItem(base, function(item)
+        return ItemTag ~= nil and ItemTag.SAW ~= nil
+            and safeCall(item, "hasTag", ItemTag.SAW) == true
+            and safeCall(item, "isBroken") ~= true
+    end)
+    if logType ~= nil and sawType ~= nil and sawRecipe() ~= nil then
+        for _, zone in ipairs(orderedZones(base, "saw")) do
+            local minX, minY, maxX, maxY, z = zoneBounds(zone)
+            -- A blocked corner does not invalidate the whole work area.
+            -- Bound discovery just as tree scanning is bounded below.
+            for x = minX, math.min(maxX, minX + 96) do
+                for y = minY, math.min(maxY, minY + 96) do
+                    local square = cell:getGridSquare(x, y, z)
+                    if square ~= nil and safeCall(square, "canStand") == true then
+                        return { id = "saw:" .. tostring(base.id) .. ":" .. tostring(zone.id),
+                            action = "saw_logs", zoneType = "saw_logs", zoneId = zone.id, auto = true,
+                            x = x, y = y, z = z, logType = logType, sawType = sawType }, "found"
+                    end
+                end
+            end
+        end
     end
     if axe == nil then
-        return nil, "missing_axe"
+        local axeType = storedItem(base, function(item)
+            return item ~= nil and item.hasTag ~= nil and ItemTag ~= nil
+                and ItemTag.CHOP_TREE ~= nil
+                and safeCall(item, "hasTag", ItemTag.CHOP_TREE) == true
+                and safeCall(item, "isBroken") ~= true
+        end)
+        if axeType ~= nil then
+            axe = { getFullType = function() return axeType end }
+        end
     end
     for _, zone in ipairs(orderedZones(base, "chop")) do
         local minX, minY, maxX, maxY, z = zoneBounds(zone)
@@ -227,7 +241,7 @@ function Woodcutting.findTask(base, character)
             end
         end
     end
-    return nil, "no_tree_ready"
+    return nil, axe == nil and "missing_axe" or "no_tree_ready"
 end
 
 function Woodcutting.resolveTarget(base, target, character)
@@ -249,6 +263,7 @@ function Woodcutting.resolveTarget(base, target, character)
         end
         return {
             log = log,
+            character = character,
             saw = saw,
             recipe = recipe,
             containers = containers,
@@ -267,18 +282,14 @@ function Woodcutting.resolveTarget(base, target, character)
 end
 
 function Woodcutting.queueAction(character, target)
-    if character ~= nil and target ~= nil and target.recipe ~= nil then
-        character:setPrimaryHandItem(target.saw)
-        local container = target.log:getContainer() or character:getInventory()
-        local action = ISCraftAction:new(
-            character,
-            target.log,
-            target.recipe,
-            container,
-            target.containers
-        )
+    if target ~= nil and target.recipe ~= nil then
+        local recipe, containers, reason = canSaw(character, target.log, target.saw)
+        if recipe == nil then return nil, reason end
+        local action = ISHandcraftAction:new(character, recipe, containers,
+            nil, nil, nil, nil, nil, 1)
+        target.action = action
         ISTimedActionQueue.add(action)
-        return action, "queued"
+        return action, "queued_saw"
     end
     if character == nil or target == nil or target.tree == nil or target.axe == nil then
         return nil, "missing_tree_or_axe"
@@ -291,7 +302,25 @@ end
 
 function Woodcutting.isComplete(target)
     if target ~= nil and target.recipe ~= nil then
-        return target.log == nil or target.log:getContainer() == nil
+        -- Native craft completion must consume the real log. An empty queue
+        -- alone is never evidence that a plank was produced.
+        local stillCarried = false
+        walkItems(target.character:getInventory(), function(item)
+            if item == target.log then stillCarried = true end
+        end)
+        if stillCarried or target.action == nil
+            or target.action.craftStarted ~= true or ArrayList == nil then return false end
+        local outputs = ArrayList.new()
+        local logic = target.action.logic
+        if logic == nil or logic.getCreatedOutputItems == nil then return false end
+        local ok = pcall(logic.getCreatedOutputItems, logic, outputs)
+        if not ok then return false end
+        for index = 0, outputs:size() - 1 do
+            if safeCall(outputs:get(index), "getFullType") == "Base.Plank" then
+                return true
+            end
+        end
+        return false
     end
     if target == nil or target.tree == nil then
         return false

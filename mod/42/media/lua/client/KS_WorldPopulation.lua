@@ -1,6 +1,7 @@
 require "SpawnRegions"
 require "KS_Persistence"
 require "KS_Settings"
+require "KS_GroupCohesion"
 
 local WorldPopulation = rawget(_G, "KnoxWorldPopulation") or {}
 _G.KnoxWorldPopulation = WorldPopulation
@@ -511,6 +512,7 @@ function WorldPopulation.advanceOriginTravel(id, hours)
             travelSequence = leaderState.travelSequence,
         }
         local oldX, oldY = shared.virtualX, shared.virtualY
+        local socialBefore=KnoxGroupCohesion.snapshot(members)
         local advanced, result = WorldPopulation.advanceItinerary(
             group.id,
             shared,
@@ -533,6 +535,7 @@ function WorldPopulation.advanceOriginTravel(id, hours)
                 and "group_travel" or "group_waiting"
             KnoxPersistence.setUnloadedSurvivalState(member.id, memberState)
         end
+        KnoxGroupCohesion.record(group,socialBefore,members,now)
         return true, "origin_group_advanced"
     end
     local advanced, result = WorldPopulation.advanceItinerary(id, state, tonumber(state.lastHours) or now, now)
@@ -701,13 +704,21 @@ local function formInitialGroups(startingIds, worldAgeHours, state)
             tostring(worldAgeHours) .. ":cohort:" .. tostring(groupIndex)
         ) % 100
         if roll < chance then
-            local requested = groupIndex == 1 and (#available >= 3 and 3 or 2) or 2
+            -- The first cohort can reach the advertised configurable group
+            -- size. The former hard cap of three made the default four-member
+            -- faction threshold unreachable for every opening group.
+            local requested = groupIndex == 1 and math.min(maxSize, math.max(2, math.floor(#available/2)))
+                or 2 + stableHash(tostring(worldAgeHours)..":cohort-size:"..groupIndex) % math.max(1,maxSize-1)
             requestedSizes[#requestedSizes + 1] = math.min(maxSize, requested)
         end
     end
     local created = 0
     for _, size in ipairs(requestedSizes) do
         local members = compactGroup(available, size)
+        while members==nil and size>2 do
+            size=size-1
+            members=compactGroup(available,size)
+        end
         if members ~= nil then
             local group = KnoxPersistence.createTravelGroup(members, worldAgeHours)
             if group ~= nil then

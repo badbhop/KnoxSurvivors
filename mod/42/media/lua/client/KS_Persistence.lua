@@ -1577,8 +1577,10 @@ local function derivedAwayReturnDestination(memberIds)
         or tonumber(area.minY) == nil then
         return nil
     end
-    local width = math.max(1, math.floor(tonumber(area.width) or 1))
-    local height = math.max(1, math.floor(tonumber(area.height) or 1))
+    local width = math.max(1, math.floor(tonumber(area.maxX) ~= nil
+        and tonumber(area.maxX) - tonumber(area.minX) + 1 or tonumber(area.width) or 1))
+    local height = math.max(1, math.floor(tonumber(area.maxY) ~= nil
+        and tonumber(area.maxY) - tonumber(area.minY) + 1 or tonumber(area.height) or 1))
     return {
         x = math.floor(tonumber(area.minX)) + math.floor((width - 1) / 2),
         y = math.floor(tonumber(area.minY)) + math.floor((height - 1) / 2),
@@ -3702,32 +3704,36 @@ function KnoxPersistence.addTravelGroupMember(groupId, survivorId)
     return group
 end
 
-function KnoxPersistence.evaluateTravelGroupFaction(groupId, worldAgeHours, minimumMembers)
+-- Read-only readiness is shared by simulation and developer diagnostics.
+function KnoxPersistence.getFactionReadiness(groupId, minimumMembers)
     local group = type(groupId) == "string" and root().travelGroups[groupId] or nil
     local required = math.max(3, math.floor(tonumber(minimumMembers) or 3))
-    if group == nil or #group.memberIds < required then
-        return nil, "requires_" .. tostring(required) .. "_members"
-    end
-    if group.factionId ~= nil then
-        return root().factions[group.factionId], "already_faction"
-    end
-    local now = tonumber(worldAgeHours) or 0
-    local leaderId = group.leaderId
-    for _, memberId in ipairs(group.memberIds) do
-        if memberId ~= leaderId then
-            local relationship = KnoxPersistence.getRelationship(leaderId, memberId)
-            local sharedActivity = relationship ~= nil
-                and ((relationship.sharedRoam or 0)
-                    + (relationship.sharedLoot or 0)
-                    + (relationship.sharedCombat or 0))
-                or 0
-            if relationship == nil
-                or ((relationship.nearbyHours or 0) < 1 and sharedActivity < 1) then
-                return nil, "requires_shared_survival"
-            end
+    local status={groupId=groupId,required=required,members=group~=nil and #group.memberIds or 0,
+        sharedMembers=0,missingShared={}}
+    if group==nil then status.reason="group_unavailable";return status end
+    status.factionId=group.factionId
+    if group.factionId~=nil then status.reason="already_faction";return status end
+    for _,memberId in ipairs(group.memberIds) do
+        local ready=memberId==group.leaderId
+        if not ready then
+            local relationship=KnoxPersistence.getRelationship(group.leaderId,memberId)
+            local shared=relationship~=nil and ((relationship.sharedRoam or 0)
+                +(relationship.sharedLoot or 0)+(relationship.sharedCombat or 0)) or 0
+            ready=relationship~=nil and ((relationship.nearbyHours or 0)>=1 or shared>=1)
         end
+        if ready then status.sharedMembers=status.sharedMembers+1
+        else status.missingShared[#status.missingShared+1]=memberId end
     end
-    return KnoxPersistence.promoteTravelGroupToFaction(group.id, now, required)
+    status.reason=status.members<required and ("requires_"..required.."_members")
+        or (#status.missingShared>0 and "requires_shared_survival" or "ready")
+    return status
+end
+
+function KnoxPersistence.evaluateTravelGroupFaction(groupId, worldAgeHours, minimumMembers)
+    local status=KnoxPersistence.getFactionReadiness(groupId,minimumMembers)
+    if status.reason=="already_faction" then return root().factions[status.factionId],"already_faction" end
+    if status.reason~="ready" then return nil,status.reason end
+    return KnoxPersistence.promoteTravelGroupToFaction(groupId,tonumber(worldAgeHours) or 0,status.required)
 end
 
 function KnoxPersistence.promoteTravelGroupToFaction(groupId, worldAgeHours, minimumMembers)
@@ -4382,6 +4388,7 @@ function KnoxPersistence.relocateBase(baseId, home, territoryBounds, worldAgeHou
     base.territory = territory
     base.zones = {}
     base.storage = {}
+    base.toolCupboardKey = nil
     base.tasks = {}
     base.relocatedAtHours = tonumber(worldAgeHours) or 0
     return base, "relocated"
@@ -4419,16 +4426,20 @@ function KnoxPersistence.removeBaseZone(baseId, zoneId)
     if base == nil or base.zones[zoneId] == nil then
         return false, "unknown_zone"
     end
-    -- Never delete a target below a resident who is already on the way or
-    -- working. The owner can retry after that task safely finishes/blocks.
+    -- Finite native work must reach a safe boundary before its area is deleted.
+    -- Guard/patrol duties are indefinite; removing their area explicitly releases them.
     for _, task in pairs(base.tasks or {}) do
-        if task ~= nil and task.target ~= nil and task.target.autoZoneId == zoneId
-            and task.state == "claimed" then
+        if task ~= nil and task.target ~= nil
+            and (task.target.autoZoneId == zoneId or task.target.zoneId == zoneId)
+            and task.state == "claimed" and task.type ~= "guard" and task.type ~= "patrol" then
             return false, "zone_has_active_task"
         end
     end
     for taskId, task in pairs(base.tasks or {}) do
-        if task ~= nil and task.target ~= nil and task.target.autoZoneId == zoneId then
+        if task ~= nil and task.target ~= nil
+            and (task.target.autoZoneId == zoneId or task.target.zoneId == zoneId) then
+            -- Loaded controllers may still hold this exact task table.
+            task.state, task.claimedBy, task.reason = "cancelled", nil, "work_area_removed"
             base.tasks[taskId] = nil
         end
     end
@@ -4441,8 +4452,9 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
     if base == nil or type(reference) ~= "table" or type(reference.key) ~= "string" then
         return nil, "invalid_container"
     end
-    if tostring(category or "") ~= "depot" or depot ~= true then
-        return nil, "central_cupboard_only"
+    if category ~= "depot" and category ~= "food" then return nil, "unknown_storage_category" end
+    if category == "food" and base.toolCupboardKey == reference.key then
+        return nil, "choose_another_food_container"
     end
     local policy = {
         key = reference.key,
@@ -4452,12 +4464,20 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
         objectIndex = tonumber(reference.objectIndex),
         containerIndex = tonumber(reference.containerIndex) or 0,
         containerType = tostring(reference.containerType or "container"),
-        category = "depot",
-        depot = true,
-        toolCupboard = base.toolCupboardKey == reference.key,
+        category = category,
+        depot = category == "depot",
+        storageRole = category == "food" and "food" or "supplies",
+        toolCupboard = category == "depot",
     }
-    base.toolCupboardKey = reference.key
-    base.storage = { [policy.key] = policy }
+    local retained = {}
+    for key, existing in pairs(base.storage or {}) do
+        if existing.storageRole == "food" or (category == "food" and key == base.toolCupboardKey) then
+            retained[key] = existing
+        end
+    end
+    retained[policy.key] = policy
+    if category == "depot" then base.toolCupboardKey = reference.key end
+    base.storage = retained
     return policy, "saved"
 end
 

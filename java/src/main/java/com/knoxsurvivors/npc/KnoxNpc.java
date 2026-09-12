@@ -17,6 +17,7 @@ public final class KnoxNpc {
     private final List<float[]> movementRoute = new ArrayList<>();
     private int movementRouteIndex;
     private String movementPace = "normal";
+    final KnoxTravelAwareness travelAwareness = new KnoxTravelAwareness();
     private String movementTraversalState = "NONE";
     private final Set<String> movementTraversalEvidence = new LinkedHashSet<>();
     private final Map<String, Long> traversalCooldowns = new LinkedHashMap<>();
@@ -114,6 +115,8 @@ public final class KnoxNpc {
             || "run".equals(normalized)
             || "sprint".equals(normalized)
             || "catchup".equals(normalized)
+            || "cautious".equals(normalized)
+            || "sneak".equals(normalized)
             ? normalized
             : "normal";
     }

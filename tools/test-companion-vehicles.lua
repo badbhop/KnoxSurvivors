@@ -30,8 +30,8 @@ assert(service:find('No more seats.', 1, true),
     "full vehicles must give the player-facing wait message")
 
 local context = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorContextMenu.lua")
-assert(context:find('Enter My Vehicle', 1, true)
-    and context:find('Exit Vehicle', 1, true),
+assert(context:find('KnoxOrderCatalog.label("enter_vehicle")', 1, true)
+    and context:find('KnoxOrderCatalog.label("exit_vehicle")', 1, true),
     "companion Orders menu must expose vehicle commands")
 
 local party = read(rootPath .. "/mod/42/media/lua/client/KS_PartyCommands.lua")

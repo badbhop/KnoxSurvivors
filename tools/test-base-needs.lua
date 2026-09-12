@@ -118,6 +118,6 @@ local contextFile = assert(io.open(
 ))
 local contextText = contextFile:read("*a")
 contextFile:close()
-assert(string.find(contextText, 'local supply = ordersMenu:addOption("Supply Run"', 1, true),
+assert(string.find(contextText, 'local supply = ordersMenu:addOption("Survival Orders"', 1, true),
     "base residents need a visible supply-run menu")
 print("base needs tests passed")

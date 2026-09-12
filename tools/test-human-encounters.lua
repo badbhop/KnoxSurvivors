@@ -327,3 +327,28 @@ assert(activeBase.interrupts == 0 and idleFaction.interrupts == 0,
     "active base work is not pulled into social encounters")
 
 print("Human encounters PASS classify=true los=true floors=true cautious=true cooldown=true single_owner=true resume=true hostile_suppressed=true")
+
+-- A greeting cannot retain ownership after danger, treatment or a new order.
+for _, phase in ipairs({"APPROACHING", "GREETING"}) do
+    for _, interruptedState in ipairs({"FLEEING", "TIMED_ACTION", "BASE_TASK_MOVE", "PLAYER_CONVERSATION"}) do
+        Relationships.resetRuntime()
+        records, groupMap, affiliationMap, dutyMap = {}, {}, {}, {}
+        local pair = { [firstId] = controller(firstId, 0, 0), [secondId] = controller(secondId, 3, 0) }
+        Relationships.observe(pair, {firstId, secondId}, 0)
+        Relationships.coordinate(pair, {firstId, secondId}, 1)
+        if phase == "GREETING" then
+            pair[firstId].state = "MEETING_READY"
+            Relationships.coordinate(pair, {firstId, secondId}, 2)
+            assert(pair[firstId].state == "GREETING")
+        end
+        pair[firstId].state = interruptedState
+        Relationships.coordinate(pair, {firstId, secondId}, 250)
+        assert(pair[firstId].state == interruptedState and pair[firstId].resumes == 0,
+            "social completion must not replace " .. interruptedState .. " during " .. phase)
+        assert(pair[secondId].state == "IDLE" and pair[secondId].resumes == 1,
+            "the waiting partner is released immediately when the other survivor leaves")
+        Relationships.coordinate(pair, {firstId, secondId}, 251)
+        assert(pair[secondId].resumes == 1, "cancelled meeting cannot run its completion later")
+    end
+end
+print("Social interruption PASS escape=true treatment=true new_order=true partner_release=true")

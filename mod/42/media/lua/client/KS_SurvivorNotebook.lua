@@ -424,6 +424,16 @@ function WorkView:populate(playerNum)
         "Storage: " .. tostring(#(KnoxBaseStorage.policies(base) or {}))
         .. " assigned | " .. stockState, self.width-UI_BORDER_SPACING*2)
     local any=false
+    local mainPolicy = KnoxBaseStorage.mainPolicy(base)
+    if mainPolicy == nil then addRow(self.storageList,"setup","Set Main Supplies: right-click a crate/cupboard at home") end
+    for _, policy in ipairs(KnoxBaseStorage.policies(base)) do
+        local resolved = KnoxBaseStorage.resolvePolicy(policy)
+        local text = KnoxBaseStorage.label(policy) .. " (" .. tostring(policy.containerType) .. ") at "
+            .. tostring(policy.x) .. ", " .. tostring(policy.y) .. ", floor " .. tostring(policy.z)
+        if resolved == nil then text = text .. " — unavailable" end
+        addRow(self.storageList,policy.key,text)
+    end
+    addRow(self.storageList,"food-help","Optional: right-click a fridge or pantry > Use for Food & Drink")
     local reserveByCategory={}
     for _,reserve in ipairs(settlement~=nil and settlement.reserves or {}) do reserveByCategory[reserve.category]=reserve end
     for _,cat in ipairs(KnoxBaseStorage.RESOURCE_CATEGORIES) do

@@ -5,6 +5,24 @@ local entries = {}
 
 local ACTIVITY_BY_STATE = {
     COMBAT = "fighting",
+    FLEEING = "retreating",
+    BASE_AMBIENT_REST = "resting",
+    BASE_RECREATION = "reading",
+    BASE_TASK_MOVE = "working_at_base",
+    BASE_TASK_WORK = "working_at_base",
+    BASE_TASK_ACTION = "working_at_base",
+    BASE_TASK_PATROL_WAIT = "patrolling",
+    BASE_TASK_SUPPLY_MOVE = "collecting_job_supplies",
+    BASE_TASK_SUPPLY_TRANSFER = "collecting_job_supplies",
+    BASE_TASK_SUPPLY_WAIT = "waiting_for_materials",
+    COMPANION_GUARD = "guarding",
+    COMPANION_RELAX = "resting",
+    COMPANION_PATROL_WAIT = "patrolling",
+    MOVING_TO_COMPANION_PATROL = "patrolling",
+    MOVING_TO_COMPANION_POINT = "travelling",
+    INVENTORY_CLEANUP = "sorting_inventory",
+    MOVING_TO_DEPOSIT = "storing_supplies",
+    AWAY_RETURN = "returning_home",
     LOOTING = "looting",
     SEARCHING = "searching",
     MOVING_TO_SUPPLY = "seeking_supplies",
@@ -39,6 +57,7 @@ local ACTIVITY_BY_STATE = {
     STOPPED = "stopped",
     IDLE = "idle",
     TRADING = "trading",
+    PLAYER_CONVERSATION = "meeting",
 }
 
 local function validId(id)
@@ -120,12 +139,22 @@ function Runtime.snapshot(id)
     local vehicles = rawget(_G, "KnoxCompanionVehicles")
     local vehicleActivity = character ~= nil and vehicles ~= nil and vehicles.activity ~= nil
         and vehicles.activity(character) or nil
+    local task = controller ~= nil and controller.baseTask or nil
+    local dutyActivity
+    if task ~= nil and (state == "BASE_TASK_MOVE" or state == "BASE_TASK_WORK"
+        or state == "BASE_TASK_PATROL_WAIT") then
+        if task.type == "guard" then dutyActivity = "guarding"
+        elseif task.type == "patrol" then dutyActivity = "patrolling" end
+    end
     return {
         id = id,
         loaded = square ~= nil,
         state = state,
-        activity = vehicleActivity or ACTIVITY_BY_STATE[state] or "busy",
+        activity = vehicleActivity or dutyActivity
+            or (state == "BASE_RECREATION" and controller.activeDecision) or ACTIVITY_BY_STATE[state] or "busy",
         decision = controller ~= nil and controller.activeDecision or nil,
+        driving = character ~= nil and vehicles ~= nil and vehicles.driverStatus ~= nil
+            and vehicles.driverStatus(character) or nil,
         x = square ~= nil and square:getX() or nil,
         y = square ~= nil and square:getY() or nil,
         z = square ~= nil and square:getZ() or nil,
@@ -152,6 +181,19 @@ end
 
 -- Transient action lease only. Identity, orders and inventory stay in their
 -- existing owners; a replacement/detached controller cannot inherit this lease.
+function Runtime.beginPlayerConversation(id, player)
+    local entry = getEntry(id)
+    if entry == nil or entry.controller.beginPlayerConversation == nil then
+        return false, "survivor_unavailable"
+    end
+    return entry.controller:beginPlayerConversation(player)
+end
+
+function Runtime.endPlayerConversation(id, player)
+    local entry = getEntry(id)
+    return entry ~= nil and entry.controller:endPlayerConversation(player) or false
+end
+
 function Runtime.beginTrade(id, action)
     local entry = getEntry(id)
     return entry ~= nil and entry.controller:beginTrade(action) or false

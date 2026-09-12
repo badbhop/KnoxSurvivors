@@ -253,6 +253,34 @@ function Farming.findTask(base, character)
     local water, waterUses = wateringItem(character)
     local seed, seedType = seedItem(character)
     local plowTool = plowItem(character)
+    -- Discovery may use real cupboard supplies; execution still requires
+    -- the job supply planner to transfer them into the worker's inventory.
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if storage ~= nil and storage.findItemType ~= nil then
+        if seed == nil then
+            local _, storedSeed = storage.findItemType(base, function(item)
+                return itemUsable(item) and ItemTag ~= nil
+                    and itemHasTag(item, ItemTag.IS_SEED) and seedTypeForItem(item) ~= nil
+            end)
+            seed, seedType = storedSeed, seedTypeForItem(storedSeed)
+        end
+        if plowTool == nil then
+            local _, storedTool = storage.findItemType(base, function(item)
+                return itemUsable(item) and ItemTag ~= nil
+                    and itemHasTag(item, ItemTag.DIG_PLOW)
+            end)
+            plowTool = storedTool
+        end
+        if water == nil and ISFarmingMenu ~= nil then
+            local _, storedWater = storage.findItemType(base, function(item)
+                return (tonumber(ISFarmingMenu.getWaterUsesInteger(item)) or 0) > 0
+            end)
+            if storedWater ~= nil then
+                water = storedWater
+                waterUses = tonumber(ISFarmingMenu.getWaterUsesInteger(water)) or 0
+            end
+        end
+    end
     for _, zone in ipairs(orderedZones(base)) do
         local minX, minY, maxX, maxY, z = zoneBounds(zone)
         for x = minX, maxX do

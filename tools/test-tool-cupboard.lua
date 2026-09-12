@@ -26,6 +26,8 @@ assert(KnoxToolCupboard.apply(object, container, key) and capacity == 200 and #i
 assert(not KnoxToolCupboard.apply(object, container, "wrong-key"), "no capacity change on replacement containers")
 key = "home:container:2:1:0:0:0"
 assert(not KnoxToolCupboard.designate(base, object, 0, manager), "one cupboard per base")
+local foodPolicy = {key="pantry",storageRole="food",category="food"}
+base.storage.pantry = foodPolicy
 local oldKey = base.toolCupboardKey
 local oldData, oldCapacity = { KnoxToolCupboard = data.KnoxToolCupboard }, capacity
 local oldObject = { getModData = function() return oldData end }
@@ -46,6 +48,7 @@ manager.setStoragePolicy = savePolicy
 assert(KnoxToolCupboard.designate(base, object, 0, manager), "loaded cupboard can be reassigned")
 assert(oldCapacity == 40 and oldData.KnoxToolCupboard == nil and base.toolCupboardKey == key,
     "reassignment restores old capacity and transfers only designation")
+assert(base.storage.pantry == foodPolicy, "moving main supplies preserves food storage")
 key = "home:container:3:1:0:0:0"
 KnoxBaseStorage.resolvePolicy = function() return nil, "storage_object_missing" end
 assert(KnoxToolCupboard.designate(base, object, 0, manager), "destroyed cupboard can be replaced")
