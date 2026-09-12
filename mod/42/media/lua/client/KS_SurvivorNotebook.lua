@@ -58,6 +58,7 @@ local ZONE_TYPES = {
     { label = "Guard Post", kind = "guard" },
     { label = "Patrol Area", kind = "patrol" },
     { label = "Farming Area", kind = "farming" },
+    { label = "Cooking Area (Microwave)", kind = "cooking" },
     { label = "Woodcutting Area", kind = "woodcutting" },
     { label = "Log Processing Area", kind = "log_processing" },
     { label = "Corpse Drop Area", kind = "corpse" },
@@ -68,6 +69,7 @@ local ZONE_COLORS = {
     guard = { r=0.85, g=0.20, b=0.20 }, patrol = { r=0.85, g=0.55, b=0.15 },
     farming = { r=0.20, g=0.70, b=0.20 }, woodcutting = { r=0.55, g=0.35, b=0.15 },
     log_processing = { r=0.60, g=0.42, b=0.18 }, corpse = { r=0.55, g=0.55, b=0.55 },
+    cooking = { r=0.75, g=0.35, b=0.30 },
     animal_care = { r=0.85, g=0.70, b=0.10 }, repair = { r=0.20, g=0.50, b=0.85 },
     construction = { r=0.70, g=0.40, b=0.85 }, general = { r=0.52, g=0.52, b=0.75 },
 }

@@ -30,7 +30,7 @@ function Needs.priorityBonus(task, summary, residentCount)
         bonus = 24
     elseif taskType == "sort_depot" and (tonumber(summary ~= nil and summary.misplacedItems) or 0) > 0 then
         bonus = 18
-    elseif taskType == "farm_harvest" or taskType == "farm_seed" then
+    elseif taskType == "cook" or taskType == "farm_harvest" or taskType == "farm_seed" then
         if total(summary, "food") < people * 3 then bonus = 20 end
     elseif taskType == "farm_water" or taskType == "animal_water" then
         if total(summary, "water") < people * 2 then bonus = 16 end

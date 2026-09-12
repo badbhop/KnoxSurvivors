@@ -11,6 +11,9 @@ _G.KnoxSurvivorViewModel = ViewModel
 
 local ACTIVITY_LABELS = {
     reading = "Reading",
+    cooking_collect = "Collecting ingredients", cooking_load = "Preparing the microwave",
+    cooking_heat = "Cooking food", cooking_deposit = "Storing cooked meals",
+    cooking_move = "Working in the kitchen", cooking_transfer = "Moving kitchen supplies",
     collecting_book = "Collecting a book",
     returning_book = "Returning a book",
     fighting = "Fighting",

@@ -26,6 +26,7 @@ require "KS_BaseJobs"
 require "KS_BaseSupplyPlanner"
 require "KS_BaseStorage"
 require "KS_BaseRecreation"
+require "KS_BaseCooking"
 require "KS_OrderSignals"
 require "KS_BaseBarricades"
 require "KS_BaseFarming"
@@ -2696,6 +2697,7 @@ function Controller.shouldDelegateNeedToGroup(kind, leaderDistanceSquared)
 end
 
 function Controller:interruptForDirective()
+    self:releaseBaseCooking()
     local vehicles = rawget(_G, "KnoxCompanionVehicles")
     if vehicles ~= nil and vehicles.cancel ~= nil then vehicles.cancel(self.character) end
     self:cancelTrade("directive_changed")
@@ -2724,7 +2726,7 @@ function Controller:interruptForDirective()
         or self.state == "SLEEPING_RECOVERY"
         or self.state == "INVENTORY_CLEANUP"
         or self.state == "MOVING_TO_DEPOSIT"
-    if self.state == "PLAYER_CONVERSATION" or self.state == "BASE_RECREATION" then safe = true end
+    if self.state == "PLAYER_CONVERSATION" or self.state == "BASE_RECREATION" or self.state == "BASE_COOKING" then safe = true end
     if not safe then
         return false
     end
@@ -3880,6 +3882,7 @@ function Controller:beginBaseMovement(ticks, returning)
 end
 
 function Controller:finishBaseTask(succeeded, reason)
+    self:releaseBaseCooking()
     local task = self.baseTask
     if task == nil then
         return false
@@ -3922,6 +3925,7 @@ function Controller:finishBaseTask(succeeded, reason)
 end
 
 function Controller:abandonBaseTask(reason)
+    self:releaseBaseCooking()
     if self.baseTask == nil then
         return false
     end
@@ -3943,6 +3947,7 @@ end
 -- unloads or dies. Explicit cancellation, invalid targets, and real action
 -- failures continue through abandonBaseTask/finishBaseTask as before.
 function Controller:suspendBaseTaskForThreat(reason)
+    self:releaseBaseCooking()
     if self.baseTask == nil then return false end
     self:releaseSupply()
     self.baseTaskRetryAt = 0
@@ -4036,6 +4041,11 @@ end
 -- loaded base storage.  The actual move remains a normal inventory transfer;
 -- missing or streamed-out material blocks the task instead of inventing stock.
 function Controller:beginBaseTaskSupplyOrWork(ticks)
+    if self.baseTask ~= nil and self.baseTask.type == "cook" then
+        if self:beginBaseCooking(ticks,self.baseTask.target,false) then return true end
+        self:finishBaseTask(false,"cooking_start_unavailable")
+        return false
+    end
     local transfer, result = KnoxBaseStorage.findRequiredTransfer(
         self.base,
         self.character,
@@ -4959,6 +4969,69 @@ function Controller:startRecoveryPosture(ticks, useFurniture, ambient)
     )
 end
 
+function Controller:releaseBaseCooking()
+    local plan=self.pendingCooking
+    if plan==nil then return end
+    KnoxBaseCooking.cancel(plan,self.character)
+    if plan.phase=="move" then self.bridge:cancelNpcMove(self.id) end
+    self.pendingCooking=nil
+end
+
+function Controller:beginBaseCooking(ticks,target,personal)
+    if KnoxBaseCooking==nil or self.base==nil or self.pendingCooking~=nil
+        or ticks<(self.nextCookingAt or 0) or not self.character:getCharacterActions():isEmpty() then return false end
+    if personal then
+        if self:hasNeedEscort() or not KnoxBaseManager.containsSquare(self.base,self.character:getCurrentSquare())
+            or KnoxBaseCooking.hasReadyMeal(self.base) then return false end
+        target=KnoxBaseCooking.findTask(self.base,self.character)
+    end
+    if target==nil then self.nextCookingAt=ticks+1800;return false end
+    local plan,reason=KnoxBaseCooking.begin(self.base,target,self.character,self.id)
+    if plan==nil then
+        self.nextCookingAt=ticks+1800
+        self.lastFailure={reason=tostring(reason),ticks=ticks}
+        return false
+    end
+    plan.personal=personal==true
+    self.pendingCooking,self.cookingStartedAt=plan,ticks
+    self.state,self.activeDecision="BASE_COOKING","cooking_collect"
+    return true
+end
+
+function Controller:updateBaseCooking(ticks)
+    local plan=self.pendingCooking
+    if plan==nil then self:finishDecision(ticks);return end
+    if ticks>=(self.nextCookingNeedCheck or 0) then
+        self.nextCookingNeedCheck=ticks+90
+        local decision=KnoxSurvivorNeeds.decide(self.character,nil)
+        -- Cooking is a real response to missing meals. Do not interrupt it every
+        -- second because the same hunger still needs the food being prepared.
+        if decision~=nil and decision.kind~="roam" and decision.kind~="find_food" then
+            local mealReady=decision.kind=="eat" and self.character:getInventory():contains(plan.item)
+                and plan.item:isCooked() and KnoxSurvivorNeeds.isSafeFood(plan.item)
+                and not plan.object:getContainer():contains(plan.item)
+            if mealReady and not plan.personal then
+                self:finishBaseTask(true,"meal_prepared_for_resident")
+            else
+                self:suspendBaseTaskForThreat("cooking_needs_interrupt")
+            end
+            self:finishDecision(ticks)
+            return
+        end
+    end
+    local outcome,reason=KnoxBaseCooking.step(plan,self.character,self.base,self.bridge,ticks)
+    if ticks-(self.cookingStartedAt or ticks)>10800 then outcome,reason="failed","cooking_session_timeout" end
+    self.activeDecision="cooking_"..tostring(plan.phase)
+    if outcome~="working" then
+        local personal=plan.personal
+        self:releaseBaseCooking()
+        if not personal then self:finishBaseTask(outcome=="done",reason) end
+        self.nextCookingAt=ticks+(outcome=="done" and 0 or 1800)
+        if outcome=="failed" then self.lastFailure={reason=tostring(reason),ticks=ticks} end
+        self:finishDecision(ticks)
+    end
+end
+
 function Controller:releaseBaseRecreation()
     local plan=self.pendingRecreation
     if plan==nil then return end
@@ -5115,6 +5188,7 @@ function Controller:beginRecovery(decision, ticks)
 end
 
 function Controller:finishDecision(ticks)
+    self:releaseBaseCooking()
     self:releaseBaseRecreation()
     self:releaseGroupSupport()
     self.pendingCleanup = nil
@@ -6102,6 +6176,7 @@ function Controller:think(ticks)
         end
         return
     end
+    if decision.kind == "find_food" and self:beginBaseCooking(ticks,nil,true) then return end
     if decision.kind == "find_food" or decision.kind == "find_water"
         or decision.kind == "find_medical" then
         self:sayNeedIfGrouped(decision.kind, ticks)
@@ -6801,6 +6876,11 @@ function Controller:tick(ticks)
             )
             self:finishDecision(ticks)
         end
+        return
+    end
+
+    if self.state == "BASE_COOKING" then
+        self:updateBaseCooking(ticks)
         return
     end
 

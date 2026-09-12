@@ -74,9 +74,9 @@ assert(not KnoxOrderCatalog.isDirective("follow"))
 assert(KnoxOrderCatalog.isPrimaryOrder("follow"))
 assert(not KnoxOrderCatalog.isPrimaryOrder("loot_area"))
 assert(KnoxOrderCatalog.isBasePreference("farming"))
-assert(#KnoxOrderCatalog.basePreferenceOrder == 9
+assert(#KnoxOrderCatalog.basePreferenceOrder == 10
     and KnoxOrderCatalog.basePreferenceOrder[1] == "auto"
-    and KnoxOrderCatalog.basePreferenceOrder[9] == "rest",
+    and KnoxOrderCatalog.basePreferenceOrder[10] == "rest",
     "base preference menu order must remain canonical")
 assert(KnoxOrderCatalog.isKnown("find_food"))
 assert(not KnoxOrderCatalog.isKnown("not_a_knox_order"))
@@ -120,3 +120,7 @@ local unknown, unknownResult = KnoxOrderCatalog.resolve("not_a_knox_order")
 assert(unknown == nil and unknownResult == "unknown_order",
     "unknown orders must fail closed at the catalogue boundary")
 print("Order catalogue PASS labels=true routing=true preferences=true unknown-safe=true")
+
+assert(KnoxOrderCatalog.preferenceMatchesTask("cooking","cook"))
+assert(KnoxOrderCatalog.preferenceForTask("cook")=="cooking")
+assert(KnoxOrderCatalog.normalize("Cook Food (Microwave)")=="cook")

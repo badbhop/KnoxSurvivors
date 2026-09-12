@@ -74,6 +74,7 @@ Catalog.tasks = {
     animal_care = { label = "Care for Animals" }, animal_water = { label = "Water Animals" },
     animal_feed = { label = "Feed Animals" }, repair = { label = "Repair" },
     construct_defense = { label = "Build Defenses" },
+    cook = { label = "Cook Food (Microwave)" },
 }
 
 -- Compatibility names that may appear in early Knox saves or manually-created
@@ -100,6 +101,7 @@ Catalog.taskAliases = {
 
 Catalog.basePreferences = {
     auto = { label = "Automatic" }, guard = { label = "Guard" }, patrol = { label = "Patrol" },
+    cooking = { label = "Cooking", description = "Heat suitable stored food in a powered microwave and return meals to food storage." },
     farming = { label = "Farming" }, woodwork = { label = "Woodwork & Defense" },
     hauling = { label = "Move Corpses" }, animal_care = { label = "Animal Care" },
     repair = { label = "Repair" }, rest = { label = "Rest / Recover", description = "Stay available at base and recover." },
@@ -137,7 +139,7 @@ Catalog.actions = {
 -- Stable presentation order for menus.  Keeping this beside the catalogue
 -- prevents UI files from quietly growing a second, divergent order list.
 Catalog.basePreferenceOrder = {
-    "auto", "guard", "patrol", "farming", "woodwork", "hauling",
+    "auto", "guard", "patrol", "farming", "cooking", "woodwork", "hauling",
     "animal_care", "repair", "rest",
 }
 
@@ -206,6 +208,7 @@ Catalog.preferenceTaskGroups = {
     guard = { guard = true },
     patrol = { patrol = true },
     repair = { repair = true },
+    cooking = { cook = true },
     farming = { farm_seed = true, farm_water = true, farm_harvest = true, farm_plow = true },
     woodwork = { chop_tree = true, saw_logs = true, barricade = true, construct_defense = true },
     hauling = { haul = true, haul_corpse = true },

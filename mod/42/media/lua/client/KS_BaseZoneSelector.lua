@@ -12,6 +12,7 @@ _G.KnoxBaseZoneSelector = BaseZoneSelector
 local ZONE_HIGHLIGHT = {
     guard       = { r = 0.85, g = 0.20, b = 0.20, a = 0.32 },
     patrol      = { r = 0.85, g = 0.55, b = 0.15, a = 0.32 },
+    cooking     = { r = 0.75, g = 0.35, b = 0.30, a = 0.30 },
     farming     = { r = 0.20, g = 0.70, b = 0.20, a = 0.30 },
     woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = 0.30 },
     log_processing = { r = 0.60, g = 0.42, b = 0.18, a = 0.30 },

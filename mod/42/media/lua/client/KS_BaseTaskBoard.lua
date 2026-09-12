@@ -22,6 +22,7 @@ TaskBoard.TASK_TYPES = {
     animal_feed = true,
     repair = true,
     construct_defense = true,
+    cook = true,
 }
 
 local function worldAge()

@@ -151,7 +151,7 @@ function Runtime.snapshot(id)
         loaded = square ~= nil,
         state = state,
         activity = vehicleActivity or dutyActivity
-            or (state == "BASE_RECREATION" and controller.activeDecision) or ACTIVITY_BY_STATE[state] or "busy",
+            or ((state == "BASE_RECREATION" or state == "BASE_COOKING") and controller.activeDecision) or ACTIVITY_BY_STATE[state] or "busy",
         decision = controller ~= nil and controller.activeDecision or nil,
         driving = character ~= nil and vehicles ~= nil and vehicles.driverStatus ~= nil
             and vehicles.driverStatus(character) or nil,

@@ -36,6 +36,7 @@ local DEFAULTS = {
     OrderGestures = true,
     CautiousTravel = true,
     BaseReading = true,
+    BaseCooking = true,
     ZombieEngagementDistance = 4,
     ShowSurvivorNameplates = true,
     SurvivorNameplateDistance = 24,
@@ -79,6 +80,10 @@ local function integer(name, minimum, maximum)
     end
     number = math.floor(number)
     return math.max(minimum, math.min(maximum, number))
+end
+
+function Settings.baseCookingEnabled()
+    return value("BaseCooking") ~= false
 end
 
 function Settings.baseReadingEnabled()

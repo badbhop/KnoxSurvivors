@@ -10,7 +10,7 @@ local KIT = {
     {"Base.HandAxe", 2, "tool"}, {"Base.HandShovel", 2, "tool"},
     {"Base.Log", 8}, {"Base.Plank", 16}, {"Base.Nails", 40},
     {"Base.Hinge", 4}, {"Base.Doorknob", 2}, {"Base.TomatoSeed", 6},
-    {"Base.Book", 2},
+    {"Base.Book", 2}, {"Base.FishFillet", 2},
     {"Base.AnimalFeedBag", 2}, {"Base.BucketWaterDebug", 2, "water"},
 }
 

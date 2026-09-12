@@ -1,5 +1,29 @@
 # Development testing
 
+## Cooking and outdoor work replay - 2026-09-12
+
+1. In a disposable powered base, assign Main Supplies and optionally a fridge as
+   Food & Drink storage. Put raw fish or another nonmetal ingredient inside. The
+   Developer Job Supplies option now includes raw fish. Keep a microwave empty.
+2. Assign a resident **Cooking** or leave Automatic jobs enabled. Watch physical
+   collection, native microwave operation/cooking, and delivery. Check real food
+   state and inventories; only saying "Cooking" is not acceptance.
+3. Test a hungry resident with raw ingredients and no ready meal. They should cook
+   locally, then actually eat. Existing ready meals should take precedence.
+4. Interrupt with Follow, thirst, danger and save/reload during cooking. Check the
+   same ingredient remains and the microwave shuts off. Move the resident away:
+   its native timer must expire within two game minutes without remote toggling.
+5. Remove power, clear a storage assignment, fill the fridge/cupboard, take the
+   ingredient yourself, or occupy the appliance before the cook arrives. Verify
+   bounded failure/recovery, no duplicated food and no stolen player cooking.
+6. Place a Cooking area outside the home and repeat. Also complete consecutive tree
+   or crop jobs in an outside work area: residents should select the next job there.
+   Disabling the area should remove that permission, without bypassing materials.
+
+Ovens, BBQs, campfires and recipe preparation are not enabled by this executor.
+`tools/test-base-cooking.lua` uses native API doubles, not simulated proof of actual
+heat/animations. Long accelerated-time and real appliance acceptance remain pending.
+
 ## Faction development replay - 2026-09-12
 
 Use a fresh disposable world with initial group maximum 4 and faction minimum 4.

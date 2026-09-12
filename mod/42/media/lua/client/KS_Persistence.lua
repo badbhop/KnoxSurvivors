@@ -2204,7 +2204,7 @@ function KnoxPersistence.setBaseJobPreference(id, playerId, baseId, preference, 
         and catalog.isBasePreference ~= nil
         and catalog.isBasePreference(normalizedPreference) == true)
         or normalizedPreference == "auto" or normalizedPreference == "guard" or normalizedPreference == "patrol"
-        or normalizedPreference == "farming" or normalizedPreference == "woodwork" or normalizedPreference == "hauling"
+        or normalizedPreference == "cooking" or normalizedPreference == "farming" or normalizedPreference == "woodwork" or normalizedPreference == "hauling"
         or normalizedPreference == "animal_care" or normalizedPreference == "repair" or normalizedPreference == "rest"
     if survivor == nil or survivor.alive == false or not allowed
         or survivor.affiliation.kind ~= "player"

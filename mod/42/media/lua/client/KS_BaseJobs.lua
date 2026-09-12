@@ -7,6 +7,7 @@ require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
 require "KS_BaseAnimalCare"
+require "KS_BaseCooking"
 require "KS_BaseRepairs"
 require "KS_BaseConstruction"
 require "KS_BaseNeeds"
@@ -37,6 +38,7 @@ BaseJobs.AUTOMATIC_TYPES = {
     animal_feed = true,
     repair = true,
     construct_defense = true,
+    cook = true,
 }
 
 -- Work areas are duty destinations, never ownership or safehouse boundaries.
@@ -641,6 +643,22 @@ local function ensureConstructionTask(base, now, character)
     return task, result
 end
 
+local function ensureCookingTask(base, now, character)
+    local target,reason = KnoxBaseCooking.findTask(base,character)
+    if target == nil then return nil,reason end
+    local existing = taskForTargetId(base,target.id)
+    if existing ~= nil then
+        existing.baseId = base.id
+        if existing.state == "queued" or existing.state == "claimed" then return existing,"existing" end
+        local reopened = reopenWhenReady(existing,now)
+        if reopened ~= nil then reopened.target,reopened.requirements=target,{};return reopened,"reopened" end
+        return nil,"retry_not_ready"
+    end
+    local task,result=KnoxBaseTaskBoard.queue(base.id,"cook",target,{},85)
+    if task ~= nil then task.baseId,task.auto,task.retryAtHours=base.id,true,now end
+    return task,result
+end
+
 local function matchesPreference(task, preference)
     local taskType = task ~= nil and task.type or nil
     if KnoxOrderCatalog ~= nil and KnoxOrderCatalog.normalizeTaskType ~= nil then
@@ -669,7 +687,7 @@ local TASK_SKILL_HINTS = {
     farm_seed = "Farming", farm_water = "Farming", farm_harvest = "Farming",
     farm_plow = "Farming", animal_care = "Farming", animal_water = "Farming",
     animal_feed = "Farming", guard = "Aiming", patrol = "Aiming",
-    haul_corpse = "Strength",
+    haul_corpse = "Strength", cook = "Cooking",
 }
 
 local function skillAffinity(survivorId, taskType)
@@ -944,6 +962,7 @@ function BaseJobs.prepareWorkforce(base, character, now)
         end
     end
     if discover then
+        if KnoxBaseCooking ~= nil then ensureCookingTask(base, now, character) end
         ensureFarmingTask(base, now, character)
         ensureWoodcuttingTask(base, now, character)
         ensureCorpseTask(base, now, character)
@@ -1056,6 +1075,9 @@ function BaseJobs.resolveTaskSquare(task, character)
             target,
             character
         )
+    end
+    if taskType == "cook" then
+        return KnoxBaseCooking.resolveTaskSquare(KnoxBaseManager.get(task.baseId),target,character)
     end
     if taskType == "repair" then
         return KnoxBaseRepairs.resolveTaskSquare(

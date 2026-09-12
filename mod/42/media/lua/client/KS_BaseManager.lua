@@ -12,6 +12,7 @@ local PLAYER_BASE_YARD_PADDING = 6
 
 BaseManager.ZONE_TYPES = {
     farming = true,
+    cooking = true,
     woodcutting = true,
     log_processing = true,
     guard = true,
@@ -680,7 +681,11 @@ function BaseManager.canPerformTask(survivorId, baseId, task)
         return false, "capabilities_missing"
     end
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
-    if character == nil or not BaseManager.containsSquare(base, character:getCurrentSquare()) then
+    local square=character~=nil and character:getCurrentSquare() or nil
+    local jobs=rawget(_G,"KnoxBaseJobs")
+    local atWork=square~=nil and jobs~=nil and jobs.containsWorkSquare~=nil
+        and jobs.containsWorkSquare(base,square)
+    if square==nil or (not BaseManager.containsSquare(base,square) and not atWork) then
         return false, "not_physically_at_base"
     end
     return meetsRequirements(

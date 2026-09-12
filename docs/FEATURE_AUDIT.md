@@ -1,5 +1,39 @@
 # Feature-completion audit
 
+### Native microwave cooking and continued outdoor work - 2026-09-12
+
+**Implemented; live acceptance pending.** Automatic residents and the Cooking job
+preference can collect suitable real ingredients from carried inventory or assigned
+storage, use an empty powered microwave, wait for native food cooking, and deliver
+the meal to Food & Drink storage (or Main Supplies). Hungry residents can prepare
+food before starting an outside food search; completed meals can satisfy their own
+needs without falsely failing the cook job. Normal native cooking effects apply,
+including microwave mood penalties. No item, nutrition or cooking progress is invented.
+
+Optional Cooking areas select appliances, including outside the home. With no area,
+residents use appliances within the base. Poison, rotten/burnt food, metal, recipe
+callbacks/replacement items, player-occupied appliances and missing power are rejected.
+A native two-minute microwave timer stops heat if a worker is displaced/unloaded;
+nearby interruptions also switch off owned heat. Actual ingredient identity persists
+for recovery, and item/appliance claims prevent duplicate cooks. Removed assignments,
+changed contents, failed native transfers, needs and new orders release ownership.
+Raw fish is included in the optional developer supply kit. Cooking can be disabled
+in sandbox settings; native ovens (whose timers only ring), campfires, BBQs and recipe
+preparation remain unfinished. Long cooking, food cooling and appliance animation
+acceptance still need a live game run.
+
+Fixed a shared outdoor-job boundary: a resident already in an enabled work area may
+claim the next job without returning home after every completed crop/tree. Supplies,
+resident membership, floor and disabled-area checks remain authoritative.
+
+Validation: **203 Lua checks passed** (95 sources, 108 regression scripts), including
+native-action queue boundaries, real transfer outcomes, cooking recovery, personal
+needs, appliance/source changes and actual outdoor eligibility/resource checks. Java
+is unchanged from the prior passing build/native verifiers. The full gameplay goal
+remains active; this does not complete general cooking, driving or all live acceptance.
+Local candidate refreshed: all 104 source files and the unchanged agent match;
+native Workshop layout/checksum/payload validation passed. Nothing was published.
+
 ### Earned faction formation - 2026-09-12
 
 Opening cohorts can now use the configured group size instead of being hard-capped

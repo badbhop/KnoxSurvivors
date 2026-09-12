@@ -10,6 +10,7 @@ package.loaded["KS_BaseWoodcutting"] = true
 package.loaded["KS_BaseCorpseHandling"] = true
 package.loaded["KS_BaseAnimalCare"] = true
 package.loaded["KS_BaseRepairs"] = true
+package.loaded["KS_BaseCooking"] = true
 package.loaded["KS_BaseConstruction"] = true
 package.loaded["KS_BaseSupplyPlanner"] = true
 local depotTransfer = nil
@@ -773,3 +774,21 @@ for _, task in pairs(base.tasks) do
 end
 assert(wateringTask and wateringTask.requirements.itemRules["Base.WaterBottle"].water,
     "discovered crop watering requires a nonempty water container")
+
+-- Appliance discovery uses the same recurring board/claim lifecycle.
+local cookingTarget={id="cook:"..base.id,action="cook",x=4,y=0,z=0,objectIndex=1}
+KnoxBaseCooking={findTask=function() return cookingTarget end}
+jobs.prepareWorkforce(base,nil,206)
+local cookTask
+for _,task in pairs(base.tasks) do if task.type=="cook" then assert(cookTask==nil);cookTask=task end end
+assert(cookTask and cookTask.target==cookingTarget and jobs.AUTOMATIC_TYPES.cook)
+cookTask.state,cookTask.claimedBy="claimed","cook"
+local original=cookTask.target
+cookingTarget={id="cook:"..base.id,action="cook",x=8,y=0,z=0,objectIndex=2}
+jobs.prepareWorkforce(base,nil,207)
+assert(cookTask.target==original,"discovery cannot redirect the active cook")
+cookTask.state,cookTask.claimedBy,cookTask.retryAtHours="complete",nil,207
+jobs.prepareWorkforce(base,nil,208)
+assert(cookTask.state=="queued" and cookTask.target==cookingTarget,"completed cooking can prepare another meal")
+assert(KnoxBaseNeeds.priorityBonus(cookTask,{totals={food=0}},2)==20)
+print("Cooking task lifecycle PASS recurring=true claim_owner=true food_priority=true")

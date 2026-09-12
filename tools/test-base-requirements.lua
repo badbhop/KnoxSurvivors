@@ -83,3 +83,23 @@ assert(eligible and reason == "eligible",
     "worker carrying the required materials should be eligible")
 
 print("Base requirements PASS inventory_gate=true recursive=true")
+
+-- The production area predicate must agree with the production eligibility
+-- boundary, otherwise every completed outdoor job sends the worker home.
+local nativeRequire=require
+require=function() return true end
+dofile(rootPath.."/mod/42/media/lua/client/KS_BaseJobs.lua")
+require=nativeRequire
+base.zones={forest={x1=30,x2=35,y1=20,y2=25,z=0,enabled=true}}
+square.x,square.y=32,22
+assert(manager.canPerformTask("worker",base.id,task),"continue work in an assigned external area")
+counts["Base.Nails"]=1
+local ok,why=manager.canPerformTask("worker",base.id,task)
+assert(not ok and why=="item=Base.Nails","external work does not bypass real supplies")
+counts["Base.Nails"]=2
+square.z=1;assert(not manager.canPerformTask("worker",base.id,task),"work areas do not cover other floors")
+square.z=0;base.zones.forest.enabled=false
+assert(not manager.canPerformTask("worker",base.id,task),"released areas no longer authorize continued work")
+base.zones.forest.enabled=true;square.x=40
+assert(not manager.canPerformTask("worker",base.id,task),"outside a work area still requires a home return")
+print("External job eligibility PASS real_area=true supplies=true floors=true released_area=true")

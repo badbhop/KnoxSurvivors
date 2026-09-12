@@ -90,6 +90,7 @@ local function drawPlayer(playerNum)
             farming = { r = 0.2, g = 0.7, b = 0.2, a = zoneAlpha },
             woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = zoneAlpha },
             corpse = { r = 0.5, g = 0.5, b = 0.5, a = zoneAlpha },
+            cooking = { r = 0.75, g = 0.35, b = 0.30, a = zoneAlpha },
             animal_care = { r = 0.85, g = 0.7, b = 0.1, a = zoneAlpha },
             repair = { r = 0.2, g = 0.5, b = 0.85, a = zoneAlpha },
             construction = { r = 0.7, g = 0.4, b = 0.85, a = zoneAlpha },
