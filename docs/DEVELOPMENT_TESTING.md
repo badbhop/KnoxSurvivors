@@ -1,5 +1,22 @@
 # Development testing
 
+## Turn-aware driving replay - 2026-09-13
+
+Enable experimental NPC driving in a disposable test save. From a passenger seat,
+order a companion to drive to loaded open ground ahead, around a bend, behind the
+car and around a parked obstruction. Confirm continuous steering, clearance for
+the whole body, and braking near the destination. Repeat with a long vehicle and
+one with offset body/collision parts. A destination without room for the nose must
+be rejected or approached safely, never marked clear using only the centreline.
+
+Block the route for about 14 seconds, then clear it: the same order should resume
+without a no-progress cancellation. Cancel before the NPC reaches the driver seat:
+the vehicle's controls must remain untouched. Cancel after driving, injure the NPC,
+change driver, or attach a trailer: verify control release and player takeover.
+Compare normal/poor tires and brakes, turns beside walls, downhill approaches and
+newly moving pedestrians. Offline diagnostic journeys use simplified independent
+dynamics and do not replace these native-physics checks.
+
 ### Base downtime replay - 2026-09-12
 
 Use the matching updated agent. Leave several idle residents in a large base with

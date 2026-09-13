@@ -1,5 +1,42 @@
 # Feature-completion audit
 
+### Turn-aware map driving and control ownership - 2026-09-13
+
+**Implemented; live physics acceptance pending.** Replaced point-grid shortcuts
+with original Knox heading-aware forward arc search. Turning radius uses native
+scaled wheel offsets and steering limits. Captured routes contain continuous poses;
+a destination behind the vehicle requires a feasible forward loop, not an instant
+reversal. The follower projects onto the route and aims ahead, slowing for upcoming
+curvature and the final destination rather than stopping at intermediate samples.
+Native control smoothing, sign convention and recentering deadband are respected.
+
+Clearance covers the whole body using rectangle/tile intersection, native COM and
+chassis offsets, rear-axle motion, and conservative bounds for additional boxes and
+spheres. Rotated custom boxes are conservatively enclosed; unknown mesh collision
+bounds and overturned vehicles cannot be certified. Runtime checks sweep actual,
+requested and intermediate steering over a stopping horizon. No coordinates, seat
+ownership, collision state or physics are fabricated.
+
+Cancelled boarding no longer parks a car the NPC never controlled. Boarding into
+an uncontrolled moving vehicle is refused. Cleared obstructions reset the movement
+progress timer, so a permitted wait does not immediately become a no-progress
+failure. Driver status now exposes remaining route distance, tracking error,
+target speed and blocked reason. Map errors explain unavailable geometry/planning.
+
+Validation: **206 Lua checks passed** (95 syntax checks, 111 regression scripts).
+Independent diagnostic journey integration covers straight travel, bends, a goal
+behind the car and an obstacle detour, plus native smoothing/deadband; this is not
+Bullet simulation. Focused regressions cover body caps/corners, scaled and offset
+geometry, extra collision parts, late obstacle recovery and boarding ownership.
+No Java source changed. Native API evidence came from the installed game classes.
+Candidate staging and the native Workshop payload validator passed; all 104 mod
+files and the unchanged agent match the staged package byte for byte.
+
+Still unfinished: long-distance road routing beyond loaded nearby ground (160 tiles),
+trailers, garages, mesh collider support, and measured live steering/braking across
+vehicles, surfaces and tire conditions. Existing gameplay/base/job acceptance also
+remains active; these offline checks do not establish the complete playable goal.
+
 ### Local base leisure and reliable book loans - 2026-09-12
 
 **Implemented; live acceptance pending.** Idle residents now choose short walks

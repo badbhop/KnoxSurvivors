@@ -11,7 +11,7 @@ w.vehicle.speed=24;vehicles.tick()
 assert(not w.controls.forward and w.controls.brake, "overspeed is braked before reaching the destination")
 w.vehicle.speed=5;w.vehicle.y=14;w.now=200;vehicles.tick()
 assert(vehicles.driverStatus(w.character)~=nil, "a moving driver retains control while approaching")
-w.vehicle.speed=0;w.vehicle.y=17;w.now=400;vehicles.tick()
+w.vehicle.speed=0;w.vehicle.y=17;w.now=400;vehicles.tick();vehicles.tick()
 assert(vehicles.activity(w.character)=="riding" and not w.controls.forward and w.controls.brake
     and w.controller.parkCount>0, "arrival retains braking rather than coasting")
 -- Restart from the already occupied driver seat with a map destination.
@@ -50,3 +50,28 @@ w.now=1000;vehicles.tick()
 assert(not w.controls.forward and w.controls.brake and vehicles.driverStatus(w.character)==nil,
     "a route update error must release native throttle")
 nav.context=originalContext
+
+-- Intentional waiting has its own deadline and must not age the movement timer.
+w.vehicle.x,w.vehicle.y,w.vehicle.speed=0,0,0
+w.vehicle.driver=w.character;w.character.vehicle=w.vehicle
+w.now=2000
+assert(vehicles.driveTo(w.character,w.vehicle,0,30,0))
+vehicles.tick()
+w.blocked['0:4']=true;w.now=3000;vehicles.tick()
+assert(vehicles.driverStatus(w.character).blocked)
+w.blocked={};w.now=17001;vehicles.tick()
+assert(vehicles.driverStatus(w.character)~=nil and w.controls.forward,
+    "a cleared 14-second obstruction resumes instead of triggering no_progress")
+vehicles.stopDriving(w.character)
+
+-- A boarding lease is not ownership of the car's controls.
+w.character.vehicle=nil;w.vehicle.driver=nil
+local parked=w.controller.parkCount
+assert(vehicles.driveAhead(w.character,w.vehicle))
+vehicles.cancel(w.character)
+assert(w.controller.parkCount==parked,"cancelled boarding must not park a vehicle the NPC never drove")
+w.vehicle.speed=3
+local movingAccepted,movingReason=vehicles.driveAhead(w.character,w.vehicle)
+assert(not movingAccepted and movingReason=="vehicle_moving")
+w.vehicle.speed=0
+print("Driver handoff PASS boarding_no_remote_brake=true wait_progress=true moving_boarding_rejected=true")

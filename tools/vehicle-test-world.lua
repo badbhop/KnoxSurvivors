@@ -4,6 +4,12 @@ getTimestampMs=function() return w.now end
 Vector3f={new=function() return {vx=0,vz=1,x=function(self) return self.vx end,z=function(self) return self.vz end} end}
 instanceof=function(object,kind) return object.kind==kind end
 local function list(values) return {size=function() return #values end,get=function(_,i) return values[i+1] end} end
+local function vector(x,y,z) return {x=function() return x end,y=function() return y end,z=function() return z end} end
+w.script={getExtents=function() return vector(2,1.5,4) end,
+    getCenterOfMassOffset=function() return vector(0,0,0) end,getModelOffset=function() return vector(0,0,0) end,
+    getWheelCount=function() return 4 end,
+    getWheel=function(_,i) return {getOffset=function() return vector(i%2==0 and -0.8 or 0.8,0,i<2 and 1.3 or -1.3) end} end,
+    getSteeringClamp=function() return 0.7 end}
 local squares={}
 function w.square(x,y,z)
     z=z or 0
@@ -55,7 +61,7 @@ w.vehicle={x=0,y=0,fx=0,fy=1,speed=0,driver=nil,
     getCurrentSpeedKmHour=function(self) return self.speed end,
     getSquare=function(self) return w.square(math.floor(self.x),math.floor(self.y)) end,
     getForwardVector=function(self,vector) vector.vx,vector.vz=self.fx,self.fy;return vector end,
-    getScript=function() return {getExtents=function() return {x=function() return 2 end,z=function() return 4 end} end} end,
+    getScript=function() return w.script end,
     getController=function() return w.controller end}
 KnoxSurvivorRuntime={idForCharacter=function() return "driver" end,
     prepareVehicle=function()

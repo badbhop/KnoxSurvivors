@@ -24,6 +24,7 @@ local function resetDriverControls(run, character)
     if vehicle ~= nil and vehicle.getDriver ~= nil then
         local driver=vehicle:getDriver()
         if driver~=nil and driver~=character then return end
+        if run.phase=="boarding" and driver~=character then return end
     end
     local controller = vehicle ~= nil and vehicle.getController ~= nil
         and vehicle:getController() or nil
@@ -260,14 +261,15 @@ local function startDrive(character,vehicle,destination)
     if CompanionVehicles.isBusy(character) then return false,"vehicle_action_pending" end
     local driver=vehicle:getDriver()
     if driver~=nil and driver~=character then return false,"driver_seat_occupied" end
+    if driver~=character and math.abs(vehicle:getCurrentSpeedKmHour())>1 then return false,"vehicle_moving" end
     if not vehicle:isEngineRunning() then return false,"vehicle_engine_off" end
     if not vehicle:isDriveable() then return false,"vehicle_not_driveable" end
     if vehicle.getVehicleTowing~=nil and vehicle:getVehicleTowing()~=nil
         or vehicle.getVehicleTowedBy~=nil and vehicle:getVehicleTowedBy()~=nil then
         return false,"towing_not_supported"
     end
-    local geometry=KnoxVehicleNavigation.geometry(vehicle)
-    if geometry==nil then return false,"vehicle_geometry_unavailable" end
+    local inspected,geometry=pcall(KnoxVehicleNavigation.geometry,vehicle)
+    if not inspected or geometry==nil then return false,"vehicle_geometry_unavailable" end
     local route,reason
     if destination~=nil then
         route,reason=KnoxVehicleNavigation.plan(vehicle,destination.x,destination.y,destination.z,geometry,character)
@@ -316,7 +318,8 @@ end
 function CompanionVehicles.driverStatus(character)
     local run=driverRuns[character]
     return run~=nil and {phase=run.phase,blocked=run.blockedSince~=nil,destination=run.goal,
-        waypoint=run.index,waypoints=#run.route} or nil
+        waypoint=run.index,waypoints=#run.route,remaining=run.remaining,routeError=run.routeError,
+        reason=run.blockedReason,targetSpeed=run.targetSpeed} or nil
 end
 
 local function finishDrive(character,reason)
@@ -350,48 +353,71 @@ local function tickDrive(character,run,now)
         or (healthNow~=nil and run.health~=nil and healthNow<run.health) then
         finishDrive(character,"vehicle_unavailable");return
     end
+    if current:getZ()~=run.goal.z then finishDrive(character,"floor_changed");return end
+    if vehicle.getVehicleTowing~=nil and vehicle:getVehicleTowing()~=nil
+        or vehicle.getVehicleTowedBy~=nil and vehicle:getVehicleTowedBy()~=nil then
+        finishDrive(character,"towing_changed");return
+    end
     local x,y=vehicle:getX(),vehicle:getY()
-    local target=run.route[run.index]
-    local dx,dy=target.x-x,target.y-y
-    local distance=math.sqrt(dx*dx+dy*dy)
     local speed=math.abs(vehicle:getCurrentSpeedKmHour())
-    if distance<=DRIVER_STOP_DISTANCE and run.index==#run.route and speed<=1 then
+    local goalDistance=math.sqrt((run.goal.x-x)^2+(run.goal.y-y)^2)
+    if goalDistance<=DRIVER_STOP_DISTANCE and run.index>=#run.route-2 and speed<=1 then
         finishDrive(character,"arrived");return
     end
-    if distance<=3 and run.index<#run.route then
-        run.index=run.index+1;target=run.route[run.index]
-        dx,dy=target.x-x,target.y-y;distance=math.sqrt(dx*dx+dy*dy)
-    end
-    local fx,fy=KnoxVehicleNavigation.forward(vehicle)
+    local nav=KnoxVehicleNavigation
+    local tracking=nav.follow(run.route,run.index,x,y,speed)
+    run.index,run.remaining,run.routeError=tracking.index,tracking.remaining,tracking.error
+    local fx,fy=nav.forward(vehicle)
     if fx==nil then finishDrive(character,"heading_unavailable");return end
+    local heading=math.atan2(fy,fx)
+    local rearX,rearY=nav.rearPosition(x,y,heading,run.geometry)
+    local aimX,aimY=nav.rearPosition(tracking.aim.x,tracking.aim.y,tracking.aim.heading,run.geometry)
+    local dx,dy=aimX-rearX,aimY-rearY
+    local distance=math.sqrt(dx*dx+dy*dy)
+    local dot=(fx*dx+fy*dy)/math.max(0.1,distance)
+    local cross=(fx*dy-fy*dx)/math.max(0.1,distance)
+    local limit=KnoxSettings.npcDrivingSpeed~=nil and KnoxSettings.npcDrivingSpeed() or 20
+    local command,desired=nav.controls(speed,tracking.remaining,dot,cross,limit,run.geometry,distance,tracking.curvature)
+    local nativeLimit=vehicle:getScript():getSteeringClamp(speed)
+    command.steering=math.max(-nativeLimit,math.min(nativeLimit,command.steering))
+    run.targetSpeed=desired
     if now>=(run.nextSafetyCheck or 0) then
         run.nextSafetyCheck=now+150
-        local context=KnoxVehicleNavigation.context(vehicle,run.geometry,character)
-        local lookahead=run.geometry.halfLength+2+(speed/3.6)^2/4
-        local routeLength=math.min(distance,lookahead)
-        run.laneClear=KnoxVehicleNavigation.clear(context,x,y,x+fx*lookahead,y+fy*lookahead,current:getZ())
-            and KnoxVehicleNavigation.clear(context,x,y,x+dx/math.max(0.1,distance)*routeLength,
-                y+dy/math.max(0.1,distance)*routeLength,current:getZ())
+        local context=nav.context(vehicle,run.geometry,character)
+        local lookahead=nav.stoppingDistance(speed)
+        local intended=math.tan(command.steering)/run.geometry.wheelbase
+        local actual=controller.getVehicleSteering~=nil
+            and -math.tan(controller:getVehicleSteering())/run.geometry.wheelbase or intended
+        -- Cover native steering lag as well as the intended bend. Reset the
+        -- world cache each check so moving people/vehicles cannot remain clear.
+        run.laneClear=nav.arcClear(context,x,y,heading,intended,lookahead,current:getZ())
+            and nav.arcClear(context,x,y,heading,actual,lookahead,current:getZ())
+            and nav.arcClear(context,x,y,heading,(actual+intended)/2,lookahead,current:getZ())
     end
-    local dot=(fx*dx+fy*dy)/math.max(0.1,distance)
-    if not run.laneClear or dot<0 then
+    if not run.laneClear or dot<0 or tracking.error>3 then
         controls.forward,controls.backward,controls.brake,controls.shift=false,false,true,false
-        controls.steering=0
+        controls.steering=(dot>=0 and tracking.error<=3) and command.steering or 0
+        run.blockedReason=tracking.error>3 and "off_route" or (dot<0 and "route_behind" or "obstacle")
         run.blockedSince=run.blockedSince or now
         if now-run.blockedSince>15000 then finishDrive(character,"route_blocked");return end
         if speed<=1 and now>=(run.nextReplan or 0) then
             run.nextReplan=now+3000
-            local replacement=KnoxVehicleNavigation.plan(vehicle,run.goal.x,run.goal.y,run.goal.z,run.geometry,character)
-            if replacement~=nil then run.route,run.index=replacement,1 end
+            local replacement=nav.plan(vehicle,run.goal.x,run.goal.y,run.goal.z,run.geometry,character)
+            if replacement~=nil then
+                run.route,run.index=replacement,1
+                run.nextSafetyCheck=0 -- a different bend needs a fresh sweep
+            end
         end
         return
     end
-    run.blockedSince=nil
+    if run.blockedSince~=nil then
+        -- Deliberately waiting for an obstruction is not failed motion.
+        run.lastProgress,run.lastX,run.lastY=now,x,y
+    end
+    run.blockedSince,run.blockedReason=nil,nil
     if (x-run.lastX)^2+(y-run.lastY)^2>=1 then
         run.lastProgress,run.lastX,run.lastY=now,x,y
     elseif now-run.lastProgress>15000 then finishDrive(character,"no_progress");return end
-    local limit=KnoxSettings.npcDrivingSpeed~=nil and KnoxSettings.npcDrivingSpeed() or 20
-    local command=KnoxVehicleNavigation.controls(speed,distance,dot,(fx*dy-fy*dx)/math.max(0.1,distance),limit)
     for key,value in pairs(command) do controls[key]=value end
 end
 
