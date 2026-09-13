@@ -2697,6 +2697,7 @@ function Controller.shouldDelegateNeedToGroup(kind, leaderDistanceSquared)
 end
 
 function Controller:interruptForDirective()
+    self.securityRoute=nil
     self:releaseBaseCooking()
     local vehicles = rawget(_G, "KnoxCompanionVehicles")
     if vehicles ~= nil and vehicles.cancel ~= nil then vehicles.cancel(self.character) end
@@ -2713,6 +2714,7 @@ function Controller:interruptForDirective()
         or self.state == "MOVING_TO_COMPANION_POINT"
         or self.state == "MOVING_TO_COMPANION_PATROL"
         or self.state == "COMPANION_PATROL_WAIT"
+        or self.state == "COMPANION_DUTY_WAIT" or self.state == "BASE_SECURITY_WAIT"
         or self.state == "BASE_RETURN" or self.state == "BASE_PATROL"
         or self.state == "BASE_IDLE" or self.state == "BASE_AMBIENT_REST"
         or self.state == "CAMP_IDLE" or self.state == "CAMP_AMBIENT_REST"
@@ -2863,6 +2865,7 @@ function Controller:setCompanionDirective(directive)
     self.companionDirective = directive
     if changed then
         self.directiveMisses = 0
+        self.securityContext,self.securityRoute,self.securityRetryAt=nil,nil,nil
         self:interruptForDirective()
     end
 end
@@ -3882,6 +3885,7 @@ function Controller:beginBaseMovement(ticks, returning)
 end
 
 function Controller:finishBaseTask(succeeded, reason)
+    self.securityRoute=nil
     self:releaseBaseCooking()
     local task = self.baseTask
     if task == nil then
@@ -3947,6 +3951,7 @@ end
 -- unloads or dies. Explicit cancellation, invalid targets, and real action
 -- failures continue through abandonBaseTask/finishBaseTask as before.
 function Controller:suspendBaseTaskForThreat(reason)
+    self.securityRoute=nil
     self:releaseBaseCooking()
     if self.baseTask == nil then return false end
     self:releaseSupply()
@@ -4004,7 +4009,7 @@ function Controller:updateBaseSecurityDuty(ticks)
         self.state, self.activeDecision, self.nextThink = "IDLE", nil, ticks
         return
     end
-    if task.type == "guard" then
+    if task.type == "guard" and self.state~="BASE_SECURITY_WAIT" then
         local post = KnoxBaseJobs.resolveTaskSquare(task, self.character)
         local current = self.character:getCurrentSquare()
         if post ~= nil and navigationDistanceSquared(current, post) > 2.25 then
@@ -4016,6 +4021,9 @@ end
 function Controller:beginBaseTaskWorkMove(ticks)
     local task = canonicalBaseTask(self.baseTask)
     self.baseTask = task
+    if task~=nil and (task.type=="guard" or task.type=="patrol") then
+        return self:beginSecurityRoute(ticks,task,true)
+    end
     local target = task ~= nil and KnoxBaseJobs.resolveTaskSquare(task, self.character) or nil
     if target == nil then
         self:finishBaseTask(false, "no_loaded_work_square")
@@ -4808,7 +4816,125 @@ function Controller:beginExploration(ticks, directive)
     return true
 end
 
+function Controller:prepareSecurityContext(duty)
+    if self.securityContext~=duty then
+        self.securityContext,self.securityRoute,self.securityRetryAt=duty,nil,0
+        self.securityFailedSquares,self.securityMisses={},0
+    end
+end
+
+function Controller:advanceSecurityPatrol(route,arrived)
+    if route==nil or not route.patrol then return false end
+    local duty=route.duty
+    if route.base then
+        duty.patrolStep=route.step
+        if arrived then
+            local complete=KnoxCompanionPatrol.recordTaskArrival(duty)
+            if complete then duty.patrolLaps=math.min(1000000,(tonumber(duty.patrolLaps) or 0)+1) end
+        else duty.patrolStep=(route.step+1)%math.max(1,route.count) end
+        return true
+    end
+    return KnoxPersistence.advanceCompanionPatrol(self.id,self.companionOwnerId,duty,route.step,arrived)
+end
+
+function Controller:deferSecurityRoute(ticks,reason,base)
+    local route=self.securityRoute
+    self.bridge:cancelNpcMove(self.id)
+    self.securityFailedSquares=self.securityFailedSquares or {}
+    if route~=nil and route.square~=nil then
+        self.securityFailedSquares[KnoxCompanionPatrol.squareKey(route.square)]=ticks+1800
+        self:advanceSecurityPatrol(route,false)
+    end
+    self.securityMisses=math.min(4,(self.securityMisses or 0)+1)
+    local delay=math.min(1800,150*2^self.securityMisses)
+    self.securityRetryAt,self.nextThink=ticks+delay,ticks+delay
+    self.lastFailure={reason="security_route:"..tostring(reason)
+        .." destination="..(route~=nil and route.square~=nil and KnoxCompanionPatrol.squareKey(route.square) or "unavailable"),ticks=ticks}
+    self.state=base and "BASE_SECURITY_WAIT" or "COMPANION_DUTY_WAIT"
+    self.activeDecision="security_route_blocked"
+    self.securityRoute=nil
+    if ticks>=(self.nextSecuritySpeech or 0) then
+        KnoxActivityFeed.speak(self.character,"The route is blocked. I'll keep watch and try again.")
+        self.nextSecuritySpeech=ticks+3600
+    end
+    return true
+end
+
+function Controller:beginSecurityRoute(ticks,duty,base)
+    self:prepareSecurityContext(duty)
+    if ticks<(self.securityRetryAt or 0) then
+        self.state=base and "BASE_SECURITY_WAIT" or "COMPANION_DUTY_WAIT"
+        self.activeDecision="security_route_blocked"
+        return true
+    end
+    for key,untilTick in pairs(self.securityFailedSquares) do
+        if untilTick<=ticks then self.securityFailedSquares[key]=nil end
+    end
+    local area=base and duty.target or duty
+    local patrol=(base and duty.type=="patrol") or (not base and duty.kind=="patrol_area")
+    local identity=base and (duty.id or self.id) or self.id
+    local square,step,count=KnoxCompanionPatrol.resolveWaypoint(area,identity,duty.patrolStep,
+        getCell(),self.character:getCurrentSquare(),self.securityFailedSquares,ticks,not patrol)
+    if square==nil then return self:deferSecurityRoute(ticks,"no_loaded_standing_tile",base) end
+    self.securityRoute={duty=duty,base=base==true,patrol=patrol,step=step,count=count,square=square}
+    if not patrol and KnoxCompanionPatrol.contains(area,self.character:getCurrentSquare())
+        and navigationDistanceSquared(self.character:getCurrentSquare(),square)<=2.25 then
+        self.securityMisses=0
+        self.state=base and "BASE_TASK_WORK" or "COMPANION_GUARD"
+        self.activeDecision=base and "base_task_guard" or "guard_location"
+        self.nextThink=ticks+90
+        return true
+    end
+    local result=KnoxCompanionPatrol.move(self.bridge,self.id,square,area)
+    if result:find("MOVE_STARTED",1,true)~=1 then return self:deferSecurityRoute(ticks,result,base) end
+    self.state=base and "BASE_TASK_MOVE" or (patrol and "MOVING_TO_COMPANION_PATROL" or "MOVING_TO_COMPANION_POINT")
+    self.activeDecision=base and ("base_task_"..duty.type) or (patrol and "patrol_area" or "guard_location")
+    self.baseTaskStartedAt=nil
+    return true
+end
+
+function Controller:completeSecurityArrival(ticks,base)
+    local route=self.securityRoute
+    if route==nil then return false end
+    local area=base and route.duty.target or route.duty
+    if not KnoxCompanionPatrol.contains(area,self.character:getCurrentSquare())
+        or navigationDistanceSquared(self.character:getCurrentSquare(),route.square)>(route.patrol and 0 or 2.25) then
+        return self:deferSecurityRoute(ticks,"arrival_outside_post",base)
+    end
+    if route.patrol and not self:advanceSecurityPatrol(route,true) then
+        self.securityRoute=nil
+        self:finishDecision(ticks)
+        return true
+    end
+    self.securityMisses,self.securityRetryAt=0,0
+    self.state=base and (route.patrol and "BASE_TASK_PATROL_WAIT" or "BASE_TASK_WORK")
+        or (route.patrol and "COMPANION_PATROL_WAIT" or "COMPANION_GUARD")
+    self.activeDecision=base and ("base_task_"..route.duty.type) or (route.patrol and "patrol_area" or "guard_location")
+    self.baseTaskStartedAt=ticks
+    self.nextThink=ticks+(route.patrol and 180 or 90)
+    return true
+end
+
+function Controller:updateSecurityRouteWait(ticks,base)
+    if base then
+        self:updateBaseSecurityDuty(ticks)
+        if self.state~="BASE_SECURITY_WAIT" then return end
+    elseif ticks>=(self.nextSecurityNeedCheck or 0) then
+        self.nextSecurityNeedCheck=ticks+90
+        local decision=KnoxSurvivorNeeds.decide(self.character,nil)
+        if decision~=nil and decision.kind~="roam" then
+            self.state,self.activeDecision,self.nextThink="IDLE",nil,ticks
+            return
+        end
+    end
+    if ticks>=(self.securityRetryAt or 0) then
+        if base and self.baseTask~=nil then self:beginBaseTaskWorkMove(ticks)
+        else self.state,self.nextThink="IDLE",ticks end
+    end
+end
+
 function Controller:beginCompanionPointDirective(ticks, directive)
+    if directive~=nil and directive.kind=="guard" then return self:beginSecurityRoute(ticks,directive,false) end
     local cell = getCell()
     local x = tonumber(directive ~= nil and directive.minX)
     local y = tonumber(directive ~= nil and directive.minY)
@@ -4850,32 +4976,8 @@ function Controller:beginCompanionPointDirective(ticks, directive)
     return true
 end
 
-function Controller:beginCompanionPatrolDirective(ticks, directive)
-    local current = self.character ~= nil and self.character:getCurrentSquare() or nil
-    local point = KnoxCompanionPatrol ~= nil
-        and KnoxCompanionPatrol.nextWaypoint(directive, current, self.id) or nil
-    local cell = getCell()
-    local target = point ~= nil and cell ~= nil
-        and cell:getGridSquare(point.x, point.y, point.z) or nil
-    if target == nil or target.canStand == nil or not target:canStand() then
-        self.directiveMisses = (self.directiveMisses or 0) + 1
-        self:recordFailure("companion_patrol_target_unavailable", ticks,
-            EXPLORATION_RETRY_TICKS)
-        return false
-    end
-    local result = tostring(moveWithTravelPace(
-        self.bridge, self.id, self.character, target, "directed"
-    ))
-    if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
-        self.directiveMisses = (self.directiveMisses or 0) + 1
-        self:recordMovementFailure("companion_patrol_move", result, ticks,
-            EXPLORATION_RETRY_TICKS)
-        return false
-    end
-    self.directiveMisses = 0
-    self.activeDecision = "patrol_area"
-    self.state = "MOVING_TO_COMPANION_PATROL"
-    return true
+function Controller:beginCompanionPatrolDirective(ticks,directive)
+    return self:beginSecurityRoute(ticks,directive,false)
 end
 
 function Controller:releaseCombat()
@@ -6267,16 +6369,6 @@ function Controller:think(ticks)
                 if self:beginCompanionPatrolDirective(ticks, self.companionDirective) then
                     return
                 end
-                if self.directiveMisses >= 3 then
-                    KnoxPersistence.clearCompanionDirective(
-                        self.id, self.companionOwnerId,
-                        getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
-                    )
-                    self.companionDirective = nil
-                    self.directiveMisses = 0
-                    KnoxActivityFeed.speak(self.character,
-                        "I can't patrol that area safely.")
-                end
                 self.nextThink = math.max(self.nextThink or 0,
                     ticks + EXPLORATION_RETRY_TICKS)
                 return
@@ -6655,6 +6747,11 @@ function Controller:tick(ticks)
         or (actionState and stateAge > ACTION_TIMEOUT_TICKS)
         or (self.state == "BREAKING_LOCKED_DOOR"
             and stateAge > MOVEMENT_TIMEOUT_TICKS) then
+        if self.securityRoute~=nil and (self.state=="BASE_TASK_MOVE"
+            or self.state=="MOVING_TO_COMPANION_PATROL" or self.state=="MOVING_TO_COMPANION_POINT") then
+            self:deferSecurityRoute(ticks,"state_timeout",self.securityRoute.base)
+            return
+        end
         if self.state == "FLEEING" then
             self:recoverFleeMovement("state_timeout", ticks)
             return
@@ -6776,6 +6873,11 @@ function Controller:tick(ticks)
                 self:beginCompanionPointDirective(ticks, self.companionDirective)
             end
         end
+        return
+    end
+
+    if self.state == "COMPANION_DUTY_WAIT" or self.state == "BASE_SECURITY_WAIT" then
+        self:updateSecurityRouteWait(ticks,self.state=="BASE_SECURITY_WAIT")
         return
     end
 
@@ -7806,6 +7908,10 @@ function Controller:tick(ticks)
                 end
                 return
             end
+            if self.securityRoute~=nil and (self.state=="BASE_TASK_MOVE"
+                or self.state=="MOVING_TO_COMPANION_PATROL" or self.state=="MOVING_TO_COMPANION_POINT") then
+                if self:completeSecurityArrival(ticks,self.securityRoute.base) then return end
+            end
             if self.state == "MOVING_TO_COMPANION_POINT" then
                 local directive = self.companionDirective
                 if directive == nil then
@@ -8147,6 +8253,14 @@ function Controller:tick(ticks)
             end
             if self.state == "FLEEING" then
                 self:recoverFleeMovement(movement, ticks)
+                return
+            end
+            if (self.state=="BASE_TASK_MOVE" and self.baseTask~=nil
+                and (self.baseTask.type=="guard" or self.baseTask.type=="patrol"))
+                or self.state=="MOVING_TO_COMPANION_PATROL"
+                or (self.state=="MOVING_TO_COMPANION_POINT" and self.companionDirective~=nil
+                    and self.companionDirective.kind=="guard") then
+                self:deferSecurityRoute(ticks,movement,self.state=="BASE_TASK_MOVE")
                 return
             end
             self:recordMovementFailure("movement", movement, ticks)

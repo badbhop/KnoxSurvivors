@@ -53,6 +53,13 @@ public final class KnoxNpcRegistry {
         return beginMove(id, square, false, pace);
     }
 
+    public synchronized String moveWithinArea(String id, Object square,
+        int minX, int minY, int maxX, int maxY, int z) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) return "MOVE_FAILED NONE_ACTIVE";
+        return runtime.beginMove(square, false, "walk", new KnoxMovementArea(minX, minY, maxX, maxY, z));
+    }
+
     public synchronized boolean updateMovementPace(String id, String pace) {
         KnoxNpcRuntime runtime = activeNpcs.get(id);
         return runtime != null && runtime.updateMovementPace(pace);

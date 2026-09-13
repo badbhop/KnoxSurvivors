@@ -9,10 +9,60 @@ public final class KnoxMovementRequestVerifier {
         verifyOwnershipMetadata();
         verifyZLevelGeometry();
         verifyRuntimeLifecycle();
+        verifyDutyArea();
         System.out.println(
             "KnoxMovementRequestVerifier PASS duplicate=true replacement=true cleanup=true"
                 + " resume=true zLevel=true"
         );
+    }
+
+    private static void verifyDutyArea() {
+        KnoxNpc npc = new KnoxNpc("patrol", new Object(), 2, 2, 0);
+        npc.movementArea = new KnoxMovementArea(0, 0, 10, 10, 0);
+        require(KnoxNpcFactory.acceptMovementRoute(npc, 2.5f, 2.5f, 0, java.util.List.of(
+            new float[] { 2.5f, 2.5f, 0 }, new float[] { 8.5f, 8.5f, 0 }
+        )), "native nodes within the duty area are accepted");
+        require(npc.hasMovementRoute(), "accepted native route reaches the movement driver");
+        require(!KnoxNpcFactory.acceptMovementRoute(npc, 2.5f, 2.5f, 0, java.util.List.of(
+            new float[] { 2.5f, 2.5f, 0 }, new float[] { -1.5f, 8.5f, 0 },
+            new float[] { 8.5f, 8.5f, 0 }
+        )), "an engine shortcut out and back into the area is rejected");
+        require(!npc.hasMovementRoute() && npc.movementArea.isRejected(),
+            "rejected native route never reaches ordinary human movement");
+        npc.movementArea = new KnoxMovementArea(0, 0, 10, 10, 0);
+        require(KnoxNpcFactory.acceptMovementRoute(npc, -5.5f, 2.5f, 0, java.util.List.of(
+            new float[] { -5.5f, 2.5f, 0 }, new float[] { 1.5f, 2.5f, 0 },
+            new float[] { 8.5f, 8.5f, 0 }
+        )), "an outside survivor can approach and enter the duty area");
+        require(npc.movementArea.allowsPosition(-1.5f, 2.5f, 0)
+            && npc.movementArea.allowsPosition(1.5f, 2.5f, 0)
+            && !npc.movementArea.allowsPosition(-0.1f, 2.5f, 0),
+            "after entering, displacement outside ends duty movement");
+        npc.movementArea = new KnoxMovementArea(10, 10, 0, 0, 0);
+        require(npc.movementArea.contains(10.5f, 10.5f, 0)
+            && !npc.movementArea.contains(11f, 10.5f, 0), "inclusive tiles normalize reversed bounds");
+        require(!KnoxNpcFactory.acceptMovementRoute(npc, 2.5f, 2.5f, 0, java.util.List.of(
+            new float[] { 2.5f, 2.5f, 1 }, new float[] { 8.5f, 8.5f, 0 }
+        )), "same XY on another floor is not an in-area patrol route");
+        npc.movementArea = new KnoxMovementArea(0, 0, 10, 10, 0);
+        require(!KnoxNpcFactory.acceptMovementRoute(npc, 2.5f, 2.5f, 0, java.util.List.of(
+            new float[] { Float.NaN, 2, 0 }
+        )), "invalid engine nodes fail closed");
+        FakeMovementEngine engine = new FakeMovementEngine();
+        KnoxNpcRuntime runtime = new KnoxNpcRuntime(npc, engine);
+        Target post = new Target(5, 5, 0);
+        KnoxMovementArea area = new KnoxMovementArea(0, 0, 10, 10, 0);
+        require(runtime.beginMove(post, false, "walk", area).startsWith("MOVE_STARTED"), "bounded route starts");
+        require(runtime.beginMove(post, false, "walk", new KnoxMovementArea(0,0,10,10,0)).contains("existing=true")
+            && engine.starts==1, "duplicate area orders do not continually replace the route");
+        require(runtime.beginMove(post, false, "walk", new KnoxMovementArea(0,0,6,6,0)).contains("replaced=true")
+            && engine.starts==2 && engine.cancels==1, "changed permission replaces even the same target");
+        require(runtime.beginMove(new Target(20,20,0),false,"walk",area).startsWith("MOVE_FAILED"),
+            "bounded request rejects a destination outside the selected area");
+        require(runtime.beginMove(post,false).contains("replaced=true") && npc.movementArea==null,
+            "needs and new ordinary orders release the prior patrol restriction");
+        runtime.cancelMovement();
+        require(npc.movementArea==null, "cancellation never leaves a stale duty area");
     }
 
     private static void verifyZLevelGeometry() {

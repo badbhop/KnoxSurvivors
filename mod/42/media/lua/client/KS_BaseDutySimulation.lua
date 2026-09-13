@@ -29,32 +29,11 @@ function Duty.advance(task, elapsed)
     if completedShifts <= 0 then
         return false, task.offscreenWorkHours
     end
-    -- Keep the existing persisted task as the only source of duty state. A
-    -- patrol that completes an unloaded watch shift advances its next route
-    -- step before the task is requeued; a guard records relief without
-    -- inventing movement or world changes. Loaded controllers continue to use
-    -- CompanionPatrol.recordTaskArrival for physical waypoint traversal.
-    task.offscreenShiftsCompleted = (tonumber(task.offscreenShiftsCompleted) or 0)
-        + completedShifts
-    if canonicalTaskType(task.type) == "patrol" then
-        local patrol = rawget(_G, "KnoxCompanionPatrol")
-        local points = patrol ~= nil and patrol.waypoints ~= nil
-            and patrol.waypoints(task.target) or nil
-        local count = type(points) == "table" and #points or 0
-        if count > 0 then
-            task.patrolStep = (math.max(0, math.floor(tonumber(task.patrolStep) or 0))
-                + completedShifts) % count
-            local stops = math.max(0,
-                math.floor(tonumber(task.patrolStopsCompleted) or 0))
-            -- Keep the completion counter in the same route phase as the
-            -- advanced waypoint. This matters when several shifts elapse
-            -- while the survivor is unloaded; leaving the old counter intact
-            -- would make the next loaded arrival reset at the wrong stop.
-            task.patrolStopsCompleted = (stops + completedShifts) % count
-        end
-    else
-        task.guardReliefCount = (tonumber(task.guardReliefCount) or 0) + completedShifts
-    end
+    -- This records time on duty, not permission to finish the order. Keep the
+    -- claim and actual waypoint evidence until the player releases the watch.
+    -- Streaming cannot invent a patrol arrival or a replacement guard.
+    task.offscreenShiftsCompleted = math.min(1000000,
+        (tonumber(task.offscreenShiftsCompleted) or 0) + completedShifts)
     return true, completedShifts * SHIFT_HOURS
 end
 

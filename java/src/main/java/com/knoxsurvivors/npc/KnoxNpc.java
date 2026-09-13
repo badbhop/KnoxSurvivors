@@ -17,6 +17,7 @@ public final class KnoxNpc {
     private final List<float[]> movementRoute = new ArrayList<>();
     private int movementRouteIndex;
     private String movementPace = "normal";
+    KnoxMovementArea movementArea;
     final KnoxTravelAwareness travelAwareness = new KnoxTravelAwareness();
     private String movementTraversalState = "NONE";
     private final Set<String> movementTraversalEvidence = new LinkedHashSet<>();

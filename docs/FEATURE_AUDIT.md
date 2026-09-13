@@ -1,5 +1,39 @@
 # Feature-completion audit
 
+### Persistent security orders and bounded duty routes - 2026-09-12
+
+**Implemented; live acceptance pending.** Guard and Patrol now share one loaded
+route owner for companions and base workers. Patrol progress is explicit, persists
+with its existing order/task, and counts distinct physical arrivals. Blocked corners
+use nearby standing tiles inside the area; failed stops enter a short cooldown and
+patrols try another stop. Repeated failures retain the order/claim, show a blocked
+route activity and retry with backoff. Needs and danger preempt the watch, while
+Follow/new orders and removed work areas still release it. Diagnostic failures
+include the attempted destination.
+
+The Java movement owner now accepts a transient duty rectangle/floor. Captured
+native paths that leave it after entry are rejected before route driving. Outside
+residents may approach and enter; displacement outside ends that duty movement.
+Changing to ordinary movement releases the restriction, including when the next
+request has the same endpoint. This is a route permission, not a safehouse or combat
+restriction. It does not create a new pathfinder: disconnected areas can remain
+blocked while other stops are retried. A matched updated agent is required for these
+orders; older agents cannot silently run unrestricted patrol routes.
+
+Offscreen watch shifts now accumulate time without finishing/requeueing a permanent
+assignment, relocating the guard into ambient base positions, inventing replacement
+guards, or advancing physical patrol arrivals. Normal stored physiology continues.
+
+Validation: **205 checks passed** (95 Lua sources, 109 Lua regressions, and the full
+Java check/build aggregate including native verifiers). Added production-controller
+and persistence tests for circuits, actual arrivals, repeated failures, ownership,
+needs, external areas and explicit release; Java tests exercise captured-route
+acceptance and movement permission replacement/cleanup. Live native path traversal,
+door/stair layouts, shoves, long watches and streaming acceptance remain pending.
+Candidate packaging also passed the native Workshop validator: all 104 mod source
+files and the single rebuilt agent match the staged payload byte for byte.
+The broader gameplay goal, fluent driving and other unfinished systems remain active.
+
 ### Native microwave cooking and continued outdoor work - 2026-09-12
 
 **Implemented; live acceptance pending.** Automatic residents and the Cooking job

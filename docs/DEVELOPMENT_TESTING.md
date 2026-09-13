@@ -1,5 +1,32 @@
 # Development testing
 
+## Permanent guard/patrol replay - 2026-09-12
+
+Use the matching newly staged mod and Java agent; this adds the area-routing bridge.
+
+1. Give a companion Patrol Area, and assign a resident to a patrol work area. Watch
+   several circuits: real stops and observation pauses should repeat without clearing
+   the order. Include a narrow two-tile area and a larger irregular obstacle layout.
+2. Block one corner, barricade a route, and stream out a destination. The survivor
+   should try another in-area position or keep watch with a blocked-route status.
+   Three failures must not erase Guard/Patrol. Clear the obstruction and verify retry.
+3. Choose an area where the engine would prefer an outside shortcut or another
+   floor. Verify that shortcut is rejected; the NPC must not tour the neighborhood
+   to complete a patrol. Check both entry from outside and normal in-area movement.
+4. Interrupt through thirst, hunger, combat and Follow. Needs/danger should preserve
+   duties for resumption; Follow releases the companion order. Disable a base work
+   area to release its resident, including while they are waiting on a blocked route.
+5. Leave a guard and a partly completed patrol unloaded for more than four game
+   hours, then return/save/reload. The original claims, last guard positions and real
+   patrol progress should remain; needs and elapsed watch time still advance.
+6. Shove/displace a guard outside the area. Verify movement stops safely, then a
+   normal approach can bring them back. Test a new Move/Follow order to the same
+   endpoint to catch a stale area restriction. Read the status log for failure and
+   attempted destination when a route cannot resume.
+
+Offline regressions use native API doubles and captured route data; they do not
+prove game pathfinding or door/stair animation behavior in these layouts.
+
 ## Cooking and outdoor work replay - 2026-09-12
 
 1. In a disposable powered base, assign Main Supplies and optionally a fridge as

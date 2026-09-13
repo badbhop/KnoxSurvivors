@@ -344,11 +344,12 @@ assert(activePhysicalTask.state == "claimed" and activePhysicalTask.offscreenWai
     "active resident never accumulates off-screen work timeout")
 assert(missingStateTask.state == "blocked" and states["missing-state-physical"] == nil,
     "missing survival ledger cannot strand an automatic physical claim")
-assert(guardFinished and guardTask.state == "queued"
-    and guardTask.offscreenShiftsCompleted == 1
+assert(not guardFinished and guardTask.state == "claimed" and guardTask.claimedBy == "guard-worker"
+    and guardTask.offscreenShiftsCompleted == 3
     and states["guard-worker"].lastHours == 13
-    and states["guard-worker"].hunger > .1,
-    "tasked resident physiology and one recurring watch shift advance together")
+    and states["guard-worker"].hunger > .1
+    and states["guard-worker"].virtualX == 100 and states["guard-worker"].virtualY == 200,
+    "guard="..tostring(guardFinished).." state="..tostring(guardTask.state).." owner="..tostring(guardTask.claimedBy).." shifts="..tostring(guardTask.offscreenShiftsCompleted).." hours="..tostring(states["guard-worker"].lastHours).." hunger="..tostring(states["guard-worker"].hunger))
 KnoxPersistence.getActivatableSurvivorIds = originalIds
 KnoxPersistence.getBase = originalBase
 KnoxPersistence.releaseBaseTaskClaim = originalRelease

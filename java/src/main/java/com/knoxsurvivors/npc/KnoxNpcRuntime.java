@@ -145,6 +145,10 @@ final class KnoxNpcRuntime {
     }
 
     String beginMove(Object square, boolean exactAdjacentCrossing, String pace) {
+        return beginMove(square, exactAdjacentCrossing, pace, null);
+    }
+
+    String beginMove(Object square, boolean exactAdjacentCrossing, String pace, KnoxMovementArea area) {
         try {
             float targetX = movementEngine.targetX(square);
             float targetY = movementEngine.targetY(square);
@@ -155,6 +159,13 @@ final class KnoxNpcRuntime {
                 targetZ,
                 exactAdjacentCrossing
             );
+            if (area != null && !area.contains(targetX, targetY, targetZ)) {
+                return "MOVE_FAILED DESTINATION_OUTSIDE_DUTY_AREA";
+            }
+            boolean sameArea = area == null ? npc.movementArea == null : area.sameBounds(npc.movementArea);
+            if (change == KnoxMovementRequest.Change.KEEP && !sameArea) {
+                change = KnoxMovementRequest.Change.REPLACE;
+            }
             if (change == KnoxMovementRequest.Change.KEEP) {
                 npc.setMovementPace(pace);
                 return (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
@@ -174,6 +185,8 @@ final class KnoxNpcRuntime {
             noProgressTicks = 0;
             npc.setMovementPace(pace);
             movementEngine.start(npc, square, exactAdjacentCrossing);
+            npc.movementArea = area;
+            if (area != null) area.allowsPosition(movementStartX, movementStartY, movementEngine.bodyZ(npc));
             movementRequest.activate(targetX, targetY, targetZ, exactAdjacentCrossing);
             movementControllerState = "Working";
             String result = (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
@@ -347,6 +360,7 @@ final class KnoxNpcRuntime {
 
     private void resetMovement() {
         movementRequest.release();
+        npc.movementArea = null;
         movementControllerState = "NotStarted";
         lastProgressX = 0.0f;
         lastProgressY = 0.0f;

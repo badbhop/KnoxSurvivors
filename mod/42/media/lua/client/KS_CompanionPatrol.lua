@@ -20,6 +20,12 @@ local function boundsOf(directive)
         math.max(minX, maxX), math.max(minY, maxY), tonumber(directive.z) or 0
 end
 
+Patrol.bounds = boundsOf
+
+function Patrol.squareKey(square)
+    return tostring(square:getX())..":"..tostring(square:getY())..":"..tostring(square:getZ())
+end
+
 function Patrol.contains(directive, square)
     local minX, minY, maxX, maxY, z = boundsOf(directive)
     return minX ~= nil and square ~= nil and square:getZ() == z
@@ -65,19 +71,77 @@ function Patrol.guardPost(directive, survivorId)
     return Patrol.waypointForStep(directive, survivorId, 0)
 end
 
-function Patrol.recordTaskArrival(task)
+local function recordArrival(task, area)
     if type(task) ~= "table" then return false, 0, 0 end
-    local count = #Patrol.waypoints(task.target)
+    local count = #Patrol.waypoints(area)
     if count == 0 then return false, 0, 0 end
-    local visited = math.max(0, math.floor(tonumber(task.patrolStopsCompleted) or 0)) + 1
+    local step = math.max(0, math.floor(tonumber(task.patrolStep) or 0)) % count
+    -- Existing saves visited the stops sequentially. New obstacle recovery can
+    -- skip a stop, so count unique observed arrivals rather than imaginary laps.
+    local oldCount = math.min(count, math.max(0, math.floor(tonumber(task.patrolStopsCompleted) or 0)))
+    local mask = tonumber(task.patrolVisitedMask) or (2^oldCount-1)
+    mask = math.max(0, math.floor(mask)) % (2^count)
+    local bit = 2^step
+    if math.floor(mask/bit)%2 == 0 then mask = mask+bit end
+    local visited = 0
+    for index=0,count-1 do if math.floor(mask/2^index)%2 == 1 then visited=visited+1 end end
+    task.patrolVisitedMask = mask
     if visited >= count then
         task.patrolStep = 0
         task.patrolStopsCompleted = 0
+        task.patrolVisitedMask = 0
         return true, 0, count
     end
     task.patrolStopsCompleted = visited
-    task.patrolStep = (math.max(0, math.floor(tonumber(task.patrolStep) or 0)) + 1) % count
+    task.patrolStep = (step + 1) % count
     return false, task.patrolStep, count
+end
+
+function Patrol.recordTaskArrival(task)
+    return recordArrival(task, task and task.target)
+end
+
+function Patrol.recordDirectiveArrival(directive)
+    return recordArrival(directive, directive)
+end
+
+-- Resolve a real standing tile around the next stop, never outside the selected
+-- area or on another floor. A blocked corner is not the end of a patrol order.
+function Patrol.resolveWaypoint(area, survivorId, step, cell, current, excluded, ticks, guard)
+    if cell == nil then return nil end
+    local count = #Patrol.waypoints(area)
+    if count == 0 then return nil end
+    step = math.max(0, math.floor(tonumber(step) or 0)) % count
+    for offset=0,(guard and 0 or count-1) do
+        local selected = (step+offset)%count
+        local point = Patrol.waypointForStep(area,survivorId,selected)
+        for radius=0,6 do
+            for dx=-radius,radius do for dy=-radius,radius do
+                if radius==0 or math.max(math.abs(dx),math.abs(dy))==radius then
+                    local square=cell:getGridSquare(point.x+dx,point.y+dy,point.z)
+                    if square~=nil and Patrol.contains(area,square)
+                        and square.canStand~=nil and square:canStand()
+                        and (guard or count==1 or current==nil
+                            or current:getZ()~=square:getZ()
+                            or (current:getX()-square:getX())^2+(current:getY()-square:getY())^2>0)
+                        and (excluded==nil or (excluded[Patrol.squareKey(square)] or 0)<=(ticks or 0)) then
+                        return square,selected,count
+                    end
+                end
+            end end
+        end
+    end
+    return nil,step,count
+end
+
+function Patrol.move(bridge,id,target,area)
+    local x1,y1,x2,y2,z=Patrol.bounds(area)
+    if bridge.moveNpcWithinArea~=nil then
+        return tostring(bridge:moveNpcWithinArea(id,target,x1,y1,x2,y2,z))
+    end
+    -- Old agents cannot enforce route boundaries. Keep the order for a matched
+    -- install rather than silently executing a patrol outside its work area.
+    return "MOVE_FAILED AREA_ROUTING_REQUIRES_UPDATED_AGENT"
 end
 
 function Patrol.nextWaypoint(directive, current, survivorId)

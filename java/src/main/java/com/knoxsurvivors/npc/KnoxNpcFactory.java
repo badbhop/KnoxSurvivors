@@ -288,6 +288,13 @@ final class KnoxNpcFactory {
         Object body = npc.getBody();
         Object pathfinder = invoke(body, "getPathFindBehavior2");
 
+        if (npc.movementArea != null && !npc.movementArea.allowsPosition(
+            ((Number) invoke(body, "getX")).floatValue(),
+            ((Number) invoke(body, "getY")).floatValue(),
+            ((Number) invoke(body, "getZ")).floatValue())) {
+            clearHumanMovementIntent(body);
+            return "FailedDutyAreaDisplacement";
+        }
         if (npc.hasMovementRoute()) {
             return driveCapturedRoute(npc, remainingDistance, pace);
         }
@@ -299,6 +306,7 @@ final class KnoxNpcFactory {
                 return driveCapturedRoute(npc, remainingDistance, pace);
             }
             clearHumanMovementIntent(body);
+            if (npc.movementArea != null && npc.movementArea.isRejected()) return "FailedDutyAreaRoute";
         } else {
             clearHumanMovementIntent(body);
         }
@@ -476,6 +484,17 @@ final class KnoxNpcFactory {
 
         invoke(pathfinder, "cancel");
         invoke(body, "setPath2", classFor(body, "zombie.pathfind.Path"), null);
+        return acceptMovementRoute(npc,
+            ((Number) invoke(body, "getX")).floatValue(),
+            ((Number) invoke(body, "getY")).floatValue(),
+            ((Number) invoke(body, "getZ")).floatValue(), nodes);
+    }
+
+    static boolean acceptMovementRoute(KnoxNpc npc, float x, float y, float z, List<float[]> nodes) {
+        if (npc.movementArea != null && !npc.movementArea.acceptRoute(x, y, z, nodes)) {
+            npc.clearMovementRoute();
+            return false;
+        }
         npc.setMovementRoute(nodes);
         return true;
     }

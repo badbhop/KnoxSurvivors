@@ -8,6 +8,7 @@ local ACTIVITY_BY_STATE = {
     FLEEING = "retreating",
     BASE_AMBIENT_REST = "resting",
     BASE_RECREATION = "reading",
+    BASE_SECURITY_WAIT = "waiting_for_route", COMPANION_DUTY_WAIT = "waiting_for_route",
     BASE_TASK_MOVE = "working_at_base",
     BASE_TASK_WORK = "working_at_base",
     BASE_TASK_ACTION = "working_at_base",

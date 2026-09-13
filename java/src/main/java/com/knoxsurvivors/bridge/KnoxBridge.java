@@ -67,6 +67,11 @@ public final class KnoxBridge {
         return npcRegistry.moveWithPace(id, square, pace);
     }
 
+    public String moveNpcWithinArea(String id, Object square,
+        int minX, int minY, int maxX, int maxY, int z) {
+        return npcRegistry.moveWithinArea(id, square, minX, minY, maxX, maxY, z);
+    }
+
     public boolean setNpcMovementPace(String id, String pace) {
         return npcRegistry.updateMovementPace(id, pace);
     }

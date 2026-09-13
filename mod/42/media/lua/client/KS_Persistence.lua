@@ -2476,6 +2476,28 @@ function KnoxPersistence.setCompanionDirective(id, playerId, directive, worldAge
     return true
 end
 
+-- Arrival/obstacle progress belongs to the existing order. Updating it must
+-- neither issue a replacement order nor reset the controller through a revision.
+function KnoxPersistence.advanceCompanionPatrol(id, playerId, expected, step, arrived)
+    local survivor=ensureSurvivorState(id)
+    local patrol=rawget(_G,"KnoxCompanionPatrol")
+    if survivor==nil or survivor.alive==false or patrol==nil or type(expected)~="table"
+        or survivor.affiliation.kind~="player" or survivor.affiliation.ownerId~=playerId
+        or survivor.duty.mode~="companion" or survivor.duty.directive~=expected
+        or expected.kind~="patrol_area" then return false end
+    local count=#patrol.waypoints(expected)
+    step=tonumber(step)
+    if count==0 or step==nil or step~=step or step==math.huge or step==-math.huge then return false end
+    expected.patrolStep=math.max(0,math.floor(step))%count
+    if arrived then
+        local complete=patrol.recordDirectiveArrival(expected)
+        if complete then expected.patrolLaps=math.min(1000000,(tonumber(expected.patrolLaps) or 0)+1) end
+    else
+        expected.patrolStep=(expected.patrolStep+1)%count
+    end
+    return true
+end
+
 function KnoxPersistence.clearCompanionDirective(id, playerId, worldAgeHours)
     local survivor = ensureSurvivorState(id)
     if survivor == nil or survivor.affiliation.kind ~= "player"

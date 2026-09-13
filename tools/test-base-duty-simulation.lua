@@ -7,13 +7,13 @@ assert(complete == false and hours == 1.5, "watch shift should accumulate work")
 complete, hours = duty.advance(guard, 2.5)
 assert(complete == true and hours == 4 and guard.offscreenWorkHours == 0,
     "watch shift should complete once per four hours")
-assert(guard.offscreenShiftsCompleted == 1 and guard.guardReliefCount == 1,
-    "completed unloaded guard shifts should record relief without inventing movement")
+assert(guard.offscreenShiftsCompleted == 1 and guard.guardReliefCount == nil,
+    "elapsed watch time must not invent replacement guards")
 
 local longGuard = { type = "guard", state = "claimed" }
 complete, hours = duty.advance(longGuard, 10.5)
 assert(complete == true and hours == 8 and longGuard.offscreenShiftsCompleted == 2
-    and longGuard.guardReliefCount == 2 and longGuard.offscreenWorkHours == 2.5,
+    and longGuard.guardReliefCount == nil and longGuard.offscreenWorkHours == 2.5,
     "long unloaded intervals should preserve every completed guard shift and remainder")
 
 KnoxCompanionPatrol = {
@@ -27,7 +27,7 @@ local patrol = { type = "patrol", state = "claimed", patrolStep = 0,
 complete = duty.advance(patrol, 12.5)
 assert(complete == true and patrol.offscreenShiftsCompleted == 3
     and patrol.patrolStep == 0 and patrol.patrolStopsCompleted == 1,
-    "completed unloaded patrol shifts should advance the next route step")
+    "unloaded time leaves physical patrol evidence unchanged")
 KnoxCompanionPatrol.waypoints = function()
     return { { x = 1, y = 1, z = 0 }, { x = 2, y = 2, z = 0 },
         { x = 3, y = 3, z = 0 }, { x = 4, y = 4, z = 0 } }
@@ -35,9 +35,9 @@ end
 local fourPointPatrol = { type = "patrol", state = "claimed", patrolStep = 1,
     patrolStopsCompleted = 1 }
 assert(duty.advance(fourPointPatrol, 12.5) == true
-    and fourPointPatrol.patrolStep == 0
-    and fourPointPatrol.patrolStopsCompleted == 0,
-    "offline patrol stop phase must wrap against the actual route length")
+    and fourPointPatrol.patrolStep == 1
+    and fourPointPatrol.patrolStopsCompleted == 1,
+    "streaming must not invent waypoint arrivals or erase actual route progress")
 
 local physical = { type = "farm_seed", state = "claimed" }
 complete = duty.advance(physical, 20)

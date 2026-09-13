@@ -224,7 +224,19 @@ local function advanceWorldActivity(id, state, elapsed, hours)
     if duty.mode == "base" and duty.baseId ~= nil then
         local base = persistence.getBase ~= nil and persistence.getBase(duty.baseId) or nil
         local area = base ~= nil and (base.territory or base.home) or nil
-        if area ~= nil then
+        local task = nil
+        if base ~= nil and type(base.tasks) == "table" then
+            for _, candidate in pairs(base.tasks) do
+                if candidate ~= nil and candidate.state == "claimed"
+                    and candidate.claimedBy == id then
+                    task = candidate
+                    break
+                end
+            end
+        end
+        local security = task~=nil and KnoxBaseDutySimulation~=nil
+            and KnoxBaseDutySimulation.canAdvanceOffscreen(task)
+        if area ~= nil and not security then
             -- A stored resident should not return to the exact old tile every
             -- time, or make a whole settlement reappear in one stack.  This is
             -- low-cost ambient base life rather than simulated pathfinding: each
@@ -240,35 +252,13 @@ local function advanceWorldActivity(id, state, elapsed, hours)
             y = minY + (math.floor(seed / width) % height)
             z = tonumber(area.z) or z
         end
-        local task = nil
-        if base ~= nil and type(base.tasks) == "table" then
-            for _, candidate in pairs(base.tasks) do
-                if candidate ~= nil and candidate.state == "claimed"
-                    and candidate.claimedBy == id then
-                    task = candidate
-                    break
-                end
-            end
-        end
         local workingOffscreen = false
         if task ~= nil and KnoxBaseDutySimulation ~= nil then
-            local completed = KnoxBaseDutySimulation.advance(task, elapsed)
+            KnoxBaseDutySimulation.advance(task, elapsed)
             workingOffscreen = true
-            if completed and persistence.finishBaseTask ~= nil then
-                persistence.finishBaseTask(
-                    duty.baseId, task.id, id, true,
-                    "offscreen_watch_shift_complete", hours
-                )
-                -- Guard and patrol are recurring zone duties. Requeue the
-                -- finished record after its normal retry window so another
-                -- resident can take relief while the base remains unloaded.
-                local taskType = canonicalTaskType(task.type)
-                if (taskType == "guard" or taskType == "patrol")
-                    and persistence.requeueBaseTask ~= nil then
-                    persistence.requeueBaseTask(duty.baseId, task.id, hours)
-                end
-            end
-            setActivity(state, completed and "base_life" or "base_working", hours)
+            -- A completed watch shift is elapsed time, not a completed Guard or
+            -- Patrol order. Preserve the task owner and last physical location.
+            setActivity(state, "base_working", hours)
         end
         if not workingOffscreen then setActivity(state, "base_life", hours) end
     elseif duty.mode == "companion" then
