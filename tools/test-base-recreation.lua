@@ -148,3 +148,69 @@ assert(not bagInventory:contains(book) and stored:contains(book))
 KnoxSettings.baseReadingEnabled=function() return false end
 assert(not c:beginBaseRecreation(9000), "sandbox switch disables voluntary reading")
 print("Book loan recovery PASS nested_inventory=true disabled_option=true")
+
+-- Native character actions can be empty while the Lua action is still queued.
+-- Drive each transfer/read phase across that boundary instead of treating it as
+-- failure or completion and clearing the action before it starts.
+KnoxSettings.baseReadingEnabled=function() return true end
+actor.getCharacterActions=function() return {isEmpty=function() return true end} end
+carried.values={};stored.values={book};book.data={};current=square(3)
+local delayed=assert(r.find(actor,base,function() return true end))
+assert(r.step(delayed,actor,base,bridge,"reader",10000)=="working")
+assert(delayed.phase=="borrowing")
+assert(r.step(delayed,actor,base,bridge,"reader",10001)=="working" and delayed.phase=="borrowing")
+transfer()
+r.step(delayed,actor,base,bridge,"reader",10002)
+local reading=queue.current
+r.step(delayed,actor,base,bridge,"reader",10003)
+assert(delayed.phase=="reading" and queue.current==reading,"queued reading survives the native start gap")
+reading:perform()
+r.step(delayed,actor,base,bridge,"reader",10004)
+r.step(delayed,actor,base,bridge,"reader",10005)
+assert(delayed.phase=="returning")
+assert(r.step(delayed,actor,base,bridge,"reader",10006)=="working" and carried:contains(book))
+transfer()
+assert(r.step(delayed,actor,base,bridge,"reader",10007)=="done")
+
+local interrupted=assert(r.find(actor,base,function() return true end))
+r.step(interrupted,actor,base,bridge,"reader",11000)
+transfer() -- native completion precedes the controller's next update
+assert(book.data.KnoxBaseBookLoan==nil)
+r.cancelAction(actor,interrupted)
+assert(book.data.KnoxBaseBookLoan.storageKey=="library","late completion must still preserve the physical loan")
+KnoxSettings.baseReadingEnabled=function() return false end
+local disabledReturn=assert(r.find(actor,base,function() return true end,false))
+assert(disabledReturn.phase=="return")
+r.step(disabledReturn,actor,base,bridge,"reader",11001);transfer()
+assert(r.step(disabledReturn,actor,base,bridge,"reader",11002)=="done")
+assert(r.find(actor,base,function() return true end,false)==nil,"disabled reading cannot borrow new books")
+
+KnoxSettings.baseReadingEnabled=function() return true end
+local revoked=assert(r.find(actor,base,function() return true end))
+store.container=inventory({}) -- same policy now resolves a replacement container
+local revokedResult,revokedReason=r.step(revoked,actor,base,bridge,"reader",12000)
+assert(revokedResult=="failed" and revokedReason=="book_no_longer_available" and queue.current==nil
+    and stored:contains(book),"a stale storage selection cannot take from the former container")
+store.container=stored
+local switched=assert(r.find(actor,base,function() return true end))
+r.step(switched,actor,base,bridge,"reader",12001);transfer()
+r.step(switched,actor,base,bridge,"reader",12002)
+assert(switched.phase=="reading")
+KnoxSettings.baseReadingEnabled=function() return false end
+r.step(switched,actor,base,bridge,"reader",12003)
+assert(switched.phase=="returning" and queue.current.Type~="KnoxNpcReadAction", "disabling reading interrupts the native read and returns its loan")
+transfer()
+assert(r.step(switched,actor,base,bridge,"reader",12004)=="done")
+print("Reading ownership PASS delayed_native_start=true late_transfer_loan=true revoked_storage=true disabled_return=true")
+
+KnoxSettings.baseReadingEnabled=function() return true end
+local lateReturn=assert(r.find(actor,base,function() return true end))
+r.step(lateReturn,actor,base,bridge,"reader",13000);transfer()
+r.step(lateReturn,actor,base,bridge,"reader",13001)
+queue.current:perform()
+r.step(lateReturn,actor,base,bridge,"reader",13002)
+r.step(lateReturn,actor,base,bridge,"reader",13003);transfer()
+assert(book.data.KnoxBaseBookLoan~=nil)
+r.cancelAction(actor,lateReturn)
+assert(book.data.KnoxBaseBookLoan==nil and stored:contains(book), "interruption after native return clears the completed loan")
+print("Late native book return PASS receipt_cleanup=true")

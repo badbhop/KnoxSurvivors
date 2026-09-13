@@ -547,8 +547,8 @@ print("Autonomy formation PASS release=true slots=true refresh=true corpse_inter
 -- Ambient movement must not constantly replace work or funnel residents
 -- downstairs. Occupied tiles and outdoor nighttime targets are rejected.
 local occupied, indoors, hour = false, false, 12
-local current = square(5, 5, 1)
-local candidate = square(10, 20, 1)
+local current = square(10, 20, 1)
+local candidate = square(12, 20, 1)
 candidate.getMovingObjects = function()
     return { size = function() return occupied and 1 or 0 end }
 end
@@ -558,6 +558,11 @@ local requestedZ
 local randomBounds = {}
 ZombRand = function(bound) randomBounds[#randomBounds + 1] = bound; return 0 end
 cell.getGridSquare = function(_, x, y, z) requestedZ = z; return candidate end
+KnoxBaseManager=KnoxBaseManager or {}
+KnoxBaseManager.containsSquare=function(base,sq)
+    local area=base.territory or base.home
+    return sq:getX()>=area.minX and sq:getX()<=area.maxX and sq:getY()>=area.minY and sq:getY()<=area.maxY
+end
 local ambient = setmetatable({
     base = { home = { minX = 10, minY = 20, width = 3, height = 3, z = 0 },
         territory = { minX = 9, minY = 19, maxX = 13, maxY = 23, allFloors = true } },
@@ -566,7 +571,7 @@ local ambient = setmetatable({
 assert(ambient:findBaseMovementTarget(false) == candidate and requestedZ == 1,
     "daytime ambient movement may use outdoors but stays on current floor")
 assert(randomBounds[1] == 5 and randomBounds[2] == 5,
-    "persisted min/max territory samples the whole yard, not one corner")
+    "a small persisted min/max territory remains available for local walks")
 occupied = true
 assert(ambient:findBaseMovementTarget(false) == nil, "avoid gathering on occupied tiles")
 occupied, hour = false, 22

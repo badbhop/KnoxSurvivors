@@ -1,5 +1,26 @@
 # Feature-completion audit
 
+### Local base leisure and reliable book loans - 2026-09-12
+
+**Implemented; live acceptance pending.** Idle residents now choose short walks
+within six tiles on their current floor, use bounded native base routes, avoid
+occupied tiles and recently perceived danger, and hold their indoor/yard preference
+for two minutes. Nighttime destinations must be indoors; previous origins have a
+bounded cooldown to prevent immediate backtracking. The scan stays at 24 candidates
+regardless of territory size. The HUD calls this "Walking around base".
+
+Reading and book transfers now respect both the Lua queue and native action state.
+A native completion immediately followed by an interruption preserves/clears the
+physical loan receipt correctly. Removed/replaced storage is checked before taking
+a book; disabling voluntary reading interrupts it and still allows loan returns.
+No reading progress, inventory transfer or destination arrival is fabricated.
+
+Validation: 95 Lua syntax checks and 110 Lua regression scripts passed. Added actual
+controller/base-manager tests for bounded scans, floor/territory, occupancy, night,
+danger, backtracking and native area dispatch, plus delayed-action and interruption
+book tests. The native route implementation was unchanged from the preceding verified
+Java checkpoint. Live routes, book animations and household pacing remain pending.
+
 ### Persistent security orders and bounded duty routes - 2026-09-12
 
 **Implemented; live acceptance pending.** Guard and Patrol now share one loaded

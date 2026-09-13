@@ -3785,7 +3785,7 @@ function Controller:refreshFormationFollow(ticks)
     return true
 end
 
-function Controller:findBaseMovementTarget(returning)
+function Controller:findBaseMovementTarget(returning, ticks)
     local home = self.base ~= nil and self.base.home or nil
     local cell = getCell()
     if home == nil or cell == nil then
@@ -3823,30 +3823,54 @@ function Controller:findBaseMovementTarget(returning)
         return nil
     end
     local current = self.character:getCurrentSquare()
+    if current==nil or not KnoxBaseManager.containsSquare(self.base,current) then return nil end
     local hour = getGameTime ~= nil and getGameTime():getTimeOfDay() or 12
     local daylight = hour >= 7 and hour < 20
-    if daylight and self.base.territory ~= nil then home = self.base.territory end
-    z = current ~= nil and current:getZ() or z
-    -- Persisted territory uses inclusive min/max bounds; home uses width/height.
-    local width = math.max(1, math.floor(tonumber(home.width)
-        or ((tonumber(home.maxX) or home.minX) - home.minX + 1)))
-    local height = math.max(1, math.floor(tonumber(home.height)
-        or ((tonumber(home.maxY) or home.minY) - home.minY + 1)))
-    for _ = 1, 12 do
-        local square = cell:getGridSquare(
-            math.floor(tonumber(home.minX) or 0) + ZombRand(width),
-            math.floor(tonumber(home.minY) or 0) + ZombRand(height),
-            z
-        )
-        if square ~= nil and square:canStand()
-            and square ~= current
-            and safeMethod(square, "getMovingObjects", nil) ~= nil
-            and square:getMovingObjects():size() == 0
-            and (daylight or safeMethod(square, "getRoom", nil) ~= nil) then
-            return square
+    local area = self.base.territory or home
+    local minX,minY=tonumber(area.minX),tonumber(area.minY)
+    if minX==nil or minY==nil then return nil end
+    local maxX=tonumber(area.maxX) or (minX+math.max(1,tonumber(area.width) or 1)-1)
+    local maxY=tonumber(area.maxY) or (minY+math.max(1,tonumber(area.height) or 1)-1)
+    z=current:getZ()
+    self.ambientMovementArea={minX=minX,minY=minY,maxX=maxX,maxY=maxY,z=z}
+    -- A leisure walk is a short change of spot. It must not choose the other
+    -- side of a large territory or use a different floor just to pass time.
+    minX,maxX=math.max(minX,current:getX()-6),math.min(maxX,current:getX()+6)
+    minY,maxY=math.max(minY,current:getY()-6),math.min(maxY,current:getY()+6)
+    local width,height=math.floor(maxX-minX+1),math.floor(maxY-minY+1)
+    if width<1 or height<1 then return nil end
+    ticks=tonumber(ticks) or 0
+    -- Keep the indoor/yard preference for two minutes, staggered per resident.
+    -- It is a preference: a blocked yard does not force repeated door attempts.
+    local preferOutside=daylight and (math.floor(ticks/7200)+Controller.baseIdleJitter(self.id))%4==0
+    local currentOutside=safeMethod(current,"getRoom",nil)==nil
+    local best,bestScore=nil,-math.huge
+    for _=1,24 do
+        local square=cell:getGridSquare(minX+ZombRand(width),minY+ZombRand(height),z)
+        local distance=square~=nil and navigationDistanceSquared(current,square) or math.huge
+        local moving=safeMethod(square,"getMovingObjects",nil)
+        local outside=safeMethod(square,"getRoom",nil)==nil
+        local suitable=square~=nil and square:canStand() and distance>=4 and distance<=36
+            and KnoxBaseManager.containsSquare(self.base,square)
+            and moving~=nil and moving:size()==0 and (daylight or not outside)
+        if suitable and self.lastAmbientOrigin~=nil and ticks<(self.lastAmbientOriginUntil or 0)
+            and navigationDistanceSquared(square,self.lastAmbientOrigin)==0 then suitable=false end
+        if suitable then
+            -- Reuse perceived danger; no extra world/zombie scan per idle tile.
+            for threat,memory in pairs(self.perceivedThreats or {}) do
+                local threatSquare=safeMethod(threat,"getCurrentSquare",nil)
+                if ticks-(memory.lastSeen or 0)<=THREAT_MEMORY_TICKS
+                    and not safeMethod(threat,"isDead",true)
+                    and navigationDistanceSquared(square,threatSquare)<=36 then suitable=false;break end
+            end
+        end
+        if suitable then
+            local score=(outside==preferOutside and 100 or 0)+(outside==currentOutside and 20 or 0)
+                - math.abs(distance-16)
+            if score>bestScore then best,bestScore=square,score end
         end
     end
-    return nil
+    return best
 end
 
 function Controller:beginBaseMovement(ticks, returning)
@@ -3856,7 +3880,7 @@ function Controller:beginBaseMovement(ticks, returning)
         return false
     end
     if not returning then self.nextAmbientMoveAt = ticks + 1800 end
-    local target = self:findBaseMovementTarget(returning)
+    local target = self:findBaseMovementTarget(returning,ticks)
     if target == nil then
         self.activeDecision = "base_idle"
         self.state = "BASE_IDLE"
@@ -3866,18 +3890,21 @@ function Controller:beginBaseMovement(ticks, returning)
     if self.character:isSitOnGround() or self.character:isSittingOnFurniture() then
         self:leaveRecoveryPosture()
     end
-    local result = tostring((moveWithTravelPace(
-        self.bridge,
-        self.id,
-        self.character,
-        target,
-        returning and "return_home" or "local"
-    )))
+    local result
+    if returning then
+        result=tostring((moveWithTravelPace(self.bridge,self.id,self.character,target,"return_home")))
+    else
+        result=tostring(KnoxCompanionPatrol.move(self.bridge,self.id,target,self.ambientMovementArea))
+    end
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
         self.activeDecision = "base_idle"
         self.state = "BASE_IDLE"
         self.nextThink = ticks + 120
         return false
+    end
+    if not returning then
+        self.lastAmbientOrigin=self.character:getCurrentSquare()
+        self.lastAmbientOriginUntil=ticks+7200
     end
     self.activeDecision = returning and "return_to_base" or "patrol_base"
     self.state = returning and "BASE_RETURN" or "BASE_PATROL"
@@ -5146,13 +5173,14 @@ end
 function Controller:beginBaseRecreation(ticks)
     if KnoxBaseRecreation==nil or self.base==nil or self.baseTask~=nil
         or not KnoxBaseManager.containsSquare(self.base,self.character:getCurrentSquare())
-        or (KnoxSettings~=nil and KnoxSettings.baseReadingEnabled~=nil and not KnoxSettings.baseReadingEnabled())
-        or ticks<(self.nextRecreationAt or 0) or not self.character:getCharacterActions():isEmpty() then return false end
+        or ticks<(self.nextRecreationAt or 0) or not self.character:getCharacterActions():isEmpty()
+        or ISTimedActionQueue.getTimedActionQueue(self.character).current~=nil then return false end
     self.nextRecreationAt=ticks+1800
     self.recentReading=self.recentReading or setmetatable({}, {__mode="k"})
+    local readingEnabled=KnoxSettings==nil or KnoxSettings.baseReadingEnabled==nil or KnoxSettings.baseReadingEnabled()
     local plan=KnoxBaseRecreation.find(self.character,self.base,function(item,returning)
         return (returning or (self.recentReading[item] or 0)<=ticks) and not reservedByOther(self.reservations,"items",item,self.id)
-    end)
+    end,readingEnabled)
     if plan==nil or not reserve(self.reservations,"items",plan.item,self.id) then return false end
     self.pendingRecreation=plan
     self.recreationStartedAt=ticks

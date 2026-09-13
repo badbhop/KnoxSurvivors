@@ -37,6 +37,7 @@ local ACTIVITY_LABELS = {
     returning_home = "Returning to base",
     working_at_base = "Working at base",
     at_base = "At base",
+    walking_at_base = "Walking around base",
     scouting_base = "Looking for a base",
     meeting = "Talking",
     stopped = "Stopped",

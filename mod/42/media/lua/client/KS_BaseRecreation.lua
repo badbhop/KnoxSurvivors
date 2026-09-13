@@ -66,7 +66,7 @@ local function scan(container, visitor, seen, depth)
     return nil
 end
 
-function Recreation.find(character, base, available)
+function Recreation.find(character, base, available, allowReading)
     if character == nil or base == nil or call(character,"getVehicle",nil) ~= nil then return nil end
     local origin,inventory=character:getCurrentSquare(),character:getInventory()
     if origin == nil or inventory == nil then return nil end
@@ -78,7 +78,7 @@ function Recreation.find(character, base, available)
         end
     end,{},0)
     if returning~=nil then return returning end
-    if call(character,"tooDarkToRead",true) then return nil end
+    if allowReading==false or call(character,"tooDarkToRead",true) then return nil end
     local owned = scan(inventory,function(item,source)
         if available(item) and Recreation.readable(character,item) then
             return {item=item,source=source,baseId=base.id,phase="prepare"}
@@ -127,6 +127,20 @@ local function nearby(character,store)
 end
 
 function Recreation.cancelAction(character,plan)
+    -- The native transfer may finish just before an order/threat interrupts us.
+    -- Record the physical loan before clearing the action, even if step() never
+    -- observed its completion. A later controller can still return the book.
+    if plan.phase=="borrowing" and plan.sourcePolicy~=nil
+        and carriedSource(character:getInventory(),plan.item)~=nil
+        and not plan.source:contains(plan.item) then
+        plan.borrowed=true
+        plan.item:getModData().KnoxBaseBookLoan={baseId=plan.baseId,storageKey=plan.sourcePolicy}
+    elseif plan.phase=="returning" and plan.returnContainer~=nil
+        and plan.returnContainer:contains(plan.item)
+        and carriedSource(character:getInventory(),plan.item)==nil then
+        local loan=call(plan.item,"getModData",{}).KnoxBaseBookLoan
+        if type(loan)=="table" and loan.baseId==plan.baseId then plan.item:getModData().KnoxBaseBookLoan=nil end
+    end
     local queue=ISTimedActionQueue.getTimedActionQueue(character)
     if plan.action~=nil and queue:indexOf(plan.action)~=-1 then
         if queue.current==plan.action then ISTimedActionQueue.clear(character)
@@ -147,7 +161,17 @@ end
 function Recreation.step(plan,character,base,bridge,id,ticks)
     if base==nil or base.id~=plan.baseId then return "failed","base_changed" end
     local inventory=character:getInventory()
+    local queue=ISTimedActionQueue.getTimedActionQueue(character)
     local busy=not character:getCharacterActions():isEmpty()
+    local actionPending=plan.action~=nil and queue:indexOf(plan.action)~=-1
+    local readingEnabled=KnoxSettings==nil or KnoxSettings.baseReadingEnabled==nil or KnoxSettings.baseReadingEnabled()
+    if not readingEnabled and plan.phase~="return" and plan.phase~="return_move" and plan.phase~="returning" then
+        if plan.phase=="borrow_move" then bridge:cancelNpcMove(id) end
+        Recreation.cancelAction(character,plan)
+        plan.phase="return"
+        busy=not character:getCharacterActions():isEmpty()
+        actionPending=false
+    end
     if plan.phase=="borrow_move" or plan.phase=="return_move" then
         local result=tostring(bridge:tickNpc(id))
         if result=="Succeeded" then
@@ -158,7 +182,8 @@ function Recreation.step(plan,character,base,bridge,id,ticks)
         return "working"
     end
     if plan.phase=="borrowing" then
-        if busy then return "working" end
+        if ticks-(plan.actionStarted or ticks)>1800 then return "failed","book_transfer_timeout" end
+        if busy or actionPending then return "working" end
         if not inventory:contains(plan.item) or plan.source:contains(plan.item) then
             return "failed","book_transfer_not_completed"
         end
@@ -175,11 +200,14 @@ function Recreation.step(plan,character,base,bridge,id,ticks)
             if plan.sourcePolicy~=nil then
                 local store=assignedStore(base,plan.sourcePolicy)
                 if store==nil then return "failed","book_storage_unavailable" end
+                local actualSource=carriedSource(store.container,plan.item)
+                if actualSource==nil or call(plan.item,"isFavorite",false) then return "failed","book_no_longer_available" end
+                plan.source=actualSource
                 if not nearby(character,store) then return moveToStore(plan,store,character,bridge,id,ticks,"borrow_move") end
             end
             local action,reason=KnoxInventoryActions.queueTransfer(character,plan.item,plan.source,inventory,nil)
             if action==nil then return "failed",reason end
-            plan.action,plan.phase=action,"borrowing"
+            plan.action,plan.phase,plan.actionStarted=action,"borrowing",ticks
             return "working"
         end
         if not Recreation.readable(character,plan.item) then
@@ -195,7 +223,7 @@ function Recreation.step(plan,character,base,bridge,id,ticks)
         return "working"
     end
     if plan.phase=="reading" then
-        if busy and ticks-(plan.readStarted or ticks)<3600 then return "working" end
+        if (busy or actionPending) and ticks-(plan.readStarted or ticks)<3600 then return "working" end
         plan.completed=plan.action~=nil and plan.action.knoxReadingFinished==true
         Recreation.cancelAction(character,plan)
         plan.phase="return"
@@ -215,11 +243,12 @@ function Recreation.step(plan,character,base,bridge,id,ticks)
         if not nearby(character,store) then return moveToStore(plan,store,character,bridge,id,ticks,"return_move") end
         local action,reason=KnoxInventoryActions.queueTransfer(character,plan.item,source,store.container,nil)
         if action==nil then return "done","book_retained:"..tostring(reason) end
-        plan.phase,plan.action,plan.returnContainer="returning",action,store.container
+        plan.phase,plan.action,plan.returnContainer,plan.actionStarted="returning",action,store.container,ticks
         return "working"
     end
     if plan.phase=="returning" then
-        if busy then return "working" end
+        if ticks-(plan.actionStarted or ticks)>1800 then return "failed","book_return_timeout" end
+        if busy or actionPending then return "working" end
         if carriedSource(inventory,plan.item)~=nil or not plan.returnContainer:contains(plan.item) then
             return "failed","book_return_not_completed"
         end

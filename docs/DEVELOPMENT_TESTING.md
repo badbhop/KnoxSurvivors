@@ -1,5 +1,17 @@
 # Development testing
 
+### Base downtime replay - 2026-09-12
+
+Use the matching updated agent. Leave several idle residents in a large base with
+rooms, an upper floor and a yard. Confirm short walks, no immediate doorway ping-pong,
+no pileups at occupied destinations, and indoor destinations after dark. A blocked
+route should settle into an idle retry rather than escaping the base boundary.
+Place a suitable book in assigned storage: watch collection, native reading and
+return. Give Follow during the transfer/read/return, then restore base duty; the
+physical book must remain accounted for. Turn off Base Reading during a read and
+confirm the book is returned without starting another read. These checks also apply
+to autonomous faction residents at their own base.
+
 ## Permanent guard/patrol replay - 2026-09-12
 
 Use the matching newly staged mod and Java agent; this adds the area-routing bridge.
