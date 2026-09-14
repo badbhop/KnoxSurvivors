@@ -10,6 +10,11 @@ require "TimedActions/ISTimedActionQueue"
 local Firearms = rawget(_G, "KnoxFirearmSupport") or {}
 _G.KnoxFirearmSupport = Firearms
 local FIREARM_SWITCH_MARGIN = 1.5
+local AIMING_ASSIST_BONUS = {
+    [1] = 0,
+    [2] = 2,
+    [3] = 4,
+}
 
 local function safe(call, fallback)
     local success, value = pcall(call)
@@ -160,6 +165,42 @@ function Firearms.preferenceFor(id)
     return (preference == "melee" or preference == "ranged") and preference or "auto"
 end
 
+local function nativeAimingLevel(character)
+    local level = tonumber(safe(function()
+        return character:getPerkLevel(Perks.Aiming)
+    end, 0)) or 0
+    return math.max(0, math.min(10, math.floor(level)))
+end
+
+function Firearms.aimingAssistLevel()
+    local settings = rawget(_G, "KnoxSettings")
+    local configured = settings ~= nil and settings.survivorAimingAssist ~= nil
+        and settings.survivorAimingAssist() or 1
+    configured = tonumber(configured) or 1
+    return math.max(1, math.min(3, math.floor(configured)))
+end
+
+-- This is an AI decision level only. It never changes the character's native
+-- Aiming perk, XP, weapon stats, or the engine's shot calculation.
+function Firearms.aimingDecisionLevel(character)
+    local native = nativeAimingLevel(character)
+    local bonus = AIMING_ASSIST_BONUS[Firearms.aimingAssistLevel()] or 0
+    return math.min(10, native + bonus), native, bonus
+end
+
+-- Java owns the visible aim posture. Lua supplies a bounded settle time that
+-- reflects the real Aiming level while allowing the sandbox assistance modes to
+-- make test/forgiving profiles less hesitant.
+function Firearms.aimSettleTicks(id, character)
+    local primary = safe(function() return character:getPrimaryHandItem() end, nil)
+    if not isFunctionalGun(primary) then
+        return 18
+    end
+    local _, native, bonus = Firearms.aimingDecisionLevel(character)
+    local ticks = 18 + (5 - native) * 2 - bonus * 2
+    return math.max(8, math.min(30, math.floor(ticks)))
+end
+
 local function hasUsableMelee(character)
     local carried = items(character)
     if carried == nil then return false end
@@ -179,7 +220,7 @@ function Firearms.wantsRanged(id, character, target)
     if preference == "ranged" then return true, "ordered_ranged" end
     if not hasUsableMelee(character) then return true, "no_usable_melee" end
     if preference == "melee" then return false, "ordered_melee" end
-    local aiming = safe(function() return character:getPerkLevel(Perks.Aiming) end, 0)
+    local aiming = Firearms.aimingDecisionLevel(character)
     local distance = safe(function()
         if target == nil or character:getZ() ~= target:getZ() then return 0 end
         return (character:getX() - target:getX()) ^ 2 + (character:getY() - target:getY()) ^ 2

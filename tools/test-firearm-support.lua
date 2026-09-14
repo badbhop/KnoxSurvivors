@@ -255,6 +255,8 @@ print("Firearm support PASS readiness=true stable=true reload=true rack=true noA
 local preference = "auto"
 KnoxPersistence = { getSurvivorPolicies = function() return { weaponPreference = preference } end }
 Perks = { Aiming = "Aiming" }
+local aimingAssist = 1
+KnoxSettings = { survivorAimingAssist = function() return aimingAssist end }
 local target = { x = 8, z = 0, getX = function(self) return self.x end,
     getY = function() return 0 end, getZ = function(self) return self.z end }
 activeCharacter = character({ loaded, hammer })
@@ -267,6 +269,8 @@ assert(not support.wantsRanged("preference", activeCharacter, target), "novice w
 assert(support.prepareForThreat("preference", activeCharacter, bridge, target) == "melee"
     and activeCharacter.primary == hammer)
 activeCharacter.aiming = 5
+local nativeSettle = support.aimSettleTicks("preference", activeCharacter)
+assert(nativeSettle == 18, "native skill five keeps the established aim settle time")
 assert(support.prepareForThreat("preference", activeCharacter, bridge, target) == "ready"
     and activeCharacter.primary == loaded, "trained shooter with room may select a viable gun")
 target.x = 1
@@ -286,6 +290,32 @@ local reloadBefore = reloadAttempts
 assert(support.prepareForThreat("preference", activeCharacter, bridge, target) == "melee"
     and activeCharacter.primary == hammer and reloadAttempts == reloadBefore,
     "ranged order cannot manufacture ammunition or loop reload")
+activeCharacter = character({ loaded, hammer })
+activeCharacter.primary = loaded
+activeCharacter.aiming = 2
+function activeCharacter:getPerkLevel(perk) assert(perk == Perks.Aiming) return self.aiming end
+function activeCharacter:getX() return 0 end
+function activeCharacter:getY() return 0 end
+function activeCharacter:getZ() return 0 end
+preference = "auto"
+aimingAssist = 1
+assert(not support.wantsRanged("assist", activeCharacter, target),
+    "native skills keep a low-skill survivor conservative")
+local nativeLowSettle = support.aimSettleTicks("assist", activeCharacter)
+aimingAssist = 2
+assert(support.wantsRanged("assist", activeCharacter, target),
+    "basic sandbox assistance improves firearm decision readiness")
+local assistedSettle = support.aimSettleTicks("assist", activeCharacter)
+aimingAssist = 3
+local strongSettle = support.aimSettleTicks("assist", activeCharacter)
+assert(assistedSettle < nativeLowSettle and strongSettle < assistedSettle,
+    "assistance shortens aim settle without replacing native skill")
+assert(activeCharacter.aiming == 2,
+    "aiming assistance does not rewrite the survivor's native skill")
+activeCharacter.aiming = 10
+assert(support.aimSettleTicks("assist", activeCharacter) == 8,
+    "high native aiming remains bounded at the fast settle floor")
+preference = "ranged"
 activeCharacter = character({ empty, hammer })
 empty.chambered, empty.ammoCount = false, 0
 assert(support.prepareForThreat("preference", activeCharacter, bridge, target) == "reloading")

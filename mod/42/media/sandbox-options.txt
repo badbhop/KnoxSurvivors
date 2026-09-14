@@ -188,3 +188,9 @@ option KnoxSurvivors.NpcDrivingSpeed = {
     type = integer, min = 5, max = 30, default = 20,
     page = KnoxSurvivors_Companions, translation = KnoxSurvivors_NpcDrivingSpeed,
 }
+
+option KnoxSurvivors.SurvivorAimingAssist = {
+    type = enum, numValues = 3, default = 1,
+    page = KnoxSurvivors_Companions, translation = KnoxSurvivors_SurvivorAimingAssist,
+    valueTranslation = KnoxSurvivors_SurvivorAimingAssist,
+}

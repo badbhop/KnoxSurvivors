@@ -563,6 +563,13 @@ Melee should keep the bat available; ranged should use the pistol only when nati
 allows it. Remove compatible ammo and verify melee fallback without reload spam. Survivor Choice
 should usually keep a novice on melee; a survivor with native Aiming 4+ and room to aim may use a gun.
 
+In the sandbox, repeat Survivor Choice with Survivor Aiming Assistance set to Native Skills,
+Basic Assistance, and Strong Assistance. The setting changes automatic firearm commitment and
+the visible aim-settle delay only. It must not change the survivor's native Aiming level, XP,
+native shot accuracy, ammunition, reload action, weapon condition, or damage. A low-skill
+survivor may commit sooner with assistance while still producing native low-skill firearm
+results. A high-skill survivor should settle faster than a low-skill survivor in every mode.
+
 Change preference during a reload and during combat; check no simultaneous reload/fire/weapon-swap
 loop, then confirm Follow/Hold/Guard remains intact. Set two companions to different preferences:
 the party menu should show no single checked preference. Apply a party choice and confirm both

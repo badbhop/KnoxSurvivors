@@ -15,6 +15,10 @@ public final class KnoxCombatControllerVerifier {
         require(KnoxCombatController.recoveryTicks(false) == 30
             && KnoxCombatController.recoveryTicks(true) == 24,
             "small melee recovery increase must not slow firearms");
+        require(KnoxCombatController.clampAimSettleTicks(0) == 8
+            && KnoxCombatController.clampAimSettleTicks(18) == 18
+            && KnoxCombatController.clampAimSettleTicks(99) == 30,
+            "aim settle input remains bounded for native combat");
         FakeBody body = new FakeBody();
         KnoxNpc npc = new KnoxNpc("combat-verifier", body, 10, 20, 0);
         npc.setMovementRoute(List.of(new float[] {11.5f, 20.5f, 0.0f}));

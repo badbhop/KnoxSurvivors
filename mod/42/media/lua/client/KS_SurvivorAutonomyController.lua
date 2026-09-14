@@ -5651,7 +5651,18 @@ function Controller:beginCombat(target)
         releaseThreat(self.reservations, target, self.id)
         return false
     end
-    local result = tostring(self.bridge:beginNpcLiveCombat(self.id, target, approach))
+    local aimSettleTicks = 18
+    if KnoxFirearmSupport.aimSettleTicks ~= nil then
+        aimSettleTicks = KnoxFirearmSupport.aimSettleTicks(self.id, self.character)
+    end
+    local result
+    if self.bridge.beginNpcLiveCombatWithAim ~= nil then
+        result = tostring(self.bridge:beginNpcLiveCombatWithAim(
+            self.id, target, approach, aimSettleTicks
+        ))
+    else
+        result = tostring(self.bridge:beginNpcLiveCombat(self.id, target, approach))
+    end
     if string.find(result, "COMBAT_STARTED", 1, true) ~= 1 then
         self.bridge:resetNpcCombat(self.id)
         local noWeapon = string.find(result, "NO_EQUIPPED_WEAPON", 1, true) ~= nil

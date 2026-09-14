@@ -19,6 +19,7 @@ local DEFAULTS = {
     ToolCupboardCapacity = 500,
     EnableExperimentalNpcDriving = false,
     NpcDrivingSpeed = 20,
+    SurvivorAimingAssist = 1,
     SpawnWithSpouse = false,
     ContinueSurvivorsAfterPlayerDeath = true,
     AllowNPCFactions = true,
@@ -177,6 +178,10 @@ end
 
 function Settings.npcDrivingSpeed()
     return integer("NpcDrivingSpeed", 5, 30)
+end
+
+function Settings.survivorAimingAssist()
+    return integer("SurvivorAimingAssist", 1, 3)
 end
 
 function Settings.spawnWithSpouse()

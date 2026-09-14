@@ -317,6 +317,15 @@ public final class KnoxBridge {
         return npcRegistry.beginLiveCombat(id, target, approachSquare);
     }
 
+    public String beginNpcLiveCombatWithAim(
+        String id,
+        Object target,
+        Object approachSquare,
+        int aimSettleTicks
+    ) {
+        return npcRegistry.beginLiveCombat(id, target, approachSquare, aimSettleTicks);
+    }
+
     public boolean beginPlayerHumanAttack(Object player) {
         return com.knoxsurvivors.agent.KnoxHumanCombatGate.beginPlayerAttack(player);
     }

@@ -8,7 +8,9 @@ import java.util.Map;
 /** Drives one controlled melee encounter through IsoPlayer's normal attack entry point. */
 final class KnoxCombatController {
     private static final int ATTACK_RETRY_TICKS = 30;
-    private static final int AIM_SETTLE_TICKS = 18;
+    private static final int DEFAULT_AIM_SETTLE_TICKS = 18;
+    private static final int MIN_AIM_SETTLE_TICKS = 8;
+    private static final int MAX_AIM_SETTLE_TICKS = 30;
     private static final int DIRECT_STATE_FALLBACK_TICKS = 3;
     private static final int ATTACK_RECOVERY_TICKS = 24;
     private static final int MELEE_RECOVERY_TICKS = 30;
@@ -34,6 +36,7 @@ final class KnoxCombatController {
     private boolean damageObserved;
     private boolean attackAnimationObserved;
     private int aimTicks;
+    private int aimSettleTicks = DEFAULT_AIM_SETTLE_TICKS;
     private boolean directStateFallbackUsed;
     private boolean obstacleTarget;
     private boolean attackCycleActive;
@@ -49,12 +52,21 @@ final class KnoxCombatController {
 
     String begin(KnoxNpc activeNpc, Object zombie, Object approachSquare)
         throws ReflectiveOperationException {
-        return begin(activeNpc, zombie, approachSquare, true);
+        return begin(activeNpc, zombie, approachSquare, true, DEFAULT_AIM_SETTLE_TICKS);
     }
 
     String beginLive(KnoxNpc activeNpc, Object target, Object approachSquare)
         throws ReflectiveOperationException {
-        return begin(activeNpc, target, approachSquare, false);
+        return begin(activeNpc, target, approachSquare, false, DEFAULT_AIM_SETTLE_TICKS);
+    }
+
+    String beginLive(
+        KnoxNpc activeNpc,
+        Object target,
+        Object approachSquare,
+        int requestedAimSettleTicks
+    ) throws ReflectiveOperationException {
+        return begin(activeNpc, target, approachSquare, false, requestedAimSettleTicks);
     }
 
     String beginLockedDoor(KnoxNpc activeNpc, Object door)
@@ -111,7 +123,8 @@ final class KnoxCombatController {
         KnoxNpc activeNpc,
         Object combatTarget,
         Object approachSquare,
-        boolean controlledGate
+        boolean controlledGate,
+        int requestedAimSettleTicks
     ) throws ReflectiveOperationException {
         if (activeNpc == null) {
             return "COMBAT_FAILED NONE_ACTIVE";
@@ -129,6 +142,7 @@ final class KnoxCombatController {
         npc = activeNpc;
         target = combatTarget;
         this.approachSquare = approachSquare;
+        aimSettleTicks = clampAimSettleTicks(requestedAimSettleTicks);
         liveCombat = !controlledGate;
         Object body = npc.getBody();
         Class.forName(
@@ -166,10 +180,6 @@ final class KnoxCombatController {
             return "COMBAT_FAILED INVALID_PRIMARY_ITEM";
         }
 
-        initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
-            .invoke(weapon)).intValue();
-        combatWeapon = weapon;
-        rangedWeapon = (Boolean) weapon.getClass().getMethod("isRanged").invoke(weapon);
         // Combat always interrupts rest. Clear posture flags that can remain set for a
         // frame after a timed sit/rest action and make both zombie eligibility and melee
         // movement treat the visibly standing shell as prone.
@@ -532,8 +542,8 @@ final class KnoxCombatController {
 
         if ("AIMING".equals(phase)) {
             aimTicks++;
-            if (aimTicks < AIM_SETTLE_TICKS) {
-                return "COMBAT_AIMING ticks=" + aimTicks + "/" + AIM_SETTLE_TICKS
+            if (aimTicks < aimSettleTicks) {
+                return "COMBAT_AIMING ticks=" + aimTicks + "/" + aimSettleTicks
                     + " targetHealth=" + currentHealth;
             }
             phase = "ATTACKING";
@@ -626,6 +636,7 @@ final class KnoxCombatController {
             return "COMBAT_DIAGNOSTICS phase=" + phase
                 + " active=true ticks=" + ticks
                 + " ranged=" + rangedWeapon
+                + " aim=" + aimTicks + "/" + aimSettleTicks
                 + " distance=" + (float) Math.sqrt(dx * dx + dy * dy)
                 + " attacks=" + attackRequests
                 + " damageObserved=" + damageObserved
@@ -672,6 +683,7 @@ final class KnoxCombatController {
         damageObserved = false;
         attackAnimationObserved = false;
         aimTicks = 0;
+        aimSettleTicks = DEFAULT_AIM_SETTLE_TICKS;
         directStateFallbackUsed = false;
         obstacleTarget = false;
         attackCycleActive = false;
@@ -717,6 +729,10 @@ final class KnoxCombatController {
         return elapsedTicks >= APPROACH_REFRESH_TICKS
             && ("Succeeded".equals(movement)
                 || (targetMoved && "ManualRoute".equals(movement)));
+    }
+
+    static int clampAimSettleTicks(int requested) {
+        return Math.max(MIN_AIM_SETTLE_TICKS, Math.min(MAX_AIM_SETTLE_TICKS, requested));
     }
 
     private void clearMovementIntent() throws ReflectiveOperationException {

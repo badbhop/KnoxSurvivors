@@ -269,6 +269,15 @@ public final class KnoxNpcRegistry {
         return beginCombat(id, zombie, approachSquare, true);
     }
 
+    public synchronized String beginLiveCombat(
+        String id,
+        Object zombie,
+        Object approachSquare,
+        int aimSettleTicks
+    ) {
+        return beginCombat(id, zombie, approachSquare, true, aimSettleTicks);
+    }
+
     public synchronized void setPlayerAttackTarget(Object player, String id, boolean allowed) {
         KnoxNpcRuntime runtime = activeNpcs.get(id);
         if (runtime != null) com.knoxsurvivors.agent.KnoxHumanCombatGate.setPlayerAttackTarget(
@@ -291,6 +300,16 @@ public final class KnoxNpcRegistry {
     }
 
     private String beginCombat(String id, Object zombie, Object approachSquare, boolean live) {
+        return beginCombat(id, zombie, approachSquare, live, 18);
+    }
+
+    private String beginCombat(
+        String id,
+        Object zombie,
+        Object approachSquare,
+        boolean live,
+        int aimSettleTicks
+    ) {
         KnoxNpcRuntime runtime = activeNpcs.get(id);
         if (runtime == null) {
             return "COMBAT_FAILED NONE_ACTIVE";
@@ -305,7 +324,9 @@ public final class KnoxNpcRegistry {
                 return "COMBAT_FAILED " + cancelled;
             }
             return live
-                ? runtime.combat().beginLive(runtime.npc(), zombie, approachSquare)
+                ? runtime.combat().beginLive(
+                    runtime.npc(), zombie, approachSquare, aimSettleTicks
+                )
                 : runtime.combat().begin(runtime.npc(), zombie, approachSquare);
         } catch (Throwable throwable) {
             runtime.combat().reset();

@@ -1,5 +1,35 @@
 # Feature-completion audit
 
+### Native firearms, reload flow, and configurable survivor aiming - 2026-09-14
+
+**Implemented; live firearm replay pending.** Firearm preparation still uses the
+real Build 42 weapon readiness, rack, magazine, chamber, ammunition, timed reload,
+native firing, sound, damage, condition, and world-noise paths. Combat now passes a
+bounded aim-settle profile into the Java controller, so survivors visibly hold aim
+before firing and do not fire while repositioning or reloading. The prior live combat
+setup dereferenced an empty primary hand after the unarmed branch; that duplicate
+access is removed so unarmed shove/stomp fallback can remain in the native path.
+
+The new `Survivor Aiming Assistance` sandbox setting has Native Skills, Basic
+Assistance, and Strong Assistance modes. Native Aiming level and XP are read from
+the survivor shell and remain authoritative for native shot accuracy and firearm
+effectiveness. Assistance only affects automatic firearm commitment and bounded aim
+settling; it never grants XP or rewrites the persisted skill profile. Settings,
+translation, bridge bounds, firearm choice, skill scaling, and the unarmed guard are
+covered by focused tests.
+
+### Pending live verification
+
+Use a disposable save with a companion carrying a loaded firearm, spare magazine,
+compatible rounds, and a melee fallback. Observe Native Skills with low and high
+Aiming survivors, then Basic and Strong Assistance. Confirm the survivor visibly
+settles the weapon before firing, stops firing while moving, reloads once through
+the native timed action, chambers/racks correctly, resumes after the action, and
+uses native sound, ammunition, condition, hit, and damage results. Remove rounds,
+jam or damage the weapon, change weapon preference during reload, and save/reload
+between shots. No duplicated ammunition, repeated reload loop, weapon swap loop,
+or firing from an empty hand should occur.
+
 ### Unarmed survivor combat fallback - 2026-09-14
 
 **Implemented; live shove/stomp replay pending.** Live zombie combat no longer

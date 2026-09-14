@@ -50,6 +50,7 @@ assertDefault("AllowFactionRaids", false)
 assertDefault("EnableKnoxEvents", false)
 assertDefault("AllowSurvivorFleeing", false)
 assertDefault("ShowDeveloperDiagnostics", false)
+assertDefault("SurvivorAimingAssist", 1)
 assertDefault("FactionRaidMinimumDays", 14)
 assert(string.find(sandboxEnglish, "Allow NPC Factions (Work in Progress)", 1, true)
     and string.find(sandboxEnglish, "Allow Faction Raids (Experimental)", 1, true),
@@ -83,6 +84,7 @@ assert(not KnoxSettings.allowFactionRaids(), "experimental faction raids default
 assert(not KnoxSettings.enableKnoxEvents(), "experimental events default off")
 assert(KnoxSettings.factionRaidMinimumDays() == 14, "raid world-age balanced default")
 assert(KnoxSettings.factionRaidIntervalDays() == 7, "raid interval default")
+assert(KnoxSettings.survivorAimingAssist() == 1, "native aiming assistance default")
 assert(KnoxSettings.showCompanionHUD(), "HUD default")
 assert(KnoxSettings.showActivityFeed(), "feed default")
 assert(not KnoxSettings.developerToolsEnabled(), "developer tools must default off")
@@ -104,6 +106,7 @@ SandboxVars = { KnoxSurvivors = {
     DeveloperScenario = 6,
     DeveloperSpawnDistance = 2,
     AllowDestructiveDeveloperTests = true,
+    SurvivorAimingAssist = 99,
 } }
 
 assert(KnoxSettings.companionLimit() == 12, "companion limit upper clamp")
@@ -122,6 +125,7 @@ assert(KnoxSettings.developerToolsEnabled(), "developer tools configured on")
 assert(KnoxSettings.developerScenario() == "faction_base", "enum mapping")
 assert(KnoxSettings.developerSpawnDistance() == 6, "spawn distance lower clamp")
 assert(KnoxSettings.allowDestructiveDeveloperTests(), "destructive opt-in")
+assert(KnoxSettings.survivorAimingAssist() == 3, "aiming assistance upper clamp")
 
 SandboxVars.KnoxSurvivors.AllowNPCFactions = true
 SandboxVars.KnoxSurvivors.AllowHostileEncounters = true
@@ -184,6 +188,8 @@ SandboxVars={KnoxSurvivors={CautiousTravel=false,ZombieEngagementDistance=1000}}
 assert(not KnoxSettings.cautiousTravel() and KnoxSettings.zombieEngagementDistance()==16)
 SandboxVars.KnoxSurvivors.ZombieEngagementDistance=0
 assert(KnoxSettings.zombieEngagementDistance()==2)
+SandboxVars.KnoxSurvivors.SurvivorAimingAssist=0
+assert(KnoxSettings.survivorAimingAssist()==1, "aiming assistance lower clamp")
 
 SandboxVars=nil
 assert(KnoxSettings.npcDrivingSpeed()==20 and KnoxSettings.baseReadingEnabled())
