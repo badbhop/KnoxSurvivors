@@ -1,5 +1,13 @@
 # Feature-completion audit
 
+### Autonomous leader order gestures - 2026-09-14
+
+**Implemented; live group replay pending.** Autonomous group leaders now use the
+same native emote path as player orders when a durable shared objective changes.
+Nearby loaded followers acknowledge with a native yes gesture. Cooldowns,
+busy/combat/traversal checks, and durable objective ownership remain unchanged.
+Focused order-signal and full offline verification pass.
+
 ### Formation route stability - 2026-09-14
 
 **Implemented; live follower replay pending.** Formation followers now keep a

@@ -1,5 +1,14 @@
 # Development testing
 
+## Autonomous leader order gesture replay - 2026-09-14
+
+Create a loaded autonomous group with a leader and nearby followers. Let the
+leader acquire or change a shared objective such as scavenging or investigating.
+Confirm the leader gives a relevant gesture and nearby followers acknowledge
+without interrupting movement, combat, or jobs. Repeat while one follower is
+busy, far away, or on another floor; gestures should be suppressed or skipped
+while the durable group objective continues normally.
+
 ## Deferred base-task resume replay - 2026-09-14
 
 Give a resident a claimed base job, interrupt it with danger or a failed supply

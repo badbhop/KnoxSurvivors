@@ -33,6 +33,10 @@ enabled=true
 npc.x=100
 local npcCount=#npc.events
 assert(signals.order(player,"patrol_area",npc) and #npc.events==npcCount, "remote NPCs do not nod across the map")
+local leader,nMember=actor(0),actor(2)
+assert(signals.group(leader,{leader,nMember},"scavenge")
+    and leader.events[1]=="moveout" and nMember.events[1]=="yes",
+    "autonomous leaders signal nearby followers for shared objectives")
 print("Order gestures PASS mapping=true acknowledgement=true cooldown=true ownership=true setting=true")
 
 now=9000

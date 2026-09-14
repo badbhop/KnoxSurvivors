@@ -4,6 +4,7 @@ _G.KnoxOrderSignals = Signals
 local cooldowns = setmetatable({}, {__mode="k"})
 local EMOTES = {follow="followme",hold="stop",relax="signalok",guard="stop",
     patrol="moveout",patrol_area="moveout",go_to="moveout",return_to_base="comehere",
+    scavenge="moveout",investigate_building="moveout",base_supply="comehere",
     farming="signalok",woodwork="signalok",hauling="signalok",animal_care="signalok",
     repair="signalok",auto="signalok",rest="signalok",job="signalok"}
 local function call(actor, method)
@@ -42,5 +43,25 @@ function Signals.order(player, kind, survivor)
         end
     end
     return played
+end
+
+-- Autonomous leaders use the same readable gestures as player-issued orders.
+-- Only nearby loaded followers acknowledge; the group objective remains the
+-- durable authority and this helper never changes movement or task state.
+function Signals.group(leader, members, kind)
+    local emote = EMOTES[kind]
+    if emote == nil or not Signals.play(leader, emote) then return false end
+    local first = leader ~= nil and call(leader, "getCurrentSquare") or nil
+    for _, member in ipairs(members or {}) do
+        if member ~= nil and member ~= leader then
+            local second = call(member, "getCurrentSquare")
+            if first ~= nil and second ~= nil and first:getZ() == second:getZ()
+                and (first:getX() - second:getX()) ^ 2
+                    + (first:getY() - second:getY()) ^ 2 <= 49 then
+                Signals.play(member, "yes")
+            end
+        end
+    end
+    return true
 end
 return Signals

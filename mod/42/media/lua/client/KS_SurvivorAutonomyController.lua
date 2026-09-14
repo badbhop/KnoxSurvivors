@@ -2693,8 +2693,22 @@ function Controller:setGroupMembers(members)
 end
 
 function Controller:setGroupObjective(objective)
+    local previousKind = self.groupObjective ~= nil
+        and tostring(self.groupObjective.kind or "") or nil
+    local nextKind = objective ~= nil and tostring(objective.kind or "") or nil
+    local changed = nextKind ~= previousKind
+        or (objective ~= nil and objective.revision or nil)
+            ~= self.groupObjectiveRevision
     self.groupObjective = objective
     self.groupObjectiveRevision = objective ~= nil and objective.revision or nil
+    if changed and self.groupLeaderId == nil and objective ~= nil
+        and KnoxOrderSignals ~= nil and KnoxOrderSignals.group ~= nil then
+        KnoxOrderSignals.group(
+            self.character,
+            self.groupMembers,
+            tostring(objective.kind or "")
+        )
+    end
 end
 
 function Controller.shouldAssistGroupObjective(objective, leaderDistanceSquared)
