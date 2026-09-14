@@ -5,8 +5,12 @@ local cooldowns = setmetatable({}, {__mode="k"})
 local EMOTES = {follow="followme",hold="stop",relax="signalok",guard="stop",
     patrol="moveout",patrol_area="moveout",go_to="moveout",return_to_base="comehere",
     scavenge="moveout",investigate_building="moveout",base_supply="comehere",
+    loot_area="moveout",loot_building="moveout",loot_corpses="moveout",
+    find_food="moveout",find_water="moveout",find_medical="moveout",
+    find_weapon="moveout",find_tools="moveout",clean_inventory="signalok",
     farming="signalok",woodwork="signalok",hauling="signalok",animal_care="signalok",
-    repair="signalok",auto="signalok",rest="signalok",job="signalok"}
+    repair="signalok",haul_corpse="signalok",sort_depot="signalok",
+    auto="signalok",rest="signalok",job="signalok"}
 local function call(actor, method)
     local ok,value=pcall(function() return actor[method](actor) end)
     return ok and value or nil

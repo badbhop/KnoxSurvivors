@@ -33,6 +33,9 @@ enabled=true
 npc.x=100
 local npcCount=#npc.events
 assert(signals.order(player,"patrol_area",npc) and #npc.events==npcCount, "remote NPCs do not nod across the map")
+now=12000
+assert(signals.order(player,"loot_building",npc) and player.events[#player.events]=="moveout",
+    "catalogue loot orders use a movement gesture")
 local leader,nMember=actor(0),actor(2)
 assert(signals.group(leader,{leader,nMember},"scavenge")
     and leader.events[1]=="moveout" and nMember.events[1]=="yes",
