@@ -25,6 +25,7 @@ require "KS_BaseTaskBoard"
 require "KS_BaseJobs"
 require "KS_BaseSupplyPlanner"
 require "KS_BaseStorage"
+require "KS_JobTestSupplies"
 require "KS_BaseRecreation"
 require "KS_BaseCooking"
 require "KS_OrderSignals"
@@ -1185,6 +1186,14 @@ local function openEscapeLaneCount(origin, threats)
 end
 
 local function fleeAssessment(self)
+    -- Player companions and base residents hold their ground and use the
+    -- existing combat/formation rules. Fleeing remains available only to
+    -- independent world survivors, where it is controlled by the sandbox.
+    if self.companionOwnerId ~= nil or self.baseId ~= nil then
+        return false, { reason = "bound_survivor", zombies = 0, humans = 0, allies = 1,
+            health = 100, endurance = 1, risk = 0, immediate = 0,
+            escapeLanes = 0, nearestDistanceSquared = math.huge }
+    end
     local settings = rawget(_G, "KnoxSettings")
     if settings ~= nil and settings.allowSurvivorFleeing ~= nil
         and not settings.allowSurvivorFleeing() then
@@ -4150,6 +4159,16 @@ end
 -- loaded base storage.  The actual move remains a normal inventory transfer;
 -- missing or streamed-out material blocks the task instead of inventing stock.
 function Controller:beginBaseTaskSupplyOrWork(ticks)
+    local settings = rawget(_G, "KnoxSettings")
+    if settings ~= nil and settings.ignoreJobResourceRequirements ~= nil
+        and settings.ignoreJobResourceRequirements()
+        and rawget(_G, "KnoxJobTestSupplies") ~= nil then
+        -- Provide real test items in the assigned cupboard so native actions
+        -- can still validate their normal animations and mutations.
+        pcall(function()
+            KnoxJobTestSupplies.ensure(self.base, self.character, false)
+        end)
+    end
     if self.baseTask ~= nil and self.baseTask.type == "cook" then
         if self:beginBaseCooking(ticks,self.baseTask.target,false) then return true end
         self:finishBaseTask(false,"cooking_start_unavailable")
@@ -5922,6 +5941,9 @@ function Controller.fleePace(assessment)
 end
 
 function Controller:beginFlee(ticks, assessment)
+    if self.companionOwnerId ~= nil or self.baseId ~= nil then
+        return false
+    end
     local settings = rawget(_G, "KnoxSettings")
     if settings ~= nil and settings.allowSurvivorFleeing ~= nil
         and not settings.allowSurvivorFleeing() then
@@ -6321,6 +6343,14 @@ function Controller:think(ticks)
         threat = nil
     end
     local decision = KnoxSurvivorNeeds.decide(self.character, threat)
+    -- Base residents stay on settlement duty. They may consume supplies they
+    -- already carry, and an explicit Survival Order can send them out, but a
+    -- shortage alone must never turn into an autonomous neighborhood search.
+    if self.baseId ~= nil and self.baseSupplyOrder == nil
+        and (decision.kind == "find_food" or decision.kind == "find_water"
+            or decision.kind == "find_medical") then
+        decision = { kind = "roam", state = decision.state }
+    end
     if decision.kind == "fight" then
         if not self:beginCombat(decision.target) then
             self.nextThink = ticks + THINK_MIN_TICKS
@@ -6580,16 +6610,6 @@ function Controller:think(ticks)
             -- a real settlement shortage before accepting ordinary work. This
             -- keeps food/water/medical recovery aligned with the existing
             -- priority model without interrupting a job already in progress.
-            local supplyGoal = self:baseSupplyNeed(ticks)
-            if supplyGoal ~= nil then
-                if self:beginWorldSearch(supplyGoal, ticks) then
-                    self:beginBaseSupplyRun(supplyGoal)
-                    return
-                end
-                self:finishBaseSupplyRun("unavailable")
-                self:releaseSupply()
-                self.nextBaseSupplySearch = ticks + SUPPLY_RETRY_TICKS
-            end
             if self:beginBaseTask(ticks) then
                 return
             end
@@ -6766,9 +6786,10 @@ function Controller:tick(ticks)
     -- captured in retreat. Release that temporary ownership immediately; the
     -- durable Follow/Hold/group/camp intent remains intact and will resume.
     local settings = rawget(_G, "KnoxSettings")
-    if self.state == "FLEEING" and settings ~= nil
+    if self.state == "FLEEING" and (self.companionOwnerId ~= nil or self.baseId ~= nil
+        or (settings ~= nil
         and settings.allowSurvivorFleeing ~= nil
-        and not settings.allowSurvivorFleeing() then
+        and not settings.allowSurvivorFleeing())) then
         self.bridge:cancelNpcMove(self.id)
         self:resetMovementRecovery()
         self.fleeRecoveryUntil = nil

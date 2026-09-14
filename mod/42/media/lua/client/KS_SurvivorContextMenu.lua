@@ -459,7 +459,7 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
     local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId) or {}
     local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
     local owned = affiliation.kind == "player" and affiliation.ownerId == playerId
-    if owned and duty.mode == "companion" then
+    if owned and (duty.mode == "companion" or duty.mode == "base") then
         menu:addOption(
             "View Survivor",
             SurvivorContextMenu,
@@ -535,6 +535,10 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             survivorId
         )
         if not closeEnough then unavailable(residentInventory) end
+        local medicalLabel = closeEnough and "Medical Check" or "Medical Check (too far away)"
+        local medical = menu:addOption(medicalLabel, SurvivorContextMenu,
+            onMedicalCheck, playerNum, survivorId)
+        if not closeEnough then unavailable(medical) end
         local orders = menu:addOption("Orders", nil, nil)
         local ordersMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(orders, ordersMenu)

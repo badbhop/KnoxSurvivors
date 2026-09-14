@@ -176,6 +176,10 @@ option KnoxSurvivors.DeveloperJobSupplies = {
     type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_DeveloperJobSupplies,
 }
 
+option KnoxSurvivors.IgnoreJobResourceRequirements = {
+    type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_IgnoreJobResourceRequirements,
+}
+
 option KnoxSurvivors.OrderGestures = {
     type = boolean, default = true, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_OrderGestures,
 }

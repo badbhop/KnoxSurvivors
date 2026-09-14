@@ -16,8 +16,11 @@ local KIT = {
 
 function Supplies.ensure(base, character, force)
     local settings = rawget(_G, "KnoxSettings")
-    if settings == nil or settings.developerJobSuppliesEnabled == nil
-        or not settings.developerJobSuppliesEnabled() then return 0, "disabled" end
+    local developer = settings ~= nil and settings.developerJobSuppliesEnabled ~= nil
+        and settings.developerJobSuppliesEnabled() == true
+    local freeResources = settings ~= nil and settings.ignoreJobResourceRequirements ~= nil
+        and settings.ignoreJobResourceRequirements() == true
+    if not developer and not freeResources then return 0, "disabled" end
     if base == nil or character == nil then return 0, "base_or_worker_missing" end
     local now = getTimestampMs ~= nil and tonumber(getTimestampMs()) or nil
     if now == nil then

@@ -43,6 +43,7 @@ local DEFAULTS = {
     AllowSurvivorPlayerCombat = true,
     EnableDeveloperTools = false,
     DeveloperJobSupplies = false,
+    IgnoreJobResourceRequirements = false,
     DeveloperScenario = 1,
     DeveloperSpawnDistance = 10,
     AllowDestructiveDeveloperTests = false,
@@ -262,6 +263,10 @@ end
 
 function Settings.developerJobSuppliesEnabled()
     return Settings.developerToolsEnabled() and value("DeveloperJobSupplies") == true
+end
+
+function Settings.ignoreJobResourceRequirements()
+    return Settings.enabled() and value("IgnoreJobResourceRequirements") == true
 end
 
 function Settings.developerScenario()

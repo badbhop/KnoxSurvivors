@@ -404,6 +404,11 @@ end
 -- only assigned base storage and returns one transfer at a time, allowing the
 -- normal timed-action queue to remain the sole owner of the inventory change.
 function Storage.findRequiredTransfer(base, character, requirements)
+    local settings = rawget(_G, "KnoxSettings")
+    if settings ~= nil and settings.ignoreJobResourceRequirements ~= nil
+        and settings.ignoreJobResourceRequirements() then
+        return nil, "requirements_ready"
+    end
     local inventory = character ~= nil and character:getInventory() or nil
     local requiredItems = requirements ~= nil and requirements.items or {}
     for itemType, required in pairs(requiredItems) do
@@ -457,6 +462,11 @@ function Storage.findItemType(base, predicate)
 end
 
 function Storage.requirementsAvailable(base, character, requirements)
+    local settings = rawget(_G, "KnoxSettings")
+    if settings ~= nil and settings.ignoreJobResourceRequirements ~= nil
+        and settings.ignoreJobResourceRequirements() then
+        return true, "requirements_disabled"
+    end
     local inventory = character ~= nil and character:getInventory() or nil
     local requiredItems = requirements ~= nil and requirements.items or {}
     for itemType, required in pairs(requiredItems) do

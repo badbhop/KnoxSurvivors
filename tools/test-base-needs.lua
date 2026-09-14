@@ -70,12 +70,12 @@ assert(string.find(controllerText, 'local baseSupplyClaimsByBase = {}', 1, true)
     and string.find(controllerText, 'restoreSupplyClaim(self.baseId, kind, self.id)', 1, true)
     and not string.find(controllerText, 'self.base.supplySearchClaims = claims', 1, true),
     "loaded supply leases must remain transient and rebuild from durable run ownership")
-local shortageBoundary = assert(string.find(controllerText,
-    'local supplyGoal = self:baseSupplyNeed(ticks)', 1, true))
-local taskBoundary = assert(string.find(controllerText,
-    'if self:beginBaseTask(ticks) then', shortageBoundary + 1, true))
-assert(shortageBoundary < taskBoundary,
-    "critical base shortages should be considered before new ordinary work")
+assert(not string.find(controllerText,
+    'local supplyGoal = self:baseSupplyNeed(ticks)', 1, true),
+    "base residents must not autonomously leave the base for shortages")
+assert(string.find(controllerText,
+    'Base residents stay on settlement duty', 1, true),
+    "base shortage decisions must retain settlement duty")
 assert(string.find(controllerText,
     'KnoxPersistence.requeueBaseTasksForSurvivor', 1, true),
     "resting residents must release persisted task claims")
