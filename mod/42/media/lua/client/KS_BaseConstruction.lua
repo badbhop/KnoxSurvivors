@@ -167,7 +167,7 @@ local function target(base, zone, stage, square, north)
     }
 end
 
-local function consider(base, zone, cell, x, y, z, north, gate, character, availability)
+local function consider(base, zone, cell, x, y, z, north, gate, character, availability, eligible)
     local square = cell:getGridSquare(x, y, z)
     if square == nil then return nil end
     local stage = stageFor(edgeState(square, north), gate)
@@ -175,10 +175,12 @@ local function consider(base, zone, cell, x, y, z, north, gate, character, avail
     if availability[stage] == nil then
         availability[stage] = canSupply(character, stage, base) == true
     end
-    return availability[stage] and target(base, zone, stage, square, north) or nil
+    local candidate = availability[stage] and target(base, zone, stage, square, north) or nil
+    if candidate ~= nil and (eligible == nil or eligible(candidate)) then return candidate end
+    return nil
 end
 
-function Construction.findTask(base, character)
+function Construction.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or character == nil or cell == nil then return nil end
     local zones, availability = {}, {}
@@ -194,19 +196,19 @@ function Construction.findTask(base, character)
         local z = tonumber(zone.z) or 0
         if x2 - x1 >= 2 and y2 - y1 >= 2 then
             local gateX = math.floor((x1 + x2) / 2)
-            local found = consider(base, zone, cell, gateX, y2, z, true, true, character, availability)
+            local found = consider(base, zone, cell, gateX, y2, z, true, true, character, availability, eligible)
             if found then return found, "gate" end
             for x = x1, x2 do
-                found = consider(base, zone, cell, x, y1, z, true, false, character, availability)
+                found = consider(base, zone, cell, x, y1, z, true, false, character, availability, eligible)
                 if found then return found, "wall" end
                 if x ~= gateX then
-                    found = consider(base, zone, cell, x, y2, z, true, false, character, availability)
+                    found = consider(base, zone, cell, x, y2, z, true, false, character, availability, eligible)
                     if found then return found, "wall" end
                 end
             end
             for y = y1 + 1, y2 - 1 do
-                found = consider(base, zone, cell, x1, y, z, false, false, character, availability)
-                    or consider(base, zone, cell, x2, y, z, false, false, character, availability)
+                found = consider(base, zone, cell, x1, y, z, false, false, character, availability, eligible)
+                    or consider(base, zone, cell, x2, y, z, false, false, character, availability, eligible)
                 if found then return found, "wall" end
             end
         end

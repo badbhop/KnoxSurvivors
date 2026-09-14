@@ -1,5 +1,20 @@
 # Development testing
 
+## Structural crew replay - 2026-09-14
+
+Give equipped repairers/builders several damaged structures, unfinished perimeter
+edges and unbarricaded openings. Claim or block the first target and verify other
+workers select another available site. Mix repair, construction and barricading
+near one tile: only one structural task should occupy that tile at a time. Remove
+a claimed repair object and leave another with the same sprite nearby/on the tile;
+the old task must fail safely instead of repairing a substituted object.
+
+Verify actual native repair health changes, barricade material consumption and
+built perimeter stages. Cupboard-only repair startup is still unfinished; this
+replay currently needs carried repair tools and parts. Live mixed-crew path/action
+acceptance remains pending.
+
+
 ## Corpse and woodwork crew replay - 2026-09-14
 
 Place two bodies on one tile and assign two haulers. Confirm they select different

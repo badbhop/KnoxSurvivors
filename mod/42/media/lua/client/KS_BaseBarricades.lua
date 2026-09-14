@@ -146,7 +146,7 @@ local function targetNeedsBarricade(object, character)
     return barricade == nil or barricade:canAddPlank()
 end
 
-function Barricades.findTarget(base, character)
+function Barricades.findTarget(base, character, eligible)
     local territory = base ~= nil and (base.territory or base.home) or nil
     local cell = getCell ~= nil and getCell() or nil
     if territory == nil or cell == nil then
@@ -172,7 +172,8 @@ function Barricades.findTarget(base, character)
                     for index = 0, objects:size() - 1 do
                         local object = objects:get(index)
                         if targetNeedsBarricade(object, character) then
-                            return targetFromObject(base, object, square), "found"
+                            local target = targetFromObject(base, object, square)
+                            if eligible == nil or eligible(target) then return target, "found" end
                         end
                     end
                 end

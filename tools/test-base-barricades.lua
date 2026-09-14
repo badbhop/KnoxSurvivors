@@ -115,3 +115,12 @@ assert(not barricades.queueAction(character, resolved) and queuedAction == previ
 table.remove(cupboardItems)
 assert(not barricades.canPrepare(character, base), "one nail cannot satisfy the two-nail recipe")
 print("Cupboard barricades PASS discovery=true native_delivery_required=true material_counts=true")
+
+barricade=nil
+local secondObject=setmetatable({},{__index=object})
+function secondObject:getObjectIndex() return 5 end
+function square:getObjects() return list({object,secondObject}) end
+local nextTarget=assert(barricades.findTarget(base,character,function(candidate) return candidate.objectIndex~=4 end))
+assert(nextTarget.objectIndex==5,"busy opening must not hide another barricade target")
+assert(barricades.findTarget(base,character,function() return false end)==nil)
+print("Barricade crew selection PASS alternate_opening=true exclusion=true")

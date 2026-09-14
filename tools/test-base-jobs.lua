@@ -874,3 +874,19 @@ assert(corpseFilter({id="other-body",corpseItemId="124",corpseX=1,corpseY=2,corp
 assert(not woodFilter({id="tree-a",x=7,y=8,z=0}) and not woodFilter({id="saw-a",x=9,y=8,z=0}))
 assert(woodFilter({id="tree-b",x=8,y=8,z=0}))
 print("Physical work claims PASS corpse_identity=true stacked_bodies=true tree=true processing=true")
+
+base.tasks.structureClaim={id="structureClaim",type="construct_defense",state="claimed",
+    target={id="building-frame",x=40,y=40,z=0}}
+local structureFilters={}
+KnoxBaseBarricades.canPrepare=function() return true end
+KnoxBaseBarricades.findTarget=function(_,_,eligible) structureFilters.barricade=eligible end
+KnoxBaseRepairs.findTask=function(_,_,eligible) structureFilters.repair=eligible end
+KnoxBaseConstruction.findTask=function(_,_,eligible) structureFilters.construction=eligible end
+jobs.prepareWorkforce(base,{},330)
+for _,name in ipairs({"barricade","repair","construction"}) do
+    local filter=assert(structureFilters[name])
+    assert(not filter({id="another-action-on-structure",x=40,y=40,z=0}),
+        name.." must respect another structural job on the same tile")
+    assert(filter({id="other-structure",x=41,y=40,z=0}))
+end
+print("Structural work claims PASS repair=true barricade=true construction=true shared_site=true")

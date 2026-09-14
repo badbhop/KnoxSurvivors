@@ -1,5 +1,28 @@
 # Feature-completion audit
 
+### Structural crew discovery and target ownership - 2026-09-14
+
+**Implemented; live mixed-crew replay pending.** Repair, barricade and perimeter
+construction discovery now honor claimed, cancelled and cooling-down work through
+the shared eligibility filter. Structural families share occupied tile protection,
+so construction and repairs do not dispatch workers to the same active site under
+different task names. Rejected construction candidates fall through to the other
+perimeter edges. Stale repairs no longer substitute a same-sprite object with a
+different native index; discovery can select the current object as a fresh task.
+
+Focused regressions cover alternate objects/openings/edges, all-unavailable work,
+shared structural-site claims and stale repair identity. Native tool/equipment and
+actual repair/build/barricade actions remain authoritative.
+
+**Next repair dependency:** installed `ISMoveableSpriteProps:canRepairObject`
+combines structural `craftValid` with carried tools and parts. Current Knox
+`repairProps` requires `canRepair == true` during discovery, so cupboard-only repair
+supplies cannot start a task. Separate discoverable structural validity from native
+execution validity, resolve concrete usable tools/parts from assigned stores, then
+retain native validation after real delivery. Do not bypass the execution check or
+fabricate native inventory to make discovery pass.
+
+
 ### Corpse and woodwork claim recovery - 2026-09-14
 
 **Implemented; native multi-worker replay pending.** Corpse discovery excludes

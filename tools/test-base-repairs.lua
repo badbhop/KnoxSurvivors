@@ -177,3 +177,17 @@ none, noneResult = repairs.findTask(base, character)
 assert(none == nil and noneResult == "no_repair_ready")
 
 print("Base repairs PASS structure_scan=true vanilla_validation=true requirements=true action=true offslot_welding_mask=true health_verification=true")
+
+door.health=50
+assert(repairs.findTask(base,character,function() return false end)==nil)
+local otherDoor=setmetatable({objectIndex=3},{__index=door})
+ISMoveableSpriteProps.fromObjectForRepair=function(object)
+    if object==door or object==otherDoor then return props end
+end
+square.objects=list({door,otherDoor})
+local alternate=assert(repairs.findTask(base,character,function(candidate) return candidate.objectIndex~=2 end))
+assert(alternate.objectIndex==3,"occupied repair object cannot hide another valid repair")
+square.objects=list({otherDoor})
+assert(repairs.resolveTarget(base,target,character)==nil,
+    "a removed target must not silently substitute another object with the same sprite")
+print("Repair crew selection PASS exclusion=true alternate_object=true stale_identity=true")

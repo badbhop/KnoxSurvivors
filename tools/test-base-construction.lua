@@ -155,3 +155,12 @@ supplyChecks = 0
 assert(not construction.findTask(base, character), "insufficient real stock cannot create a construction task")
 assert(supplyChecks <= 4, "unavailable materials are checked once per construction stage, not per perimeter tile")
 print("Cupboard construction PASS discovery=true native_delivery_required=true shortage=true bounded=true")
+
+stock["Base.Plank"]=20
+square(10,10,0).special={}
+local otherWork=assert(construction.findTask(base,character,function(candidate)
+    return candidate.x~=12
+end))
+assert(otherWork.x==10,"claimed perimeter edge must not hide another build site")
+assert(construction.findTask(base,character,function() return false end)==nil)
+print("Construction crew selection PASS alternate_edge=true exclusion=true")

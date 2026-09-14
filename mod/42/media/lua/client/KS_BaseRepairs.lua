@@ -186,7 +186,7 @@ local function inside(x, y, minX, minY, maxX, maxY)
     return x >= minX and x <= maxX and y >= minY and y <= maxY
 end
 
-local function closestRepairOnSquare(square, character, best, bestDistance, base, region)
+local function closestRepairOnSquare(square, character, best, bestDistance, base, region, eligible)
     local objects = square ~= nil and square:getObjects() or nil
     if objects == nil then
         return best, bestDistance
@@ -203,15 +203,17 @@ local function closestRepairOnSquare(square, character, best, bestDistance, base
             if distance < bestDistance then
                 local target = descriptor(base, region, object, props)
                 target.requiredItems = requirementsFor(props, character)
-                best = target
-                bestDistance = distance
+                if eligible == nil or eligible(target) then
+                    best = target
+                    bestDistance = distance
+                end
             end
         end
     end
     return best, bestDistance
 end
 
-function Repairs.findTask(base, character)
+function Repairs.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or cell == nil or character == nil then
         return nil, "base_character_or_cell_unavailable"
@@ -236,7 +238,8 @@ function Repairs.findTask(base, character)
                                 best,
                                 bestDistance,
                                 base,
-                                region
+                                region,
+                                eligible
                             )
                         end
                     end
@@ -258,17 +261,15 @@ local function objectAt(square, target)
     if objects == nil then
         return nil
     end
-    local fallback = nil
     for index = 0, objects:size() - 1 do
         local object = objects:get(index)
         if isStructure(object) and spriteName(object) == tostring(target.spriteName or "") then
-            fallback = fallback or object
             if tonumber(object:getObjectIndex()) == tonumber(target.objectIndex) then
                 return object
             end
         end
     end
-    return fallback
+    return nil
 end
 
 function Repairs.resolveTarget(base, target, character)

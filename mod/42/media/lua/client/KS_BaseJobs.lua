@@ -386,11 +386,47 @@ local function requireUsableItem(requirements, fullType, rule)
     requirements.itemRules[fullType] = rule or { usable = true }
 end
 
+-- Discovery must move past a claimed or cooling-down target, otherwise one
+-- blocked plot/trough prevents every other resident from finding useful work.
+local function availableWorkFilter(base, now, family)
+    local excluded, occupied = {}, {}
+    local function location(target)
+        if target == nil then return nil end
+        if target.corpseItemId ~= nil then return "body:" .. tostring(target.corpseItemId) end
+        if target.corpseX ~= nil and target.corpseY ~= nil then
+            return "body:" .. tostring(target.corpseX) .. ":" .. tostring(target.corpseY)
+                .. ":" .. tostring(target.corpseZ or 0) .. ":" .. tostring(target.corpseIndex or "unknown")
+        end
+        if target.x == nil or target.y == nil then return nil end
+        return tostring(target.x) .. ":" .. tostring(target.y) .. ":" .. tostring(target.z or 0)
+    end
+    for _, task in pairs(base.tasks or {}) do
+        local belongs = type(family) == "table" and family[task.type] == true
+            or type(family) == "string" and string.sub(tostring(task.type), 1, #family) == family
+        if task.target ~= nil and belongs then
+            if task.state == "claimed" or task.state == "cancelled"
+                or ((task.state == "blocked" or task.state == "complete")
+                    and now < (tonumber(task.retryAtHours) or 0)) then
+                if task.target.id ~= nil then excluded[tostring(task.target.id)] = true end
+            end
+            if task.state == "claimed" then
+                local key = location(task.target)
+                if key ~= nil then occupied[key] = true end
+            end
+        end
+    end
+    return function(target)
+        local key = location(target)
+        return not excluded[tostring(target.id)] and (key == nil or not occupied[key])
+    end
+end
+
 local function ensureBarricadeTask(base, now, character)
     if character == nil or not KnoxBaseBarricades.canPrepare(character, base) then
         return nil, "missing_barricade_materials"
     end
-    local target = KnoxBaseBarricades.findTarget(base, character)
+    local target = KnoxBaseBarricades.findTarget(base, character,
+        availableWorkFilter(base, now, { repair = true, construct_defense = true, barricade = true }))
     if target == nil then
         return nil, "no_unbarricaded_window"
     end
@@ -435,41 +471,6 @@ end
 local function farmingPriority(action)
     return action == "farm_harvest" and 100 or action == "farm_water" and 95
         or action == "farm_seed" and 85 or action == "farm_plow" and 80 or nil
-end
-
--- Discovery must move past a claimed or cooling-down target, otherwise one
--- blocked plot/trough prevents every other resident from finding useful work.
-local function availableWorkFilter(base, now, family)
-    local excluded, occupied = {}, {}
-    local function location(target)
-        if target == nil then return nil end
-        if target.corpseItemId ~= nil then return "body:" .. tostring(target.corpseItemId) end
-        if target.corpseX ~= nil and target.corpseY ~= nil then
-            return "body:" .. tostring(target.corpseX) .. ":" .. tostring(target.corpseY)
-                .. ":" .. tostring(target.corpseZ or 0) .. ":" .. tostring(target.corpseIndex or "unknown")
-        end
-        if target.x == nil or target.y == nil then return nil end
-        return tostring(target.x) .. ":" .. tostring(target.y) .. ":" .. tostring(target.z or 0)
-    end
-    for _, task in pairs(base.tasks or {}) do
-        local belongs = type(family) == "table" and family[task.type] == true
-            or type(family) == "string" and string.sub(tostring(task.type), 1, #family) == family
-        if task.target ~= nil and belongs then
-            if task.state == "claimed" or task.state == "cancelled"
-                or ((task.state == "blocked" or task.state == "complete")
-                    and now < (tonumber(task.retryAtHours) or 0)) then
-                if task.target.id ~= nil then excluded[tostring(task.target.id)] = true end
-            end
-            if task.state == "claimed" then
-                local key = location(task.target)
-                if key ~= nil then occupied[key] = true end
-            end
-        end
-    end
-    return function(target)
-        local key = location(target)
-        return not excluded[tostring(target.id)] and (key == nil or not occupied[key])
-    end
 end
 
 local function ensureFarmingTask(base, now, character)
@@ -634,7 +635,8 @@ local function ensureAnimalCareTask(base, now, character)
 end
 
 local function ensureRepairTask(base, now, character)
-    local target = KnoxBaseRepairs.findTask(base, character)
+    local target = KnoxBaseRepairs.findTask(base, character,
+        availableWorkFilter(base, now, { repair = true, construct_defense = true, barricade = true }))
     if target == nil then
         return nil, "no_repair_ready"
     end
@@ -669,7 +671,8 @@ local function ensureRepairTask(base, now, character)
 end
 
 local function ensureConstructionTask(base, now, character)
-    local target = KnoxBaseConstruction.findTask(base, character)
+    local target = KnoxBaseConstruction.findTask(base, character,
+        availableWorkFilter(base, now, { repair = true, construct_defense = true, barricade = true }))
     if target == nil then return nil, "no_construction_ready" end
     local requirements = KnoxBaseConstruction.requirements(target, character, base)
     if requirements == nil then return nil, "missing_construction_materials" end
