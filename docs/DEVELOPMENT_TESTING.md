@@ -1,5 +1,15 @@
 # Development testing
 
+## Formation route stability replay - 2026-09-14
+
+Have a leader walk slowly through doorways and around corners with several
+followers. Confirm followers keep moving toward their committed formation slots
+without reversing or changing direction every few frames. A small leader step or
+pace change should preserve the route; a meaningful slot shift, floor change or
+blocked route should trigger one bounded refresh. Repeat in a crowded building and
+around a base entrance, then verify followers do not pile onto the leader.
+
+
 ## Repair supply replay - 2026-09-14
 
 Damage a repairable door or structure while the worker has empty hands. Put the

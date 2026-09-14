@@ -1,5 +1,18 @@
 # Feature-completion audit
 
+### Formation route stability - 2026-09-14
+
+**Implemented; live follower replay pending.** Formation followers now keep a
+committed route through small leader and slot adjustments. Replanning requires a
+meaningful destination shift, while floor changes and real route changes still
+refresh immediately. Pace changes continue through the existing movement owner
+without replacing the route. This reduces doorway bouncing and rapid direction
+changes while preserving catch-up and regroup behavior.
+
+The formation regression passes route refresh, pace-only updates, blocked routes,
+floor changes, failure cooldowns and stable slot behavior. Native multiplayer
+movement and crowded-building acceptance remain pending.
+
 ### Repair supply collection and native validation - 2026-09-14
 
 **Implemented; live repair replay pending.** Repair discovery separates structural

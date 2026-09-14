@@ -138,7 +138,9 @@ local GROUP_OBJECTIVE_ASSIST_RETRY_TICKS = 300
 local GROUP_OBJECTIVE_ASSIST_COOLDOWN_TICKS = 1800
 local GROUP_SUPPORT_RETRY_TICKS = 600
 local GROUP_SUPPORT_COOLDOWN_TICKS = 1800
-local FORMATION_REPATH_SHIFT_SQUARED = 2
+-- Keep a follower committed to its route while a moving leader's slot drifts;
+-- replanning after a one-tile adjustment causes visible direction thrashing.
+local FORMATION_REPATH_SHIFT_SQUARED = 3
 local FORMATION_REFRESH_TICKS = 30
 -- Native path requests are expensive and can make a follower oscillate through
 -- doorways when its anchor is moving. Hold a route briefly and require a real
