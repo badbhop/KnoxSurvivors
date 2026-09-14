@@ -43,4 +43,10 @@ for _, event in ipairs({ "roam_building", "roam_area", "search", "loot_found",
         "dialogue bank missing for " .. event)
 end
 
+for _, event in ipairs({ "player_talk", "player_warm_up", "player_independent",
+    "player_lure", "player_attack_warning" }) do
+    assert(type(dialogue.lines(event)) == "table" and #dialogue.lines(event) >= 2,
+        "social dialogue bank missing for " .. event)
+end
+
 print("Survivor dialogue PASS banks=true cooldown=true global=true settings=true reset=true")

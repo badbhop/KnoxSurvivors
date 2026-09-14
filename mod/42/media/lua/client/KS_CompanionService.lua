@@ -116,6 +116,44 @@ local function displayName(id)
     return name ~= "" and name or "Survivor"
 end
 
+local function playerSocialDisposition(playerId, survivorId)
+    if KnoxPersistence.getPlayerSocialDisposition ~= nil then
+        return KnoxPersistence.getPlayerSocialDisposition(playerId, survivorId)
+    end
+    -- Test fixtures and old hot-loaded worlds may not have the social
+    -- extension yet. Preserve the existing safe recruitment behavior there.
+    return "join"
+end
+
+local function socialRelation(playerId, survivorId)
+    if KnoxPersistence.getPlayerRelationship ~= nil then
+        return KnoxPersistence.getPlayerRelationship(playerId, survivorId)
+    end
+    return nil
+end
+
+local function socialSpeech(character, survivorId, event, fallback)
+    local dialogue = rawget(_G, "KnoxSurvivorDialogue")
+    if dialogue ~= nil and dialogue.say ~= nil then
+        local said, line = dialogue.say(
+            character,
+            survivorId,
+            event,
+            math.floor(worldAge() * 3600),
+            1800
+        )
+        if said then return line end
+    end
+    KnoxActivityFeed.speak(character, fallback)
+    return fallback
+end
+
+local function recordSocialEvent(playerId, survivorId, event)
+    if KnoxPersistence.recordPlayerSocialEvent ~= nil then
+        KnoxPersistence.recordPlayerSocialEvent(playerId, survivorId, event, worldAge())
+    end
+end
+
 local function validateInteraction(player, survivorId, maximumDistanceSquared)
     local character = KnoxSurvivorRuntime.getCharacter(survivorId)
     local playerSquare = player ~= nil and player:getCurrentSquare() or nil
@@ -170,6 +208,13 @@ function CompanionService.talk(player, survivorId)
     if character == nil or playerId == nil then
         return false, availability
     end
+    local social = playerSocialDisposition(playerId, survivorId)
+    if social == "attack_on_sight" then
+        KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+        socialSpeech(character, survivorId, "player_attack_warning", "Back away.")
+        KnoxActivityFeed.event("A survivor attacked without warning.")
+        return false, "hostile"
+    end
     if KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId) then return false, "hostile" end
     local attentive, attentionReason = KnoxSurvivorRuntime.beginPlayerConversation(survivorId, player)
     if not attentive then
@@ -197,9 +242,40 @@ function CompanionService.talk(player, survivorId)
     end
     local line = TALK_LINES[((relation.meetings - 1) % #TALK_LINES) + 1]
     KnoxActivityFeed.event("Talked to " .. displayName(survivorId) .. ".")
-    KnoxActivityFeed.speak(character, line)
     if KnoxActivityFeed.reputation ~= nil then
         KnoxActivityFeed.reputation(character, (tonumber(relation.trust) or previousTrust) - previousTrust)
+    end
+    if social == "lure" then
+        if (tonumber(relation.lureAttempts) or 0) == 0 then
+            recordSocialEvent(playerId, survivorId, "lure_attempt")
+            socialSpeech(character, survivorId, "player_lure",
+                "I know a place nearby. Come on, I can show you.")
+        else
+            KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+            socialSpeech(character, survivorId, "player_attack_warning", "You should have kept walking.")
+            KnoxActivityFeed.event("A survivor tried to lure you into an ambush.")
+            KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
+            if KnoxSurvivorRuntime.beginRobbery ~= nil then
+                KnoxSurvivorRuntime.beginRobbery(
+                    survivorId, player, math.floor(worldAge() * 3600)
+                )
+            end
+            return false, "hostile"
+        end
+    elseif social == "volatile" then
+        -- Volatile survivors can hold a conversation, then decide that the
+        -- meeting itself was a threat. Hostility is persisted before the
+        -- attention lease ends so the existing combat owner can retaliate.
+        KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+        socialSpeech(character, survivorId, "player_attack_warning", "Do not come any closer.")
+        KnoxActivityFeed.event("The conversation turned hostile.")
+        KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
+        return false, "hostile"
+    else
+        local event = social == "warm_up" and "player_warm_up"
+            or social == "independent" and "player_independent"
+            or "player_talk"
+        socialSpeech(character, survivorId, event, line)
     end
     print(
         "[KnoxSurvivors][Companions] talk survivor=" .. survivorId
@@ -280,6 +356,19 @@ function CompanionService.canRecruit(player, survivorId)
     if #KnoxPersistence.getCompanionIds(playerId) >= KnoxSettings.companionLimit() then
         return false, "companion_limit"
     end
+    local social = playerSocialDisposition(playerId, survivorId)
+    local relation = socialRelation(playerId, survivorId) or {}
+    if social == "attack_on_sight" then return false, "dangerous" end
+    if social == "independent" then return false, "prefers_alone" end
+    if social == "warm_up"
+        and (tonumber(relation.meetings) or 0) < 2
+        and (tonumber(relation.recruitmentAttempts) or 0) < 2 then
+        return false, "needs_time"
+    end
+    if social == "lure" and (tonumber(relation.lureAttempts) or 0) == 0 then
+        return false, "lure"
+    end
+    if social == "lure" then return false, "dangerous" end
     -- Recruitment is an immediate social choice. Relationship history still
     -- drives dialogue and reputation, but it never blocks an otherwise valid
     -- survivor from choosing to join the player.
@@ -296,10 +385,43 @@ function CompanionService.recruit(player, survivorId)
                 and "I'm already travelling with people."
                 or reason == "hostile"
                 and "Keep your distance."
+                or reason == "needs_time"
+                and "I need more time before I travel with you."
+                or reason == "prefers_alone"
+                and "I am staying on my own."
+                or reason == "lure"
+                and "I know somewhere quiet. Come with me."
+                or reason == "dangerous"
+                and "You should have kept walking."
                 or "I can't come with you right now."
-            KnoxActivityFeed.speak(character, line)
+            if reason == "needs_time" then
+                recordSocialEvent(playerId, survivorId, "recruit_attempt")
+                socialSpeech(character, survivorId, "player_warm_up", line)
+            elseif reason == "lure" then
+                recordSocialEvent(playerId, survivorId, "lure_attempt")
+                socialSpeech(character, survivorId, "player_lure", line)
+            elseif reason == "dangerous" then
+                KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+                socialSpeech(character, survivorId, "player_attack_warning", line)
+                if KnoxSurvivorRuntime.beginRobbery ~= nil then
+                    KnoxSurvivorRuntime.beginRobbery(
+                        survivorId, player, math.floor(worldAge() * 3600)
+                    )
+                end
+            else
+                KnoxActivityFeed.speak(character, line)
+            end
         end
         return false, reason, trust
+    end
+    local social = playerSocialDisposition(playerId, survivorId)
+    if social == "volatile" then
+        KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+        if character ~= nil then
+            socialSpeech(character, survivorId, "player_attack_warning", "Do not come any closer.")
+        end
+        KnoxActivityFeed.event("The survivor turned on you.")
+        return false, "hostile", trust
     end
     local saved, result = KnoxPersistence.setPlayerCompanion(
         survivorId,

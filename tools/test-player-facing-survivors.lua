@@ -35,7 +35,9 @@ assert(string.find(relations, "Events.OnWeaponHitCharacter", 1, true)
     "a native player hit must create a durable hostile response")
 assert(string.find(autonomy, "areSurvivorsHostile", 1, true)
     and string.find(autonomy, "allowSurvivorPlayerCombat", 1, true)
-    and string.find(autonomy, "beginNpcLiveCombat", 1, true),
+    and string.find(autonomy, "beginNpcLiveCombat", 1, true)
+    and string.find(autonomy, "getPlayerSocialDisposition", 1, true)
+    and string.find(autonomy, 'affiliation.kind == "player"', 1, true),
     "hostile human targets must route into the existing native combat owner")
 assert(string.find(activity, "showSurvivorSpeech", 1, true)
     and string.find(activity, "addLineChatElement", 1, true),

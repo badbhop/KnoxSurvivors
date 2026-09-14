@@ -460,6 +460,8 @@ function ViewModel.getSurvivor(id, playerNum)
         role = role,
         roleLabel = ROLE_LABELS[role] or "Survivor",
         professionLabel = professionLabelFor(id),
+        personality = identity.personality,
+        personalityLabel = identity.personalityLabel,
         traits = capabilities.traitIds or {},
         skills = capabilities.skills or {},
         trust = relationship ~= nil and tonumber(relationship.trust) or nil,

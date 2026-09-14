@@ -57,6 +57,94 @@ local BANKS = {
     camp = {
         "I'm staying close for a while.", "This place will do for now.",
     },
+    player_talk = {
+        "Keep your voice down. Sound carries.",
+        "I have been moving carefully since this started.",
+        "If we stay alive, we will need a plan beyond tonight.",
+        "I remember when a locked door meant something.",
+        "I am watching the roads. People are becoming the bigger danger.",
+    },
+    player_warm_up = {
+        "I am not ready to trust a stranger. Give me a little time.",
+        "You seem all right. I still need to see how you handle trouble.",
+        "Talk to me again after we have both made it through another day.",
+    },
+    player_independent = {
+        "I travel alone. It is how I have stayed alive.",
+        "I appreciate the offer, but I have my own route to follow.",
+        "No hard feelings. I do better when I answer only for myself.",
+    },
+    player_lure = {
+        "I know a place nearby. Come on, I can show you.",
+        "There is shelter just past those buildings. You should see it.",
+        "Keep walking with me. We can talk somewhere quieter.",
+    },
+    player_attack_warning = {
+        "Back away. I do not want to fight, but I will.",
+        "You should have kept walking.",
+        "One more step and we settle this the hard way.",
+    },
+}
+
+local PERSONALITY_BANKS = {
+    frightened = {
+        player_talk = { "I keep thinking I hear someone behind us.",
+            "I had people with me once. I do not know where they are now.",
+            "Please do not leave me in an empty building." },
+        combat = { "I cannot do this alone!", "Stay close, please!", "There are too many!" },
+        need_medical = { "It hurts more when I move.", "I need help with this wound." },
+        camp = { "I just want one quiet night.", "Maybe tomorrow will be safer." },
+    },
+    guarded = {
+        player_talk = { "I remember enough to know not to trust promises.",
+            "Show me what you do when things go wrong.",
+            "I am listening. That does not mean I agree." },
+        combat = { "Watch the angles.", "Do not chase them into a bad position.", "Hold your ground." },
+        need_medical = { "The wound is manageable. It still needs cleaning." },
+        camp = { "We need a better fallback before we settle here.", "A base is only as good as its exits." },
+    },
+    brave = {
+        player_talk = { "We can build something if we keep making smart choices.",
+            "I have lost people before. I will not waste what they taught me.",
+            "Give me a job and I will see it through." },
+        combat = { "Stay behind me.", "We finish this and move on.", "Keep the pressure on." },
+        need_medical = { "It is a bad cut, but I can still work after it is dressed." },
+        camp = { "We should make this place worth defending.", "There is still a future if we plan for it." },
+    },
+    loner = {
+        player_talk = { "I have survived by keeping my footprint small.",
+            "I had a route before we met. I may return to it.",
+            "Company is useful. Dependence gets people killed." },
+        combat = { "Pick one and finish it.", "Do not draw the whole street.", "I will cover this side." },
+        camp = { "I will keep to the edge of camp.", "A quiet corner is all I need." },
+    },
+    sociable = {
+        player_talk = { "It helps hearing another living voice.",
+            "We should learn what everyone is good at.",
+            "I still think people can make a life here." },
+        combat = { "Together, now!", "I have your side.", "Call out what you see." },
+        camp = { "We should eat together when the work is done.", "A real routine might keep us sane." },
+    },
+    unstable = {
+        player_talk = { "Some days I remember everything. Some days I remember too much.",
+            "I had a plan. Then the dead started walking.",
+            "Do not mistake a smile for calm." },
+        combat = { "They keep coming. Good. Let them.", "I can hear them in the walls.", "Move! Move!" },
+        camp = { "The quiet is worse than the noise.", "I need something to do before I start thinking." },
+    },
+    opportunist = {
+        player_talk = { "Everybody needs something. The trick is finding out what.",
+            "I know places people overlook.",
+            "We could both come out ahead here." },
+        combat = { "Take what you can and go.", "Do not get stuck fighting for pride.", "Find the weak side." },
+        camp = { "A good base needs supplies and an exit nobody watches.", "I know where the useful things are kept." },
+    },
+    predatory = {
+        player_talk = { "You are carrying more than you can protect.",
+            "You should have kept your distance.",
+            "This road belongs to whoever can hold it." },
+        combat = { "No witnesses.", "Finish it.", "Do not let them run." },
+    },
 }
 
 local function stableIndex(id, event, ticks, count)
@@ -94,7 +182,16 @@ function Dialogue.sayLines(character, survivorId, event, lines, ticks, cooldown)
 end
 
 function Dialogue.say(character, survivorId, event, ticks, cooldown)
-    return Dialogue.sayLines(character, survivorId, event, BANKS[event], ticks, cooldown)
+    local lines = BANKS[event]
+    local persistence = rawget(_G, "KnoxPersistence")
+    if persistence ~= nil and persistence.getSurvivorPersonality ~= nil then
+        local personality = persistence.getSurvivorPersonality(survivorId)
+        local overrides = personality ~= nil and PERSONALITY_BANKS[personality.personality] or nil
+        if overrides ~= nil and type(overrides[event]) == "table" then
+            lines = overrides[event]
+        end
+    end
+    return Dialogue.sayLines(character, survivorId, event, lines, ticks, cooldown)
 end
 
 function Dialogue.lines(event)

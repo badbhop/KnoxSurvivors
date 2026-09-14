@@ -441,6 +441,14 @@ local function addRecruitOption(menu, player, survivorId, closeEnough)
         label = "Recruit (hostile)"
     elseif reason == "already_with_group" then
         label = "Recruit (already with a group)"
+    elseif reason == "needs_time" then
+        label = "Recruit (needs time)"
+    elseif reason == "prefers_alone" then
+        label = "Recruit (prefers independence)"
+    elseif reason == "lure" then
+        label = "Recruit (untrustworthy)"
+    elseif reason == "dangerous" then
+        label = "Recruit (dangerous)"
     else
         label = "Recruit (not available)"
     end

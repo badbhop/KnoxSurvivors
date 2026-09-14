@@ -36,7 +36,7 @@ callbacks.OnWeaponSwingHitPoint(player)
 assert(permissions.npc == false, "recruitment during windup protects companion before collision")
 affiliation = {kind = "independent"}
 trust = 30
-assert(not human.canPlayerAttack("p", "npc"), "friendly trust protects survivor")
+assert(human.canPlayerAttack("p", "npc"), "neutral survivor remains a valid player target")
 hostile = true
 assert(human.canPlayerAttack("p", "npc"), "actual hostility overrides old personal trust")
 affiliation = {kind = "player", ownerId = "other-player"}

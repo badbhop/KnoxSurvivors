@@ -177,6 +177,7 @@ function KnoxPanel:prerender()
     sectionHeader("History")
     keyValue("Time Alive", dayLabel(snapshot.daysSurvived))
     keyValue("Known", dayLabel(snapshot.daysKnown))
+    keyValue("Personality", snapshot.personalityLabel or "Unknown")
     y = y + 4
     sectionHeader("Current Job")
     local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil

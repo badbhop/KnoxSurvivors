@@ -31,6 +31,11 @@ local ENCOUNTER_LINES = {
         { "Leave the supplies. Nobody gets hurt.", "Fine. They're yours." },
         { "Don't make this harder than it needs to be.", "All right. Easy." },
     },
+    lure = {
+        { "I know a quiet place nearby. Come with me.", "I am not following you anywhere." },
+        { "There is a safe house past those buildings.", "Keep your distance." },
+        { "You look like you could use a better route through town.", "I will find my own way." },
+    },
     decline = {
         { "Just passing through.", "Same here. Stay safe." },
         { "I'm better off alone for now.", "Fair enough. Take care." },
@@ -171,6 +176,15 @@ local function relationshipDisposition(firstId, secondId)
     return record ~= nil and record.disposition or "neutral"
 end
 
+local function personalityFor(id)
+    if KnoxPersistence.getSurvivorPersonality ~= nil then
+        local profile = KnoxPersistence.getSurvivorPersonality(id)
+        if profile ~= nil then return profile.personality end
+    end
+    local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
+    return identity.personality
+end
+
 -- Encounter results are intentionally modest.  First contact may be a cautious
 -- greeting or no interaction at all; it must not turn every pair inside view
 -- into an instant travelling party.  Existing aggression can still create the
@@ -185,11 +199,16 @@ local function decideEncounterOutcome(firstId, secondId, record)
     end
     local firstIdentity = KnoxPersistence.getSurvivorIdentity(firstId) or {}
     local secondIdentity = KnoxPersistence.getSurvivorIdentity(secondId) or {}
+    local firstPersonality = personalityFor(firstId)
+    local secondPersonality = personalityFor(secondId)
     local sociability = ((firstIdentity.sociability or 50)
         + (secondIdentity.sociability or 50)) / 2
     local aggression = ((firstIdentity.aggression or 35)
         + (secondIdentity.aggression or 35)) / 2
     local hostileChance = clamp(7 + (aggression - 45) * 0.35, 4, 22)
+    if firstPersonality == "predatory" or secondPersonality == "predatory" then
+        hostileChance = clamp(hostileChance + 8, 8, 30)
+    end
     local cautiousGreetingChance = clamp(42 + (sociability - 50) * 0.30, 25, 58)
     local hasFamiliarity = record ~= nil and (tonumber(record.meetings) or 0) >= 2
     local sharedActivity = record ~= nil and ((tonumber(record.sharedRoam) or 0)
@@ -221,6 +240,12 @@ local function decideEncounterOutcome(firstId, secondId, record)
         return "hostile"
     end
     local socialRoll = roll - (KnoxSettings.allowHostileEncounters() and hostileChance or 0)
+    local lureChance = (firstPersonality == "opportunist" or secondPersonality == "opportunist")
+        and 10 or 0
+    if lureChance > 0 and socialRoll < lureChance then
+        return "lure"
+    end
+    socialRoll = socialRoll - lureChance
     if joinChance > 0 and socialRoll < joinChance then
         return "join"
     end
@@ -440,7 +465,13 @@ local function observePair(first, second, worldAge, ticks, participants)
                 print(TAG .. " encounter-kept-distance=" .. first.id .. "," .. second.id
                     .. " disposition=" .. disposition)
             elseif outcome ~= "none" then
-                local aggressorId = aggressionFor(first.id) >= aggressionFor(second.id)
+                local firstPersonality = personalityFor(first.id)
+                local secondPersonality = personalityFor(second.id)
+                local aggressorId = firstPersonality == "opportunist"
+                    and first.id
+                    or secondPersonality == "opportunist"
+                    and second.id
+                    or aggressionFor(first.id) >= aggressionFor(second.id)
                     and first.id or second.id
                 local joinGroupId = oneGroupOnly
                     and (firstGroup ~= nil and firstGroup.id
@@ -541,7 +572,8 @@ local function abortMeeting(key, meeting, first, second, ticks, reason)
         recordEncounterCooldown(
             meeting.firstId,
             meeting.secondId,
-            meeting.outcome == "hostile" and "hostile" or "neutral",
+            (meeting.outcome == "hostile" or meeting.outcome == "lure")
+                and "hostile" or "neutral",
             getGameTime():getWorldAgeHours(),
             ABORT_COOLDOWN_HOURS
         )
@@ -712,7 +744,7 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
             second:beginGreeting()
             first.character:faceLocationF(second.character:getX(), second.character:getY())
             second.character:faceLocationF(first.character:getX(), first.character:getY())
-            if meeting.outcome == "hostile" then
+            if meeting.outcome == "hostile" or meeting.outcome == "lure" then
                 local aggressor = meeting.aggressorId == first.id and first or second
                 KnoxActivityFeed.speak(aggressor.character, encounterLine(meeting, false))
             elseif meeting.outcome == "decline" then
@@ -730,7 +762,7 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
             print(TAG .. " greeting-started=" .. first.id .. "," .. second.id)
         elseif meeting.phase == "GREETING" then
             if not meeting.responseSpoken and ticks - meeting.greetingAt >= 90 then
-                if meeting.outcome == "hostile" then
+                if meeting.outcome == "hostile" or meeting.outcome == "lure" then
                     local victim = meeting.aggressorId == first.id and second or first
                     KnoxActivityFeed.speak(victim.character, encounterLine(meeting, true))
                 elseif meeting.outcome == "decline" then
@@ -749,7 +781,7 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                 local group = nil
                 local joinResult = nil
                 local worldAge = getGameTime():getWorldAgeHours()
-                if meeting.outcome == "hostile" then
+                if meeting.outcome == "hostile" or meeting.outcome == "lure" then
                     local aggressor = meeting.aggressorId == first.id and first or second
                     local victim = meeting.aggressorId == first.id and second or first
                     KnoxPersistence.setRelationshipDisposition(
@@ -764,10 +796,12 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                     end
                     pendingMeetings[key] = nil
                     print(
-                        TAG .. " encounter-outcome=hostile robber=" .. aggressor.id
+                        TAG .. " encounter-outcome=" .. meeting.outcome .. " robber=" .. aggressor.id
                             .. " victim=" .. victim.id
                     )
-                    KnoxActivityFeed.event("A survivor encounter turned hostile.")
+                    KnoxActivityFeed.event(meeting.outcome == "lure"
+                        and "A survivor encounter became an ambush."
+                        or "A survivor encounter turned hostile.")
                 elseif meeting.outcome == "decline" then
                     KnoxPersistence.setRelationshipDisposition(
                         first.id,

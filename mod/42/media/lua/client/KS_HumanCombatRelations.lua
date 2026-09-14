@@ -30,6 +30,10 @@ function HumanCombat.onWeaponHitCharacter(attacker, target)
     if playerId == nil then return end
     local survivorId = KnoxSurvivorRuntime.idForCharacter(target)
     if survivorId == nil then return end
+    -- The Java bridge should already have blocked protected targets. Keep the
+    -- Lua consequence path defensive as well so a stale lease or native event
+    -- can never turn a companion, owned resident, or ally hostile.
+    if not HumanCombat.canPlayerAttack(playerId, survivorId) then return end
     local alreadyHostile = KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId)
     if KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
         and not alreadyHostile then
@@ -50,8 +54,10 @@ function HumanCombat.canPlayerAttack(playerId, survivorId)
         local relation = KnoxPersistence.getFactionRelationship(affiliation.factionId, faction.id)
         if relation ~= nil and relation.disposition == "allied" then return false end
     end
-    local personal = KnoxPersistence.getPlayerRelationshipSnapshot(playerId, survivorId)
-    return personal == nil or (tonumber(personal.trust) or 0) < 30
+    -- Independent and neutral survivors remain valid player combat targets.
+    -- Their response is owned by the existing hostile-human controller after
+    -- an actual hit; relationship history does not grant friendly-fire safety.
+    return true
 end
 
 function HumanCombat.onWeaponSwing(attacker)

@@ -582,10 +582,42 @@ local function hostileHuman(self, character, knownSurvivorId)
     for playerNum = 0, math.max(0, count - 1) do
         local player = getSpecificPlayer(playerNum)
         if player ~= nil and player == character then
+            local affiliation = KnoxPersistence.getSurvivorAffiliation ~= nil
+                and KnoxPersistence.getSurvivorAffiliation(self.id) or nil
+            -- Player-owned companions and residents never acquire a hostile
+            -- player target through the personality system.
+            if affiliation ~= nil and affiliation.kind == "player" then return false end
             local playerId = KnoxPersistence.ensurePlayerId ~= nil
                 and KnoxPersistence.ensurePlayerId(player) or nil
-            return playerId ~= nil and KnoxPersistence.isSurvivorHostileToPlayer ~= nil
-                and KnoxPersistence.isSurvivorHostileToPlayer(self.id, playerId) or false
+            if playerId == nil then return false end
+            if KnoxPersistence.isSurvivorHostileToPlayer ~= nil
+                and KnoxPersistence.isSurvivorHostileToPlayer(self.id, playerId) then
+                return true
+            end
+            if affiliation ~= nil and affiliation.factionId ~= nil
+                and KnoxPersistence.getPlayerFaction ~= nil
+                and KnoxPersistence.getFactionRelationship ~= nil then
+                local playerFaction = KnoxPersistence.getPlayerFaction(playerId)
+                if playerFaction ~= nil and affiliation.factionId == playerFaction.id then
+                    return false
+                end
+                local relation = playerFaction ~= nil
+                    and KnoxPersistence.getFactionRelationship(affiliation.factionId, playerFaction.id)
+                    or nil
+                if relation ~= nil and relation.disposition == "allied" then return false end
+            end
+            -- Predatory survivors can initiate a fight when they actually
+            -- perceive the player. The threat evaluator still supplies the
+            -- same distance, floor, and line-of-sight boundary used for every
+            -- other human target, so this is not a map-wide hostility scan.
+            if KnoxPersistence.getPlayerSocialDisposition ~= nil
+                and KnoxPersistence.getPlayerSocialDisposition(self.id, playerId) == "attack_on_sight" then
+                if KnoxPersistence.setSurvivorHostileToPlayer ~= nil then
+                    KnoxPersistence.setSurvivorHostileToPlayer(self.id, playerId, true)
+                end
+                return true
+            end
+            return false
         end
     end
     return false

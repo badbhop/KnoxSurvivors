@@ -7225,3 +7225,29 @@ speech.
 
 Focused recruitment, settings, needs, base-needs, and full offline verification
 pass. Live confirmation remains required for the interaction and speech bubble.
+
+### Persistent survivor personalities and human social responses - 2026-09-14
+
+**Implemented; live social and combat replay pending.** Survivors now receive a
+stable Knox-owned social archetype when their identity is first persisted. The
+archetype shapes relevant speech and gives each player relationship a durable
+response: join, warm up, remain independent, become volatile after talking,
+attempt a lure, or attack on sight. Warm-up and lure history are bounded and
+saved per player, so repeated interaction cannot reroll a survivor's behavior.
+The existing encounter robbery path now also supports opportunistic lure
+encounters between independent NPCs.
+
+Dialogue now includes personality-aware lines about fear, past losses, future
+plans, wounds, fights, camp life, and practical survival. The existing global
+and event cooldowns remain authoritative so relevant chatter does not become
+spam.
+
+Neutral unowned survivors remain valid player combat targets. The Lua hit
+consequence path now rechecks the same native relationship gate before marking
+hostility, protecting companions, owned residents, and allied survivors from a
+stale or unexpected friendly-fire event. Hostile-human targeting continues to
+use the existing native combat owner.
+
+Focused social, dialogue, combat, and full offline verification pass. Live
+replay is still required to confirm speech bubbles, hostile response timing,
+and the native damage result in Build 42.

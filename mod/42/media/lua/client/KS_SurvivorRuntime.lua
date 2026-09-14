@@ -211,6 +211,15 @@ function Runtime.releaseTrade(id, action)
     return entry ~= nil and entry.controller:releaseTrade(action) or false
 end
 
+function Runtime.beginRobbery(id, victim, ticks)
+    local entry = getEntry(id)
+    if entry == nil or entry.controller == nil
+        or entry.controller.beginRobbery == nil then
+        return false
+    end
+    return entry.controller:beginRobbery(victim, ticks or 0) == true
+end
+
 function Runtime.nearestToSquare(square, maximumDistance)
     if square == nil then
         return nil, nil

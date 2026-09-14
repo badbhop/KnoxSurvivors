@@ -1001,6 +1001,56 @@ local function stableTrait(id, salt)
     return value % 101
 end
 
+-- Social identity is deterministic when first created, then saved with the
+-- survivor. This keeps a person's manner consistent across reloads without
+-- making every independent survivor hostile or willing to join by default.
+local PERSONALITY_PROFILES = {
+    frightened = { label = "Scared and alone", playerResponse = "warm_up",
+        sociability = 34, aggression = 14, courage = 20, deception = 4 },
+    guarded = { label = "Guarded", playerResponse = "warm_up",
+        sociability = 30, aggression = 24, courage = 42, deception = 18 },
+    brave = { label = "Brave", playerResponse = "join",
+        sociability = 58, aggression = 42, courage = 82, deception = 8 },
+    loner = { label = "Independent", playerResponse = "independent",
+        sociability = 18, aggression = 30, courage = 62, deception = 15 },
+    sociable = { label = "Open and cooperative", playerResponse = "join",
+        sociability = 84, aggression = 22, courage = 56, deception = 3 },
+    unstable = { label = "Unpredictable", playerResponse = "volatile",
+        sociability = 42, aggression = 58, courage = 48, deception = 38 },
+    opportunist = { label = "Opportunistic", playerResponse = "lure",
+        sociability = 48, aggression = 46, courage = 54, deception = 76 },
+    predatory = { label = "Predatory", playerResponse = "attack_on_sight",
+        sociability = 22, aggression = 82, courage = 72, deception = 58 },
+}
+
+local function defaultPersonality(id)
+    local roll = stableTrait(id, 4)
+    if roll <= 14 then return "frightened"
+    elseif roll <= 28 then return "guarded"
+    elseif roll <= 43 then return "brave"
+    elseif roll <= 56 then return "loner"
+    elseif roll <= 70 then return "sociable"
+    elseif roll <= 81 then return "unstable"
+    elseif roll <= 93 then return "opportunist"
+    end
+    return "predatory"
+end
+
+local function initializePersonality(identity, id)
+    local archetype = PERSONALITY_PROFILES[identity.personality] ~= nil
+        and identity.personality or defaultPersonality(id)
+    local profile = PERSONALITY_PROFILES[archetype]
+    identity.personality = archetype
+    identity.personalityLabel = identity.personalityLabel or profile.label
+    identity.playerResponse = identity.playerResponse or profile.playerResponse
+    identity.courage = identity.courage or profile.courage
+    identity.deception = identity.deception or profile.deception
+    -- Preserve authored or legacy sociability/aggression values when present.
+    identity.sociability = identity.sociability or profile.sociability
+    identity.aggression = identity.aggression or profile.aggression
+    return identity
+end
+
 function KnoxPersistence.getTestRecord()
     return KnoxPersistence.getRecord(TEST_SURVIVOR_ID)
 end
@@ -1284,8 +1334,19 @@ function KnoxPersistence.ensureSurvivorIdentity(id, forename, surname, worldAgeH
         or stableTrait(id, 1)
     survivor.identity.aggression = survivor.identity.aggression
         or stableTrait(id, 2)
+    initializePersonality(survivor.identity, id)
     data.survivors[id] = survivor
     return survivor.identity
+end
+
+function KnoxPersistence.getSurvivorPersonality(id)
+    local identity = type(id) == "string" and KnoxPersistence.getSurvivorIdentity(id) or nil
+    if identity == nil and type(id) == "string" then
+        identity = KnoxPersistence.ensureSurvivorIdentity(id, "", "", 0, nil)
+    end
+    if identity == nil then return nil end
+    initializePersonality(identity, id)
+    return copyFlat(identity)
 end
 
 function KnoxPersistence.ensureSurvivorIdentityFromCharacter(id, character, worldAgeHours)
@@ -2628,10 +2689,47 @@ function KnoxPersistence.getPlayerRelationship(playerId, survivorId)
             lastMetHours = nil,
             nextTalkHours = 0,
             nextRecruitHours = 0,
+            socialDisposition = nil,
+            recruitmentAttempts = 0,
+            lureAttempts = 0,
         }
         survivor.playerRelationships[playerId] = relation
     end
+    relation.recruitmentAttempts = tonumber(relation.recruitmentAttempts) or 0
+    relation.lureAttempts = tonumber(relation.lureAttempts) or 0
     return relation
+end
+
+-- Player-facing social behavior is selected once per survivor/player pair.
+-- Trust remains a record of history, while this disposition controls the
+-- person's initial boundary and never changes on a per-frame random roll.
+function KnoxPersistence.getPlayerSocialDisposition(playerId, survivorId)
+    local relation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
+    if relation == nil then return nil end
+    if relation.socialDisposition == nil then
+        local identity = KnoxPersistence.getSurvivorPersonality(survivorId) or {}
+        local response = identity.playerResponse
+        if response ~= "join" and response ~= "warm_up"
+            and response ~= "independent" and response ~= "volatile"
+            and response ~= "lure" and response ~= "attack_on_sight" then
+            response = "join"
+        end
+        relation.socialDisposition = response
+    end
+    return relation.socialDisposition
+end
+
+function KnoxPersistence.recordPlayerSocialEvent(playerId, survivorId, event, worldAgeHours)
+    local relation = KnoxPersistence.getPlayerRelationship(playerId, survivorId)
+    if relation == nil then return false end
+    relation.lastSocialEvent = tostring(event or "interaction")
+    relation.lastSocialEventHours = tonumber(worldAgeHours) or 0
+    if event == "recruit_attempt" then
+        relation.recruitmentAttempts = (tonumber(relation.recruitmentAttempts) or 0) + 1
+    elseif event == "lure_attempt" then
+        relation.lureAttempts = (tonumber(relation.lureAttempts) or 0) + 1
+    end
+    return true
 end
 
 function KnoxPersistence.recordPlayerRecruitRefusal(
