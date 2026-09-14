@@ -2231,9 +2231,9 @@ function Controller.entryCandidateScore(
 end
 
 local function findAlternateEntry(self, supply, ticks)
-    local targetSquare = supply ~= nil and supply.container ~= nil
-        and supply.container:getSourceGrid()
-        or nil
+    local targetSquare = supply ~= nil and supply.targetSquare or nil
+    targetSquare = targetSquare or (supply ~= nil and supply.container ~= nil
+        and supply.container:getSourceGrid() or nil)
     if targetSquare == nil and supply ~= nil and supply.container ~= nil
         and supply.container:getParent() ~= nil then
         targetSquare = supply.container:getParent():getSquare()
@@ -2351,6 +2351,24 @@ local function findAlternateEntry(self, supply, ticks)
         end
     end
     return best
+end
+
+local function beginFormationWindowDetour(self, ticks)
+    local target = self.state == "COMPANION_FOLLOW"
+        and self.companionTarget or self.groupLeader
+    local targetSquare = target ~= nil and target:getCurrentSquare() or nil
+    if targetSquare == nil or getCell() == nil then return false end
+    self.pendingSupply = {
+        targetSquare = targetSquare,
+        approach = targetSquare,
+        entryAttempts = {},
+    }
+    local resumeState = self.state
+    if not self:beginWindowDetour(ticks, resumeState) then
+        self.pendingSupply = nil
+        return false
+    end
+    return true
 end
 
 function Controller.isEntryTraversalFailure(movement)
@@ -2638,6 +2656,10 @@ function Controller:resetMovementRecovery()
 end
 
 function Controller:handleFormationMovementFailure(movement, ticks, companionFollow)
+    if Controller.isEntryTraversalFailure(movement)
+        and (self.state == "GROUP_FOLLOW" or self.state == "COMPANION_FOLLOW") then
+        if beginFormationWindowDetour(self, ticks) then return end
+    end
     self.bridge:cancelNpcMove(self.id)
     self.formationFailureCount = (self.formationFailureCount or 0) + 1
     local cooldown = math.min(
@@ -4809,6 +4831,9 @@ function Controller:resumeAfterWindowDetour(ticks)
     self.entryDetour = nil
     self.state = resumeState
     self.stateStartedAt = ticks
+    if resumeState == "GROUP_FOLLOW" or resumeState == "COMPANION_FOLLOW" then
+        self.pendingSupply = nil
+    end
     print("[KnoxSurvivors][Autonomy] id=" .. self.id .. " alternate-entry=completed")
     return true
 end

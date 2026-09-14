@@ -1,5 +1,13 @@
 # Feature-completion audit
 
+### Follow window traversal - 2026-09-14
+
+**Implemented; live doorway/window replay pending.** Companion and group follow
+movement now sends locked or unusable window failures through the existing
+bounded alternate-entry path. Survivors can approach a usable window, cross it,
+and resume the original follow route; failed entry still falls back to the
+formation cooldown without forced entry. Offline traversal regressions pass.
+
 ### Player death survivor continuity - 2026-09-14
 
 **Implemented; live death and respawn replay pending.** A sandbox option now
