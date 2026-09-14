@@ -72,6 +72,13 @@ local controllerPath = projectRoot
     .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua"
 assert(loadfile(controllerPath))()
 local Controller = assert(KnoxAutonomyController)
+local controllerSourceFile = assert(io.open(controllerPath, "r"))
+local controllerSource = controllerSourceFile:read("*a")
+controllerSourceFile:close()
+assert(string.find(controllerSource, "local haulingCorpse", 1, true)
+    and string.find(controllerSource, 'reason = "corpse_carrier_threat"', 1, true)
+    and string.find(controllerSource, 'KnoxBaseCorpseHandling.isDragging', 1, true),
+    "corpse carriers must hand close threats to flee before combat")
 
 local traversalCharacter = {
     getCurrentStateName = function() return "ClimbOverFenceState" end,

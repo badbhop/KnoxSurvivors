@@ -1,5 +1,14 @@
 # Development testing
 
+## Corpse-carrier threat replay - 2026-09-14
+
+Assign a corpse-haul job and confirm the resident completes native pickup before
+moving while dragging. Place one zombie several tiles away and confirm the
+resident continues the route without attacking it. Place a real zombie close to
+the carrier: the resident should release the corpse, flee or defend against the
+immediate threat, and retain the haul task for later resumption. Confirm the
+carrier never enters the visible pickup, swing, loot, and pickup loop.
+
 ## Blocked base-job supply replay - 2026-09-14
 
 Assign a repair, construction, farming, or woodwork job while its required tool

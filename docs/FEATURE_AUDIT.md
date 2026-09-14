@@ -7100,3 +7100,13 @@ container is searched.
 Focused base-needs and full offline verification pass. Live acceptance should
 confirm that stocking the cupboard resumes the same job and that an unstocked
 job does not produce an unplanned map trip.
+### Corpse-carrier threat handoff - 2026-09-14
+
+**Implemented; live drag-under-threat replay pending.** A resident carrying a
+corpse now treats a close real zombie as a flee/defense interruption before the
+ordinary combat branch can run. The existing interruption releases the native
+grapple, preserves the claimed haul job for resumption, and keeps distant
+zombies as caution memory. This prevents attack attempts during the drag that
+look like pickup, swing, loot, and pickup loops.
+
+Focused combat, corpse, action-lifecycle and full offline verification pass.

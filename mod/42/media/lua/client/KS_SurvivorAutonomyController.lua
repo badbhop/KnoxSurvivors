@@ -6830,6 +6830,34 @@ function Controller:tick(ticks)
                 if not self:allowsCompanionThreat(threat) then
                     threat = nil
                 end
+                -- A corpse carrier is committed to the native grapple/drag
+                -- lifecycle.  Do not let a close zombie turn the next scan
+                -- into an attack attempt while the survivor is still holding
+                -- the body; that produces the visible swing/loot/repeat loop.
+                -- The existing flee interruption releases the corpse safely,
+                -- suspends the claimed job, and can then hand off to native
+                -- defense if every escape lane is blocked.
+                local haulingCorpse = self.baseTask ~= nil
+                    and self.baseTask.type == "haul_corpse"
+                    and KnoxBaseCorpseHandling ~= nil
+                    and KnoxBaseCorpseHandling.isDragging ~= nil
+                    and KnoxBaseCorpseHandling.isDragging(self.character)
+                if threat ~= nil and haulingCorpse then
+                    local origin = self.character:getCurrentSquare()
+                    local threatSquare = threat:getCurrentSquare()
+                    if origin ~= nil and threatSquare ~= nil
+                        and distanceSquared(origin, threatSquare) <= 36 then
+                        local needs = KnoxSurvivorNeeds.snapshot(self.character)
+                        self:beginFlee(ticks, {
+                            reason = "corpse_carrier_threat",
+                            immediate = 1,
+                            close = 1,
+                            endurance = needs ~= nil and needs.endurance or 0,
+                            health = needs ~= nil and needs.health or 0,
+                        })
+                        return
+                    end
+                end
                 if threat ~= nil and self:beginCombat(threat) then
                     return
                 end
