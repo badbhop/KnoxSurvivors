@@ -7120,3 +7120,13 @@ reservation is released on arrival, failed movement, interruption, and
 shutdown, so it cannot become a persistent blockage.
 
 Focused base-leisure and full offline verification pass.
+### Ambient base-position reservations - 2026-09-14
+
+**Implemented; live idle-crowding replay pending.** Base leisure movement now
+reserves the selected destination tile across active controllers. Native
+occupancy checks still decide whether a tile is usable, while the shared
+reservation closes the scan-to-arrival gap that allowed multiple idle residents
+to select one square. Cleanup runs on arrival, failed movement, interruption,
+and shutdown.
+
+Focused base-leisure and full offline verification pass.
