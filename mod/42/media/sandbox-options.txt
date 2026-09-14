@@ -176,6 +176,10 @@ option KnoxSurvivors.DeveloperJobSupplies = {
     type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_DeveloperJobSupplies,
 }
 
+option KnoxSurvivors.ContinueSurvivorsAfterPlayerDeath = {
+    type = boolean, default = true, page = KnoxSurvivors_General, translation = KnoxSurvivors_ContinueSurvivorsAfterPlayerDeath,
+}
+
 option KnoxSurvivors.IgnoreJobResourceRequirements = {
     type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_IgnoreJobResourceRequirements,
 }

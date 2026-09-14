@@ -2552,6 +2552,68 @@ function KnoxPersistence.ensurePlayerId(player)
     return playerId
 end
 
+function KnoxPersistence.preparePlayerSuccession(playerId, worldAgeHours)
+    if type(playerId) ~= "string" or playerId == "" then return false, "invalid_player" end
+    local data = root()
+    local base = KnoxPersistence.getBaseForOwner("player", playerId)
+    if base == nil then
+        data.pendingPlayerSuccession = nil
+        return false, "no_player_base"
+    end
+    data.pendingPlayerSuccession = {
+        oldPlayerId = playerId,
+        baseId = base.id,
+        createdAtHours = tonumber(worldAgeHours) or 0,
+    }
+    return true, base.id
+end
+
+function KnoxPersistence.adoptPendingPlayerSuccession(player, worldAgeHours)
+    if player == nil then return false, "invalid_player" end
+    local data = root()
+    local pending = data.pendingPlayerSuccession
+    if type(pending) ~= "table" then return false, "no_pending_succession" end
+    local newPlayerId = KnoxPersistence.ensurePlayerId(player)
+    if newPlayerId == nil or newPlayerId == pending.oldPlayerId then
+        return false, "same_player"
+    end
+    local oldPlayerId = pending.oldPlayerId
+    local base = data.bases[pending.baseId]
+    if base == nil or base.ownerKind ~= "player" or base.ownerId ~= oldPlayerId then
+        data.pendingPlayerSuccession = nil
+        return false, "base_unavailable"
+    end
+    base.ownerId = newPlayerId
+    local oldPlayer = data.players[oldPlayerId]
+    local newPlayer = data.players[newPlayerId] or { id = newPlayerId }
+    if oldPlayer ~= nil and oldPlayer.factionId ~= nil then
+        newPlayer.factionId = oldPlayer.factionId
+        local faction = data.factions[oldPlayer.factionId]
+        if faction ~= nil and faction.kind == "player" then
+            faction.ownerPlayerId = newPlayerId
+            faction.homeBaseId = base.id
+        end
+    end
+    data.players[newPlayerId] = newPlayer
+    for _, survivor in pairs(data.survivors or {}) do
+        local affiliation = survivor ~= nil and survivor.affiliation or nil
+        if survivor ~= nil and survivor.alive ~= false and affiliation ~= nil
+            and affiliation.kind == "player" and affiliation.ownerId == oldPlayerId then
+            affiliation.ownerId = newPlayerId
+            local duty = survivor.duty or {}
+            duty.ownerId = newPlayerId
+            if duty.mode == "companion" then
+                duty.mode, duty.order, duty.baseId = "base", "available", base.id
+            elseif duty.mode == "base" then
+                duty.baseId = duty.baseId or base.id
+            end
+            survivor.duty = duty
+        end
+    end
+    data.pendingPlayerSuccession = nil
+    return true, base.id
+end
+
 function KnoxPersistence.getPlayerRelationship(playerId, survivorId)
     local survivor = ensureSurvivorState(survivorId)
     if survivor == nil or type(playerId) ~= "string" or playerId == "" then

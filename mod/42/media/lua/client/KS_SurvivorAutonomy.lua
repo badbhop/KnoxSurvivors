@@ -1105,8 +1105,41 @@ local function onMainMenuEnter()
     stop()
 end
 
+local function onCreatePlayer(playerNum)
+    if not KnoxSettings.continueSurvivorsAfterPlayerDeath() then return end
+    local player = getSpecificPlayer(playerNum)
+    if player == nil then return end
+    local adopted, result = KnoxPersistence.adoptPendingPlayerSuccession(
+        player,
+        getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    )
+    if adopted then
+        KnoxActivityFeed.event("Your survivors carried on. They are now available at your base.")
+        reconcileSettlementDefinitions()
+        for _, id in ipairs(KnoxPersistence.getBaseResidentIds(result) or {}) do
+            if KnoxSurvivorRuntime.notifyDutyChanged ~= nil then
+                KnoxSurvivorRuntime.notifyDutyChanged(id)
+            end
+        end
+    end
+end
+
+local function onPlayerDeath(player)
+    if player == nil or not KnoxSettings.continueSurvivorsAfterPlayerDeath() then return end
+    local playerId = KnoxPersistence.ensurePlayerId(player)
+    local saved, result = KnoxPersistence.preparePlayerSuccession(
+        playerId,
+        getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    )
+    if saved then
+        print(TAG .. " player-death-succession=pending base=" .. tostring(result))
+    end
+end
+
 Events.OnGameStart.Add(onGameStart)
 Events.OnMainMenuEnter.Add(onMainMenuEnter)
+Events.OnCreatePlayer.Add(onCreatePlayer)
+Events.OnPlayerDeath.Add(onPlayerDeath)
 
 function Autonomy.spawnDeveloperScenario(player, scenario)
     if not KnoxSettings.developerToolsEnabled() then

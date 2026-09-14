@@ -20,6 +20,7 @@ local DEFAULTS = {
     EnableExperimentalNpcDriving = false,
     NpcDrivingSpeed = 20,
     SpawnWithSpouse = false,
+    ContinueSurvivorsAfterPlayerDeath = true,
     RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
     EnableKnoxEvents = false,
@@ -263,6 +264,10 @@ end
 
 function Settings.developerJobSuppliesEnabled()
     return Settings.developerToolsEnabled() and value("DeveloperJobSupplies") == true
+end
+
+function Settings.continueSurvivorsAfterPlayerDeath()
+    return Settings.enabled() and value("ContinueSurvivorsAfterPlayerDeath") ~= false
 end
 
 function Settings.ignoreJobResourceRequirements()

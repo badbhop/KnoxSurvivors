@@ -1,5 +1,14 @@
 # Feature-completion audit
 
+### Player death survivor continuity - 2026-09-14
+
+**Implemented; live death and respawn replay pending.** A sandbox option now
+controls whether a player base and its living companions continue after player
+death. When enabled, the next character adopts the existing player base and
+faction, while companions become available base residents instead of remaining
+linked to the dead player identity. Disabled mode preserves the old ownership.
+Offline lifecycle and full regression checks pass.
+
 ### Simple categorized survivor storage - 2026-09-14
 
 **Implemented; live deposit/withdrawal replay pending.** Base containers can be
