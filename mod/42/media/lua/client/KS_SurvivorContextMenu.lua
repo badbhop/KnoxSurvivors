@@ -439,8 +439,6 @@ local function addRecruitOption(menu, player, survivorId, closeEnough)
         label = "Recruit (too far away)"
     elseif reason == "hostile" then
         label = "Recruit (hostile)"
-    elseif reason == "needs_trust" then
-        label = "Recruit (not ready)"
     elseif reason == "already_with_group" then
         label = "Recruit (already with a group)"
     else

@@ -55,8 +55,6 @@
     "Sandbox_KnoxSurvivors_FollowerSpacing": "Follower Spacing",
     "Sandbox_KnoxSurvivors_FollowerSpacing_tooltip": "Grid spacing between preferred follower positions, from 1 to 3 tiles per axis. Larger values spread the group out and place rear members farther behind. Blocked positions still use ordinary nearby-tile recovery. Default 1 preserves the existing close formation.",
     "Sandbox_KnoxSurvivors_CompanionLimit_tooltip": "Maximum number of active companions each local player can recruit.",
-    "Sandbox_KnoxSurvivors_RequireTrustForRecruitment": "Require Trust to Recruit",
-    "Sandbox_KnoxSurvivors_RequireTrustForRecruitment_tooltip": "When enabled, independent survivors require 50 trust before they can be recruited. Disabled by default. Hostility, existing group or faction membership, companion limits, distance, and survivor availability are always respected.",
     "Sandbox_KnoxSurvivors_AllowNPCFactions": "Allow NPC Factions (Work in Progress)",
     "Sandbox_KnoxSurvivors_AllowNPCFactions_tooltip": "Allows survivor groups to form factions and establish bases. This system is still being expanded. Existing factions are not removed when disabled.",
     "Sandbox_KnoxSurvivors_AutoGenerateBaseWorkAreas": "Automatic NPC Base Work Areas",

@@ -122,6 +122,32 @@ function Needs.snapshot(character)
     }
 end
 
+-- Dialogue and durable intents must use the same native stat boundary as the
+-- decision planner. This prevents an old `find_food` state from producing a
+-- fresh hunger callout after the survivor has already recovered.
+function Needs.isNeedCurrent(character, kind)
+    if character == nil or kind == nil then return false end
+    local success, snapshot = pcall(Needs.snapshot, character)
+    if not success or snapshot == nil then return false end
+    if kind == "find_food" or kind == "eat" then
+        return (tonumber(snapshot.hunger) or 0) >= Needs.thresholds.hunger
+    end
+    if kind == "find_water" or kind == "drink" then
+        return (tonumber(snapshot.thirst) or 0) >= Needs.thresholds.thirst
+    end
+    if kind == "find_medical" or kind == "bandage"
+        or kind == "improvise_medical" then
+        return (tonumber(snapshot.bleedingParts) or 0) >= Needs.thresholds.bleeding
+    end
+    if kind == "rest" then
+        return (tonumber(snapshot.endurance) or 1) <= Needs.thresholds.lowEndurance
+    end
+    if kind == "sleep" then
+        return (tonumber(snapshot.fatigue) or 0) >= Needs.thresholds.fatigue
+    end
+    return true
+end
+
 function Needs.sleepRequired()
     if not isClient() then
         return true

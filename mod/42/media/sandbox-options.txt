@@ -76,10 +76,6 @@ option KnoxSurvivors.CompanionLimit = {
     type = integer, min = 1, max = 12, default = 4, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_CompanionLimit,
 }
 
-option KnoxSurvivors.RequireTrustForRecruitment = {
-    type = boolean, default = false, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_RequireTrustForRecruitment,
-}
-
 option KnoxSurvivors.FollowerFormation = {
     type = enum, numValues = 2, default = 1, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_FollowerFormation, valueTranslation = KnoxSurvivors_FollowerFormation,
 }

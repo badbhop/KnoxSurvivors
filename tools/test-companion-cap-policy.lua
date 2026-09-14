@@ -32,19 +32,17 @@ SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
 assert(service.canRecruit(character, "candidate"), "cap opt-out reaches actual recruitment gate")
 trust = 5
 assert(service.canRecruit(character, "candidate"),
-    "low trust does not block recruitment under the default sandbox policy")
+    "low trust does not block recruitment")
 SandboxVars.KnoxSurvivors.RequireTrustForRecruitment = true
 ok, reason = service.canRecruit(character, "candidate")
-assert(not ok and reason == "needs_trust", "trust requirement remains available as an opt-in")
-assert(not service.recruit(character, "candidate") and refusalPlayer == "player",
-    "trust refusal records against the resolved player identity")
+assert(ok and reason == "ready", "legacy trust setting cannot block recruitment")
 trust, grouped = 60, true
 ok, reason = service.canRecruit(character, "candidate")
 assert(not ok and reason == "already_with_group", "disabling caps does not steal faction/group members")
 grouped, cooldown = false, 11
 ok, reason = service.canRecruit(character, "candidate")
-assert(not ok and reason == "recruit_cooldown", "refusal cooldown preserved")
+assert(ok and reason == "ready", "legacy refusal cooldown cannot block recruitment")
 cooldown, alive = 0, false
 ok, reason = service.canRecruit(character, "candidate")
 assert(not ok and reason == "character_dead", "caps do not bypass death")
-print("Companion cap policy PASS configured=true disabled=true relationship_rules=true")
+print("Companion cap policy PASS configured=true disabled=true relationship_tracking=true")

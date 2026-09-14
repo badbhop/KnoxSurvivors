@@ -113,6 +113,14 @@ assert(string.find(controllerText,
     and string.find(controllerText, 'source=retrieved_supply', 1, true)
     and string.find(controllerText, 'need_supply_transfer_not_completed', 1, true),
     "retrieved food and water must verify transfer and chain native consumption")
+local needsFile = assert(io.open(
+    root .. "/mod/42/media/lua/client/KS_SurvivorNeeds.lua", "r"
+))
+local needsText = needsFile:read("*a")
+needsFile:close()
+assert(string.find(needsText, 'function Needs.isNeedCurrent(character, kind)', 1, true)
+    and string.find(controllerText, 'not needCalloutIsCurrent(self.character, decision)', 1, true),
+    "need dialogue must use the live native stat boundary")
 assert(string.find(persistenceText, 'base_supply_deposit = true', 1, true)
     and string.find(persistenceText, 'returning = true', 1, true),
     "base supply return intent must survive save and reload")

@@ -21,7 +21,6 @@ local DEFAULTS = {
     NpcDrivingSpeed = 20,
     SpawnWithSpouse = false,
     ContinueSurvivorsAfterPlayerDeath = true,
-    RequireTrustForRecruitment = false,
     AllowNPCFactions = true,
     EnableKnoxEvents = false,
     NPCFactionMinimumMembers = 4,
@@ -158,10 +157,6 @@ end
 function Settings.companionLimit()
     if Settings.capsDisabled() then return math.huge end
     return integer("CompanionLimit", 1, 12)
-end
-
-function Settings.requireTrustForRecruitment()
-    return value("RequireTrustForRecruitment") == true
 end
 
 function Settings.followerFormation()

@@ -30,15 +30,9 @@ local function assertDefault(name, expected)
         name .. " sandbox declaration default drifted")
 end
 
-local trustOptionAt = string.find(sandboxDefinition,
-    "option KnoxSurvivors.RequireTrustForRecruitment", 1, true)
-local trustOptionBlock = trustOptionAt ~= nil
-    and string.sub(sandboxDefinition, trustOptionAt, trustOptionAt + 240) or ""
-assert(trustOptionAt ~= nil
-    and string.find(trustOptionBlock, "type = boolean, default = false", 1, true),
-    "trust recruitment setting is declared off by default")
-assert(string.find(sandboxEnglish, "Sandbox_KnoxSurvivors_RequireTrustForRecruitment", 1, true),
-    "trust recruitment setting has player-facing English text")
+assert(not string.find(sandboxDefinition, "RequireTrustForRecruitment", 1, true)
+    and not string.find(sandboxEnglish, "RequireTrustForRecruitment", 1, true),
+    "trust recruitment setting is retired")
 assertDefault("WorldPopulation", 48)
 assertDefault("FollowerFormation", 1)
 assertDefault("FollowerSpacing", 1)
@@ -68,7 +62,8 @@ assert(KnoxSettings.enabled(), "mod enabled default")
 assert(KnoxSettings.companionLimit() == 4, "companion limit default")
 assert(KnoxSettings.followerFormation() == "paired" and KnoxSettings.followerSpacing() == 1,
     "old saves retain compact paired follow positions")
-assert(not KnoxSettings.requireTrustForRecruitment(), "trust requirement defaults off")
+assert(KnoxSettings.requireTrustForRecruitment == nil,
+    "trust recruitment setting is no longer part of the player-facing settings")
 assert(not KnoxSettings.capsDisabled(), "caps remain enabled by default")
 assert(KnoxSettings.worldPopulation() == 48, "balanced world population default")
 assert(KnoxSettings.maxActiveSurvivors() == 16, "balanced active population default")
@@ -96,7 +91,6 @@ assert(not KnoxSettings.allowDestructiveDeveloperTests(), "destructive tests def
 
 SandboxVars = { KnoxSurvivors = {
     CompanionLimit = 99,
-    RequireTrustForRecruitment = true,
     AllowNPCFactions = false,
     NPCFactionMinimumMembers = 99,
     NPCFactionMaxMembers = 99,
@@ -113,7 +107,6 @@ SandboxVars = { KnoxSurvivors = {
 } }
 
 assert(KnoxSettings.companionLimit() == 12, "companion limit upper clamp")
-assert(KnoxSettings.requireTrustForRecruitment(), "trust requirement explicit opt-in")
 assert(not KnoxSettings.allowNPCFactions(), "factions configured off")
 assert(KnoxSettings.npcFactionMinimumMembers() == 8,
     "faction minimum has a bounded upper clamp")

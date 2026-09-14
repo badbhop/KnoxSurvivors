@@ -3436,11 +3436,18 @@ function Controller:findDistantGroupMember()
     return farthest, farthest ~= nil and farthestDistance or nil
 end
 
+local function needCalloutIsCurrent(character, decision)
+    local needs = rawget(_G, "KnoxSurvivorNeeds")
+    return character ~= nil and needs ~= nil and needs.isNeedCurrent ~= nil
+        and needs.isNeedCurrent(character, decision) == true
+end
+
 function Controller:sayNeedIfGrouped(decision, ticks)
     local grouped = self.companionTarget ~= nil
         or self.groupLeader ~= nil
         or #(self.groupMembers or {}) > 1
-    if not grouped or ticks < self.nextNeedCallout then
+    if not grouped or ticks < self.nextNeedCallout
+        or not needCalloutIsCurrent(self.character, decision) then
         return
     end
     local lines = {
@@ -5692,6 +5699,10 @@ function Controller:beginWorldSearch(goal, ticks)
     local dialogueEvent = goal == "find_food" and "need_food"
         or (goal == "find_water" and "need_water"
             or (goal == "find_medical" and "need_medical" or "search"))
+    if (goal == "find_food" or goal == "find_water")
+        and not needCalloutIsCurrent(self.character, goal) then
+        dialogueEvent = "search"
+    end
     sayDialogue(self.character, self.id, dialogueEvent, ticks, 1800)
     print(
         "[KnoxSurvivors][Autonomy] id=" .. self.id

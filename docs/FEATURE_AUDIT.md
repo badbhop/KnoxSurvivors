@@ -7193,3 +7193,35 @@ the need was satisfied. Ordinary base residents still fail closed after
 assigned storage; explicit survival orders retain their world-search path.
 
 Focused needs, base-needs, and full Lua syntax/regression verification pass.
+### Recruitment trust gate and stale need speech - 2026-09-14
+
+**Implemented; live interaction replay pending.** Eligible independent survivors
+can now choose to join immediately when the normal ownership, hostility, group,
+faction, availability, and companion-limit checks pass. The obsolete trust sandbox
+option and refusal cooldown were removed from the player-facing settings. Trust
+history remains available for social reputation and dialogue without controlling
+recruitment.
+
+Need callouts now share the native hunger, thirst, injury, endurance, and fatigue
+thresholds used by the planner. A stale search or order cannot keep saying that a
+survivor is hungry after the current bar has recovered; searches issued while a
+need is already satisfied use a neutral search line.
+
+Focused recruitment, settings, needs, base-needs, and full offline verification
+pass. Live confirmation remains required for the speech bubble and recruitment
+interaction in a running Build 42 world.
+### Recruitment trust removal and live need callout gating - 2026-09-14
+
+**Implemented; live interaction replay pending.** Eligible independent survivors now
+join immediately when the normal availability, hostility, group, faction, ownership,
+and companion-limit checks pass. The obsolete trust recruitment sandbox option,
+trust gate, and refusal cooldown were removed; relationship history remains for
+social dialogue and reputation only.
+
+Need speech now uses the same native thresholds as the planner. A stale food or
+water search cannot produce a hunger/thirst callout after the native stat has
+recovered, and searches issued while the need is satisfied use neutral search
+speech.
+
+Focused recruitment, settings, needs, base-needs, and full offline verification
+pass. Live confirmation remains required for the interaction and speech bubble.
