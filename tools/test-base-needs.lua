@@ -77,6 +77,12 @@ assert(string.find(controllerText,
     'Base residents stay on settlement duty', 1, true),
     "base shortage decisions must retain settlement duty")
 assert(string.find(controllerText,
+    'if self:beginWorldSearch(decision.kind, ticks) then return end', 1, true)
+    and string.find(controllerText, 'self:clearLifeIntent()', 1, true)
+    and string.find(controllerText,
+        'autonomous neighborhood search. findSupply() fails closed', 1, true),
+    "base residents may retrieve assigned storage but must not start a neighborhood search")
+assert(string.find(controllerText,
     'KnoxPersistence.requeueBaseTasksForSurvivor', 1, true),
     "resting residents must release persisted task claims")
 assert(string.find(controllerText,
@@ -102,6 +108,11 @@ assert(string.find(controllerText, 'self:syncBaseSupplyRun()', 1, true)
     and string.find(controllerText, 'self:finishBaseSupplyRun("empty")', 1, true)
     and string.find(controllerText, 'continuingSupplyOrder', 1, true),
     "in-flight supply ownership must restore and release at terminal outcomes")
+assert(string.find(controllerText,
+    'function Controller:beginImmediateNeedAction(kind, ticks)', 1, true)
+    and string.find(controllerText, 'source=retrieved_supply', 1, true)
+    and string.find(controllerText, 'need_supply_transfer_not_completed', 1, true),
+    "retrieved food and water must verify transfer and chain native consumption")
 assert(string.find(persistenceText, 'base_supply_deposit = true', 1, true)
     and string.find(persistenceText, 'returning = true', 1, true),
     "base supply return intent must survive save and reload")

@@ -7181,3 +7181,15 @@ keeps its next retry time. The previous resume branch returned success while
 leaving the prior controller state active, allowing repeated decision entry
 against the same deferred task. Focused base-action, base-needs, base-job and
 full offline verification pass.
+### Retrieved-food native consumption handoff - 2026-09-14
+
+**Implemented; live hunger replay pending.** Need searches that find food or
+water in assigned base storage now verify that the real item reached the
+survivor's main inventory and immediately queue the native eat or drink action.
+The previous path ended the storage trip as ordinary looting, which could
+leave the survivor carrying the item while a later decision was delayed or
+rejected. Failed transfers now record a bounded retry instead of claiming that
+the need was satisfied. Ordinary base residents still fail closed after
+assigned storage; explicit survival orders retain their world-search path.
+
+Focused needs, base-needs, and full Lua syntax/regression verification pass.

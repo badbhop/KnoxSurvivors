@@ -5701,6 +5701,48 @@ function Controller:beginWorldSearch(goal, ticks)
     return true
 end
 
+-- A need search may have been a short trip to assigned base storage.  Once the
+-- real transfer finishes, start the native consume action in the same decision
+-- cycle so a resident cannot end up carrying the answer while remaining in a
+-- stale `find_food`/`find_water` state.
+function Controller:beginImmediateNeedAction(kind, ticks)
+    if kind ~= "find_food" and kind ~= "find_water" then return false end
+    local decision = KnoxSurvivorNeeds.decide(self.character, nil)
+    if decision == nil
+        or (kind == "find_food" and decision.kind ~= "eat")
+        or (kind == "find_water" and decision.kind ~= "drink") then
+        return false
+    end
+    if not Controller.selfCareReady(self.selfCareRetryAt, decision.kind, ticks) then
+        return false
+    end
+    local action, result, intent = KnoxSurvivorNeeds.execute(
+        self.character,
+        decision
+    )
+    if action == nil or action == false then
+        self.selfCareRetryAt[decision.kind] = ticks + SELF_CARE_RETRY_TICKS
+        self:recordFailure(
+            "retrieved_need_action:" .. tostring(result),
+            ticks,
+            SELF_CARE_RETRY_TICKS
+        )
+        return false
+    end
+    self:sayNeedIfGrouped(decision.kind, ticks)
+    self.activeDecision = decision.kind
+    self.selfCareIntent = intent
+    self.selfCareInterrupted = nil
+    self.state = "TIMED_ACTION"
+    self.stateStartedAt = ticks
+    print(
+        "[KnoxSurvivors][Autonomy] id=" .. self.id
+            .. " state=TIMED_ACTION kind=" .. decision.kind
+            .. " source=retrieved_supply"
+    )
+    return true
+end
+
 function Controller:beginCompanionNeedDirective(ticks, directive)
     local kind = tostring(directive ~= nil and directive.kind or "")
     if kind ~= "find_food" and kind ~= "find_water" and kind ~= "find_medical"
@@ -6379,8 +6421,10 @@ function Controller:think(ticks)
     end
     local decision = KnoxSurvivorNeeds.decide(self.character, threat)
     -- Base residents stay on settlement duty. They may consume supplies they
-    -- already carry, and an explicit Survival Order can send them out, but a
-    -- shortage alone must never turn into an autonomous neighborhood search.
+    -- already carry or retrieve them from assigned storage. An explicit
+    -- Survival Order can send them out, but a shortage alone must never turn
+    -- into an autonomous neighborhood search. findSupply() fails closed after
+    -- assigned storage for ordinary base residents.
     if self.baseId ~= nil and self.baseSupplyOrder == nil
         and (decision.kind == "find_food" or decision.kind == "find_water"
             or decision.kind == "find_medical") then
@@ -8574,6 +8618,24 @@ function Controller:tick(ticks)
 
     if self.state == "LOOTING" then
         if self.character:getCharacterActions():isEmpty() then
+            local retrievedNeedKind = (self.activeDecision == "find_food"
+                or self.activeDecision == "find_water") and self.activeDecision or nil
+            local retrievedNeedItem = self.pendingSupply ~= nil
+                and self.pendingSupply.item or nil
+            local retrievedNeedVerified = retrievedNeedKind == nil
+            if retrievedNeedKind ~= nil and retrievedNeedItem ~= nil then
+                local inventory = self.character:getInventory()
+                retrievedNeedVerified = inventory ~= nil
+                    and inventory:contains(retrievedNeedItem)
+                if not retrievedNeedVerified then
+                    self.selfCareRetryAt[retrievedNeedKind] = ticks + SELF_CARE_RETRY_TICKS
+                    self:recordFailure(
+                        "need_supply_transfer_not_completed",
+                        ticks,
+                        SELF_CARE_RETRY_TICKS
+                    )
+                end
+            end
             if self.pendingSupply ~= nil and self.pendingSupply.baseResupply == true then
                 self:continueBaseResourceRun(ticks, true)
                 return
@@ -8632,6 +8694,10 @@ function Controller:tick(ticks)
                 end
             end
             self:finishDecision(ticks)
+            if retrievedNeedVerified and retrievedNeedKind ~= nil
+                and self:beginImmediateNeedAction(retrievedNeedKind, ticks) then
+                return
+            end
             if returnToBase then
                 -- The next normal decision sees the resident outside its
                 -- assigned territory and uses the existing native base-return
