@@ -375,7 +375,8 @@ function CorpseHandling.grabTransitionState(character)
         return "dragging"
     end
     if safeCall(character, "isGrappling") == true
-        or safeCall(character, "isPerformingGrappleAnimation") == true then
+        or safeCall(character, "isPerformingGrappleAnimation") == true
+        or safeCall(character, "isPerformingAnyGrappleAnimation") == true then
         return "transitioning"
     end
     return "idle"

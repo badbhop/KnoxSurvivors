@@ -146,6 +146,16 @@ assert(#queued == 3 and queued[1].kind == "unequip"
 local step, transition, deadline = handling.nextGrabStep(character, false, nil, 100)
 assert(step == "wait" and transition == "idle" and deadline == 280,
     "queue completion allows the asynchronous native grapple to settle")
+character.grappling = false
+character.isGrappling = function() return false end
+character.isPerformingAnyGrappleAnimation = function() return true end
+step, transition = handling.nextGrabStep(character, false, nil, 100)
+assert(step == "wait" and transition == "transitioning",
+    "alternate native grapple animation state keeps pickup in its settle window")
+character.grappling = true
+character.isGrappling = function(self) return self.grappling end
+character.isPerformingAnyGrappleAnimation = function() return false end
+character.grappling = false
 step, transition, deadline = handling.nextGrabStep(character, false, deadline, 280)
 assert(step == "failed" and transition == "idle",
     "an idle handoff must fail rather than replay the native pickup animation")
