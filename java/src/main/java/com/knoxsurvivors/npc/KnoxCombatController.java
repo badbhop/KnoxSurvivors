@@ -147,9 +147,23 @@ final class KnoxCombatController {
                 + KnoxCombatGate.getVisibilityPatchedCallCount();
         }
         Object weapon = body.getClass().getMethod("getPrimaryHandItem").invoke(body);
-        if (weapon == null || !inherits(weapon, "zombie.inventory.types.HandWeapon")) {
+        if (weapon == null) {
+            // Build 42's native player attack gate supports shove/stomp without a
+            // HandWeapon. Keep the survivor in the live combat loop so an unarmed
+            // NPC does not stand still until a zombie reaches them.
+            initialWeaponCondition = -1;
+            combatWeapon = null;
+            rangedWeapon = false;
+            weaponMaxRange = 1.0f;
+            desiredAttackRange = 1.0f;
+        } else if (inherits(weapon, "zombie.inventory.types.HandWeapon")) {
+            initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
+                .invoke(weapon)).intValue();
+            combatWeapon = weapon;
+            rangedWeapon = (Boolean) weapon.getClass().getMethod("isRanged").invoke(weapon);
+        } else {
             reset();
-            return "COMBAT_FAILED NO_EQUIPPED_WEAPON";
+            return "COMBAT_FAILED INVALID_PRIMARY_ITEM";
         }
 
         initialWeaponCondition = ((Number) weapon.getClass().getMethod("getCondition")
@@ -164,11 +178,18 @@ final class KnoxCombatController {
         body.getClass().getMethod("setOnFloor", boolean.class).invoke(body, false);
         body.getClass().getMethod("setVariable", String.class, boolean.class)
             .invoke(body, "forceGetUp", true);
-        weaponMaxRange = ((Number) weapon.getClass().getMethod(
-            "getMaxRange",
-            classFor(body, "zombie.characters.IsoGameCharacter")
-        ).invoke(weapon, body)).floatValue();
-        if (rangedWeapon) {
+        if (weapon == null) {
+            weaponMaxRange = 1.0f;
+            desiredAttackRange = 1.0f;
+        } else {
+            weaponMaxRange = ((Number) weapon.getClass().getMethod(
+                "getMaxRange",
+                classFor(body, "zombie.characters.IsoGameCharacter")
+            ).invoke(weapon, body)).floatValue();
+        }
+        if (weapon == null) {
+            // Native shove/stomp owns its own short attack range.
+        } else if (rangedWeapon) {
             // Firearms should keep a player-like stand-off distance.  The native
             // max range already includes the survivor's aiming modifiers; use a
             // conservative middle distance so a moving zombie does not force a
@@ -518,7 +539,8 @@ final class KnoxCombatController {
             phase = "ATTACKING";
         }
 
-        boolean weaponReady = (Boolean) body.getClass().getMethod("isWeaponReady").invoke(body);
+        boolean weaponReady = combatWeapon == null
+            || (Boolean) body.getClass().getMethod("isWeaponReady").invoke(body);
         boolean initiateAttack = (Boolean) body.getClass().getMethod("isInitiateAttack").invoke(body);
         attackAnimationObserved = attackAnimationObserved || attackAnimation;
         if (attackAnimation && !rangedWeapon) {

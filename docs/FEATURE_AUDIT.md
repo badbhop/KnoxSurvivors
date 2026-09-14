@@ -1,5 +1,13 @@
 # Feature-completion audit
 
+### Unarmed survivor combat fallback - 2026-09-14
+
+**Implemented; live shove/stomp replay pending.** Live zombie combat no longer
+rejects a survivor solely because the primary hand is empty. The native attack
+gate can now own short range shove/stomp behavior while armed combat continues
+to use the captured weapon path. Locked-door combat still requires a real
+weapon. Full Java verification passes.
+
 ### Follow window traversal - 2026-09-14
 
 **Implemented; live doorway/window replay pending.** Companion and group follow
