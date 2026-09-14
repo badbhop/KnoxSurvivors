@@ -5,6 +5,7 @@ require "TimedActions/ISWearClothing"
 require "Util/AdjacentFreeTileFinder"
 require "ISUI/ISWorldObjectContextMenu"
 require "KS_SurvivorInventoryActions"
+require "KS_BaseSupplyPlanner"
 
 local Repairs = rawget(_G, "KnoxBaseRepairs") or {}
 _G.KnoxBaseRepairs = Repairs
@@ -17,7 +18,8 @@ local function safeCall(object, method, ...)
         return nil
     end
     local success, value = pcall(object[method], object, ...)
-    return success and value or nil
+    if success then return value end
+    return nil
 end
 
 local function instanceOf(object, className)
@@ -43,7 +45,7 @@ local function damaged(object)
     return maximum > 0 and fraction >= 0.20 and fraction <= 0.95
 end
 
-local function repairProps(object, character)
+local function repairProps(object, character, discovery)
     if not isStructure(object) or not damaged(object)
         or ISMoveableSpriteProps == nil
         or ISMoveableSpriteProps.fromObjectForRepair == nil then
@@ -57,7 +59,8 @@ local function repairProps(object, character)
         return nil
     end
     local valid, result = pcall(props.canRepairObject, props, character)
-    if not valid or result == nil or result.canRepair ~= true then
+    if not valid or result == nil or (result.canRepair ~= true
+        and not (discovery and result.craftValid == true)) then
         return nil
     end
     return props
@@ -119,41 +122,124 @@ local function approachSquare(object, character)
     return nil
 end
 
-local function addRequirement(items, fullType, amount)
-    if type(fullType) ~= "string" or fullType == ""
-        or string.sub(fullType, 1, 4) == "Tag." then
-        return
-    end
-    items[fullType] = math.max(
-        tonumber(items[fullType]) or 0,
-        math.max(1, tonumber(amount) or 1)
-    )
+local function toolRule(fullType)
+    return { usable = true, minUsesFloat = fullType == "Base.BlowTorch" and 0.1 or nil }
 end
 
-local function requirementsFor(props, character)
-    local items = {}
-    local firstTool = safeCall(props, "hasRepairTool", character, false)
-    local secondTool = safeCall(props, "hasRepairTool", character, true)
-    if firstTool ~= true then
-        addRequirement(items, safeCall(firstTool, "getFullType"), 1)
+local function usableTool(item)
+    if item == true then return true end
+    local fullType = safeCall(item, "getFullType")
+    if fullType == nil then return false end
+    return KnoxBaseSupplyPlanner.matchesRequirement(item, {
+        items = { [fullType] = 1 }, itemRules = { [fullType] = toolRule(fullType) },
+    })
+end
+
+local function requirementsAvailable(base, character, requirements)
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if storage ~= nil and storage.requirementsAvailable ~= nil then
+        return storage.requirementsAvailable(base, character, requirements) == true
     end
-    if secondTool ~= true then
-        addRequirement(items, safeCall(secondTool, "getFullType"), 1)
-    end
-    local parts = safeCall(props, "getAllRepairParts") or {}
-    local inventory = character ~= nil and character:getInventory() or nil
-    local optionalAdded = false
-    for _, part in ipairs(parts) do
-        if part.required == true then
-            addRequirement(items, part.itemType, part.amount)
-        elseif not optionalAdded and inventory ~= nil
-            and safeCall(props, "checkForRepairPart",
-                inventory, part.itemType, part.amount) == true then
-            addRequirement(items, part.itemType, part.amount)
-            optionalAdded = true
+    for fullType, count in pairs(requirements.items) do
+        if KnoxBaseSupplyPlanner.inventoryCount(character:getInventory(), fullType, requirements) < count then
+            return false
         end
     end
-    return items
+    return true
+end
+
+local function repairTool(props, character, base, second)
+    local carried = safeCall(props, "hasRepairTool", character, second)
+    if usableTool(carried) then return carried end
+    local definitions = ISMoveableDefinitions ~= nil and ISMoveableDefinitions:getInstance() or nil
+    local definition = definitions ~= nil and definitions.getRepairDefinition(props.material) or nil
+    local choices = definition ~= nil and (second and definition.tools2 or definition.tools) or nil
+    if type(choices) ~= "table" then return nil end
+    if #choices == 0 then return true end
+    -- Native lookup returns the first matching type, which may be depleted or
+    -- broken while another usable copy is already carried in a bag.
+    local function carriedMatch(container, fullType, seen)
+        if container == nil or seen[container] then return nil end
+        seen[container] = true
+        local items = safeCall(container, "getItems")
+        if items == nil then return nil end
+        for index = 0, items:size() - 1 do
+            local item = items:get(index)
+            if safeCall(item, "getFullType") == fullType and usableTool(item) then return item end
+            if safeCall(item, "IsInventoryContainer") == true then
+                local nested = carriedMatch(safeCall(item, "getInventory"), fullType, seen)
+                if nested ~= nil then return nested end
+            end
+        end
+        return nil
+    end
+    for _, fullType in ipairs(choices) do
+        local item = carriedMatch(character:getInventory(), fullType, {})
+        if item ~= nil then return item end
+    end
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if base == nil or storage == nil or storage.findItemType == nil then return nil end
+    for _, fullType in ipairs(choices) do
+        local _, item = storage.findItemType(base, function(candidate)
+            return safeCall(candidate, "getFullType") == fullType and usableTool(candidate)
+        end)
+        if item ~= nil then return item end
+    end
+    return nil
+end
+
+local function addPart(requirements, part)
+    local fullType = part.itemType
+    if type(fullType) ~= "string" or fullType == "" or string.sub(fullType, 1, 4) == "Tag." then
+        return false
+    end
+    local amount = math.max(1, math.ceil(tonumber(part.amount) or 1))
+    local script = ScriptManager ~= nil and ScriptManager.instance ~= nil
+        and ScriptManager.instance:FindItem(fullType) or nil
+    if instanceOf(script, "DrainableComboItem") then
+        requirements.items[fullType] = math.max(requirements.items[fullType] or 0, 1)
+        requirements.itemRules[fullType] = requirements.itemRules[fullType] or {}
+        requirements.itemRules[fullType].minUses = (requirements.itemRules[fullType].minUses or 0) + amount
+    else
+        requirements.items[fullType] = (requirements.items[fullType] or 0) + amount
+    end
+    return true
+end
+
+local function requirementsFor(props, character, base)
+    local requirements = { items = {}, itemRules = {} }
+    for _, second in ipairs({ false, true }) do
+        local tool = repairTool(props, character, base, second)
+        if tool == nil then return nil end
+        if tool ~= true then
+            local fullType = tool:getFullType()
+            requirements.items[fullType] = 1
+            requirements.itemRules[fullType] = toolRule(fullType)
+        end
+    end
+    local parts = safeCall(props, "getAllRepairParts")
+    if type(parts) ~= "table" then return nil end
+    local optional = {}
+    for _, part in ipairs(parts) do
+        if part.required == true then
+            if not addPart(requirements, part) then return nil end
+        else optional[#optional + 1] = part end
+    end
+    if #optional == 0 then
+        return requirementsAvailable(base, character, requirements) and requirements or nil
+    end
+    for _, part in ipairs(optional) do
+        local candidate = { items = {}, itemRules = {} }
+        for key, count in pairs(requirements.items) do candidate.items[key] = count end
+        for key, rule in pairs(requirements.itemRules) do
+            candidate.itemRules[key] = {}
+            for field, value in pairs(rule) do candidate.itemRules[key][field] = value end
+        end
+        if addPart(candidate, part) and requirementsAvailable(base, character, candidate) then
+            return candidate
+        end
+    end
+    return nil
 end
 
 local function spriteName(object)
@@ -194,7 +280,7 @@ local function closestRepairOnSquare(square, character, best, bestDistance, base
     local origin = character ~= nil and character:getCurrentSquare() or nil
     for index = 0, objects:size() - 1 do
         local object = objects:get(index)
-        local props = repairProps(object, character)
+        local props = repairProps(object, character, true)
         local approach = props ~= nil and approachSquare(object, character) or nil
         if props ~= nil and approach ~= nil then
             local dx = origin ~= nil and square:getX() - origin:getX() or 0
@@ -202,8 +288,10 @@ local function closestRepairOnSquare(square, character, best, bestDistance, base
             local distance = dx * dx + dy * dy
             if distance < bestDistance then
                 local target = descriptor(base, region, object, props)
-                target.requiredItems = requirementsFor(props, character)
-                if eligible == nil or eligible(target) then
+                local requirements = requirementsFor(props, character, base)
+                if requirements ~= nil and (eligible == nil or eligible(target)) then
+                    target.requiredItems = requirements.items
+                    target.requiredItemRules = requirements.itemRules
                     best = target
                     bestDistance = distance
                 end
@@ -302,10 +390,10 @@ function Repairs.queueAction(character, target)
         or target.object == nil or target.square == nil then
         return nil, "missing_repair_target"
     end
-    local firstTool = safeCall(target.props, "hasRepairTool", character, false)
-    local secondTool = safeCall(target.props, "hasRepairTool", character, true)
-    if firstTool == nil or firstTool == false
-        or secondTool == nil or secondTool == false then
+    if repairProps(target.object, character) == nil then return nil, "repair_not_ready" end
+    local firstTool = repairTool(target.props, character, nil, false)
+    local secondTool = repairTool(target.props, character, nil, true)
+    if not usableTool(firstTool) or not usableTool(secondTool) then
         return nil, "repair_tool_unavailable"
     end
     if firstTool ~= true then

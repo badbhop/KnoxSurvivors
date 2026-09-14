@@ -58,6 +58,14 @@ local hammer = item("Base.Hammer")
 local screwdriver = item("Base.Screwdriver")
 local secondaryTool = screwdriver
 local inventory = {}
+local inventoryItems={hammer,screwdriver,item("Base.Plank"),item("Base.Plank"),
+    item("Base.Nails"),item("Base.Nails"),item("Base.Nails"),item("Base.Nails")}
+function inventory:getItems() return list(inventoryItems) end
+function inventory:getItemCount(full)
+    local count=0
+    for _,value in ipairs(inventoryItems) do if value:getFullType()==full then count=count+1 end end
+    return count
+end
 local character = {}
 function character:getInventory() return inventory end
 function character:getPrimaryHandItem() return nil end
@@ -191,3 +199,101 @@ square.objects=list({otherDoor})
 assert(repairs.resolveTarget(base,target,character)==nil,
     "a removed target must not silently substitute another object with the same sprite")
 print("Repair crew selection PASS exclusion=true alternate_object=true stale_identity=true")
+
+-- Discover from actual stock without lending a virtual inventory to native validation.
+square.objects=list({door});door.objectIndex=2;door.health=50
+inventoryItems={}
+local stock={hammer,screwdriver,item("Base.Plank"),item("Base.Plank"),
+    item("Base.Screws"),item("Base.Screws"),item("Base.Screws"),item("Base.Screws")}
+local definitions={tools={"Base.Hammer"},tools2={"Base.Screwdriver"}}
+ISMoveableDefinitions={getInstance=function() return {getRepairDefinition=function(material)
+    assert(material=="Wood");return definitions
+end} end}
+props.material="Wood"
+function props:hasRepairTool(worker,second)
+    local choices=second and definitions.tools2 or definitions.tools
+    if #choices==0 then return true end
+    for _,value in ipairs(inventoryItems) do
+        for _,full in ipairs(choices) do
+            if value:getFullType()==full then return value end
+        end
+    end
+    return false
+end
+local structurallyValid=true
+function props:canRepairObject(worker)
+    assert(worker==character and worker:getInventory()==inventory,
+        "discovery must not replace or fabricate the worker inventory")
+    return {craftValid=structurallyValid,canRepair=structurallyValid
+        and self:hasRepairTool(worker,false)~=false and self:hasRepairTool(worker,true)~=false
+        and inventory:getItemCount("Base.Plank")>=2
+        and (inventory:getItemCount("Base.Nails")>=4 or inventory:getItemCount("Base.Screws")>=4)}
+end
+local planner=KnoxBaseSupplyPlanner
+KnoxBaseStorage={findItemType=function(owner,predicate)
+    assert(owner==base)
+    for _,value in ipairs(stock) do if predicate(value) then return value:getFullType(),value end end
+end,requirementsAvailable=function(owner,worker,requirements)
+    assert(owner==base and worker==character)
+    for full,count in pairs(requirements.items) do
+        local have=planner.inventoryCount(inventory,full,requirements)
+        for _,value in ipairs(stock) do
+            if value:getFullType()==full and planner.matchesRequirement(value,requirements) then have=have+1 end
+        end
+        if have<count then return false end
+    end
+    return true
+end}
+local stored=assert(repairs.findTask(base,character))
+assert(stored.requiredItems["Base.Hammer"]==1 and stored.requiredItems["Base.Screwdriver"]==1)
+assert(stored.requiredItems["Base.Plank"]==2 and stored.requiredItems["Base.Screws"]==4
+    and stored.requiredItems["Base.Nails"]==nil,"choose one fully stocked optional recipe alternative")
+assert(stored.requiredItemRules["Base.Hammer"].usable and #inventoryItems==0)
+assert(repairs.resolveTarget(base,stored,character)==nil,"remote stock cannot authorize native work")
+local previous=queued
+assert(repairs.queueAction(character,resolved)==nil and queued==previous,
+    "a cached target must still validate current carried supplies")
+local removed=table.remove(stock)
+assert(repairs.findTask(base,character)==nil,"partial optional stock cannot start a repair")
+stock[#stock+1]=removed
+structurallyValid=false
+assert(repairs.findTask(base,character)==nil,"stock never overrides native structural invalidity")
+structurallyValid=true
+-- Model the result of native delivery; discovery itself leaves these lists unchanged.
+inventoryItems=stock;stock={}
+local delivered=assert(repairs.resolveTarget(base,stored,character))
+assert(repairs.queueAction(character,delivered),"the actual repair is allowed after real supplies arrive")
+
+-- Drainable parts require one sufficiently charged item, not several empty copies.
+inventoryItems={}
+local resin=item("Base.Resin");resin.uses=3
+function resin:getCurrentUses() return self.uses end
+local torch=item("Base.BlowTorch");torch.fuel=0.2
+function torch:getCurrentUsesFloat() return self.fuel end
+stock={torch,resin}
+definitions.tools,definitions.tools2={"Base.BlowTorch"},{}
+ScriptManager={instance={FindItem=function(_,full)
+    return full=="Base.Resin" and {className="DrainableComboItem"} or nil
+end}}
+props.getAllRepairParts=function() return {{itemType="Base.Resin",amount=3,required=true}} end
+stored=assert(repairs.findTask(base,character))
+assert(stored.requiredItems["Base.Resin"]==1 and stored.requiredItemRules["Base.Resin"].minUses==3)
+assert(stored.requiredItemRules["Base.BlowTorch"].minUsesFloat==0.1)
+resin.uses=2
+assert(repairs.findTask(base,character)==nil,"insufficient charge is not a complete repair part")
+resin.uses=3;torch.fuel=0.05
+assert(repairs.findTask(base,character)==nil,"depleted welding tools cannot satisfy repair supplies")
+torch.fuel=0.2;torch.isBroken=function() return true end
+assert(repairs.findTask(base,character)==nil,"broken stored tools are rejected")
+print("Repair cupboard supplies PASS native_inventory_unchanged=true physical_delivery=true alternative_parts=true shortages=true drainable=true usable_torch=true native_validation=true")
+
+local goodTorch=item("Base.BlowTorch")
+function goodTorch:getCurrentUsesFloat() return 0.3 end
+torch.isBroken=function() return false end;torch.fuel=0.01
+inventoryItems={torch,goodTorch};stock={resin}
+assert(repairs.findTask(base,character),"a depleted first match must not hide another usable carried tool")
+props.canRepairObject=function() return {craftValid=true,canRepair=true} end
+local torchTarget={object=door,props=props,square=square,spriteName=sprite.name}
+assert(repairs.queueAction(character,torchTarget) and equipped.primary==goodTorch,
+    "execution equips the usable carried alternative, never the first depleted duplicate")
+print("Repair duplicate tools PASS usable_carried_alternative=true")

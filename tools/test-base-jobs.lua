@@ -890,3 +890,17 @@ for _,name in ipairs({"barricade","repair","construction"}) do
     assert(filter({id="other-structure",x=41,y=40,z=0}))
 end
 print("Structural work claims PASS repair=true barricade=true construction=true shared_site=true")
+
+KnoxBaseRepairs.findTask=function() return {id="supplied-repair",action="repair",
+    requiredItems={["Base.BlowTorch"]=1},requiredItemRules={["Base.BlowTorch"]={usable=true,minUsesFloat=0.1}}} end
+jobs.prepareWorkforce(base,nil,340)
+local suppliedRepair
+for _,task in pairs(base.tasks) do if task.target.id=="supplied-repair" then suppliedRepair=task end end
+assert(suppliedRepair and suppliedRepair.requirements.itemRules["Base.BlowTorch"].minUsesFloat==0.1)
+KnoxBaseRepairs.findTask=function() return {id="supplied-repair",action="repair",
+    requiredItems={["Base.Hammer"]=1},requiredItemRules={["Base.Hammer"]={usable=true}}} end
+jobs.prepareWorkforce(base,nil,341)
+assert(suppliedRepair.requirements.items["Base.Hammer"]==1
+    and suppliedRepair.requirements.itemRules["Base.BlowTorch"]==nil,
+    "unclaimed repair tasks refresh actual requirements and usability rules together")
+print("Repair supply board PASS item_rules=true refresh=true")

@@ -1,5 +1,23 @@
 # Feature-completion audit
 
+### Repair supply collection and native validation - 2026-09-14
+
+**Implemented; live repair replay pending.** Repair discovery separates structural
+validity from worker readiness, so a damaged object can become a task when its real
+tools and parts exist in assigned storage. Requirements include usable tools,
+charged drainables, required parts and one available optional repair part. The
+worker still has to receive those items through the normal supply transfer before
+the native repair action can start. Empty, depleted, broken and duplicate first
+matches are handled safely; a usable carried alternative remains eligible.
+
+Repair task records preserve item rules when queued or reopened. Native
+`canRepairObject` is checked again at execution, and the actual repair action still
+owns equipment, consumption and health changes. Focused regressions cover cupboard
+discovery, no virtual inventory, alternative parts, drainable thresholds, stale
+tools and native validation. Live equipment animation, consumption and multiplayer
+replication remain pending.
+
+
 ### Structural crew discovery and target ownership - 2026-09-14
 
 **Implemented; live mixed-crew replay pending.** Repair, barricade and perimeter

@@ -640,16 +640,19 @@ local function ensureRepairTask(base, now, character)
     if target == nil then
         return nil, "no_repair_ready"
     end
+    local requirements = { items = target.requiredItems or {}, itemRules = target.requiredItemRules or {} }
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
         existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then
+        if existing.state == "claimed" then return existing, "existing" end
+        if existing.state == "queued" then
+            existing.target, existing.requirements = target, requirements
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
         if reopened ~= nil then
             reopened.target = target
-            reopened.requirements = { items = target.requiredItems or {} }
+            reopened.requirements = requirements
             return reopened, "reopened"
         end
         return nil, "retry_not_ready"
@@ -658,7 +661,7 @@ local function ensureRepairTask(base, now, character)
         base.id,
         "repair",
         target,
-        { items = target.requiredItems or {} },
+        requirements,
         94
     )
     if task ~= nil then

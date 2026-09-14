@@ -21,6 +21,10 @@ function Planner.matchesRequirement(item, requirements)
     if rule.usable == true and safe(function() return item:isBroken() end, false) == true then
         return false
     end
+    if rule.minUses ~= nil and (tonumber(safe(function() return item:getCurrentUses() end, 0)) or 0)
+        < (tonumber(rule.minUses) or 0) then return false end
+    if rule.minUsesFloat ~= nil and (tonumber(safe(function() return item:getCurrentUsesFloat() end, 0)) or 0)
+        < (tonumber(rule.minUsesFloat) or 0) then return false end
     if rule.water == true then
         local uses = safe(function() return ISFarmingMenu.getWaterUsesInteger(item) end, 0)
         if (tonumber(uses) or 0) <= 0 then return false end

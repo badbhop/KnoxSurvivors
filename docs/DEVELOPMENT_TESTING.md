@@ -1,5 +1,18 @@
 # Development testing
 
+## Repair supply replay - 2026-09-14
+
+Damage a repairable door or structure while the worker has empty hands. Put the
+required tools and parts in the assigned central storage and confirm the worker
+collects them before native repair begins. Include an empty/depleted tool, a usable
+duplicate, and optional repair parts; the usable combination should be selected.
+
+Remove the target or make it structurally invalid during the supply trip. The
+repair must stop safely. After delivery, verify native equipment, tool use, part
+consumption and health change. A stored item must never be treated as already
+carried, and a same-sprite object must never be substituted for a stale target.
+
+
 ## Structural crew replay - 2026-09-14
 
 Give equipped repairers/builders several damaged structures, unfinished perimeter
