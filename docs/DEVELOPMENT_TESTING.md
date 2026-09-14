@@ -1,5 +1,12 @@
 # Development testing
 
+## Ambient base-position replay - 2026-09-14
+
+Leave two residents without jobs in the same base and allow both to choose an
+ambient walk. They should select different available tiles and avoid crowding
+the same destination. Confirm the reservation clears after arrival, movement
+failure, interruption by danger, and save or shutdown cleanup.
+
 ## Corpse-carrier threat replay - 2026-09-14
 
 Assign a corpse-haul job and confirm the resident completes native pickup before

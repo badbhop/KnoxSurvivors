@@ -51,7 +51,7 @@ local FACTION_BASE_GATE_KEY = "faction_base_scouting_v1"
 local controllers = {}
 local reservations = {
     threats = {}, items = {}, containers = {}, restSpots = {}, campPositions = {},
-    supportRecipients = {}, supportItems = {},
+    supportRecipients = {}, supportItems = {}, ambientSpots = {},
 }
 local ticks = 0
 local populationReady = false
@@ -1046,7 +1046,7 @@ local function onGameStart()
     KnoxSurvivorRuntime.clear()
     reservations = {
         threats = {}, items = {}, containers = {}, restSpots = {}, campPositions = {},
-        supportRecipients = {}, supportItems = {},
+        supportRecipients = {}, supportItems = {}, ambientSpots = {},
     }
     KnoxSurvivorRelationships.resetRuntime()
     if KnoxSurvivorDialogue ~= nil and KnoxSurvivorDialogue.resetRuntime ~= nil then

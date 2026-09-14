@@ -7110,3 +7110,13 @@ zombies as caution memory. This prevents attack attempts during the drag that
 look like pickup, swing, loot, and pickup loops.
 
 Focused combat, corpse, action-lifecycle and full offline verification pass.
+### Ambient base-position reservations - 2026-09-14
+
+**Implemented; live idle-crowding replay pending.** Base leisure movement now
+reserves the selected destination tile across active controllers. Occupancy is
+still checked against the native world, while the reservation closes the scan
+to arrival gap that let multiple idle residents choose the same square. The
+reservation is released on arrival, failed movement, interruption, and
+shutdown, so it cannot become a persistent blockage.
+
+Focused base-leisure and full offline verification pass.

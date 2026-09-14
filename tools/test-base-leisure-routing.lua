@@ -68,6 +68,12 @@ forced=square(0,0,0);assert(c:findBaseMovementTarget(false,5000)==nil,"wrong-flo
 forced=square(101,0,1);assert(c:findBaseMovementTarget(false,5000)==nil,"outside territory is never a leisure destination")
 forced=square(4,0,1)
 assert(c:beginBaseMovement(5000,false) and moves==1 and c.state=="BASE_PATROL")
+assert(c.ambientMovementTarget == "4:0:1",
+    "ambient movement should reserve its selected tile")
+local c2=setmetatable({id="resident-2",base=base,character=actor,bridge=bridge,
+    reservations=c.reservations},Controller)
+assert(not c2:beginBaseMovement(5000,false) and moves==1,
+    "two idle residents must not claim the same ambient tile")
 assert(not c:beginBaseMovement(5001,false) and moves==1,"the movement cooldown is retained")
 local old=current;current=forced;forced=old
 assert(c:findBaseMovementTarget(false,7000)==nil,"idle walks must not immediately bounce to their previous origin")

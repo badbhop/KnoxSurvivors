@@ -430,6 +430,14 @@ local function release(reservations, kind, value, id)
     end
 end
 
+local function ambientSpotKey(square)
+    if square == nil or square.getX == nil or square.getY == nil then
+        return nil
+    end
+    return tostring(square:getX()) .. ":" .. tostring(square:getY()) .. ":"
+        .. tostring(square.getZ ~= nil and square:getZ() or 0)
+end
+
 local function threatUnavailable(self, zombie, ticks)
     if self.unarmedRejectedTarget == zombie and self.unarmedRetryUntil ~= nil
         and self.character:getPrimaryHandItem() ~= self.rejectedCombatItem then
@@ -3900,6 +3908,20 @@ function Controller:beginBaseMovement(ticks, returning)
         self.nextThink = ticks + 120
         return false
     end
+    if not returning then
+        self.reservations = self.reservations or {}
+        self.reservations.ambientSpots = self.reservations.ambientSpots or {}
+        local spotKey = ambientSpotKey(target)
+        if spotKey == nil or not reserve(
+            self.reservations, "ambientSpots", spotKey, self.id
+        ) then
+            self.activeDecision = "base_idle"
+            self.state = "BASE_IDLE"
+            self.nextThink = ticks + 120
+            return false
+        end
+        self.ambientMovementTarget = spotKey
+    end
     if self.character:isSitOnGround() or self.character:isSittingOnFurniture() then
         self:leaveRecoveryPosture()
     end
@@ -3910,6 +3932,11 @@ function Controller:beginBaseMovement(ticks, returning)
         result=tostring(KnoxCompanionPatrol.move(self.bridge,self.id,target,self.ambientMovementArea))
     end
     if string.find(result, "MOVE_STARTED", 1, true) ~= 1 then
+        if not returning then
+            release(self.reservations, "ambientSpots",
+                self.ambientMovementTarget, self.id)
+            self.ambientMovementTarget = nil
+        end
         self.activeDecision = "base_idle"
         self.state = "BASE_IDLE"
         self.nextThink = ticks + 120
@@ -3922,6 +3949,16 @@ function Controller:beginBaseMovement(ticks, returning)
     self.activeDecision = returning and "return_to_base" or "patrol_base"
     self.state = returning and "BASE_RETURN" or "BASE_PATROL"
     return true
+end
+
+function Controller:releaseAmbientMovement()
+    if self.ambientMovementTarget ~= nil then
+        self.reservations = self.reservations or {}
+        self.reservations.ambientSpots = self.reservations.ambientSpots or {}
+        release(self.reservations, "ambientSpots",
+            self.ambientMovementTarget, self.id)
+        self.ambientMovementTarget = nil
+    end
 end
 
 function Controller:finishBaseTask(succeeded, reason)
@@ -4725,6 +4762,7 @@ function Controller:abandonCurrentDecision(ticks, reason)
     if self.pendingDepositTrip ~= nil then self:deferDepositTrip(ticks) end
     self.bridge:cancelNpcMove(self.id)
     self.bridge:resetNpcCombat(self.id)
+    self:releaseAmbientMovement()
     self:abandonBaseTask(reason or "decision_abandoned")
     if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
@@ -5318,6 +5356,7 @@ function Controller:finishDecision(ticks)
     self:releaseBaseCooking()
     self:releaseBaseRecreation()
     self:releaseGroupSupport()
+    self:releaseAmbientMovement()
     self.pendingCleanup = nil
     self.pendingDepositTrip = nil
     if self.activeDecision == "rest" or self.activeDecision == "sleep"
