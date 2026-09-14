@@ -54,7 +54,7 @@ assert(search(1) and moved==kitchen and c.pendingSupply.item==kitchenFood.food,
 c.reservations.items[kitchenFood.food]="another-resident"
 assert(search(2) and moved==home, "reserved kitchen food falls back to main supplies")
 c.inspectedContainers[mainFood]=100
-assert(search(3) and moved==outside, "unavailable home supplies allow a real world search")
+assert(not search(3) and moved==nil, "base residents do not leave home for personal needs")
 c.inspectedContainers={}
 c.reservations.items={}
 kitchenFood.food.safe=false

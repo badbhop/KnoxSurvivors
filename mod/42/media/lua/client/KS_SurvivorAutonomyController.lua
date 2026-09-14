@@ -1711,7 +1711,7 @@ local function findSupply(self, goal, ticks, matcher)
     if not restocking then
         -- Meals/drinks use the kitchen first, then any actual supplies at home.
         -- This also allows native routes to a pantry on another loaded floor.
-        for pass = 1, 2 do
+    for pass = 1, 2 do
             for _, policy in ipairs(policies) do
                 local preferred = (goal == "find_food" or goal == "find_water") and policy.storageRole == "food"
                 if (pass == 1 and preferred or pass == 2 and not preferred)
@@ -1724,6 +1724,12 @@ local function findSupply(self, goal, ticks, matcher)
                 end
             end
         end
+    end
+    -- A base resident's personal need may retrieve a real item from assigned
+    -- storage, but must never fall through into a neighborhood search. Explicit
+    -- base supply orders set baseSupplyTrip and are allowed to use world search.
+    if self.baseId ~= nil and self.baseSupplyTrip ~= true then
+        return nil
     end
     for radius = 0, SUPPLY_SCAN_RADIUS do
         for dx = -radius, radius do
@@ -6349,6 +6355,8 @@ function Controller:think(ticks)
     if self.baseId ~= nil and self.baseSupplyOrder == nil
         and (decision.kind == "find_food" or decision.kind == "find_water"
             or decision.kind == "find_medical") then
+        if self:beginWorldSearch(decision.kind, ticks) then return end
+        self:clearLifeIntent()
         decision = { kind = "roam", state = decision.state }
     end
     if decision.kind == "fight" then
@@ -8139,6 +8147,21 @@ function Controller:tick(ticks)
                 end
                 if self.baseTask ~= nil and self.baseTask.type == "haul_corpse" then
                     if self.baseTaskCorpsePhase == "drop" then
+                        local dropSquare = self.baseTaskCorpseTarget ~= nil
+                            and self.baseTaskCorpseTarget.dropSquare or nil
+                        if not KnoxBaseCorpseHandling.isAtDropSquare(
+                            self.character, dropSquare
+                        ) then
+                            -- A successful bridge tick can still end on a
+                            -- nearby fallback tile. Never start the native
+                            -- drop action from there: that leaves the grapple
+                            -- attached while the controller keeps walking in
+                            -- one direction. Release and retry from discovery.
+                            pcall(function() self.character:setDoGrappleLetGo() end)
+                            self:finishBaseTask(false, "corpse_drop_arrival_mismatch")
+                            self:finishDecision(ticks)
+                            return
+                        end
                         self.baseTaskStartedAt = ticks
                         self.baseTaskActionQueued = false
                         self.activeDecision = "base_task_haul_corpse_drop"

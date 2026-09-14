@@ -171,6 +171,12 @@ assert(step == "ready" and transition == "dragging",
 local drop, dropResult = handling.queueDrop(character, resolved)
 assert(drop ~= nil and dropResult == "queued" and queued[#queued] == drop)
 assert(handling.isDragging(character), "dragging state should be observable")
+assert(not handling.isAtDropSquare(character, square(13, 13, 0)),
+    "a movement fallback must not count as arrival at the disposal area")
+character.getCurrentSquare = function() return square(13, 13, 0) end
+assert(handling.isAtDropSquare(character, square(13, 13, 0)),
+    "arrival verification should accept the actual disposal square")
+character.getCurrentSquare = function() return approach end
 step, transition, deadline = handling.nextDropStep(character, false, nil, 300)
 assert(step == "wait" and transition == "dragging" and deadline == 480,
     "drop completion allows the native grapple release to settle")

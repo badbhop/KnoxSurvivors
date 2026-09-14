@@ -15,11 +15,19 @@ assert(inventory:find('wrapOffslotActionMethod%(ISWearClothing, "perform"'),
     "off-slot clothing completion must bridge the absent local inventory UI")
 assert(inventory:find('wrapOffslotActionMethod%(ISUnequipAction, "perform"'),
     "corpse-preparation unequip must bridge the absent local inventory UI")
+assert(inventory:find('ISInventoryPaneContextMenu.unequipItem = function', 1, true)
+    and inventory:find('ISUnequipAction:new(ch, item, 50)', 1, true),
+    "survivor unequip callbacks must target the survivor shell")
+assert(inventory:find('ISInventoryPaneContextMenu.onClothingItemExtra = function', 1, true)
+    and inventory:find('ISClothingExtraAction:new(ch, item, extra)', 1, true),
+    "survivor clothing attachment callbacks must target the survivor shell")
 assert(inventory:find("sourceSurvivor ~= character", 1, true)
     and inventory:find("detachTransferredSurvivorItem", 1, true),
     "taking survivor equipment must reconcile that survivor's equipment")
 assert(inventory:find('character:removeWornItem%(item, false%)'),
     "taking worn clothing must clear its real worn-item state")
+assert(corpse:find('function CorpseHandling.isAtDropSquare', 1, true),
+    "corpse hauling must verify native movement arrived at the drop square")
 assert(corpse:find("ISGrabCorpseAction:new", 1, true)
     and corpse:find("ISUnequipAction:new", 1, true),
     "corpse hauling must retain the native unequip and grab actions")

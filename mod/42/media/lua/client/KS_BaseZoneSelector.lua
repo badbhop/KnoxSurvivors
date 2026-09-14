@@ -59,6 +59,13 @@ local function draftTick()
     if activeSelection == nil or activeSelection.firstSquare == nil or activeSelection.pendingConfirm then return end
     local player = activeSelection.player
     if player == nil then return end
+    -- Right-click and opening a world context menu clear IsoCell's drag cursor
+    -- directly. Build 42 does not call our selection callback in that path, so
+    -- detect the cleared cursor and release the preview on the next tick.
+    if getCell():getDrag(player:getPlayerNum()) ~= activeSelection.cursor then
+        activeSelection:onSquareSelectedCancel()
+        return
+    end
     local _, wx, wy, z = pickMouseSquare(player)
     if wx == nil or wy == nil then return end
     local x1 = activeSelection.firstSquare:getX()

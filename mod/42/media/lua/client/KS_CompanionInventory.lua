@@ -7,6 +7,7 @@ require "ISUI/ISInventoryPaneContextMenu"
 require "TimedActions/ISInventoryTransferUtil"
 require "TimedActions/ISEquipWeaponAction"
 require "TimedActions/ISUnequipAction"
+require "TimedActions/ISClothingExtraAction"
 require "TimedActions/ISWearClothing"
 require "KS_SurvivorRuntime"
 require "KS_Persistence"
@@ -500,6 +501,48 @@ if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.equipWeapon 
             return
         end
         return origEquip(weapon, primary, twoHands, player, alwaysTurnOn)
+    end
+end
+
+-- Vanilla builds the inventory menu for the local player and later receives
+-- that same player number in the callback. For an off-slot survivor this made
+-- Unequip silently fail its isEquipped check, and clothing attachment/hood
+-- actions were queued against the wrong body. Resolve the item at callback
+-- time and keep the native timed actions on the survivor shell.
+if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.unequipItem ~= nil then
+    if CompanionInventory._origUnequipItem == nil then
+        CompanionInventory._origUnequipItem = ISInventoryPaneContextMenu.unequipItem
+    end
+    local originalUnequip = CompanionInventory._origUnequipItem
+    ISInventoryPaneContextMenu.unequipItem = function(item, player)
+        local ch, sid = getSurvivorForItem(item)
+        if ch ~= nil and ch:isEquipped(item) then
+            inventoryLog("unequip", sid, item, player)
+            ISTimedActionQueue.add(ISUnequipAction:new(ch, item, 50))
+            return
+        end
+        return originalUnequip(item, player)
+    end
+end
+
+if ISInventoryPaneContextMenu ~= nil
+    and ISInventoryPaneContextMenu.onClothingItemExtra ~= nil then
+    if CompanionInventory._origClothingItemExtra == nil then
+        CompanionInventory._origClothingItemExtra =
+            ISInventoryPaneContextMenu.onClothingItemExtra
+    end
+    local originalExtra = CompanionInventory._origClothingItemExtra
+    ISInventoryPaneContextMenu.onClothingItemExtra = function(item, extra, playerObj)
+        local ch, sid = getSurvivorForItem(item)
+        if ch ~= nil then
+            inventoryLog("attach", sid, item, playerObj)
+            if ISInventoryPaneContextMenu.transferIfNeeded ~= nil then
+                ISInventoryPaneContextMenu.transferIfNeeded(ch, item)
+            end
+            ISTimedActionQueue.add(ISClothingExtraAction:new(ch, item, extra))
+            return
+        end
+        return originalExtra(item, extra, playerObj)
     end
 end
 

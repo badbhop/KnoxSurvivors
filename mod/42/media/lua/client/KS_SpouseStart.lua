@@ -44,6 +44,28 @@ function SpouseStart.update(player, activate)
     -- The caller reuses normal capture/restore and registry ownership. Persist
     -- the stable reservation first; retries never select a second identity.
     if not activate(start.id, square, record) then return false end
+    local spouse = rawget(_G, "KnoxSurvivorRuntime") ~= nil
+        and KnoxSurvivorRuntime.getCharacter(start.id) or nil
+    local playerDescriptor = player.getDescriptor ~= nil and player:getDescriptor() or nil
+    local spouseDescriptor = spouse ~= nil and spouse.getDescriptor ~= nil
+        and spouse:getDescriptor() or nil
+    local surname = playerDescriptor ~= nil and playerDescriptor:getSurname() or ""
+    local oppositeGender = player.isFemale ~= nil and player:isFemale() ~= true or nil
+    if spouseDescriptor ~= nil then
+        if oppositeGender ~= nil then
+            pcall(function() spouseDescriptor:setFemale(oppositeGender) end)
+        end
+        if surname ~= "" then pcall(function() spouseDescriptor:setSurname(surname) end) end
+    end
+    if spouse ~= nil and spouse.setFemale ~= nil and oppositeGender ~= nil then
+        pcall(function() spouse:setFemale(oppositeGender) end)
+    end
+    if spouse ~= nil and KnoxPersistence.ensureSurvivorIdentityFromCharacter ~= nil then
+        local identity = KnoxPersistence.ensureSurvivorIdentityFromCharacter(
+            start.id, spouse, getGameTime():getWorldAgeHours()
+        )
+        if identity ~= nil and surname ~= "" then identity.surname = surname end
+    end
     local now = getGameTime():getWorldAgeHours()
     local assigned = KnoxPersistence.setPlayerCompanion(start.id, playerId, "follow", now)
     if not assigned then return false end

@@ -455,4 +455,13 @@ function CorpseHandling.isDragging(character)
     return safeCall(character, "isDraggingCorpse") == true
 end
 
+function CorpseHandling.isAtDropSquare(character, square)
+    local current = character ~= nil and safeCall(character, "getCurrentSquare") or nil
+    if current == nil or square == nil or current:getZ() ~= square:getZ() then
+        return false
+    end
+    local dx, dy = current:getX() - square:getX(), current:getY() - square:getY()
+    return dx * dx + dy * dy <= 4
+end
+
 return CorpseHandling
