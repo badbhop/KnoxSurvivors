@@ -8706,11 +8706,43 @@ function Controller:tick(ticks)
     end
 end
 
+local function statusPoint(value)
+    if value == nil then return "none" end
+    local source = type(value) == "table" and (value.square or value.approach or value.target or value) or value
+    local x, y, z
+    if source ~= nil and source.getX ~= nil then
+        local ok
+        ok, x = pcall(source.getX, source)
+        if not ok then x = nil end
+        ok, y = pcall(source.getY, source)
+        if not ok then y = nil end
+        ok, z = pcall(source.getZ, source)
+        if not ok then z = nil end
+    elseif type(source) == "table" then
+        x, y, z = source.x or source.minX, source.y or source.minY, source.z
+    end
+    if x == nil or y == nil then return "none" end
+    return tostring(x) .. "," .. tostring(y) .. "," .. tostring(z or 0)
+end
+
+local function statusDestination(self)
+    if self.combatTarget ~= nil then return statusPoint(self.combatTarget) end
+    if self.fleeTarget ~= nil then return statusPoint(self.fleeTarget) end
+    if self.securityRoute ~= nil then return statusPoint(self.securityRoute.square) end
+    if self.pendingSupply ~= nil then return statusPoint(self.pendingSupply.approach or self.pendingSupply.container) end
+    if self.pendingBaseSupplyDeposit ~= nil then return statusPoint(self.pendingBaseSupplyDeposit.square) end
+    if self.pendingDepositTrip ~= nil then return statusPoint(self.pendingDepositTrip.square) end
+    if self.baseTask ~= nil then return statusPoint(self.baseTask.target) end
+    return statusPoint(self.companionTarget)
+end
+
 function Controller:status()
     return "id=" .. self.id
         .. " state=" .. tostring(self.state)
         .. " decision=" .. tostring(self.activeDecision or "none")
+        .. " destination=" .. statusDestination(self)
         .. " base=" .. tostring(self.baseId or "none")
+        .. " supplyAttempts=" .. tostring(self.baseResupplyAttempts or 0)
         .. " lastFailure=" .. tostring(self.lastFailure~=nil and self.lastFailure.reason or "none")
         .. " failureTick=" .. tostring(self.lastFailure~=nil and self.lastFailure.ticks or "none")
         .. " roam=" .. tostring(self.counts.roam)

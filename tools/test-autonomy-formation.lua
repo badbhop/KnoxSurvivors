@@ -72,6 +72,10 @@ assert(Controller.shouldDelegateNeedToGroup("find_water", 64),
 assert(not Controller.shouldDelegateNeedToGroup("find_water", 65)
     and not Controller.shouldDelegateNeedToGroup("find_weapon", 4),
     "distant and nonessential goals remain individually owned")
+local statusSource = assert(io.open(controllerPath, "rb")):read("*a")
+assert(string.find(statusSource, "destination=", 1, true)
+    and string.find(statusSource, "supplyAttempts=", 1, true),
+    "developer status includes destination and base supply diagnostics")
 
 for _,context in ipairs({"urgent","directed","return_home","travel","local"}) do
     assert(Controller.travelPaceFor(900,false,context)=="cautious", "routine routes default to a cautious pace")
