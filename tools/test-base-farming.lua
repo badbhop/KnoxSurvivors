@@ -6,6 +6,7 @@ package.loaded["Farming/TimedActions/ISHarvestPlantAction"] = true
 package.loaded["Farming/TimedActions/ISPlowAction"] = true
 package.loaded["Farming/TimedActions/ISSeedActionNew"] = true
 package.loaded["TimedActions/ISTimedActionQueue"] = true
+package.loaded["KS_SurvivorInventoryActions"] = true
 
 ISWaterPlantAction = {
     new = function(_, character, item, uses, square, maxTime)
@@ -56,9 +57,11 @@ local function list(values)
     }
 end
 
+local inventory = {}
 local function item(full, uses, tags)
     local result = { full = full, uses = uses or 0, tags = tags or {} }
     function result:getFullType() return self.full end
+    function result:getContainer() return self.source or inventory end
     function result:IsInventoryContainer() return false end
     function result:hasTag(tag) return self.tags[tag] == true end
     return result
@@ -72,7 +75,7 @@ local function plant(seed, harvestable, water)
         harvestable = harvestable,
     }
     function result:canHarvest() return self.harvestable end
-    function result:isAlive() return true end
+    function result:isAlive() return self.alive ~= false end
     return result
 end
 
@@ -105,7 +108,6 @@ end
 
 local waterBottle = item("Base.WaterBottleFull", 8)
 local inventoryItems = { waterBottle }
-local inventory = {}
 function inventory:getItems() return list(inventoryItems) end
 local character = {}
 function character:getInventory() return inventory end
@@ -167,6 +169,7 @@ local seedResolved = assert(farming.resolveTarget(base, seedTarget, character))
 local seedAction = assert(farming.queueAction(character, seedResolved))
 assert(seedAction.kind == "seed" and queuedAction == seedAction)
 seedResolved.plant.state = "seeded"
+seedResolved.plant.typeOfSeed = "Tomato"
 assert(farming.isComplete(seedResolved, farming.snapshot(seedResolved)))
 
 print("Base farming PASS harvest_discovery=true watering_discovery=true plow_seed=true vanilla_actions=true completion=true")
@@ -199,3 +202,64 @@ assert(unready == nil or unready.seedItem == nil, "discovery cannot manufacture 
 cupboardItems = {}
 assert(farming.findTask(base, character) == nil, "empty cupboard cannot promise planting supplies")
 print("Cupboard farming discovery PASS")
+
+-- Native false is a real dead-plant result, not a missing API fallback.
+inventoryItems = { waterBottle }
+dry.waterLvl, dry.alive = 20, false
+squares["12:20:0"].plant = nil
+local deadTarget = {action="farm_water",x=11,y=20,z=0}
+assert(farming.resolveTarget(base, deadTarget, character) == nil,
+    "a dead plant must not accept watering")
+KnoxBaseStorage = nil
+assert(farming.findTask(base, character) == nil, "dead crops do not create water jobs")
+
+-- A saved planting order must not silently change crop when inventory order changes.
+farming_vegetableconf.props.Cabbage = {seedTypes={"Base.CabbageSeed"}}
+local cabbage = item("Base.CabbageSeed",0,{[ItemTag.IS_SEED]=true})
+inventoryItems = {cabbage,seed}
+local bed = plant("none",false,0); bed.state="plow"
+squares["12:20:0"].plant=bed
+local selected = {action="farm_seed",x=12,y=20,z=0,seedItemType="Base.TomatoSeed",seedType="Tomato"}
+local planting = assert(farming.resolveTarget(base,selected,character))
+assert(planting.seedItem==seed and planting.seedType=="Tomato")
+inventoryItems={cabbage}
+assert(farming.resolveTarget(base,selected,character)==nil,"missing selected crop cannot substitute another")
+bed.state="destroyed"
+assert(not farming.isComplete(planting,{}),"destroyed plots are not successfully seeded")
+bed.state,bed.typeOfSeed="seeded","Cabbage"
+assert(not farming.isComplete(planting,{}),"another crop is not the requested planting")
+bed.typeOfSeed="Tomato"
+assert(farming.isComplete(planting,{}))
+bed.alive=false
+assert(not farming.isComplete(planting,{}))
+print("Farming validity PASS dead_crops=true selected_seed=true actual_planting=true")
+
+-- Native planting/watering require root inventory ownership, even when discovery
+-- finds supplies in a backpack. Queue a real unpack before the farming action.
+local bagItems={seed,waterBottle,shovel}
+local bagContainer={getItems=function() return list(bagItems) end}
+local bag={IsInventoryContainer=function() return true end,getInventory=function() return bagContainer end,
+    hasTag=function() return false end,getFullType=function() return "Base.Bag" end}
+for _,value in ipairs(bagItems) do value.source=bagContainer end
+inventoryItems={bag}
+local actions={}
+ISTimedActionQueue.add=function(action) actions[#actions+1]=action end
+KnoxInventoryActions={queueTransfer=function(who,value,source,destination)
+    assert(who==character and source==bagContainer and destination==inventory)
+    local action={kind="unpack",item=value};ISTimedActionQueue.add(action);return action,"queued"
+end}
+local function checkUnpack(target,waterArg,value)
+    actions={}
+    local action=assert(farming.queueAction(character,target,waterArg))
+    assert(#actions==2 and actions[1].kind=="unpack" and actions[1].item==value and actions[2]==action)
+end
+checkUnpack(planting,nil,seed)
+checkUnpack(waterResolved,{item=waterBottle,uses=2},waterBottle)
+checkUnpack(plowResolved,nil,shovel)
+inventoryItems={}
+assert(farming.queueAction(character,planting)==nil,"old selected seed cannot be pulled from a remote container")
+inventoryItems={bag}
+KnoxInventoryActions.queueTransfer=function() return nil,"transfer_failed" end
+actions={}
+assert(farming.queueAction(character,planting)==nil and #actions==0,"failed unpack cannot queue invalid native work")
+print("Farming bag supplies PASS native_unpack=true before_work=true no_remote_transfer=true failure=true")

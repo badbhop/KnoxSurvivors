@@ -13,7 +13,8 @@ local function safeCall(object, method, ...)
         return nil
     end
     local success, value = pcall(object[method], object, ...)
-    return success and value or nil
+    if success then return value end
+    return nil
 end
 
 local function isTrough(object)
@@ -120,6 +121,21 @@ local function matchingInventoryItem(character, kind, desiredType, desiredId, tr
     return exact or fallback
 end
 
+-- Discovery names a real stored item; the ordinary supply task still owns
+-- transferring it to the worker before the native trough action may execute.
+local function availableItem(base, character, kind, trough)
+    local carried = matchingInventoryItem(character, kind, nil, nil, trough)
+    if carried ~= nil then return carried end
+    local storage = rawget(_G, "KnoxBaseStorage")
+    if storage == nil or storage.findItemType == nil then return nil end
+    local _, item = storage.findItemType(base, function(candidate)
+        if kind == "feed" then return isAnimalFeed(candidate) end
+        return isWaterSource(candidate) and safeCall(trough, "canTransferFluidFrom",
+            safeCall(candidate, "getFluidContainer")) == true
+    end)
+    return item
+end
+
 local function approachSquare(trough, character)
     local square = safeCall(trough, "getSquare")
     if square == nil then
@@ -129,9 +145,8 @@ local function approachSquare(trough, character)
         local success, result = pcall(function()
             return AdjacentFreeTileFinder.Find(square, character)
         end)
-        if success and result ~= nil then
-            return result
-        end
+        if success then return result end
+        return nil
     end
     return square
 end
@@ -212,7 +227,7 @@ function AnimalCare.findTask(base, character)
         -- Water is life-critical and receives first claim on an empty trough.
         for _, trough in ipairs(troughs) do
             if needsWater(trough) then
-                local item = matchingInventoryItem(character, "water", nil, nil, trough)
+                local item = availableItem(base, character, "water", trough)
                 if item ~= nil and approachSquare(trough, character) ~= nil then
                     return descriptor(base, zone, trough, "animal_water", item), "water"
                 end
@@ -220,7 +235,7 @@ function AnimalCare.findTask(base, character)
         end
         for _, trough in ipairs(troughs) do
             if needsFeed(trough) then
-                local item = matchingInventoryItem(character, "feed")
+                local item = availableItem(base, character, "feed", trough)
                 if item ~= nil and approachSquare(trough, character) ~= nil then
                     return descriptor(base, zone, trough, "animal_feed", item), "feed"
                 end
@@ -240,11 +255,9 @@ local function troughAt(cell, target)
     if objects == nil then
         return nil
     end
-    local fallback = nil
     for index = 0, objects:size() - 1 do
         local trough = masterTrough(objects:get(index))
         if trough ~= nil then
-            fallback = fallback or trough
             if target.objectIndex == nil
                 or tonumber(safeCall(trough, "getObjectIndex"))
                     == tonumber(target.objectIndex) then
@@ -252,7 +265,7 @@ local function troughAt(cell, target)
             end
         end
     end
-    return fallback
+    return nil
 end
 
 function AnimalCare.resolveTarget(base, target, character)

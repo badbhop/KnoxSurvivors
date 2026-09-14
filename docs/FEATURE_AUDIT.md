@@ -1,5 +1,29 @@
 # Feature-completion audit
 
+### Native job ownership and usable base supplies - 2026-09-13
+
+**Implemented; live job replay pending.** All physical base-job dispatch/completion
+now waits for both the native character action list and its pending Lua queue.
+The same boundary protects cupboard transfer handoff, self-care verification and
+group support. Cancellation, danger and detachment clear waiting actions as well
+as currently native actions; temporary danger retains the durable job claim.
+The existing timeout still bounds a permanently stalled queue.
+
+Animal-care discovery can select real assigned-storage supplies before a worker
+carries them. Native transfer still owns collection. Per-item requirements reject
+empty bottles/feed packs; unclaimed jobs refresh changed supplies without redirecting
+claimed work. Blocked trough approaches and stale object indices fail safely.
+Farming preserves native false results for dead crops, retains the selected seed
+variety and requires a live planted crop for planting completion. Seeds, water and
+digging tools in carried bags are unpacked with real transfers before native work.
+No resources, plant growth, trough contents or completed actions are fabricated.
+
+Focused regressions exercise all physical job types across Lua/native queue gaps,
+interruption/timeout, real supply discovery, item validity and farming bag transfers.
+Offline coverage does not certify native animation, multiplayer replication or
+long-running farm/animal survival behavior.
+
+
 ### Turn-aware map driving and control ownership - 2026-09-13
 
 **Implemented; live physics acceptance pending.** Replaced point-grid shortcuts

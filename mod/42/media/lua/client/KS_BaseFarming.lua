@@ -3,6 +3,7 @@ require "Farming/TimedActions/ISHarvestPlantAction"
 require "Farming/TimedActions/ISPlowAction"
 require "Farming/TimedActions/ISSeedActionNew"
 require "TimedActions/ISTimedActionQueue"
+require "KS_SurvivorInventoryActions"
 
 local Farming = rawget(_G, "KnoxBaseFarming") or {}
 _G.KnoxBaseFarming = Farming
@@ -33,7 +34,8 @@ local function safeCall(object, method, ...)
         return nil
     end
     local success, value = pcall(object[method], object, ...)
-    return success and value or nil
+    if success then return value end
+    return nil
 end
 
 local function walkItems(container, visitor)
@@ -109,7 +111,7 @@ local function seedTypeForItem(item)
     return nil
 end
 
-local function seedItem(character)
+local function seedItem(character, desiredItemType, desiredCrop)
     if ItemTag == nil or ItemTag.IS_SEED == nil then
         return nil, nil
     end
@@ -122,7 +124,9 @@ local function seedItem(character)
             return
         end
         local typeOfSeed = seedTypeForItem(item)
-        if typeOfSeed ~= nil then
+        if typeOfSeed ~= nil
+            and (desiredItemType == nil or item:getFullType() == desiredItemType)
+            and (desiredCrop == nil or typeOfSeed == desiredCrop) then
             found = item
             foundType = typeOfSeed
         end
@@ -407,7 +411,7 @@ function Farming.resolveTarget(base, target, character)
         and tostring(plant.state or "") ~= "plow" then
         return nil, "plant_not_plowed"
     end
-    local seed, typeOfSeed = seedItem(character)
+    local seed, typeOfSeed = seedItem(character, target.seedItemType, target.seedType)
     if target.action == "farm_seed" and (seed == nil or typeOfSeed == nil) then
         return nil, "seed_item_unavailable"
     end
@@ -418,6 +422,20 @@ function Farming.resolveTarget(base, target, character)
         seedItem = seed,
         seedType = typeOfSeed or target.seedType,
     }, "resolved"
+end
+
+local function prepareCarriedItem(character, item)
+    local inventory = character:getInventory()
+    local source = safeCall(item, "getContainer")
+    if source == nil then return false, "farming_item_unavailable" end
+    if source == inventory then return true end
+    local carried = false
+    walkItems(inventory, function(candidate)
+        if candidate == item then carried = true end
+    end)
+    if not carried then return false, "farming_item_not_carried" end
+    local action, reason = KnoxInventoryActions.queueTransfer(character, item, source, inventory, nil)
+    return action ~= nil, reason
 end
 
 function Farming.queueAction(character, target, water)
@@ -435,6 +453,8 @@ function Farming.queueAction(character, target, water)
         if item == nil or uses <= 0 then
             return nil, "watering_item_unavailable"
         end
+        local ready, reason = prepareCarriedItem(character, item)
+        if not ready then return nil, reason end
         local action = ISWaterPlantAction:new(
             character,
             item,
@@ -449,6 +469,8 @@ function Farming.queueAction(character, target, water)
         if target.plowItem == nil then
             return nil, "plow_tool_unavailable"
         end
+        local ready, reason = prepareCarriedItem(character, target.plowItem)
+        if not ready then return nil, reason end
         local action = ISPlowAction:new(
             character,
             target.square,
@@ -461,6 +483,8 @@ function Farming.queueAction(character, target, water)
         if target.seedItem == nil or target.seedType == nil then
             return nil, "seed_item_unavailable"
         end
+        local ready, reason = prepareCarriedItem(character, target.seedItem)
+        if not ready then return nil, reason end
         local action = ISSeedActionNew:new(
             character,
             target.seedItem,
@@ -510,7 +534,8 @@ function Farming.isComplete(target, before)
         return not canHarvest(target.plant)
     end
     if target.action == "farm_seed" then
-        return tostring(target.plant.state or "") ~= "plow"
+        return isSeeded(target.plant)
+            and (target.seedType == nil or target.plant.typeOfSeed == target.seedType)
     end
     local after = tonumber(target.plant.waterLvl) or 0
     return after > (tonumber(before ~= nil and before.water or 0) or 0)

@@ -792,3 +792,35 @@ jobs.prepareWorkforce(base,nil,208)
 assert(cookTask.state=="queued" and cookTask.target==cookingTarget,"completed cooking can prepare another meal")
 assert(KnoxBaseNeeds.priorityBonus(cookTask,{totals={food=0}},2)==20)
 print("Cooking task lifecycle PASS recurring=true claim_owner=true food_priority=true")
+
+KnoxBaseAnimalCare.findTask=function() return {
+    id="trough-water",action="animal_water",itemType="Base.Bottle",itemId="41",
+} end
+jobs.prepareWorkforce(base,nil,210)
+local animalTask
+for _,task in pairs(base.tasks) do if task.target.id=="trough-water" then animalTask=task end end
+assert(animalTask and animalTask.requirements.itemRules["Base.Bottle"].animalWater,
+    "animal jobs require actual water, not just a container of the same type")
+KnoxBaseAnimalCare.findTask=function() return {
+    id="trough-water",action="animal_water",itemType="Base.Bucket",itemId="42",
+} end
+jobs.prepareWorkforce(base,nil,211)
+assert(animalTask.requirements.items["Base.Bucket"]==1
+    and animalTask.requirements.items["Base.Bottle"]==nil,
+    "unclaimed jobs refresh supply choices when the cupboard changes")
+animalTask.state,animalTask.claimedBy="claimed","worker"
+KnoxBaseAnimalCare.findTask=function() return {
+    id="trough-water",action="animal_water",itemType="Base.Bottle",itemId="41",
+} end
+jobs.prepareWorkforce(base,nil,212)
+assert(animalTask.target.itemId=="42","discovery cannot redirect an active worker")
+KnoxBaseAnimalCare.findTask=function() return {
+    id="trough-feed",action="animal_feed",itemType="Base.AnimalFeedBag",
+} end
+jobs.prepareWorkforce(base,nil,213)
+for _,task in pairs(base.tasks) do
+    if task.target.id=="trough-feed" then
+        assert(task.requirements.itemRules["Base.AnimalFeedBag"].animalFeed)
+    end
+end
+print("Animal task lifecycle PASS usable_supplies=true refresh_unclaimed=true preserve_claim=true")

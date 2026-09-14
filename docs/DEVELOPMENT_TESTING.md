@@ -1,5 +1,23 @@
 # Development testing
 
+## Base supplies and action ownership replay - 2026-09-13
+
+Use an empty-handed resident with an animal-care area and real feed/water in
+assigned storage. Confirm the worker collects the supply, reaches the trough and
+changes its contents. Include an empty bottle of the same type alongside a full
+one. Block every adjacent trough tile: the worker should defer rather than target
+the occupied trough tile. Replace/remove a trough while a job is claimed and check
+that the old job cannot act on a different object.
+
+Put seeds, water and a digging tool in the worker's backpack. Confirm an unpack
+precedes the native farm action. Include dead crops and two seed varieties: dead
+crops must not receive watering jobs, and claimed planting must retain its selected
+crop. Give a different order, introduce a threat, or unload/reload during a transfer,
+turn-to-start, corpse pickup or work action. Old queued work must be cancelled;
+temporary danger must retain the job claim for a fresh attempt afterward. These
+are still live acceptance checks; mocked queues cannot prove native animations.
+
+
 ## Turn-aware driving replay - 2026-09-13
 
 Enable experimental NPC driving in a disposable test save. From a passenger seat,

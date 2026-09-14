@@ -169,3 +169,44 @@ local none, noneResult = animalCare.findTask(base, character)
 assert(none == nil and noneResult == "no_animal_care_ready")
 
 print("Base animal care PASS trough_scan=true water_action=true feed_transfer=true completion=true thresholds=true")
+
+-- Cupboard discovery enables jobs, but a real transfer is still required to act.
+mainInventory.values={}
+trough.water,trough.feed=0,0
+local stored={water,feed}
+KnoxBaseStorage={findItemType=function(owner,predicate)
+    assert(owner==base)
+    for _,value in ipairs(stored) do
+        if predicate(value) then return value:getFullType(),value end
+    end
+end}
+local fromStore=assert(animalCare.findTask(base,character))
+assert(fromStore.action=="animal_water" and fromStore.itemId=="101")
+assert(animalCare.resolveTarget(base,fromStore,character)==nil,
+    "discovering cupboard water never grants remote use of it")
+mainInventory.values={water}
+assert(animalCare.resolveTarget(base,fromStore,character))
+mainInventory.values={};stored={feed}
+fromStore=assert(animalCare.findTask(base,character))
+assert(fromStore.action=="animal_feed")
+assert(animalCare.resolveTarget(base,fromStore,character)==nil)
+mainInventory.values={feed}
+assert(animalCare.resolveTarget(base,fromStore,character))
+troughSquare.approach=nil
+assert(animalCare.findTask(base,character)==nil,"blocked troughs must not target their occupied tile")
+assert(animalCare.resolveTarget(base,fromStore,character)==nil)
+troughSquare.approach=approach
+trough.objectIndex=4
+assert(animalCare.resolveTarget(base,fromStore,character)==nil,"stale target cannot choose another trough")
+trough.objectIndex=3
+local planner=dofile(rootPath.."/mod/42/media/lua/client/KS_BaseSupplyPlanner.lua")
+local waterRules={items={[water.fullType]=1},itemRules={[water.fullType]={animalWater=true}}}
+local feedRules={items={[feed.fullType]=1},itemRules={[feed.fullType]={animalFeed=true}}}
+assert(planner.matchesRequirement(water,waterRules))
+water.fluid.amount=0
+assert(not planner.matchesRequirement(water,waterRules),"empty identical bottles do not satisfy animal water")
+water.fluid.amount=8
+assert(planner.matchesRequirement(feed,feedRules))
+feed.getCurrentUses=function() return 0 end
+assert(not planner.matchesRequirement(feed,feedRules),"empty feed packs do not satisfy feeding")
+print("Animal supplies PASS stored_water=true stored_feed=true physical_transfer=true valid_resources=true blocked_trough=true stale_target=true")

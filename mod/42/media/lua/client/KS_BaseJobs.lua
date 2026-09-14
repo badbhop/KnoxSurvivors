@@ -554,16 +554,23 @@ local function ensureAnimalCareTask(base, now, character)
     if target == nil then
         return nil, "no_animal_care_ready"
     end
+    local requirements = itemRequirements(target.itemType)
+    requireUsableItem(requirements, target.itemType, {
+        animalWater = target.action == "animal_water",
+        animalFeed = target.action == "animal_feed",
+    })
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
         existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then
+        if existing.state == "claimed" then return existing, "existing" end
+        if existing.state == "queued" then
+            existing.target, existing.requirements = target, requirements
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
         if reopened ~= nil then
             reopened.target = target
-            reopened.requirements = itemRequirements(target.itemType)
+            reopened.requirements = requirements
             return reopened, "reopened"
         end
         return nil, "retry_not_ready"
@@ -572,7 +579,7 @@ local function ensureAnimalCareTask(base, now, character)
         base.id,
         target.action,
         target,
-        itemRequirements(target.itemType),
+        requirements,
         target.action == "animal_water" and 89 or 87
     )
     if task ~= nil then

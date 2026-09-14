@@ -44,6 +44,17 @@ local Controller = rawget(_G, "KnoxAutonomyController") or {}
 _G.KnoxAutonomyController = Controller
 Controller.__index = Controller
 
+-- A Lua action may be turning, waiting to start, or between native actions.
+-- An empty Java list alone does not mean its transfer/work has finished.
+local function hasPendingTimedActions(character)
+    if character == nil then return false end
+    local actions = character:getCharacterActions()
+    if actions ~= nil and not actions:isEmpty() then return true end
+    local queues = ISTimedActionQueue ~= nil and ISTimedActionQueue.queues or nil
+    local queue = queues ~= nil and queues[character] or nil
+    return queue ~= nil and type(queue.queue) == "table" and #queue.queue > 0
+end
+
 local function sayDialogue(character, survivorId, event, ticks, cooldown, lines)
     local dialogue = rawget(_G, "KnoxSurvivorDialogue")
     if dialogue == nil then return false end
@@ -3961,7 +3972,7 @@ function Controller:abandonBaseTask(reason)
         return false
     end
     self.bridge:cancelNpcMove(self.id)
-    if self.character ~= nil and not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     if self.character ~= nil and KnoxBaseCorpseHandling.isDragging(self.character) then
@@ -3981,6 +3992,9 @@ function Controller:suspendBaseTaskForThreat(reason)
     self.securityRoute=nil
     self:releaseBaseCooking()
     if self.baseTask == nil then return false end
+    if hasPendingTimedActions(self.character) then
+        ISTimedActionQueue.clear(self.character)
+    end
     self:releaseSupply()
     self.baseTaskRetryAt = 0
     self.baseTaskStartedAt = nil
@@ -4729,7 +4743,7 @@ function Controller:abandonCurrentDecision(ticks, reason)
     self.bridge:cancelNpcMove(self.id)
     self.bridge:resetNpcCombat(self.id)
     self:abandonBaseTask(reason or "decision_abandoned")
-    if not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     if self.selfCareIntent ~= nil then
@@ -5030,7 +5044,7 @@ function Controller:leaveRecoveryPosture()
 end
 
 function Controller:startRecoveryPosture(ticks, useFurniture, ambient)
-    if not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     if self.activeDecision == "sleep" and ambient ~= true then
@@ -5357,7 +5371,7 @@ function Controller:recoverFromDetached(ticks)
     end
     self.bridge:cancelNpcMove(self.id)
     self.bridge:resetNpcCombat(self.id)
-    if not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     if self.selfCareIntent ~= nil then
@@ -5410,7 +5424,7 @@ function Controller:interruptSelfCareForDanger(ticks)
         return false
     end
     local interrupted = self.activeDecision
-    if not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     self.bridge:cancelNpcMove(self.id)
@@ -5483,7 +5497,7 @@ function Controller:beginCombat(target)
         )
         return false
     end
-    if not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     self:releaseGroupSupport()
@@ -5922,7 +5936,7 @@ function Controller:beginFlee(ticks, assessment)
     self.bridge:resetNpcCombat(self.id)
     self:suspendBaseTaskForThreat("survival_flee")
     self:interruptSelfCareForDanger(ticks)
-    if not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     self:releaseCombat()
@@ -7021,7 +7035,7 @@ function Controller:tick(ticks)
             self.nextThink = ticks + THINK_MIN_TICKS
             return
         end
-        if not self.character:getCharacterActions():isEmpty() then
+        if hasPendingTimedActions(self.character) then
             return
         end
         self.baseTaskSupplyTransfer = nil
@@ -7047,6 +7061,7 @@ function Controller:tick(ticks)
             self:finishDecision(ticks)
             return
         end
+        if hasPendingTimedActions(self.character) then return end
         if self.baseTask.type == "barricade" then
             if not self.baseTaskActionQueued then
                 local target = self.baseTaskBarricadeTarget
@@ -7670,14 +7685,14 @@ function Controller:tick(ticks)
     end
 
     if self.state == "GROUP_SUPPORT" then
-        if self.character:getCharacterActions():isEmpty() then
+        if not hasPendingTimedActions(self.character) then
             self:completeGroupSupport(ticks)
         end
         return
     end
 
     if self.state == "TIMED_ACTION" then
-        if self.character:getCharacterActions():isEmpty() then
+        if not hasPendingTimedActions(self.character) then
             local completed, detail = KnoxSurvivorNeeds.verify(
                 self.character,
                 self.selfCareIntent
@@ -8654,7 +8669,7 @@ function Controller:shutdown()
     self.pendingCleanup = nil
     self:abandonBaseTask("shutdown")
     self:releaseCampPosition()
-    if self.character ~= nil and not self.character:getCharacterActions():isEmpty() then
+    if hasPendingTimedActions(self.character) then
         ISTimedActionQueue.clear(self.character)
     end
     self.bridge:cancelNpcMove(self.id)
