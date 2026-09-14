@@ -858,3 +858,19 @@ assert(farmFilter({id="retry-crop"}) and farmFilter({id="done-crop"}),
     "expired cooldown targets become discoverable again")
 assert(not farmFilter({id="cancelled-crop"}) and not farmFilter({id="busy-crop"}))
 print("Work discovery eligibility PASS claimed=true cooldown=true cancelled=true other_work=true same_target=true priority_migration=true")
+
+base.tasks.busyBody={id="busyBody",type="haul_corpse",state="claimed",
+    target={id="body-to-zone-a",corpseItemId="123",corpseX=1,corpseY=2,corpseZ=0}}
+base.tasks.busyTree={id="busyTree",type="chop_tree",state="claimed",target={id="tree-a",x=7,y=8,z=0}}
+base.tasks.busySaw={id="busySaw",type="saw_logs",state="claimed",target={id="saw-a",x=9,y=8,z=0}}
+local corpseFilter,woodFilter
+KnoxBaseCorpseHandling.findTask=function(_,_,eligible) corpseFilter=eligible end
+KnoxBaseWoodcutting.findTask=function(_,_,eligible) woodFilter=eligible end
+jobs.prepareWorkforce(base,nil,320)
+assert(not corpseFilter({id="body-to-zone-b",corpseItemId="123",corpseX=5,corpseY=6,corpseZ=0}),
+    "claimed corpse identity remains exclusive after movement or destination changes")
+assert(corpseFilter({id="other-body",corpseItemId="124",corpseX=1,corpseY=2,corpseZ=0}),
+    "distinct bodies on one tile are separate jobs")
+assert(not woodFilter({id="tree-a",x=7,y=8,z=0}) and not woodFilter({id="saw-a",x=9,y=8,z=0}))
+assert(woodFilter({id="tree-b",x=8,y=8,z=0}))
+print("Physical work claims PASS corpse_identity=true stacked_bodies=true tree=true processing=true")

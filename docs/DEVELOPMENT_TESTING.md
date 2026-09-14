@@ -1,5 +1,19 @@
 # Development testing
 
+## Corpse and woodwork crew replay - 2026-09-14
+
+Place two bodies on one tile and assign two haulers. Confirm they select different
+bodies. Add a second corpse disposal area: bodies already inside either enabled
+area must stay there. Designate a body's square as disposal while a worker is on
+the way and confirm the old pickup stops. Disable that area and verify cleanup
+can resume. Repeat with a blocked or claimed body and another available body.
+
+Assign two woodworkers with multiple trees and log-processing areas. Confirm a
+busy/retrying tree or processing area does not hide other available work, and
+that native chopping/crafting still produces actual logs/planks. Watch for route
+conflicts and inspect actual corpse grab/drag/drop animations in a disposable save.
+
+
 ## Multi-garden and animal work replay - 2026-09-14
 
 Assign two farmers and two animal carers. Put empty plots in the first garden and

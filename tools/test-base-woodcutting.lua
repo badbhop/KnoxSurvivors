@@ -140,3 +140,21 @@ local offsetTask = assert(woodcutting.findTask(base, character))
 assert(offsetTask.zoneId == "processing" and offsetTask.x == 10,
     "unloaded or blocked first corner does not hide usable processing tiles")
 print("Processing area fallback PASS")
+
+tree.objectIndex=4
+inventoryItems={axe}
+local nextSquare=setmetatable({x=11,y=20,z=0},{__index=square})
+getCell=function() return {getGridSquare=function(_,x,y,z)
+    if y~=20 or z~=0 then return nil end
+    if x==10 then return square elseif x==11 then return nextSquare end
+end} end
+base.zones.timber.x2=11
+local nextTree=assert(woodcutting.findTask(base,character,function(candidate) return candidate.x~=10 end))
+assert(nextTree.action=="chop_tree" and nextTree.x==11,"an unavailable tree cannot hide the next tree")
+assert(woodcutting.findTask(base,character,function() return false end)==nil)
+inventoryItems={log,saw,axe}
+local sawSkipped=assert(woodcutting.findTask(base,character,function(candidate)
+    return candidate.action~="saw_logs"
+end))
+assert(sawSkipped.action=="chop_tree","busy log processing must not hide available tree work")
+print("Woodwork selection PASS next_tree=true unavailable=true other_work=true")

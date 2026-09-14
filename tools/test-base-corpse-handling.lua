@@ -209,3 +209,23 @@ assert(handling.resolveTarget(base, target, character) == nil,
     "blocked zone must fail instead of depositing outside the designated area")
 
 print("Base corpse handling PASS discovery=true animal_filter=true identity=true async_grab_drop=true")
+
+for x=12,14 do for y=12,14 do square(x,y,0).canStand=function() return true end end end
+local secondItem={getID=function() return 7002 end}
+local secondBody=setmetatable({index=4},{__index=body})
+function secondBody:getItem() return secondItem end
+bodySquare.bodies={body,secondBody}
+local selected=assert(handling.findTask(base,character,function(candidate)
+    return candidate.corpseItemId~="7001"
+end))
+assert(selected.corpseItemId=="7002","claimed first body cannot hide the next body on the same tile")
+assert(handling.findTask(base,character,function() return false end)==nil)
+base.zones.second={id="second",type="corpse",enabled=true,x1=10,y1=10,x2=10,y2=10,z=0}
+assert(handling.findTask(base,character)==nil,
+    "bodies already inside any enabled disposal area must not shuttle between areas")
+local alreadyPlaced,alreadyReason=handling.resolveTarget(base,target,character)
+assert(alreadyPlaced==nil and alreadyReason=="corpse_already_in_disposal_area",
+    "a stale claim cannot grab a body after another order has designated its square as disposal")
+base.zones.second.enabled=false
+assert(handling.findTask(base,character),"removing disposal protection makes cleanup available again")
+print("Corpse work selection PASS stacked_bodies=true eligibility=true multiple_disposal_areas=true stale_claim=true")

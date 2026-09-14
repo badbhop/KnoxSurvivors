@@ -65,6 +65,13 @@ local function insideZone(zone, square)
         and square:getY() >= minY and square:getY() <= maxY
 end
 
+local function insideAnyZone(zones, square)
+    for _, zone in ipairs(zones) do
+        if insideZone(zone, square) then return true end
+    end
+    return false
+end
+
 local function isDeadBody(object)
     if object == nil or instanceof == nil then
         return false
@@ -196,7 +203,7 @@ local function descriptor(base, zone, body, square, dropSquare)
     }
 end
 
-local function firstHaulableBody(square)
+local function firstHaulableBody(square, eligible)
     if square == nil or square.getStaticMovingObjects == nil then
         return nil
     end
@@ -206,7 +213,7 @@ local function firstHaulableBody(square)
     end
     for index = 0, objects:size() - 1 do
         local object = objects:get(index)
-        if haulable(object) then
+        if haulable(object) and (eligible == nil or eligible(object)) then
             return object
         end
     end
@@ -217,14 +224,15 @@ local function insideBounds(x, y, minX, minY, maxX, maxY)
     return x >= minX and x <= maxX and y >= minY and y <= maxY
 end
 
-function CorpseHandling.findTask(base, character)
+function CorpseHandling.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or cell == nil then
         return nil, "base_or_cell_unavailable"
     end
     local origin = character ~= nil and character:getCurrentSquare() or nil
     local best, bestDistance = nil, math.huge
-    for _, zone in ipairs(orderedZones(base)) do
+    local zones = orderedZones(base)
+    for _, zone in ipairs(zones) do
         local minX, minY, maxX, maxY, z = sourceBounds(base, zone)
         local zoneMinX, zoneMinY, zoneMaxX, zoneMaxY = zoneBounds(zone)
         local centerX = origin ~= nil and origin:getX()
@@ -238,14 +246,20 @@ function CorpseHandling.findTask(base, character)
         -- bounded per decision. Patrol and ordinary base movement naturally expose
         -- other loaded sections later instead of scanning the whole territory at once.
         for radius = 0, MAX_SOURCE_SCAN_RADIUS do
+            -- Every tile on a later ring is farther than radius. Once a nearer
+            -- eligible body is known, those rings cannot improve the choice.
+            if origin ~= nil and best ~= nil and radius * radius > bestDistance then break end
             for dx = -radius, radius do
                 for dy = -radius, radius do
                     if radius == 0 or math.max(math.abs(dx), math.abs(dy)) == radius then
                         local x, y = centerX + dx, centerY + dy
                         local square = insideBounds(x, y, minX, minY, maxX, maxY)
                             and cell:getGridSquare(x, y, z) or nil
-                        local body = not insideZone(zone, square)
-                            and firstHaulableBody(square) or nil
+                        local body = zoneDropSquare ~= nil and not insideAnyZone(zones, square)
+                            and firstHaulableBody(square, function(candidate)
+                                return eligible == nil or eligible(descriptor(
+                                    base, zone, candidate, square, zoneDropSquare))
+                            end) or nil
                         if body ~= nil then
                             local approach = approachSquare(square, character)
                             local dropSquare = zoneDropSquare
@@ -309,6 +323,9 @@ function CorpseHandling.resolveTarget(base, target, character)
     )
     if body == nil then
         return nil, "corpse_unloaded_or_moved"
+    end
+    if insideAnyZone(orderedZones(base), corpseSquare) then
+        return nil, "corpse_already_in_disposal_area"
     end
     local approach = approachSquare(corpseSquare, character)
     local zone = base.zones ~= nil and base.zones[target.zoneId] or nil

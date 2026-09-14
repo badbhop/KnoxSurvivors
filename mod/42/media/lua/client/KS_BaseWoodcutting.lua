@@ -184,7 +184,7 @@ function Woodcutting.findAxe(character)
     return findAxe(character)
 end
 
-function Woodcutting.findTask(base, character)
+function Woodcutting.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     local axe = findAxe(character)
     if base == nil or cell == nil then
@@ -201,16 +201,22 @@ function Woodcutting.findTask(base, character)
     end)
     if logType ~= nil and sawType ~= nil and sawRecipe() ~= nil then
         for _, zone in ipairs(orderedZones(base, "saw")) do
-            local minX, minY, maxX, maxY, z = zoneBounds(zone)
-            -- A blocked corner does not invalidate the whole work area.
-            -- Bound discovery just as tree scanning is bounded below.
-            for x = minX, math.min(maxX, minX + 96) do
-                for y = minY, math.min(maxY, minY + 96) do
-                    local square = cell:getGridSquare(x, y, z)
-                    if square ~= nil and safeCall(square, "canStand") == true then
-                        return { id = "saw:" .. tostring(base.id) .. ":" .. tostring(zone.id),
-                            action = "saw_logs", zoneType = "saw_logs", zoneId = zone.id, auto = true,
-                            x = x, y = y, z = z, logType = logType, sawType = sawType }, "found"
+            local targetId = "saw:" .. tostring(base.id) .. ":" .. tostring(zone.id)
+            -- A claimed zone-level processing task cannot use another tile in
+            -- the same zone. Skip its scan before inspecting hundreds of squares.
+            if eligible == nil or eligible({ id = targetId, action = "saw_logs", zoneId = zone.id }) then
+                local minX, minY, maxX, maxY, z = zoneBounds(zone)
+                -- A blocked corner does not invalidate the whole work area.
+                -- Bound discovery just as tree scanning is bounded below.
+                for x = minX, math.min(maxX, minX + 96) do
+                    for y = minY, math.min(maxY, minY + 96) do
+                        local square = cell:getGridSquare(x, y, z)
+                        if square ~= nil and safeCall(square, "canStand") == true then
+                            local target = { id = targetId,
+                                action = "saw_logs", zoneType = "saw_logs", zoneId = zone.id, auto = true,
+                                x = x, y = y, z = z, logType = logType, sawType = sawType }
+                            if eligible == nil or eligible(target) then return target, "found" end
+                        end
                     end
                 end
             end
@@ -236,7 +242,8 @@ function Woodcutting.findTask(base, character)
                 local square = cell:getGridSquare(x, y, z)
                 local tree = treeAt(square)
                 if tree ~= nil then
-                    return descriptor(base, zone, square, tree, axe), "found"
+                    local target = descriptor(base, zone, square, tree, axe)
+                    if eligible == nil or eligible(target) then return target, "found" end
                 end
             end
         end

@@ -1,5 +1,22 @@
 # Feature-completion audit
 
+### Corpse and woodwork claim recovery - 2026-09-14
+
+**Implemented; native multi-worker replay pending.** Corpse discovery excludes
+all enabled disposal areas, preventing bodies from shuttling between two areas.
+A stale claim also refuses a body whose square has become a disposal area. A
+claimed corpse is excluded by stable item identity across destination or position
+changes; another body on the same tile remains eligible. Woodwork and corpse
+selection now use the same claim/cancel/retry discovery boundary as farming.
+
+Busy processing areas are skipped before tile scans. Corpse search stops after
+closer eligible bodies make further rings irrelevant. Native grab/drag/drop and
+crafting still own their actual actions and outputs. Regression coverage includes
+stacked bodies, two disposal areas, stale claims, alternate trees and claimed log
+processing. Live carry/drop animations and multi-worker path conflicts remain
+unverified; other job families still need the same discovery review.
+
+
 ### Farm and animal work selection - 2026-09-14
 
 **Implemented; live multi-worker replay pending.** Farming compares all assigned

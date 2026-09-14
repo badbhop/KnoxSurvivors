@@ -442,11 +442,19 @@ end
 local function availableWorkFilter(base, now, family)
     local excluded, occupied = {}, {}
     local function location(target)
-        if target == nil or target.x == nil or target.y == nil then return nil end
+        if target == nil then return nil end
+        if target.corpseItemId ~= nil then return "body:" .. tostring(target.corpseItemId) end
+        if target.corpseX ~= nil and target.corpseY ~= nil then
+            return "body:" .. tostring(target.corpseX) .. ":" .. tostring(target.corpseY)
+                .. ":" .. tostring(target.corpseZ or 0) .. ":" .. tostring(target.corpseIndex or "unknown")
+        end
+        if target.x == nil or target.y == nil then return nil end
         return tostring(target.x) .. ":" .. tostring(target.y) .. ":" .. tostring(target.z or 0)
     end
     for _, task in pairs(base.tasks or {}) do
-        if task.target ~= nil and string.sub(tostring(task.type), 1, #family) == family then
+        local belongs = type(family) == "table" and family[task.type] == true
+            or type(family) == "string" and string.sub(tostring(task.type), 1, #family) == family
+        if task.target ~= nil and belongs then
             if task.state == "claimed" or task.state == "cancelled"
                 or ((task.state == "blocked" or task.state == "complete")
                     and now < (tonumber(task.retryAtHours) or 0)) then
@@ -507,7 +515,8 @@ local function ensureFarmingTask(base, now, character)
 end
 
 local function ensureWoodcuttingTask(base, now, character)
-    local target, discovery = KnoxBaseWoodcutting.findTask(base, character)
+    local target, discovery = KnoxBaseWoodcutting.findTask(base, character,
+        availableWorkFilter(base, now, { chop_tree = true, saw_logs = true }))
     if target == nil then
         return nil, discovery or "no_tree_ready"
     end
@@ -548,7 +557,8 @@ local function ensureWoodcuttingTask(base, now, character)
 end
 
 local function ensureCorpseTask(base, now, character)
-    local target, discovery = KnoxBaseCorpseHandling.findTask(base, character)
+    local target, discovery = KnoxBaseCorpseHandling.findTask(base, character,
+        availableWorkFilter(base, now, "haul_corpse"))
     if target == nil then
         return nil, discovery or "no_corpse_ready"
     end
