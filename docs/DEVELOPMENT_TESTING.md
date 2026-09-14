@@ -1,5 +1,12 @@
 # Development testing
 
+## Deferred base-task resume replay - 2026-09-14
+
+Give a resident a claimed base job, interrupt it with danger or a failed supply
+transfer, and confirm the resident enters a visible waiting state instead of
+repeatedly reselecting the same task. Stock the required material or clear the
+danger and confirm the original task resumes at its scheduled retry.
+
 ## Ambient base-position replay - 2026-09-14
 
 Leave two residents without jobs in the same base and allow both to choose an

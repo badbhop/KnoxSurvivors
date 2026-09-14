@@ -4293,12 +4293,17 @@ function Controller:beginBaseTask(ticks)
     end
     if self.baseTask ~= nil then
         if ticks >= (self.baseTaskRetryAt or 0) then
-            self:beginBaseTaskSupplyOrWork(ticks)
+            return self:beginBaseTaskSupplyOrWork(ticks)
         end
+        -- A claimed task can survive a threat, failed supply transfer, or
+        -- streamed-out target with a future retry deadline. Keep the state
+        -- explicit while waiting; returning true from the old path without
+        -- changing state left the controller free to re-enter decision logic
+        -- against the same deferred task.
+        self.activeDecision = "base_task_supply_wait"
+        self.state = "BASE_TASK_SUPPLY_WAIT"
+        self.nextThink = self.baseTaskRetryAt
         return true
-    end
-    if self.baseTask ~= nil and self.baseTask.manual == true then
-        return self:beginBaseTaskSupplyOrWork(ticks)
     end
     -- Automatic scheduling is optional, but it must not block a task the
     -- player explicitly assigned through the Notebook. At this point there is

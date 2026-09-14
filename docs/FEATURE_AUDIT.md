@@ -7130,3 +7130,11 @@ to select one square. Cleanup runs on arrival, failed movement, interruption,
 and shutdown.
 
 Focused base-leisure and full offline verification pass.
+### Deferred base-task resume state - 2026-09-14
+
+**Implemented; live interruption/resume replay pending.** A claimed base task
+with a future retry deadline now explicitly enters `BASE_TASK_SUPPLY_WAIT` and
+keeps its next retry time. The previous resume branch returned success while
+leaving the prior controller state active, allowing repeated decision entry
+against the same deferred task. Focused base-action, base-needs, base-job and
+full offline verification pass.
