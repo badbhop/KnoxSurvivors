@@ -210,3 +210,36 @@ assert(planner.matchesRequirement(feed,feedRules))
 feed.getCurrentUses=function() return 0 end
 assert(not planner.matchesRequirement(feed,feedRules),"empty feed packs do not satisfy feeding")
 print("Animal supplies PASS stored_water=true stored_feed=true physical_transfer=true valid_resources=true blocked_trough=true stale_target=true")
+
+-- An early feed area cannot hide a water shortage in a later area.
+feed.getCurrentUses=function() return 10 end
+mainInventory.values={water,feed}
+trough.water,trough.feed=20,0
+local remoteApproach={getX=function() return 29 end,getY=function() return 20 end,getZ=function() return 0 end}
+local remoteSquare={x=30,y=20,z=0,approach=remoteApproach}
+local remote=setmetatable({square=remoteSquare,water=0,feed=0,objectIndex=7},{__index=trough})
+function remoteSquare:getObjects() return list({remote}) end
+local oldCell=getCell()
+getCell=function() return {getGridSquare=function(_,x,y,z)
+    if x==30 and y==20 and z==0 then return remoteSquare end
+    return oldCell:getGridSquare(x,y,z)
+end} end
+base.zones.pasture.id="a-feed"
+base.zones.remote={id="z-water",type="animal_care",enabled=true,x1=30,y1=20,x2=30,y2=20,z=0}
+local selected=assert(animalCare.findTask(base,character))
+assert(selected.action=="animal_water" and selected.x==30,
+    "water in a later area beats feed in the first area")
+trough.water=0
+function character:getCurrentSquare() return remoteApproach end
+selected=assert(animalCare.findTask(base,character))
+assert(selected.x==30,"equivalent care prefers a nearby trough")
+remoteSquare.approach=nil
+selected=assert(animalCare.findTask(base,character))
+assert(selected.x==20,"a blocked near trough cannot hide reachable care")
+print("Animal care planning PASS water_across_areas=true nearby_work=true blocked_fallback=true")
+
+remoteSquare.approach=remoteApproach
+selected=assert(animalCare.findTask(base,character,function(target) return target.x~=30 end))
+assert(selected.x==20,"an occupied nearest trough does not hide another work area")
+assert(animalCare.findTask(base,character,function() return false end)==nil)
+print("Animal discovery eligibility PASS next_trough=true all_unavailable=true")

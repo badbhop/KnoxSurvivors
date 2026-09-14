@@ -824,3 +824,37 @@ for _,task in pairs(base.tasks) do
     end
 end
 print("Animal task lifecycle PASS usable_supplies=true refresh_unclaimed=true preserve_claim=true")
+
+-- Occupied/retrying targets must not hide all other work in a task family.
+base.tasks.filterClaim={id="filterClaim",type="farm_water",state="claimed",
+    target={id="busy-crop",x=91,y=20,z=0}}
+base.tasks.filterWait={id="filterWait",type="farm_harvest",state="blocked",retryAtHours=300,
+    target={id="retry-crop",x=92,y=20,z=0}}
+base.tasks.filterDone={id="filterDone",type="farm_harvest",state="complete",retryAtHours=300,
+    target={id="done-crop",x=93,y=20,z=0}}
+base.tasks.filterCancel={id="filterCancel",type="farm_plow",state="cancelled",
+    target={id="cancelled-crop",x=94,y=20,z=0}}
+base.tasks.oldSeed={id="oldSeed",type="farm_seed",state="queued",auto=true,priority=95,target={}}
+base.tasks.manualSeed={id="manualSeed",type="farm_seed",state="queued",auto=true,manual=true,priority=110,target={}}
+base.tasks.animalClaim={id="animalClaim",type="animal_water",state="claimed",
+    target={id="busy-trough",x=95,y=20,z=0}}
+local farmFilter,animalFilter
+KnoxBaseFarming.findTask=function(_,_,eligible) farmFilter=eligible;return nil end
+KnoxBaseAnimalCare.findTask=function(_,_,eligible) animalFilter=eligible;return nil end
+jobs.prepareWorkforce(base,nil,220)
+assert(type(farmFilter)=="function" and type(animalFilter)=="function")
+assert(not farmFilter({id="busy-crop",x=91,y=20,z=0}))
+assert(not farmFilter({id="different-action-same-crop",x=91,y=20,z=0}),
+    "two workers cannot act on the same occupied crop under different actions")
+assert(not farmFilter({id="retry-crop"}) and not farmFilter({id="done-crop"})
+    and not farmFilter({id="cancelled-crop"}))
+assert(farmFilter({id="other-crop",x=96,y=20,z=0}))
+assert(not animalFilter({id="feeding-same-trough",x=95,y=20,z=0}))
+assert(animalFilter({id="other-trough",x=96,y=20,z=0}))
+assert(base.tasks.oldSeed.priority==85 and base.tasks.manualSeed.priority==110,
+    "automatic old-save planting priority migrates without overwriting a manual priority")
+jobs.prepareWorkforce(base,nil,301)
+assert(farmFilter({id="retry-crop"}) and farmFilter({id="done-crop"}),
+    "expired cooldown targets become discoverable again")
+assert(not farmFilter({id="cancelled-crop"}) and not farmFilter({id="busy-crop"}))
+print("Work discovery eligibility PASS claimed=true cooldown=true cancelled=true other_work=true same_target=true priority_migration=true")

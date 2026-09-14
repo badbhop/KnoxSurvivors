@@ -1,5 +1,24 @@
 # Feature-completion audit
 
+### Farm and animal work selection - 2026-09-14
+
+**Implemented; live multi-worker replay pending.** Farming compares all assigned
+plots in one tile scan, with harvest before watering, planting and expansion.
+Drier crops win among watering tasks; equivalent tasks prefer nearby same-floor
+positions. Watering uses the native crop minimum/maximum and ten-point dose size,
+keeps a reserve rather than topping off continuously, and rechecks before queuing.
+Automatic queued priorities (including old saves) match maintenance-before-planting;
+manual priorities are retained. Animal water shortages outrank feeding across areas.
+
+Claimed plots/troughs and cancelled or cooling-down target IDs are excluded during
+discovery, so another resident can find other work without duplicating a physical
+target. Expired retry delays become eligible again. This selection remains based on
+loaded world objects; geometric proximity is not a promise of path reachability.
+Offline regressions cover cross-area priorities, crop water caps, live rechecks,
+claim/cooldown exclusions and automatic-priority migration. Huge work-area scan
+budgets and long-running native multi-worker acceptance still need further work.
+
+
 ### Native job ownership and usable base supplies - 2026-09-13
 
 **Implemented; live job replay pending.** All physical base-job dispatch/completion

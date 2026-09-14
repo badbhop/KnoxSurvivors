@@ -138,13 +138,13 @@ assert(farming.isComplete(harvestResolved, harvestBefore))
 
 local waterTarget, waterResult = farming.findTask(base, character)
 assert(waterTarget ~= nil and waterResult == "water")
-assert(waterTarget.action == "farm_water" and waterTarget.waterUses == 6)
+assert(waterTarget.action == "farm_water" and waterTarget.waterUses == 5)
 local waterResolved = assert(farming.resolveTarget(base, waterTarget))
 local waterAction = assert(farming.queueAction(character, waterResolved, {
     item = waterBottle,
     uses = waterTarget.waterUses,
 }))
-assert(waterAction.kind == "water" and waterAction.uses == 6)
+assert(waterAction.kind == "water" and waterAction.uses == 5)
 local waterBefore = farming.snapshot(waterResolved)
 dry.waterLvl = 100
 assert(farming.isComplete(waterResolved, waterBefore))
@@ -254,6 +254,7 @@ local function checkUnpack(target,waterArg,value)
     assert(#actions==2 and actions[1].kind=="unpack" and actions[1].item==value and actions[2]==action)
 end
 checkUnpack(planting,nil,seed)
+dry.alive,dry.waterLvl=true,40
 checkUnpack(waterResolved,{item=waterBottle,uses=2},waterBottle)
 checkUnpack(plowResolved,nil,shovel)
 inventoryItems={}
@@ -263,3 +264,66 @@ KnoxInventoryActions.queueTransfer=function() return nil,"transfer_failed" end
 actions={}
 assert(farming.queueAction(character,planting)==nil and #actions==0,"failed unpack cannot queue invalid native work")
 print("Farming bag supplies PASS native_unpack=true before_work=true no_remote_transfer=true failure=true")
+
+-- Whole-base task choice: maintenance in a later garden beats expansion in the
+-- first, and equally useful work prefers a nearby tile rather than zone name.
+seed.source,shovel.source,waterBottle.source=nil,nil,nil
+inventoryItems={seed,shovel,waterBottle}
+local firstPlot=square(30,20,0,nil,true)
+local secondCrop=plant("Tomato",true,100)
+local secondPlot=square(40,20,0,secondCrop,true)
+local thirdCrop=plant("Tomato",true,100)
+local thirdPlot=square(50,20,0,thirdCrop,true)
+squares["30:20:0"],squares["40:20:0"],squares["50:20:0"]=firstPlot,secondPlot,thirdPlot
+local gardens={id="gardens",zones={}}
+for i,x in ipairs({30,40,50}) do
+    gardens.zones[i]={id=tostring(i),type="farming",x1=x,y1=20,x2=x,y2=20,z=0}
+end
+local origin=square(49,20,0)
+function character:getCurrentSquare() return origin end
+local visits=0
+local cell=getCell()
+getCell=function() return {getGridSquare=function(_,x,y,z)
+    visits=visits+1;return cell:getGridSquare(x,y,z)
+end} end
+local chosen=assert(farming.findTask(gardens,character))
+assert(chosen.action=="farm_harvest" and chosen.x==50,
+    "ripe nearby harvest wins over early-zone expansion and distant harvest")
+assert(visits==3,"each garden tile is inspected once")
+thirdCrop.harvestable,secondCrop.harvestable=false,false
+thirdCrop.waterLvl,secondCrop.waterLvl=60,30
+thirdCrop.waterNeeded,secondCrop.waterNeeded=70,70
+chosen=assert(farming.findTask(gardens,character))
+assert(chosen.action=="farm_water" and chosen.x==40,
+    "the drier crop takes precedence over a nearer healthy crop")
+assert(chosen.waterUses==6)
+
+-- Species limits and ten-point native doses are applied before queuing work.
+secondCrop.waterNeeded,secondCrop.waterNeededMax,secondCrop.waterLvl=60,85,64
+thirdCrop.waterLvl=100
+chosen=assert(farming.findTask(gardens,character))
+assert(chosen.action=="farm_water" and chosen.waterUses==2)
+local bounded=assert(farming.resolveTarget(gardens,chosen,character))
+local nativeAction=assert(farming.queueAction(character,bounded,{item=waterBottle,uses=10}))
+assert(nativeAction.uses==2,"old oversized requests are capped to the live crop's safe doses")
+secondCrop.waterLvl=84
+assert(farming.resolveTarget(gardens,chosen,character)==nil,"healthy crops do not need topoff")
+assert(farming.queueAction(character,bounded,{item=waterBottle,uses=10})==nil,
+    "rain or another worker can invalidate watering before it starts")
+secondCrop.waterNeeded=90
+assert(farming.queueAction(character,bounded,{item=waterBottle,uses=10})==nil,
+    "a full native dose cannot exceed a narrow species cap even below its minimum")
+secondCrop.waterNeeded,secondCrop.waterNeededMax,secondCrop.waterLvl=70,nil,76
+chosen=assert(farming.findTask(gardens,character))
+assert(chosen.action=="farm_plow","adequately watered crops release the farmer to expansion")
+secondCrop.waterLvl=75
+chosen=assert(farming.findTask(gardens,character))
+assert(chosen.action=="farm_water" and chosen.waterUses==2,"reserve threshold has room between trips")
+print("Farm planning PASS cross_garden_priority=true nearby_work=true one_scan=true crop_water_limits=true no_topoff=true live_recheck=true")
+
+secondCrop.harvestable,thirdCrop.harvestable=true,true
+chosen=assert(farming.findTask(gardens,character,function(target) return target.x~=50 end))
+assert(chosen.action=="farm_harvest" and chosen.x==40,
+    "an unavailable nearest harvest does not hide another ready plot")
+assert(farming.findTask(gardens,character,function() return false end)==nil)
+print("Farming discovery eligibility PASS next_plot=true all_unavailable=true")

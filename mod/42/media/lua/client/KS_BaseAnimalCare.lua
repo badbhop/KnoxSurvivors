@@ -217,31 +217,43 @@ local function needsFeed(trough)
     return maximum > 0 and amount < maximum * REFILL_FRACTION
 end
 
-function AnimalCare.findTask(base, character)
+function AnimalCare.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or cell == nil then
         return nil, "base_or_cell_unavailable"
     end
+    local best, bestReason, bestRank, bestDistance = nil, nil, 0, math.huge
+    local current = safeCall(character, "getCurrentSquare")
+    local cx, cy, cz = safeCall(current, "getX"), safeCall(current, "getY"), safeCall(current, "getZ")
     for _, zone in ipairs(orderedZones(base)) do
-        local troughs = troughsInZone(cell, zone)
-        -- Water is life-critical and receives first claim on an empty trough.
-        for _, trough in ipairs(troughs) do
+        for _, trough in ipairs(troughsInZone(cell, zone)) do
+            local item, action, reason, rank = nil, nil, nil, 0
+            -- Water is life-critical across the whole base, not just the first
+            -- work area. Compatible supplies and an approach are still required.
             if needsWater(trough) then
-                local item = availableItem(base, character, "water", trough)
-                if item ~= nil and approachSquare(trough, character) ~= nil then
-                    return descriptor(base, zone, trough, "animal_water", item), "water"
-                end
+                item = availableItem(base, character, "water", trough)
+                if item ~= nil then action, reason, rank = "animal_water", "water", 2 end
             end
-        end
-        for _, trough in ipairs(troughs) do
-            if needsFeed(trough) then
-                local item = availableItem(base, character, "feed", trough)
-                if item ~= nil and approachSquare(trough, character) ~= nil then
-                    return descriptor(base, zone, trough, "animal_feed", item), "feed"
+            if item == nil and bestRank < 2 and needsFeed(trough) then
+                item = availableItem(base, character, "feed", trough)
+                if item ~= nil then action, reason, rank = "animal_feed", "feed", 1 end
+            end
+            local approach = item ~= nil and approachSquare(trough, character) or nil
+            if approach ~= nil then
+                local x, y, z = safeCall(approach, "getX"), safeCall(approach, "getY"), safeCall(approach, "getZ")
+                local distance = cx ~= nil and cy ~= nil and x ~= nil and y ~= nil and cz == z
+                    and ((x - cx)^2 + (y - cy)^2) or math.huge
+                if rank > bestRank or rank == bestRank and distance < bestDistance then
+                    local candidate = descriptor(base, zone, trough, action, item)
+                    if eligible == nil or eligible(candidate) then
+                        best = candidate
+                        bestReason, bestRank, bestDistance = reason, rank, distance
+                    end
                 end
             end
         end
     end
+    if best ~= nil then return best, bestReason end
     return nil, "no_animal_care_ready"
 end
 

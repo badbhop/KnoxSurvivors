@@ -1,5 +1,21 @@
 # Development testing
 
+## Multi-garden and animal work replay - 2026-09-14
+
+Assign two farmers and two animal carers. Put empty plots in the first garden and
+ripe/dry crops in later gardens; place feed needs before a separate thirsty trough
+area. Verify maintenance wins over expansion, each resident selects a distinct
+available target, and a failed/claimed target does not idle the rest of the crew.
+After retry expiry, verify failed work is attempted again. Include a manually
+prioritized task and confirm its priority is preserved.
+
+Watch a crop through watering and rain: workers should refill to a safe reserve,
+leave healthy crops alone and respect the native maximum where present. Give two
+equally useful targets at different distances and check preference for nearby
+same-floor work; blocked routes still use the ordinary job recovery. This replay
+is pending and remains necessary despite passing offline selection checks.
+
+
 ## Base supplies and action ownership replay - 2026-09-13
 
 Use an empty-handed resident with an animal-care area and real feed/water in

@@ -205,6 +205,22 @@ local function isSeeded(plant)
     return plant ~= nil and tostring(plant.state or "") == "seeded" and isAlive(plant)
 end
 
+-- Native watering adds ten points per use. Keep a reserve above the crop's
+-- minimum, without repeatedly topping off healthy plants or exceeding its cap.
+local function wateringPlan(plant, availableUses)
+    if not isSeeded(plant) then return 0, 0 end
+    local level = tonumber(plant.waterLvl)
+    if level == nil then return 0, 0 end
+    local minimum = math.max(0, math.min(100, tonumber(plant.waterNeeded) or 70))
+    local maximum = math.max(0, math.min(100, tonumber(plant.waterNeededMax) or 100))
+    local target = math.min(maximum, minimum + 20)
+    if level > math.min(target - 10, minimum + 5) then return 0, 0 end
+    local uses = math.min(math.floor(tonumber(availableUses) or 0),
+        math.max(0, math.floor((maximum - level) / 10)),
+        math.max(0, math.ceil((target - level) / 10)))
+    return uses, math.max(0, minimum - level)
+end
+
 local function descriptor(base, zone, square, plant, action, waterItem, waterUses,
     plowTool, seed, seedType)
     return {
@@ -249,7 +265,7 @@ local function zoneBounds(zone)
         math.max(minX, maxX), math.max(minY, maxY), tonumber(zone.z) or 0
 end
 
-function Farming.findTask(base, character)
+function Farming.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or cell == nil then
         return nil, "base_or_cell_unavailable"
@@ -285,87 +301,50 @@ function Farming.findTask(base, character)
             end
         end
     end
+    local best, bestReason, bestRank, bestDeficit, bestDistance = nil, nil, -1, -1, math.huge
+    local current = safeCall(character, "getCurrentSquare")
+    local cx, cy, cz = safeCall(current, "getX"), safeCall(current, "getY"), safeCall(current, "getZ")
+    -- Compare work across every assigned garden. One visit per tile replaces
+    -- four separate scans and prevents an early zone's new plots hiding harvests.
     for _, zone in ipairs(orderedZones(base)) do
         local minX, minY, maxX, maxY, z = zoneBounds(zone)
         for x = minX, maxX do
             for y = minY, maxY do
                 local square = cell:getGridSquare(x, y, z)
                 local plant = square ~= nil and plantAt(square) or nil
-                if plant ~= nil and canHarvest(plant) then
-                    return descriptor(base, zone, square, plant, "farm_harvest"), "harvest"
+                local action, reason, rank, uses, deficit = nil, nil, 0, 0, 0
+                if plant ~= nil and isAlive(plant) and canHarvest(plant) then
+                    action, reason, rank = "farm_harvest", "harvest", 4
+                elseif plant ~= nil and water ~= nil then
+                    uses, deficit = wateringPlan(plant, waterUses)
+                    if uses > 0 then action, reason, rank = "farm_water", "water", 3 end
                 end
-            end
-        end
-        if water ~= nil then
-            for x = minX, maxX do
-                for y = minY, maxY do
-                    local square = cell:getGridSquare(x, y, z)
-                    local plant = square ~= nil and plantAt(square) or nil
-                    local waterLevel = plant ~= nil and tonumber(plant.waterLvl) or nil
-                    if plant ~= nil and isSeeded(plant) and waterLevel ~= nil
-                        and waterLevel < 100 then
-                        local uses = math.min(
-                            waterUses,
-                            10,
-                            math.max(1, math.ceil((100 - waterLevel) / 10))
-                        )
-                        return descriptor(
-                            base,
-                            zone,
-                            square,
-                            plant,
-                            "farm_water",
-                            water,
-                            uses
-                        ), "water"
-                    end
-                end
-            end
-        end
-        if seed ~= nil and seedType ~= nil then
-            for x = minX, maxX do
-                for y = minY, maxY do
-                    local square = cell:getGridSquare(x, y, z)
-                    local plant = square ~= nil and plantAt(square) or nil
+                if action == nil and seed ~= nil and seedType ~= nil then
                     if plant ~= nil and tostring(plant.state or "") == "plow" then
-                        return descriptor(
-                            base,
-                            zone,
-                            square,
-                            plant,
-                            "farm_seed",
-                            nil,
-                            0,
-                            nil,
-                            seed,
-                            seedType
-                        ), "seed"
+                        action, reason, rank = "farm_seed", "seed", 2
+                    elseif square ~= nil and plant == nil and plowTool ~= nil and canDig(square) then
+                        action, reason, rank = "farm_plow", "plow", 1
                     end
                 end
-            end
-        end
-        if plowTool ~= nil and seed ~= nil and seedType ~= nil then
-            for x = minX, maxX do
-                for y = minY, maxY do
-                    local square = cell:getGridSquare(x, y, z)
-                    if square ~= nil and plantAt(square) == nil and canDig(square) then
-                        return descriptor(
-                            base,
-                            zone,
-                            square,
-                            nil,
-                            "farm_plow",
-                            nil,
-                            0,
-                            plowTool,
-                            seed,
-                            seedType
-                        ), "plow"
+                local distance = cx ~= nil and cy ~= nil and cz == z
+                    and ((x - cx)^2 + (y - cy)^2) or math.huge
+                if action ~= nil and (rank > bestRank
+                    or rank == bestRank and (deficit > bestDeficit
+                        or deficit == bestDeficit and distance < bestDistance)) then
+                    local candidate = descriptor(base, zone, square, plant, action,
+                        action == "farm_water" and water or nil, uses,
+                        action == "farm_plow" and plowTool or nil,
+                        (action == "farm_plow" or action == "farm_seed") and seed or nil,
+                        (action == "farm_plow" or action == "farm_seed") and seedType or nil)
+                    if eligible == nil or eligible(candidate) then
+                        best = candidate
+                        bestReason, bestRank, bestDeficit, bestDistance = reason, rank, deficit, distance
                     end
                 end
             end
         end
     end
+    if best ~= nil then return best, bestReason end
     return nil, "no_farming_action_ready"
 end
 
@@ -404,7 +383,7 @@ function Farming.resolveTarget(base, target, character)
         return nil, "plant_not_harvestable"
     end
     if target.action == "farm_water"
-        and (not isSeeded(plant) or (tonumber(plant.waterLvl) or 100) >= 100) then
+        and wateringPlan(plant, 10) <= 0 then
         return nil, "plant_does_not_need_water"
     end
     if target.action == "farm_seed"
@@ -449,7 +428,9 @@ function Farming.queueAction(character, target, water)
     end
     if target.action == "farm_water" then
         local item = water ~= nil and water.item or nil
-        local uses = tonumber(water ~= nil and water.uses or target.waterUses) or 0
+        safeCall(target.plant, "updateFromIsoObject")
+        local uses = wateringPlan(target.plant,
+            tonumber(water ~= nil and water.uses or target.waterUses) or 0)
         if item == nil or uses <= 0 then
             return nil, "watering_item_unavailable"
         end

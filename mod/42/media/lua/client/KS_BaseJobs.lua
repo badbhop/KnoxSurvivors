@@ -405,11 +405,13 @@ local function ensureBarricadeTask(base, now, character)
         end
         if existing.state == "queued" then
             existing.target, existing.requirements = target, requirements
+            existing.priority = priority
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
         if reopened ~= nil then
             reopened.target, reopened.requirements = target, requirements
+            reopened.priority = priority
             return reopened, "reopened"
         end
         return nil, "retry_not_ready"
@@ -430,11 +432,44 @@ local function ensureBarricadeTask(base, now, character)
     return nil, result
 end
 
+local function farmingPriority(action)
+    return action == "farm_harvest" and 100 or action == "farm_water" and 95
+        or action == "farm_seed" and 85 or action == "farm_plow" and 80 or nil
+end
+
+-- Discovery must move past a claimed or cooling-down target, otherwise one
+-- blocked plot/trough prevents every other resident from finding useful work.
+local function availableWorkFilter(base, now, family)
+    local excluded, occupied = {}, {}
+    local function location(target)
+        if target == nil or target.x == nil or target.y == nil then return nil end
+        return tostring(target.x) .. ":" .. tostring(target.y) .. ":" .. tostring(target.z or 0)
+    end
+    for _, task in pairs(base.tasks or {}) do
+        if task.target ~= nil and string.sub(tostring(task.type), 1, #family) == family then
+            if task.state == "claimed" or task.state == "cancelled"
+                or ((task.state == "blocked" or task.state == "complete")
+                    and now < (tonumber(task.retryAtHours) or 0)) then
+                if task.target.id ~= nil then excluded[tostring(task.target.id)] = true end
+            end
+            if task.state == "claimed" then
+                local key = location(task.target)
+                if key ~= nil then occupied[key] = true end
+            end
+        end
+    end
+    return function(target)
+        local key = location(target)
+        return not excluded[tostring(target.id)] and (key == nil or not occupied[key])
+    end
+end
+
 local function ensureFarmingTask(base, now, character)
-    local target = KnoxBaseFarming.findTask(base, character)
+    local target = KnoxBaseFarming.findTask(base, character, availableWorkFilter(base, now, "farm_"))
     if target == nil then
         return nil, "no_farming_action_ready"
     end
+    local priority = farmingPriority(target.action)
     local requirements = itemRequirements(target.waterItemType, target.plowToolType, target.seedItemType)
     requireUsableItem(requirements, target.plowToolType)
     requireUsableItem(requirements, target.waterItemType, { water = true })
@@ -460,10 +495,7 @@ local function ensureFarmingTask(base, now, character)
         target.action,
         target,
         requirements,
-        target.action == "farm_harvest" and 100
-            or target.action == "farm_seed" and 95
-            or target.action == "farm_water" and 85
-            or 80
+        priority
     )
     if task ~= nil then
         task.baseId = base.id
@@ -550,7 +582,7 @@ local function ensureCorpseTask(base, now, character)
 end
 
 local function ensureAnimalCareTask(base, now, character)
-    local target = KnoxBaseAnimalCare.findTask(base, character)
+    local target = KnoxBaseAnimalCare.findTask(base, character, availableWorkFilter(base, now, "animal_"))
     if target == nil then
         return nil, "no_animal_care_ready"
     end
@@ -962,6 +994,9 @@ function BaseJobs.prepareWorkforce(base, character, now)
     local discover = not recent or clock == nil or lastDiscovery == nil
         or clock < lastDiscovery or clock - lastDiscovery >= 2000
     for _, task in pairs(base.tasks or {}) do
+        if task.auto == true and task.manual ~= true and task.state == "queued" then
+            task.priority = farmingPriority(task.type) or task.priority
+        end
         if task.type == "sort_depot" or task.type == "storage_sorting" or task.type == "sort_loot"
             or (type(task.target) == "table" and task.target.sourceKey ~= nil
                 and task.target.destinationKey ~= nil) then
