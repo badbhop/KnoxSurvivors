@@ -106,7 +106,11 @@ local SUPPLY_RETRY_TICKS = 600
 local EXPLORATION_SCAN_RADIUS = 12
 local EXPLORATION_RETRY_TICKS = 180
 local CONVENIENT_INSPECTION_RADIUS = 2
-local LOOT_TRAVEL_COOLDOWN_TICKS = 900
+-- Reconsider the next container promptly after a successful search. The old
+-- delay made a building look abandoned after one container even though the
+-- exploration scan was still valid.
+local LOOT_TRAVEL_COOLDOWN_TICKS = 360
+local LOOT_CONTAINER_ITEM_LIMIT = 4
 local EMPTY_SEARCH_COOLDOWN_TICKS = 1800
 local BLOCKED_AREA_COOLDOWN_TICKS = 3600
 local LOCKED_DOOR_MIN_ENDURANCE = 0.40
@@ -1818,7 +1822,7 @@ local function findExploration(self, ticks, directive)
                                         local candidates = KnoxSurvivorLooting.plan(
                                             self.character,
                                             container,
-                                            2
+                                            LOOT_CONTAINER_ITEM_LIMIT
                                         )
                                         local available = {}
                                         for _, candidate in ipairs(candidates) do
