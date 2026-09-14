@@ -1,5 +1,14 @@
 # Development testing
 
+## Blocked base-job supply replay - 2026-09-14
+
+Assign a repair, construction, farming, or woodwork job while its required tool
+or material is absent from the assigned central cupboard. The resident should
+remain associated with the base job, wait at the settlement, and explain that
+the cupboard needs stocking. They must not leave on a generic supply search or
+pull an unrelated item from another building. Stock the missing requirement and
+confirm the same claimed job resumes through the normal storage transfer path.
+
 ## Formation route stability replay - 2026-09-14
 
 Have a leader walk slowly through doorways and around corners with several
@@ -33,9 +42,10 @@ a claimed repair object and leave another with the same sprite nearby/on the til
 the old task must fail safely instead of repairing a substituted object.
 
 Verify actual native repair health changes, barricade material consumption and
-built perimeter stages. Cupboard-only repair startup is still unfinished; this
-replay currently needs carried repair tools and parts. Live mixed-crew path/action
-acceptance remains pending.
+built perimeter stages. Repeat with empty hands and the required repair tools and
+parts in the assigned central cupboard; the worker must wait at the base when a
+requirement is absent instead of launching a world supply search. Live mixed-crew
+path/action acceptance remains pending.
 
 
 ## Corpse and woodwork crew replay - 2026-09-14

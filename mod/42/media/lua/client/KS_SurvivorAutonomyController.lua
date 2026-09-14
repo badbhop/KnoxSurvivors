@@ -4141,45 +4141,26 @@ function Controller:beginBaseTaskSupplyOrWork(ticks)
     return true
 end
 
--- A blocked task may make a short local supply run before it is marked failed.
--- It searches only real loaded containers for an exact declared requirement,
--- keeps the existing task claimed, and returns through the ordinary task supply
--- path after native transfer completes.  This is intentionally not an abstract
--- resource mission and never creates materials.
+-- A blocked base task must not become a generic world scavenging mission.
+-- Supplies for a claimed base job come from the assigned central storage; if
+-- they are absent, keep the claim briefly and let the normal retry window give
+-- the player or another worker time to stock it.  Sending the worker to the
+-- nearest matching container was a major source of apparently random trips,
+-- especially when a tool or part was missing from the cupboard.
 function Controller:beginBaseResourceRun(ticks, reason)
     local task = self.baseTask
     if task == nil or self.base == nil or (self.baseResupplyAttempts or 0) >= 3 then
         return false
     end
-    local requirements = task.requirements or {}
-    local inventory = self.character ~= nil and self.character:getInventory() or nil
-    local supply = findSupply(self, "base_supply", ticks, function(item)
-        return KnoxBaseSupplyPlanner ~= nil
-            and KnoxBaseSupplyPlanner.matchesMissingRequirement ~= nil
-            and KnoxBaseSupplyPlanner.matchesMissingRequirement(
-                item, requirements, inventory
-            )
-    end)
-    if supply == nil or not reserve(self.reservations, "items", supply.item, self.id) then
-        self.baseResupplyAttempts = (self.baseResupplyAttempts or 0) + 1
-        self.nextWorldSearch = math.max(self.nextWorldSearch or 0, ticks + SUPPLY_RETRY_TICKS)
-        return false
+    self.baseResupplyAttempts = (self.baseResupplyAttempts or 0) + 1
+    self.baseTaskRetryAt = ticks + SUPPLY_RETRY_TICKS
+    self.activeDecision = "base_task_supply_wait"
+    self.state = "BASE_TASK_SUPPLY_WAIT"
+    self.nextThink = self.baseTaskRetryAt
+    if ticks >= (self.nextSupplySpeech or 0) then
+        KnoxActivityFeed.speak(self.character, "I need the supplies brought to the base cupboard first.")
+        self.nextSupplySpeech = ticks + 3600
     end
-    local moved = tostring(moveWithTravelPace(
-        self.bridge, self.id, self.character, supply.approach, "local"
-    ))
-    if string.find(moved, "MOVE_STARTED", 1, true) ~= 1 then
-        release(self.reservations, "items", supply.item, self.id)
-        self.baseResupplyAttempts = (self.baseResupplyAttempts or 0) + 1
-        self:recordMovementFailure("base_resupply_move", moved, ticks, SUPPLY_RETRY_TICKS)
-        return false
-    end
-    supply.baseResupply = true
-    supply.baseResupplyReason = reason
-    self.pendingSupply = supply
-    self.activeDecision = "base_task_find_supplies"
-    self.state = "MOVING_TO_SUPPLY"
-    sayDialogue(self.character, self.id, "search", ticks, 1800)
     return true
 end
 

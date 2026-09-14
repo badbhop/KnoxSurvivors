@@ -51,8 +51,10 @@ assert(string.find(plannerText, 'function Planner.chooseAvailableShortage', 1, t
     "separate shortage types should be assignable without duplicating one kind")
 assert(string.find(controllerText, 'function Controller:beginBaseSupplyDeposit', 1, true),
     "base supply runs must have an explicit return deposit handoff")
-assert(string.find(controllerText, 'matchesMissingRequirement', 1, true),
-    "blocked jobs must search for the outstanding requirement, not any declared item")
+assert(string.find(controllerText, 'function Controller:beginBaseResourceRun', 1, true)
+    and not string.find(controllerText, 'findSupply(self, "base_supply"', 1, true)
+    and string.find(controllerText, 'self.state = "BASE_TASK_SUPPLY_WAIT"', 1, true),
+    "blocked base jobs must wait for assigned storage instead of roaming for supplies")
 assert(string.find(controllerText, 'self.pendingBaseSupplyDeposit = { item = recoveredBaseItem }', 1, true),
     "recovered base supplies must be retained until the resident returns home")
 assert(string.find(controllerText, 'baseSupply = true', 1, true),

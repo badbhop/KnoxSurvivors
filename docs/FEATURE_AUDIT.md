@@ -7087,3 +7087,16 @@ once per pass and reuses those entries for LOS/target selection, preserving the 
 cadence and close-combat refresh behavior while removing redundant hot-path calls. The dedicated
 awareness regression, all 86 Lua tests, and syntax checks pass; multi-NPC frame pacing remains a
 live performance verification item.
+### Base-job supply boundary - 2026-09-14
+
+**Implemented; live blocked-job replay pending.** A claimed base job now stays
+within the assigned storage workflow when a tool or material is missing. The
+old generic world supply fallback could send a worker away from the settlement,
+making a simple missing-supply condition look like chaotic autonomy. The worker
+now keeps the task claim, waits on a bounded retry, and tells the player that
+the central cupboard must be stocked. No item is fabricated and no unrelated
+container is searched.
+
+Focused base-needs and full offline verification pass. Live acceptance should
+confirm that stocking the cupboard resumes the same job and that an unstocked
+job does not produce an unplanned map trip.
