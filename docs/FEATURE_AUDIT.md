@@ -32,13 +32,8 @@ Focused regressions cover alternate objects/openings/edges, all-unavailable work
 shared structural-site claims and stale repair identity. Native tool/equipment and
 actual repair/build/barricade actions remain authoritative.
 
-**Next repair dependency:** installed `ISMoveableSpriteProps:canRepairObject`
-combines structural `craftValid` with carried tools and parts. Current Knox
-`repairProps` requires `canRepair == true` during discovery, so cupboard-only repair
-supplies cannot start a task. Separate discoverable structural validity from native
-execution validity, resolve concrete usable tools/parts from assigned stores, then
-retain native validation after real delivery. Do not bypass the execution check or
-fabricate native inventory to make discovery pass.
+That repair dependency is now addressed by the repair-supply collection pass above;
+native validation remains the final execution gate.
 
 
 ### Corpse and woodwork claim recovery - 2026-09-14
