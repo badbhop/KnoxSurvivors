@@ -1300,7 +1300,14 @@ local function fleeAssessment(self)
     risk = risk - math.max(0, allies - 1) * 2
 
     local critical = health <= 25 and count > 0
-    local unarmed = self.unarmedCombatBlocked == true and weaponCondition == false and count > 0
+    -- A lone survivor with no usable weapon must retreat before spending a
+    -- decision cycle on a combat bridge rejection. Nearby allies can still
+    -- provide a deliberate group defense decision, so preserve that capacity
+    -- instead of making every unarmed follower flee independently.
+    local unarmed = (self.unarmedCombatBlocked == true
+            and weaponCondition == false and count > 0)
+        or (weaponCondition == false and count > 0 and allies <= 1
+            and immediate > 0 and health >= 50 and endurance >= 0.35)
     local closeCollapse = immediate >= 4
         or (immediate >= 3 and targeting >= 2)
     local surrounded = sectorCount >= 4 and immediate + close >= 4

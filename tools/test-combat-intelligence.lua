@@ -563,6 +563,12 @@ unarmed.bridge = {
 }
 weapon = nil
 zombies = { postRetreat }
+local immediateUnarmed = controller("immediate-unarmed")
+zombies = { zombieAt(1, 0, nil) }
+local earlyFlee, earlyRisk = immediateUnarmed:assessFlee()
+assert(earlyFlee and earlyRisk.reason == "no_usable_weapon",
+    "a lone unarmed survivor retreats before attempting a doomed attack")
+zombies = { postRetreat }
 assert(not unarmed:beginCombat(postRetreat) and unarmed.unarmedCombatBlocked,
     "native no-weapon rejection records a survival fallback rather than a long generic combat retry")
 local rejectedCalls = 0
