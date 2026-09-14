@@ -4474,9 +4474,13 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
     if base == nil or type(reference) ~= "table" or type(reference.key) ~= "string" then
         return nil, "invalid_container"
     end
-    if category ~= "depot" and category ~= "food" then return nil, "unknown_storage_category" end
-    if category == "food" and base.toolCupboardKey == reference.key then
-        return nil, "choose_another_food_container"
+    local validCategories = {
+        depot=true, food=true, water=true, medical=true, weapons=true,
+        ammunition=true, tools=true, building=true, farming=true, clothing=true,
+    }
+    if not validCategories[category] then return nil, "unknown_storage_category" end
+    if category ~= "depot" and base.toolCupboardKey == reference.key then
+        return nil, "choose_another_main_container"
     end
     local policy = {
         key = reference.key,
@@ -4488,12 +4492,14 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
         containerType = tostring(reference.containerType or "container"),
         category = category,
         depot = category == "depot",
-        storageRole = category == "food" and "food" or "supplies",
+        storageRole = category == "depot" and "supplies" or category,
         toolCupboard = category == "depot",
     }
     local retained = {}
     for key, existing in pairs(base.storage or {}) do
-        if existing.storageRole == "food" or (category == "food" and key == base.toolCupboardKey) then
+        local isOldMain = existing ~= nil and (existing.toolCupboard == true
+            or existing.depot == true or existing.storageRole == "supplies")
+        if key ~= policy.key and not (category == "depot" and isOldMain) then
             retained[key] = existing
         end
     end

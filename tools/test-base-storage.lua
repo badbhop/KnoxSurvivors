@@ -102,32 +102,34 @@ local base = {
 
 local storage = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseStorage.lua")
 local policies = storage.policies(base)
-assert(#policies == 1 and policies[1].key == "depot" and base.toolCupboardKey == "depot")
-assert(base.storage.building == nil and #depot.values == 2 and #destination.values == 0,
-    "legacy migration retires assignments without moving or deleting real items")
+assert(#policies == 2 and base.toolCupboardKey == "depot")
+assert(base.storage.building ~= nil and #depot.values == 2 and #destination.values == 0,
+    "categorized assignments persist without moving or deleting real items")
 assert(storage.findTransfer(base) == nil, "central storage has no sorting job")
 local summary = storage.summarize(base)
-assert(summary.loadedPolicies == 1 and summary.totals.building == 1 and summary.totals.food == 1)
+assert(summary.loadedPolicies == 2 and summary.totals.building == 1 and summary.totals.food == 1)
 local origin = square(11, 20, 0, {})
 function origin:isSomethingTo() return self.blocked == true end
 local worker = { getCurrentSquare = function() return origin end,
     getInventory = function() return container("inventory", {}) end }
 local nearby = assert(storage.findNearbyDeposit(base, worker, depotItem))
-assert(nearby.policy.key == "depot")
+assert(nearby.policy.key == "building", "typed storage is preferred for matching materials")
 origin.blocked = true
 assert(not storage.findNearbyDeposit(base, worker, depotItem), "no transfer through walls")
 origin.blocked = false
 depot.full = true
-assert(not storage.findNearbyDeposit(base, worker, depotItem), "full cupboard cannot fall back to former storage")
+destination.full = true
+assert(not storage.findNearbyDeposit(base, worker, depotItem), "full assigned storage cannot accept another deposit")
 depot.full = false
+destination.full = false
 local approach = square(11, 20, 0, {})
 function approach:isSomethingTo() return self.blocked == true end
 AdjacentFreeTileFinder = { Find = function() return approach end }
 origin.x = 50
 assert(not storage.findNearbyDeposit(base, worker, depotItem))
-assert(storage.findDepositTrip(base, worker, depotItem, {}, 100).policy.key == "depot")
-assert(not storage.findDepositTrip(base, worker, depotItem, { depot = 200 }, 100))
-assert(storage.findDepositTrip(base, worker, depotItem, { depot = 200 }, 201))
+assert(storage.findDepositTrip(base, worker, depotItem, {}, 100).policy.key == "building")
+assert(storage.findDepositTrip(base, worker, depotItem, { building = 200 }, 100).policy.key == "depot")
+assert(storage.findDepositTrip(base, worker, depotItem, { depot = 200 }, 201).policy.key == "building")
 approach.blocked = true
 assert(not storage.findDepositTrip(base, worker, depotItem))
 approach.blocked = false
@@ -139,7 +141,8 @@ assert(not storage.findNearbyDeposit(base, worker, depotItem), "cross-floor tran
 origin.z = 3
 assert(not storage.findDepositTrip(base, worker, depotItem), "cross-floor search remains bounded")
 origin.x, origin.z = 11, 0
-assert(not storage.findNearbyDeposit(base, worker, depotItem, "building"), "retired policy cannot be selected")
+assert(storage.findNearbyDeposit(base, worker, depotItem, "building").policy.key == "building",
+    "typed policy can be selected directly")
 local required = assert(storage.findRequiredTransfer(base, worker, { items = { ["Base.Plank"] = 1 } }))
 assert(required.sourcePolicy.key == "depot")
 assert(storage.requirementsAvailable(base, worker, { items = { ["Base.Plank"] = 1 } }))
@@ -154,7 +157,9 @@ depotObject.getModData = function() return {} end
 stablePolicy.objectIndex = 1
 assert(storage.resolvePolicy(stablePolicy) == nil, "replacement object cannot inherit assignment")
 base.toolCupboardKey = "missing"
-assert(#storage.policies(base) == 0, "missing cupboard never silently selects another container")
+assert(storage.mainPolicy(base) == nil and #storage.policies(base) == 1
+    and base.storage.building ~= nil,
+    "missing cupboard never silently selects another container")
 local coldOnly = { storage = { fridge = { key = "fridge", containerType = "fridge" } } }
 assert(#storage.policies(coldOnly) == 0, "legacy fridge is not silently enlarged into a dry cupboard")
 assert(coldOnly.storage.fridge ~= nil, "migration preserves old physical-container references when no dry storage exists")
@@ -211,6 +216,9 @@ local rawFood = item("Base.RawChicken")
 rawFood.IsFood = function() return true end
 foodItem.IsFood = function() return true end
 local waterItem = item("Base.WaterBottleFull")
+-- Replace the legacy building assignment with the explicit kitchen assignment;
+-- one physical container has one player-facing category.
+base.storage.building = nil
 local pantry = {key="pantry", x=12,y=20,z=0,objectIndex=2,containerIndex=0,
     containerType="crate",category="food",storageRole="food"}
 base.storage.pantry = pantry

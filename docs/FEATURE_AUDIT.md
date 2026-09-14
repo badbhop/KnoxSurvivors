@@ -1,5 +1,15 @@
 # Feature-completion audit
 
+### Simple categorized survivor storage - 2026-09-14
+
+**Implemented; live deposit/withdrawal replay pending.** Base containers can be
+assigned from the world context menu as food, water, medical, weapons,
+ammunition, tools, building, farming or clothing storage. Main supplies remain
+the general fallback, matching typed storage is preferred, old main assignments
+are removed when replaced, and residents no longer need a separate virtual
+storage system. Offline storage and menu regressions pass; live multi-floor
+withdrawal and deposit behavior still need replay.
+
 ### Autonomous leader order gestures - 2026-09-14
 
 **Implemented; live group replay pending.** Autonomous group leaders now use the

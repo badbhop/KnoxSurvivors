@@ -73,7 +73,7 @@ function BaseContextMenu.setStorage(baseId, object, containerIndex, category)
         containerIndex
     )
     if policy ~= nil then
-        KnoxActivityFeed.event("Food & drink storage ready. Residents can store food and collect meals here.")
+        KnoxActivityFeed.event("Assigned " .. KnoxBaseStorage.label(policy) .. ". Residents will use this container automatically.")
         if KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
     else
         KnoxActivityFeed.event("Could not set storage: " .. tostring(result) .. ".")
@@ -118,6 +118,17 @@ function BaseContextMenu.dispatchScout(player, base, square)
 end
 
 local function addStorageMenu(parent, base, object)
+    local storageOptions = {
+        { key = "food", label = "Food & Drink" },
+        { key = "water", label = "Water" },
+        { key = "medical", label = "Medical" },
+        { key = "weapons", label = "Weapons" },
+        { key = "ammunition", label = "Ammunition" },
+        { key = "tools", label = "Tools" },
+        { key = "building", label = "Building Materials" },
+        { key = "farming", label = "Farming" },
+        { key = "clothing", label = "Clothing" },
+    }
     local count = object:getContainerCount()
     local objectOption = parent:addOption(
         count > 1 and "Set Storage Containers" or "Set Storage",
@@ -142,7 +153,7 @@ local function addStorageMenu(parent, base, object)
             end
             local reference = KnoxBaseManager.containerReference(object, containerIndex, base.id)
             local policy = reference ~= nil and base.storage ~= nil and base.storage[reference.key] or nil
-            if policy ~= nil and (policy.toolCupboard == true or policy.storageRole == "food") then
+            if policy ~= nil then
                 local status = targetMenu:addOption("Assigned: " .. KnoxBaseStorage.label(policy), nil, nil)
                 status.notAvailable = true
             end
@@ -156,15 +167,17 @@ local function addStorageMenu(parent, base, object)
                 end, object, containerIndex)
             mainOption.notAvailable = not KnoxToolCupboard.isDryContainerType(container:getType())
             if policy == nil or policy.toolCupboard ~= true then
-                if policy ~= nil and policy.storageRole == "food" then
-                    targetMenu:addOption("Stop Using for Food & Drink", base.id,
+                if policy ~= nil then
+                    targetMenu:addOption("Stop Using for " .. KnoxBaseStorage.label(policy), base.id,
                         BaseContextMenu.removeStorage, policy.key)
-                else
-                    local foodOption = targetMenu:addOption("Use for Food & Drink", base.id,
-                        BaseContextMenu.setStorage, object, containerIndex, "food")
-                    local kind = string.lower(tostring(container:getType() or ""))
-                    foodOption.notAvailable = kind == "corpse" or kind:find("water", 1, true) ~= nil
-                        or kind:find("rain", 1, true) ~= nil
+                end
+                local kind = string.lower(tostring(container:getType() or ""))
+                local unusable = kind == "corpse" or kind:find("water", 1, true) ~= nil
+                    or kind:find("rain", 1, true) ~= nil
+                for _, storageOption in ipairs(storageOptions) do
+                    local option = targetMenu:addOption("Use for " .. storageOption.label, base.id,
+                        BaseContextMenu.setStorage, object, containerIndex, storageOption.key)
+                    option.notAvailable = unusable
                 end
             end
         end

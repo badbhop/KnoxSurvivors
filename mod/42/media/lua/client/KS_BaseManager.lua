@@ -28,6 +28,14 @@ BaseManager.ZONE_TYPES = {
 BaseManager.STORAGE_CATEGORIES = {
     depot = true,
     food = true,
+    water = true,
+    medical = true,
+    weapons = true,
+    ammunition = true,
+    tools = true,
+    building = true,
+    farming = true,
+    clothing = true,
 }
 
 local function worldAge()

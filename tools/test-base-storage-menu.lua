@@ -66,7 +66,7 @@ local reference=KnoxBaseManager.containerReference(object,1,base.id)
 assert(base.storage[reference.key].storageRole=="food" and base.storage[reference.key].containerIndex==1)
 assert(capacity[1]==40 and capacity[2]==20 and refreshed==1, "assigning food preserves both native capacities")
 open()
-assert(#optionsNamed("Assigned: Food & Drink Storage")==1)
+assert(#optionsNamed("Assigned: Food & Drink")==1)
 click(optionsNamed("Stop Using for Food & Drink")[1])
 assert(base.storage[reference.key]==nil and capacity[2]==20 and refreshed==2)
 sq.x=20

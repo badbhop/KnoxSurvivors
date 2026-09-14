@@ -344,8 +344,10 @@ assert(base.storage["container-stable-2"] == foodPolicy and base.storage["contai
 assert(KnoxPersistence.removeBaseStoragePolicy(base.id, foodPolicy.key)
     and base.storage[foodPolicy.key] == nil, "food assignment can be removed without discarding main supplies")
 assert(not KnoxPersistence.removeBaseStoragePolicy(base.id, base.toolCupboardKey))
-assert(not KnoxPersistence.setBaseStoragePolicy(base.id, {key="old-category"}, "building", false),
-    "legacy sorting categories remain retired")
+local buildingPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id,
+    {key="old-category"}, "building", false))
+assert(buildingPolicy.storageRole == "building" and base.storage[buildingPolicy.key] == buildingPolicy,
+    "typed storage categories remain available")
 
 local firstTask = assert(KnoxPersistence.queueBaseTask(base.id, "chop_tree", {
     x = 30, y = 40, z = 0,

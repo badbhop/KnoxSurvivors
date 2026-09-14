@@ -140,67 +140,77 @@ end
 -- player/AI assignments, not a revival of legacy sorting jobs or virtual stock.
 function Storage.policies(base)
     if base == nil then return {} end
-    local candidates, foodStores = {}, {}
-    for _, policy in pairs(base.storage or {}) do
-        if type(policy) == "table" and type(policy.key) == "string" then
-            if policy.storageRole == "food" then
-                foodStores[#foodStores + 1] = policy
-            else
-                candidates[#candidates + 1] = policy
-            end
-        end
-    end
-    table.sort(candidates, function(a, b)
-        if (a.depot == true) ~= (b.depot == true) then return a.depot == true end
-        return a.key < b.key
-    end)
-    table.sort(foodStores, function(a, b) return a.key < b.key end)
-    local key = base.toolCupboardKey
-    if key == nil then
-        for _, policy in ipairs(candidates) do
-            if KnoxToolCupboard.isDryContainerType(policy.containerType) then
-                key = policy.key
+    local result = {}
+    local selectedKey = base.toolCupboardKey
+    if selectedKey == nil then
+        for _, policy in pairs(base.storage or {}) do
+            if type(policy) == "table" and policy.toolCupboard == true then
+                selectedKey = policy.key
                 break
             end
         end
     end
-    local selected = key ~= nil and base.storage[key] or nil
-    local result, retained = {}, {}
-    if selected ~= nil and selected.storageRole ~= "food" then
-        base.toolCupboardKey = key
-        selected.category, selected.depot, selected.toolCupboard = "depot", true, true
-        selected.storageRole = "supplies"
-        result[#result + 1], retained[key] = selected, selected
+    if selectedKey == nil then
+        for _, policy in pairs(base.storage or {}) do
+            if type(policy) == "table" and policy.depot == true
+                and KnoxToolCupboard.isDryContainerType(policy.containerType) then
+                selectedKey = policy.key
+                break
+            end
+        end
     end
-    for _, policy in ipairs(foodStores) do
-        policy.category, policy.depot, policy.toolCupboard = "food", false, false
-        result[#result + 1], retained[policy.key] = policy, policy
+    for key, policy in pairs(base.storage or {}) do
+        if type(policy) == "table" and type(policy.key) == "string" then
+            local include = false
+            if key == selectedKey or (selectedKey == nil and policy.toolCupboard == true) then
+                base.toolCupboardKey = policy.key
+                policy.category, policy.depot, policy.toolCupboard = "depot", true, true
+                policy.storageRole = "supplies"
+                include = true
+            elseif policy.storageRole == nil or policy.storageRole == "supplies" then
+                -- Old depot records remain the one canonical main cupboard;
+                -- additional typed assignments are retained below.
+                policy.storageRole = policy.category == "depot" and "supplies"
+                    or policy.category or "supplies"
+                include = policy.category ~= nil and policy.category ~= "depot"
+                    or policy.storageRole ~= "supplies"
+            else
+                include = true
+            end
+            if include then result[#result + 1] = policy end
+        end
     end
-    -- Leave legacy references alone if no usable assignment was found. Never
-    -- replace a missing named cupboard with an unrelated container.
-    if #result > 0 then base.storage = retained end
+    table.sort(result, function(a, b) return a.key < b.key end)
     return result
 end
 
 function Storage.mainPolicy(base)
     for _, policy in ipairs(Storage.policies(base)) do
-        if policy.toolCupboard == true then return policy end
+        if policy.toolCupboard == true and policy.key == base.toolCupboardKey then return policy end
     end
     return nil
 end
 
 function Storage.label(policy)
-    return policy ~= nil and policy.storageRole == "food" and "Food & Drink Storage" or "Main Supplies"
+    local role = policy ~= nil and policy.storageRole or "supplies"
+    local labels = {
+        supplies = "Main Supplies", food = "Food & Drink", water = "Water",
+        medical = "Medical", weapons = "Weapons", ammunition = "Ammunition",
+        tools = "Tools", building = "Building Materials", farming = "Farming",
+        clothing = "Clothing",
+    }
+    return labels[role] or "Storage"
 end
 
 function Storage.acceptsDeposit(policy, item)
     if policy == nil or item == nil then return false end
-    if policy.storageRole ~= "food" then return true end
+    if policy.storageRole == "supplies" then return true end
     -- Raw ingredients belong in the kitchen too; edibility is checked separately
     -- when choosing a meal. Keep unsafe food out of the ready-to-eat stock count.
-    return safeBoolean(item, "IsFood") == true
+    if policy.storageRole == "food" then return safeBoolean(item, "IsFood") == true
         or (item.getDisplayCategory ~= nil and item:getDisplayCategory() == "Food")
-        or KnoxSurvivorNeeds.isWaterItem(item, false)
+        or KnoxSurvivorNeeds.isWaterItem(item, false) end
+    return Storage.matchesCategory(item, policy.storageRole)
 end
 
 local function hasPrefix(value, prefix)
@@ -355,7 +365,11 @@ local function findDeposit(base, character, item, trip, excluded, ticks, policyK
                         and not approach:isSomethingTo(resolved.square)))
                 if clear then
                     resolved.approach = approach
-                    resolved.preference = policy.storageRole == "food" and 0 or 1
+                    local classified = Storage.classifyItem(item)
+                    local exactCategory = policy.storageRole == classified
+                        or (policy.storageRole == "food" and Storage.acceptsDeposit(policy, item))
+                    resolved.preference = exactCategory and 0
+                        or policy.storageRole == "supplies" and 1 or 2
                     resolved.distance = dx * dx + dy * dy
                     candidates[#candidates + 1] = resolved
                 end
