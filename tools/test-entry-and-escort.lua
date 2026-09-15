@@ -39,7 +39,10 @@ ISTimedActionQueue = {add = function(a) queued[#queued + 1] = a; busy = true end
 local protected = false
 KnoxBaseManager = {canDamageStructure = function() return not protected end}
 KnoxSurvivorNeeds = {snapshot = function() return {endurance = 1} end}
+local weapon = {IsWeapon = function() return true end,
+    isBroken = function() return false end, isRanged = function() return false end}
 local actor = {getCurrentSquare = function() return origin end,
+    getPrimaryHandItem = function() return weapon end,
     getCharacterActions = function() return {isEmpty = function() return not busy end} end}
 local leader = {getCurrentSquare = function() return leaderSquare end, isDead = function() return false end}
 local c = setmetatable({id = 'entry-test', character = actor, activeDecision = 'find_food',
@@ -71,8 +74,9 @@ assert(not c:crossWindowDetour(9) and #queued == 1, 'protection rechecked before
 protected = false
 c.pendingSupply.entryAttemptCount = 0
 c.pendingSupply.entryAttempts = {[first] = 'closed', [second] = 'attempted'}
-c.activeDecision = 'explore'
-assert(not c:beginWindowDetour(10, 'MOVING_TO_EXPLORE'), 'optional scavenging does not smash')
+c.activeDecision = 'scavenge'
+assert(c:beginWindowDetour(10, 'MOVING_TO_EXPLORE') and c.entryDetour.force,
+    'armed scavenging can force a previously failed locked window')
 
 -- An automatic need detour is not permission to abandon a leader or hold post.
 origin = grid['0:0']

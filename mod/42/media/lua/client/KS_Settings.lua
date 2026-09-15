@@ -27,7 +27,6 @@ local DEFAULTS = {
     NPCFactionMinimumMembers = 4,
     NPCFactionMaxMembers = 8,
     AllowHostileEncounters = true,
-    AllowSurvivorFleeing = false,
     AllowFactionRaids = false,
     FactionRaidMinimumDays = 14,
     FactionRaidIntervalDays = 7,
@@ -211,10 +210,6 @@ end
 
 function Settings.allowHostileEncounters()
     return value("AllowHostileEncounters") ~= false
-end
-
-function Settings.allowSurvivorFleeing()
-    return Settings.enabled() and value("AllowSurvivorFleeing") == true
 end
 
 function Settings.allowFactionRaids()

@@ -5,7 +5,7 @@ ModData={getOrCreate=function(key) data[key]=data[key] or {};return data[key] en
 Events={OnSave={Add=function() end},OnPostSave={Add=function() end},OnGameStart={Add=function() end}}
 getGameTime=function() return {getWorldAgeHours=function() return 48 end} end
 getNumActivePlayers=function() return 0 end
-KnoxSettings={allowSurvivorFleeing=function() return false end}
+KnoxSettings={}
 dofile(root.."/mod/42/media/lua/client/KS_OrderCatalog.lua")
 dofile(root.."/mod/42/media/lua/client/KS_CompanionPatrol.lua")
 dofile(root.."/mod/42/media/lua/client/KS_Persistence.lua")

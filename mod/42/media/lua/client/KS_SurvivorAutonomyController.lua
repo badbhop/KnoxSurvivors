@@ -1223,17 +1223,11 @@ end
 
 local function fleeAssessment(self)
     -- Player companions and base residents hold their ground and use the
-    -- existing combat/formation rules. Fleeing remains available only to
-    -- independent world survivors, where it is controlled by the sandbox.
+    -- existing combat/formation rules. Independent survivors can still make
+    -- a bounded risk-based retreat; there is no separate flee toggle whose
+    -- value could disagree with combat and movement ownership.
     if self.companionOwnerId ~= nil or self.baseId ~= nil then
         return false, { reason = "bound_survivor", zombies = 0, humans = 0, allies = 1,
-            health = 100, endurance = 1, risk = 0, immediate = 0,
-            escapeLanes = 0, nearestDistanceSquared = math.huge }
-    end
-    local settings = rawget(_G, "KnoxSettings")
-    if settings ~= nil and settings.allowSurvivorFleeing ~= nil
-        and not settings.allowSurvivorFleeing() then
-        return false, { reason = "disabled", zombies = 0, humans = 0, allies = 1,
             health = 100, endurance = 1, risk = 0, immediate = 0,
             escapeLanes = 0, nearestDistanceSquared = math.huge }
     end
@@ -1345,26 +1339,16 @@ local function fleeAssessment(self)
     risk = risk - math.max(0, allies - 1) * 2
 
     local critical = health <= 25 and count > 0
-    -- A lone survivor with no usable weapon must retreat before spending a
-    -- decision cycle on a combat bridge rejection. Nearby allies can still
-    -- provide a deliberate group defense decision, so preserve that capacity
-    -- instead of making every unarmed follower flee independently.
-    local unarmed = (self.unarmedCombatBlocked == true
-            and weaponCondition == false and count > 0)
-        or (weaponCondition == false and count > 0 and allies <= 1
-            and immediate > 0 and health >= 50 and endurance >= 0.35)
     local closeCollapse = immediate >= 4
         or (immediate >= 3 and targeting >= 2)
     local surrounded = sectorCount >= 4 and immediate + close >= 4
         and escapeLanes <= 3
     -- Wounds/exhaustion alone belong to self-care. Retreat requires a threat;
     -- otherwise a badly hurt resident can loop forever instead of resting.
-    local unsafe = count > 0 and (critical or unarmed or closeCollapse or surrounded or risk >= 7.5)
+    local unsafe = count > 0 and (critical or closeCollapse or surrounded or risk >= 7.5)
     local reason = nil
     if critical then
         reason = "critical_health"
-    elseif unarmed then
-        reason = "no_usable_weapon"
     elseif closeCollapse then
         reason = "close_collapse"
     elseif surrounded then
@@ -1820,6 +1804,14 @@ local function findExploration(self, ticks, directive)
         return nil
     end
     local fallback = nil
+    local nearestLoot = nil
+    local preferredLoot = nil
+    local function buildingKey(square)
+        local building = safeMethod(square, "getBuilding", nil)
+        local definition = safeMethod(building, "getDef", nil)
+        return definition ~= nil and tostring(safeMethod(definition, "getID", "")) or nil
+    end
+    local preferredBuilding = self.scavengeBuildingId or buildingKey(origin)
     local scanRadius = directive ~= nil and 30 or EXPLORATION_SCAN_RADIUS
     for radius = 0, scanRadius do
         for dx = -radius, radius do
@@ -1868,12 +1860,18 @@ local function findExploration(self, ticks, directive)
                                             end
                                         end
                                         if #available > 0 then
-                                            return {
+                                            local candidate = {
                                                 goal = "explore",
                                                 items = available,
                                                 container = container,
                                                 approach = approach,
+                                                buildingId = buildingKey(square),
                                             }
+                                            nearestLoot = nearestLoot or candidate
+                                            if preferredBuilding ~= nil
+                                                and candidate.buildingId == preferredBuilding then
+                                                preferredLoot = preferredLoot or candidate
+                                            end
                                         end
                                         if radius <= CONVENIENT_INSPECTION_RADIUS then
                                             fallback = fallback or {
@@ -1891,7 +1889,7 @@ local function findExploration(self, ticks, directive)
             end
         end
     end
-    return fallback
+    return preferredLoot or nearestLoot or fallback
 end
 
 local function roamDestinationKey(square)
@@ -2250,7 +2248,8 @@ function Controller.entryCandidateScore(
         if open then
             return 0
         end
-        return not locked and 1 or nil
+        if not locked then return 1 end
+        return allowForcedEntry and 4 or nil
     end
     if kind == "window" then
         if open or smashed then
@@ -2260,6 +2259,30 @@ function Controller.entryCandidateScore(
         return allowForcedEntry and 4 or nil
     end
     return nil
+end
+
+local function canForceEntry(self, square)
+    if self == nil or square == nil or KnoxBaseManager.canDamageStructure == nil
+        or not KnoxBaseManager.canDamageStructure(self.id, square) then
+        return false
+    end
+    local decision = tostring(self.activeDecision or "")
+    local allowedIntent = decision == "scavenge"
+        or decision == "inspect_container"
+        or decision:find("loot", 1, true) == 1
+        or decision:find("find_", 1, true) == 1
+    if not allowedIntent then return false end
+    local weapon = safeMethod(self.character, "getPrimaryHandItem", nil)
+    if weapon == nil or tostring(weapon) == "null"
+        or safeMethod(weapon, "IsWeapon", false) ~= true
+        or safeMethod(weapon, "isBroken", true) == true then
+        return false
+    end
+    local ranged = safeMethod(weapon, "isRanged", false) == true
+    if ranged then return false end
+    local snapshot = KnoxSurvivorNeeds.snapshot(self.character)
+    return snapshot ~= nil
+        and (tonumber(snapshot.endurance) or 0) >= LOCKED_DOOR_MIN_ENDURANCE
 end
 
 local function findAlternateEntry(self, supply, ticks)
@@ -2279,10 +2302,7 @@ local function findAlternateEntry(self, supply, ticks)
     local best = nil
     local bestScore = math.huge
     local bestDistance = math.huge
-    local urgent = self.activeDecision == "find_food" or self.activeDecision == "find_water"
-        or self.activeDecision == "find_medical"
-    local allowForcedEntry = urgent and KnoxBaseManager.canDamageStructure(self.id, targetSquare)
-        and KnoxSurvivorNeeds.snapshot(self.character).endurance >= LOCKED_DOOR_MIN_ENDURANCE
+    local allowForcedEntry = canForceEntry(self, targetSquare)
     local roomSquares = targetRoom:getSquares()
     local attempts = supply.entryAttempts or {}
     for index = 0, roomSquares:size() - 1 do
@@ -2316,7 +2336,7 @@ local function findAlternateEntry(self, supply, ticks)
                         safeObjectBoolean(door, "isBarricaded", true),
                         safeObjectBoolean(door, "isLocked", true),
                         false,
-                        false
+                        allowForcedEntry
                     ) or nil
                     if not isFailedEdge and doorScore ~= nil and attempts[door] == nil then
                         score = doorScore
@@ -2490,6 +2510,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.selfCareRetryAt = {}
     self.selfCareInterrupted = nil
     self.inspectedContainers = {}
+    self.scavengeBuildingId = nil
     self.blockedAreas = {}
     self.recentRoamGoals = {}
     self.roamGoalOrder = {}
@@ -2783,6 +2804,16 @@ function Controller:setGroupObjective(objective)
     self.groupObjectiveRevision = objective ~= nil and objective.revision or nil
     if changed and self.groupLeaderId == nil and objective ~= nil
         and KnoxOrderSignals ~= nil and KnoxOrderSignals.group ~= nil then
+        local lines = {
+            scavenge = "We'll search this area.",
+            investigate_building = "Check that building.",
+            find_food = "We'll find food.", find_water = "We'll find water.",
+            find_medical = "We'll find medical supplies.",
+        }
+        if KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+            KnoxActivityFeed.speak(self.character,
+                lines[tostring(objective.kind or "")] or "Stay together and keep moving.")
+        end
         KnoxOrderSignals.group(
             self.character,
             self.groupMembers,
@@ -4785,11 +4816,6 @@ function Controller:beginLockedDoorBreak(ticks, resumeState)
     if self.pendingSupply == nil or self.pendingSupply.doorBreakAttempted == true then
         return false
     end
-    -- Forced entry is justified only by an actual survival shortage. Optional
-    -- upgrades and curiosity should make the survivor choose another location.
-    local urgent = self.activeDecision == "find_food"
-        or self.activeDecision == "find_water"
-        or self.activeDecision == "find_medical"
     local endurance = KnoxSurvivorNeeds.snapshot(self.character).endurance
     local structureSquare = self.pendingSupply.container ~= nil
         and self.pendingSupply.container:getSourceGrid() or nil
@@ -4797,11 +4823,12 @@ function Controller:beginLockedDoorBreak(ticks, resumeState)
         markPendingAreaBlocked(self, ticks, "protected_player_base")
         return false
     end
-    if not urgent or endurance < LOCKED_DOOR_MIN_ENDURANCE then
+    if not canForceEntry(self, structureSquare) or endurance < LOCKED_DOOR_MIN_ENDURANCE then
         markPendingAreaBlocked(
             self,
             ticks,
-            not urgent and "optional_locked_entry" or "too_tired_for_forced_entry"
+            endurance < LOCKED_DOOR_MIN_ENDURANCE
+                and "too_tired_for_forced_entry" or "no_melee_weapon_for_forced_entry"
         )
         return false
     end
@@ -4990,6 +5017,10 @@ function Controller:beginExploration(ticks, directive)
         return false
     end
     self.pendingSupply = target
+    if directive == nil and self.companionOrder == nil
+        and self.groupLeaderId == nil and self.baseId == nil and self.campId == nil then
+        self.scavengeBuildingId = target.buildingId or self.scavengeBuildingId
+    end
     target.eventId = directive ~= nil and directive.eventId or nil
     self.activeDecision = directive ~= nil and tostring(directive.kind)
         or (target.items ~= nil and #target.items > 0
@@ -5001,7 +5032,7 @@ function Controller:beginExploration(ticks, directive)
             "scavenge",
             "traveling",
             target.approach,
-            roamDestinationKey(target.container:getSourceGrid())
+            target.buildingId or roamDestinationKey(target.container:getSourceGrid())
         )
     end
     self.state = "MOVING_TO_EXPLORE"
@@ -6090,11 +6121,6 @@ function Controller:beginFlee(ticks, assessment)
     if self.companionOwnerId ~= nil or self.baseId ~= nil then
         return false
     end
-    local settings = rawget(_G, "KnoxSettings")
-    if settings ~= nil and settings.allowSurvivorFleeing ~= nil
-        and not settings.allowSurvivorFleeing() then
-        return false
-    end
     self:cancelTrade("danger")
     self.combatDisengageUntil = ticks + FLEE_DISENGAGE_TICKS
     local target, hadGroupPlan = groupFleeTarget(self, ticks)
@@ -6138,8 +6164,7 @@ function Controller:beginFlee(ticks, assessment)
             if threatSquare ~= nil and origin ~= nil
                 and distanceSquared(origin, threatSquare) <= 3.0625
                 and fleeLaneClear(origin, threatSquare)
-                and self:allowsCompanionThreat(threat)
-                and not self.unarmedCombatBlocked then
+                and self:allowsCompanionThreat(threat) then
                 if self:beginCombat(threat) then
                     self.fleeRecoveryUntil = nil
                     self.fleeTarget = nil
@@ -6935,11 +6960,8 @@ function Controller:tick(ticks)
     -- Sandbox settings can be changed between sessions while a survivor was
     -- captured in retreat. Release that temporary ownership immediately; the
     -- durable Follow/Hold/group/camp intent remains intact and will resume.
-    local settings = rawget(_G, "KnoxSettings")
-    if self.state == "FLEEING" and (self.companionOwnerId ~= nil or self.baseId ~= nil
-        or (settings ~= nil
-        and settings.allowSurvivorFleeing ~= nil
-        and not settings.allowSurvivorFleeing())) then
+    if self.state == "FLEEING"
+        and (self.companionOwnerId ~= nil or self.baseId ~= nil) then
         self.bridge:cancelNpcMove(self.id)
         self:resetMovementRecovery()
         self.fleeRecoveryUntil = nil
@@ -8723,7 +8745,11 @@ function Controller:tick(ticks)
             self.nextExplorationSearch = ticks + LOOT_TRAVEL_COOLDOWN_TICKS
             self.forceTravel = true
             if self.lifeIntent ~= nil and self.lifeIntent.kind == "scavenge" then
-                self:clearLifeIntent()
+                self.scavengeBuildingId = self.pendingSupply ~= nil
+                    and self.pendingSupply.buildingId or self.scavengeBuildingId
+                self:setLifeIntent(
+                    "scavenge", "searching", nil, self.scavengeBuildingId
+                )
             elseif self.lifeIntent ~= nil then
                 self:setLifeIntent(self.lifeIntent.kind, "reassess", nil, nil)
             end
@@ -8796,6 +8822,7 @@ function Controller:tick(ticks)
             self.nextExplorationSearch = ticks + EMPTY_SEARCH_COOLDOWN_TICKS
             self.forceTravel = true
             if self.lifeIntent ~= nil and self.lifeIntent.kind == "scavenge" then
+                self.scavengeBuildingId = nil
                 self:clearLifeIntent()
             end
             if self.companionDirective ~= nil

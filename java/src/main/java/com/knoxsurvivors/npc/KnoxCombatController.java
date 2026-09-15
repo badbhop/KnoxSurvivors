@@ -852,7 +852,10 @@ final class KnoxCombatController {
         // ISReloadWeaponAction.attackHook rejects ranged fire when it is false.
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
         body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class)
-            .invoke(body, !ranged && aimAtFloor);
+            // Shove is a standing hand-to-hand action too.  Gating it on
+            // aimAtFloor left an unarmed survivor unable to push an upright
+            // zombie and made the native combat loop look idle until death.
+            .invoke(body, !ranged);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
         body.getClass().getField("isCharging").setBoolean(body, true);

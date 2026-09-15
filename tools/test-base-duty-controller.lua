@@ -10,7 +10,7 @@ local body = {getCurrentSquare=function() return current end,
 getCell = function() return {getZombieList=function() return {size=function() return 0 end} end} end
 getGameTime = function() return {getWorldAgeHours=function() return 24 end} end
 getNumActivePlayers = function() return 0 end
-KnoxSettings = {allowSurvivorFleeing=function() return false end}
+KnoxSettings = {}
 KnoxSurvivorNeeds = {decide=function() return {kind=need} end}
 KnoxActivityFeed = {speak=function() end}
 KnoxBaseCorpseHandling = {isDragging=function() return false end}

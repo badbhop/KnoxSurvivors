@@ -115,6 +115,8 @@ assert(roaming:beginRoam(200) and destinations[2]:getX() > 0,
     "open-ground fallback continues onward rather than reversing direction randomly")
 assert(Controller.entryCandidateScore("window", false, false, false, true, true, true, true) == 4,
     "urgent permitted forced window is last resort after usable entrances")
+assert(Controller.entryCandidateScore("door", false, false, false, true, false, false, true) == 4,
+    "armed scavenging can select a locked door for forced entry")
 assert(Controller.entryCandidateScore("window", false, false, true, true, true, true, true) == nil,
     "barricaded window remains excluded")
 print("Roaming autonomy PASS useful=true memory=true danger=true stability=true needs=true next_block=true bounded_scan=true onward=true")

@@ -800,6 +800,21 @@ final class KnoxNpcFactory {
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
             }
+            // isHoppableTo reports a fence-like edge, but does not guarantee
+            // that this survivor can vault it. Use Build 42's player-aware
+            // check so tall fences are rejected before an impossible climb
+            // animation starts.
+            boolean canHop = (Boolean) invoke(
+                currentSquare,
+                "isPlayerAbleToHopWallTo",
+                classFor(body, "zombie.iso.IsoDirections"),
+                classFor(body, "zombie.iso.IsoGridSquare"),
+                direction,
+                nextSquare
+            );
+            if (!canHop) {
+                return "FAILED_UNCLIMBABLE_FENCE";
+            }
             invoke(
                 body,
                 "faceDirection",

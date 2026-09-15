@@ -1,5 +1,23 @@
 # Feature-completion audit
 
+### Combat, entry, orders, traversal, and scavenging bug pass - 2026-09-15
+
+**Implemented; live replay pending.** Unarmed survivors now authorize the
+native standing shove path and no longer flee merely because they have empty
+hands. Player and base survivors retain their ground, while independent
+survivors use only the internal risk assessment; the separate flee sandbox
+option has been removed. Manual emotes are no longer exposed in the survivor
+context menu. Party orders coalesce their visible gesture, directive replies
+use one relevant spoken acknowledgement, and autonomous group leaders speak
+when a shared objective changes. Armed scavenging and supply searches can
+break a locked door or window only when the structure is damageable, the
+survivor has a usable melee weapon, and endurance is sufficient. Fence
+traversal now asks Build 42's player-aware hop check before starting an
+animation, and unowned scavengers continue searching the same building's
+remaining useful containers before selecting another building. Focused and
+full offline verification pass; live replay should confirm native shove,
+forced entry, high-fence rejection, and reduced order animation repetition.
+
 ### Base ambient movement failure recovery - 2026-09-15
 
 **Implemented; live route failure replay pending.** Failed base patrol and

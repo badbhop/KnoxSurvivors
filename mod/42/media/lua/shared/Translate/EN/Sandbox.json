@@ -72,8 +72,6 @@
     "Sandbox_KnoxSurvivors_NPCFactionMaxMembers_tooltip": "Maximum number of survivors an NPC faction can normally recruit. The effective limit is never below Survivors Needed to Form a Faction. Existing members are never removed when this is lowered.",
     "Sandbox_KnoxSurvivors_AllowHostileEncounters": "Allow Hostile Survivor Encounters (Experimental)",
     "Sandbox_KnoxSurvivors_AllowHostileEncounters_tooltip": "Allows independent survivors to threaten or rob one another when they meet. Human combat and encounter behavior are still being polished.",
-    "Sandbox_KnoxSurvivors_AllowSurvivorFleeing": "Allow Survivor Fleeing (Experimental)",
-    "Sandbox_KnoxSurvivors_AllowSurvivorFleeing_tooltip": "Allows survivors to disengage and run when combat risk becomes severe. Disabled by default while escape routing is being polished. Survivors still fight and defend themselves when this is off.",
     "Sandbox_KnoxSurvivors_AllowFactionRaids": "Allow Faction Raids (Experimental)",
     "Sandbox_KnoxSurvivors_AllowFactionRaids_tooltip": "Allows established hostile NPC factions to send real members and equipment against another existing base. Off by default while raid behavior receives more live testing. Disabling this stops new automatic raids; an active party still returns safely.",
     "Sandbox_KnoxSurvivors_FactionRaidMinimumDays": "First Possible Faction Raid Day (Experimental)",

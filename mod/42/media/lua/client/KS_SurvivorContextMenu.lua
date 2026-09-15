@@ -23,20 +23,6 @@ _G.KnoxSurvivorContextMenu = SurvivorContextMenu
 
 local WORLD_PICK_RADIUS = 2.25
 local CONVERSATION_DISTANCE = 4
-local EMOTES = {
-    { "Wave Hello", "wavehi" }, { "Wave Goodbye", "wavebye" },
-    { "Clap", "clap" }, { "Thumbs Up", "thumbsup" },
-    { "Thank You", "thankyou" }, { "Thumbs Down", "thumbsdown" },
-    { "Stop", "stop" }, { "Surrender", "surrender" },
-    { "Follow Me", "followme" }, { "Come Here", "comehere" },
-    { "Yes", "yes" }, { "No", "no" }, { "Shrug", "shrug" },
-    { "Undecided", "undecided" }, { "Cease Fire", "ceasefire" },
-    { "Signal OK", "signalok" }, { "Move Out", "moveout" },
-    { "Freeze", "freeze" }, { "Follow Behind", "followbehind" },
-    { "Signal Fire", "signalfire" }, { "Come to Front", "comefront" },
-    { "Salute", "salute" },
-}
-
 local function refreshHud(playerNum)
     local hud = rawget(_G, "KnoxCompanionHUD")
     if hud ~= nil and hud.refresh ~= nil then
@@ -100,17 +86,6 @@ end
 
 local function onViewSurvivor(_, playerNum, survivorId)
     KnoxSurvivorCard.show(playerNum, survivorId)
-end
-
-local function onEmote(_, survivorId, emote)
-    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
-    if character == nil or character.playEmote == nil then return end
-    local actions = character.getCharacterActions ~= nil and character:getCharacterActions() or nil
-    if (actions == nil or actions:isEmpty())
-        and (character.isAttacking == nil or not character:isAttacking())
-        and (character.isDraggingCorpse == nil or not character:isDraggingCorpse()) then
-        character:playEmote(emote)
-    end
 end
 
 local function medicalMessage(player, survivorId, reason)
@@ -516,13 +491,6 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         local medical = menu:addOption(medicalLabel, SurvivorContextMenu,
             onMedicalCheck, playerNum, survivorId)
         if not closeEnough then unavailable(medical) end
-        local emotesRoot = menu:addOption("Actions & Emotes", nil, nil)
-        local emotesMenu = ISContextMenu:getNew(menu)
-        menu:addSubMenu(emotesRoot, emotesMenu)
-        for _, definition in ipairs(EMOTES) do
-            emotesMenu:addOption(definition[1], SurvivorContextMenu,
-                onEmote, survivorId, definition[2])
-        end
     end
 
     if duty.mode == "base" then

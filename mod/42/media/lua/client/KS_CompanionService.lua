@@ -8,10 +8,28 @@ require "KS_OrderSignals"
 
 local CompanionService = rawget(_G, "KnoxCompanionService") or {}
 _G.KnoxCompanionService = CompanionService
+local orderSignalCooldowns = setmetatable({}, { __mode = "k" })
 
 local function signalOrder(player, survivorId, kind)
     local signals = rawget(_G, "KnoxOrderSignals")
-    if signals ~= nil then signals.order(player, kind, KnoxSurvivorRuntime.getCharacter(survivorId)) end
+    if signals == nil or signals.order == nil then return false end
+    -- Some party routes still resolve per survivor because each member can be
+    -- in a different place. Keep that useful routing while coalescing the
+    -- visible leader gesture and acknowledgements for one repeated order.
+    local now = getTimestampMs ~= nil and tonumber(getTimestampMs()) or nil
+    if now == nil then
+        now = getGameTime ~= nil and getGameTime():getWorldAgeHours() * 3600000 or 0
+    end
+    local previous = player ~= nil and orderSignalCooldowns[player] or nil
+    if previous ~= nil and previous.kind == kind and now >= previous.at
+        and now - previous.at < 3000 then
+        return false
+    end
+    local played = signals.order(player, kind, KnoxSurvivorRuntime.getCharacter(survivorId))
+    if played and player ~= nil then
+        orderSignalCooldowns[player] = { kind = kind, at = now }
+    end
+    return played
 end
 
 local TALK_GAIN = 8
@@ -444,7 +462,7 @@ function CompanionService.recruit(player, survivorId)
     return true, "recruited"
 end
 
-function CompanionService.command(player, survivorId, order)
+function CompanionService.command(player, survivorId, order, suppressSignal)
     local playerId = CompanionService.getPlayerId(player)
     if playerId == nil or not KnoxOrderCatalog.isPrimaryOrder(order)
         or (order ~= "follow" and order ~= "hold" and order ~= "relax") then
@@ -467,16 +485,21 @@ function CompanionService.command(player, survivorId, order)
                 or (order == "relax" and "I'll take a breather." or "I'll stay here.")
         )
     end
-    signalOrder(player, survivorId, order)
+    if not suppressSignal then signalOrder(player, survivorId, order) end
     return true, order
 end
 
 function CompanionService.commandAll(player, order)
     local ids = CompanionService.getCompanionIds(player)
     local changed = 0
+    local members = {}
     for _, survivorId in ipairs(ids) do
-        local success = CompanionService.command(player, survivorId, order)
+        local success = CompanionService.command(player, survivorId, order, true)
         changed = changed + (success and 1 or 0)
+        if success then
+            local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+            if character ~= nil then members[#members + 1] = character end
+        end
     end
     if changed > 0 then
         local messages = {
@@ -485,6 +508,10 @@ function CompanionService.commandAll(player, order)
             relax = "Party order: rest and recover.",
         }
         KnoxActivityFeed.event(messages[order] or "Party order updated.")
+        local signals = rawget(_G, "KnoxOrderSignals")
+        if signals ~= nil and signals.group ~= nil then
+            signals.group(player, members, order)
+        end
     end
     return changed > 0, changed
 end
@@ -1021,7 +1048,7 @@ function CompanionService.setClimbingAll(player, allowed)
     return changed > 0, changed
 end
 
-function CompanionService.issueDirective(player, survivorId, directive)
+function CompanionService.issueDirective(player, survivorId, directive, suppressSignal)
     local playerId = CompanionService.getPlayerId(player)
     if type(directive) ~= "table" then
         return false, "invalid_directive"
@@ -1048,19 +1075,40 @@ function CompanionService.issueDirective(player, survivorId, directive)
         return false, "not_your_companion"
     end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
-    signalOrder(player, survivorId, directive.kind)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        local lines = {
+            go_to = "I'm heading there.", guard = "I'll hold that position.",
+            patrol_area = "I'll patrol it.", loot_area = "I'll search the area.",
+            loot_building = "I'll search the building.", loot_corpses = "I'll check the bodies.",
+            find_food = "I'll look for food.", find_water = "I'll look for water.",
+            find_medical = "I'll look for medical supplies.", find_weapon = "I'll look for a weapon.",
+            find_tools = "I'll look for tools.", clean_inventory = "I'll sort my pack.",
+        }
+        KnoxActivityFeed.speak(character, lines[directive.kind] or "I'll take care of it.")
+    end
+    if not suppressSignal then signalOrder(player, survivorId, directive.kind) end
     return true, tostring(directive.kind)
 end
 
 function CompanionService.issueDirectiveAll(player, directive)
     local changed = 0
+    local members = {}
     for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
-        local success = CompanionService.issueDirective(player, survivorId, directive)
+        local success = CompanionService.issueDirective(player, survivorId, directive, true)
         changed = changed + (success and 1 or 0)
+        if success then
+            local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+            if character ~= nil then members[#members + 1] = character end
+        end
     end
     if changed > 0 then
         local label = KnoxOrderCatalog.label(directive.kind, "New task.")
         KnoxActivityFeed.event("Party order: " .. label .. ".")
+        local signals = rawget(_G, "KnoxOrderSignals")
+        if signals ~= nil and signals.group ~= nil then
+            signals.group(player, members, directive.kind)
+        end
     end
     return changed > 0, changed
 end

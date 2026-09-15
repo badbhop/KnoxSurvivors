@@ -52,10 +52,7 @@ KnoxSurvivorRuntime = {
 KnoxActivityFeed = {
     speak = function() end,
 }
-local fleeingEnabled = true
-KnoxSettings = {
-    allowSurvivorFleeing = function() return fleeingEnabled end,
-}
+KnoxSettings = {}
 KnoxFirearmSupport = {
     prepareForThreat = function() return "ready", "MELEE" end,
 }
@@ -339,12 +336,6 @@ local capable = controller("capable")
 local shouldFlee, capableRisk = capable:assessFlee()
 assert(not shouldFlee and capableRisk.zombies == 3,
     "a healthy skilled armed survivor may fight three spaced zombies")
-fleeingEnabled = false
-assert(not capable:assessFlee()
-        and not capable:beginFlee(1, { health = 1, endurance = 1 }),
-    "sandbox flee switch prevents both assessment and direct retreat ownership")
-fleeingEnabled = true
-
 zombies = {
     zombieAt(1, 0, character),
     zombieAt(-1, 0, character),
@@ -565,9 +556,9 @@ weapon = nil
 zombies = { postRetreat }
 local immediateUnarmed = controller("immediate-unarmed")
 zombies = { zombieAt(1, 0, nil) }
-local earlyFlee, earlyRisk = immediateUnarmed:assessFlee()
-assert(earlyFlee and earlyRisk.reason == "no_usable_weapon",
-    "a lone unarmed survivor retreats before attempting a doomed attack")
+local earlyFlee = immediateUnarmed:assessFlee()
+assert(not earlyFlee,
+    "a lone unarmed survivor stays in the native shove decision instead of fleeing")
 zombies = { postRetreat }
 assert(not unarmed:beginCombat(postRetreat) and unarmed.unarmedCombatBlocked,
     "native no-weapon rejection records a survival fallback rather than a long generic combat retry")
@@ -581,9 +572,9 @@ unarmed:beginCombat(postRetreat)
 unarmed:beginCombat(zombieAt(2, 0, character))
 assert(rejectedCalls == 0,
     "missing weapon does not repeatedly retry native combat even when target changes")
-local unarmedFlee, unarmedRisk = unarmed:assessFlee()
-assert(unarmedFlee and unarmedRisk.reason == "no_usable_weapon",
-    "unarmed actor escapes instead of repeatedly chasing a zombie it cannot attack")
+local unarmedFlee = unarmed:assessFlee()
+assert(not unarmedFlee,
+    "unarmed actor does not enter a flee loop after a transient combat bridge rejection")
 weapon = meleeWeapon(10, 1.5, 5)
 unarmed.state = "IDLE"
 unarmed.combatDisengageUntil = 0

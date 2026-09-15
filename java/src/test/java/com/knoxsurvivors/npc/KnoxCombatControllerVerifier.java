@@ -114,6 +114,11 @@ public final class KnoxCombatControllerVerifier {
             "firearm request does not authorize shove/stomp");
         require(body.pressedAttackCount == 0,
             "Java firearm request yields to native Lua attack hook");
+        requestAttack.invoke(null, body, false, false);
+        require(body.authorizeShoveStomp,
+            "unarmed standing request authorizes native shove/stomp");
+        require(body.pressedAttackCount == 1,
+            "unarmed request enters the native hand-to-hand attack path");
         Method clearAttack = KnoxCombatController.class.getDeclaredMethod("clearAttackIntent");
         clearAttack.setAccessible(true);
         npcField.set(controller, npc);

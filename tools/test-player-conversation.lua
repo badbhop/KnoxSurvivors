@@ -2,7 +2,8 @@ local root = arg[1] or "."
 require = function() return true end
 local function square(x, y, z)
     return { getX = function() return x end, getY = function() return y end,
-        getZ = function() return z end }
+        getZ = function() return z end, canStand = function() return true end,
+        isBlockedTo = function() return false end, isHoppableTo = function() return false end }
 end
 local npcSquare, playerSquare = square(0, 0, 0), square(1, 0, 0)
 local busy, dead, danger, need = false, false, false, "roam"
@@ -11,12 +12,14 @@ local player = { getCurrentSquare = function() return playerSquare end,
 local body = { getCurrentSquare = function() return npcSquare end,
     getCharacterActions = function() return { isEmpty = function() return not busy end } end,
     CanSee = function() return true end, faceThisObject = function() end }
-getCell = function() return { getZombieList = function() return {
-    size = function() return 0 end } end } end
+getCell = function() return {
+    getZombieList = function() return { size = function() return 0 end } end,
+    getGridSquare = function(_, x, y, z) return square(x, y, z) end,
+} end
 getGameTime = function() return { getWorldAgeHours = function() return 10 end } end
 getSpecificPlayer = function() return player end
 getNumActivePlayers = function() return 1 end
-KnoxSettings = { allowSurvivorFleeing = function() return false end }
+KnoxSettings = {}
 local conversations = 0
 KnoxPersistence = {
     isSurvivorHostileToPlayer = function() return danger end,
@@ -120,8 +123,12 @@ c.currentTicks = 2000
 assert(runtime.beginPlayerConversation("npc", player))
 local attacker = { getCurrentSquare = function() return square(1, 0, 0) end,
     isDead = function() return false end, getTarget = function() return body end }
-getCell = function() return { getZombieList = function() return {
-    size = function() return 1 end, get = function() return attacker end } end } end
+getCell = function() return {
+    getZombieList = function() return {
+        size = function() return 1 end, get = function() return attacker end
+    } end,
+    getGridSquare = function(_, x, y, z) return square(x, y, z) end,
+} end
 c.beginCombat = function(self, target)
     assert(target == attacker)
     self.state = "COMBAT"

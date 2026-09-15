@@ -48,7 +48,9 @@ assertDefault("NPCFactionMinimumMembers", 4)
 assertDefault("NPCFactionMaxMembers", 8)
 assertDefault("AllowFactionRaids", false)
 assertDefault("EnableKnoxEvents", false)
-assertDefault("AllowSurvivorFleeing", false)
+assert(not string.find(sandboxDefinition, "AllowSurvivorFleeing", 1, true)
+    and not string.find(sandboxEnglish, "AllowSurvivorFleeing", 1, true),
+    "fleeing is an internal risk decision rather than a sandbox option")
 assertDefault("ShowDeveloperDiagnostics", false)
 assertDefault("SurvivorAimingAssist", 1)
 assertDefault("FactionRaidMinimumDays", 14)
@@ -79,7 +81,6 @@ assert(KnoxSettings.npcFactionMinimumMembers() == 4,
 assert(KnoxSettings.npcFactionMaxMembers() == 8,
     "NPC factions default to a bounded readable size")
 assert(KnoxSettings.allowHostileEncounters(), "hostility default")
-assert(not KnoxSettings.allowSurvivorFleeing(), "experimental fleeing defaults off")
 assert(not KnoxSettings.allowFactionRaids(), "experimental faction raids default off")
 assert(not KnoxSettings.enableKnoxEvents(), "experimental events default off")
 assert(KnoxSettings.factionRaidMinimumDays() == 14, "raid world-age balanced default")
@@ -97,7 +98,6 @@ SandboxVars = { KnoxSurvivors = {
     NPCFactionMinimumMembers = 99,
     NPCFactionMaxMembers = 99,
     AllowHostileEncounters = false,
-    AllowSurvivorFleeing = true,
     AllowFactionRaids = true,
     EnableKnoxEvents = true,
     FactionRaidMinimumDays = 0,
@@ -116,7 +116,6 @@ assert(KnoxSettings.npcFactionMinimumMembers() == 8,
 assert(KnoxSettings.npcFactionMaxMembers() == 24,
     "faction maximum has a bounded upper clamp")
 assert(not KnoxSettings.allowHostileEncounters(), "hostility configured off")
-assert(KnoxSettings.allowSurvivorFleeing(), "fleeing remains an explicit sandbox opt-in")
 assert(not KnoxSettings.allowFactionRaids(), "raids require factions and hostile encounters")
 assert(KnoxSettings.enableKnoxEvents(), "events can be enabled explicitly")
 assert(KnoxSettings.factionRaidMinimumDays() == 1, "raid age lower clamp")
