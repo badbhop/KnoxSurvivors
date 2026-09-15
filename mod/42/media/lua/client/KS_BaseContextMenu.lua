@@ -2,6 +2,7 @@ require "ISUI/ISContextMenu"
 require "KS_BaseManager"
 require "KS_ActivityFeed"
 require "KS_Settings"
+require "KS_ToolCupboard"
 require "KS_BaseTerritorySelector"
 require "KS_BaseZoneSelector"
 require "KS_SurvivorAutonomy"
@@ -157,7 +158,7 @@ local function addStorageMenu(parent, base, object)
                 local status = targetMenu:addOption("Assigned: " .. KnoxBaseStorage.label(policy), nil, nil)
                 status.notAvailable = true
             end
-            local mainOption = targetMenu:addOption("Use as Main Supplies (" .. tostring(KnoxSettings.toolCupboardCapacity()) .. ")",
+            local mainOption = targetMenu:addOption("Use as Main Supplies (" .. tostring(KnoxToolCupboard.effectiveCapacity(container)) .. ")",
                 base.id, function(baseId, selected, selectedIndex)
                     local cupboard, reason = KnoxToolCupboard.designate(KnoxBaseManager.get(baseId),
                         selected, selectedIndex, KnoxBaseManager)

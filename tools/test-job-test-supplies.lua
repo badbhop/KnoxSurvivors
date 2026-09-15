@@ -50,6 +50,28 @@ stored={}
 capacity=1
 count,result=supplies.ensure(base,worker,true)
 assert(count==1 and result=="cupboard_full_or_item_restricted", "test supplies respect real storage capacity")
+InventoryItemFactory = nil
+stored={}
+capacity=1000
+count,result=supplies.ensure(base,worker,true)
+local managerItems=0
+getScriptManager = function()
+    return {getItem=function(_,full)
+        return {InstanceItem=function(_,requested)
+            managerItems=managerItems+1
+            return {getFullType=function() return requested end,getCount=function() return requested=="Base.Nails" and 5 or 1 end,
+                isBroken=function() return false end,IsInventoryContainer=function() return false end,
+                water=requested=="Base.BucketWaterDebug" and 100 or 0}
+        end}
+    end}
+end
+count,result=supplies.ensure(base,worker,true)
+assert(count>0 and managerItems>0 and result=="test_stock_ready", "client script manager creates real fallback items")
+getScriptManager = function() return nil end
+stored={}
+count,result=supplies.ensure(base,worker,true)
+assert(count==0 and result=="item_factory_unavailable", "client without an item factory fails closed without indexing null")
 enabled=false
+stored={{real=true}}
 assert(supplies.ensure(base,worker,true)==0 and #stored==1, "disabling the option preserves existing real items")
 print("Job test supplies PASS dev_only=true bounded=true real_stock=true counts=true capacity=true")

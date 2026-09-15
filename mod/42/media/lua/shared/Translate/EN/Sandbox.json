@@ -16,7 +16,7 @@
     "Sandbox_KnoxSurvivors_ContinueSurvivorsAfterPlayerDeath_tooltip": "When enabled, your base and living companions continue under your next character and companions become base residents. When disabled, the old player ownership remains unchanged.",
     "Sandbox_KnoxSurvivors_SpawnWithSpouse_tooltip": "New characters begin with one trusted spouse companion nearby. They use ordinary survivor needs, injuries and permanent death. No replacement is created after death or dismissal. Enable before starting the character.",
     "Sandbox_KnoxSurvivors_ToolCupboardCapacity": "Base Tool Cupboard Capacity",
-    "Sandbox_KnoxSurvivors_ToolCupboardCapacity_tooltip": "Capacity of one designated dry-storage container per base. Default 500, range 100-2000. Residents deposit and withdraw real supplies here. Right-click a container in your base to designate it. NPC bases select one automatically. Lowering capacity never deletes contents.",
+    "Sandbox_KnoxSurvivors_ToolCupboardCapacity_tooltip": "Requested capacity of one designated dry-storage container per base. Build 42 limits ordinary world containers to 100 items, so larger values are capped safely. Residents deposit and withdraw real supplies here. Right-click a container in your base to designate it. NPC bases select one automatically. Lowering capacity never deletes contents.",
     "Sandbox_KnoxSurvivors_NpcDrivingSpeed": "NPC Driving Speed Limit (km/h)",
     "Sandbox_KnoxSurvivors_NpcDrivingSpeed_tooltip": "Maximum speed for NPC drivers. They slow further for turns and stopping distance. Requires Experimental NPC Driving.",
     "Sandbox_KnoxSurvivors_SurvivorAimingAssist": "Survivor Aiming Assistance",

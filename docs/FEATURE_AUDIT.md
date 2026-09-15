@@ -1,5 +1,19 @@
 # Feature-completion audit
 
+### Live log fixes: client test supplies and native storage capacity - 2026-09-15
+
+**Implemented; requires one live confirmation after reload.** The developer-only
+job-supply helper no longer indexes a missing `InventoryItemFactory` in the
+client. It first uses the native factory when available and then falls back to
+the Build 42 script manager to create real inventory items. If neither API is
+available it fails closed without an exception or fake stock. Main-supplies
+capacity now respects the Build 42.20.3 native limits: ordinary world containers
+cap at 100 items, nested item containers at 50, and vehicle containers at 1000.
+The context menu shows the effective capacity, and replacing a cupboard restores
+its prior capacity within the same native bound. Focused storage and developer
+stock regressions plus the full offline suite pass; the live test should confirm
+the previous `CreateItem` exception and `setCapacity` warning are absent.
+
 ### Native firearms, reload flow, and configurable survivor aiming - 2026-09-14
 
 **Implemented; live firearm replay pending.** Firearm preparation still uses the

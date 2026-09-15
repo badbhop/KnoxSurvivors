@@ -14,6 +14,30 @@ local KIT = {
     {"Base.AnimalFeedBag", 2}, {"Base.BucketWaterDebug", 2, "water"},
 }
 
+-- InventoryItemFactory is not exposed in every Build 42 client context.  The
+-- script definition is the native client-safe fallback and still produces a
+-- real InventoryItem, which is required by the normal transfer/eat actions.
+local function createRealItem(full)
+    local factory = rawget(_G, "InventoryItemFactory")
+    if factory ~= nil then
+        local ok, item = pcall(function() return factory.CreateItem(full) end)
+        if ok and item ~= nil then return item end
+    end
+
+    local getManager = rawget(_G, "getScriptManager")
+    if type(getManager) == "function" then
+        local managerOk, manager = pcall(getManager)
+        if managerOk and manager ~= nil and manager.getItem ~= nil then
+            local definitionOk, definition = pcall(function() return manager:getItem(full) end)
+            if definitionOk and definition ~= nil and definition.InstanceItem ~= nil then
+                local itemOk, item = pcall(function() return definition:InstanceItem(full) end)
+                if itemOk and item ~= nil then return item end
+            end
+        end
+    end
+    return nil, factory == nil and "item_factory_unavailable" or "item_unavailable"
+end
+
 function Supplies.ensure(base, character, force)
     local settings = rawget(_G, "KnoxSettings")
     local developer = settings ~= nil and settings.developerJobSuppliesEnabled ~= nil
@@ -44,8 +68,13 @@ function Supplies.ensure(base, character, force)
         end
         local missing = amount - KnoxBaseSupplyPlanner.inventoryCount(inventory, full, requirements)
         while missing > 0 do
-            local ok, item = pcall(function() return InventoryItemFactory.CreateItem(full) end)
-            if not ok or item == nil then failures[#failures+1]=full; break end
+            local item, itemReason = createRealItem(full)
+            if item == nil then
+                if itemReason == "item_factory_unavailable" then
+                    return added, itemReason
+                end
+                failures[#failures+1]=full; break
+            end
             local room, allowed = pcall(function()
                 return inventory:hasRoomFor(character, item) and inventory:isItemAllowed(item)
             end)

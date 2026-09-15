@@ -60,7 +60,7 @@ local function click(o) assert(o and not o.notAvailable and o.callback);return o
 open()
 local assign=optionsNamed("Use for Food & Drink")
 assert(#assign==2, "fridge and freezer have separate storage assignments")
-for _,o in ipairs(optionsNamed("Use as Main Supplies (500)")) do assert(o.notAvailable,"cold storage cannot be enlarged") end
+for _,o in ipairs(optionsNamed("Use as Main Supplies (100)")) do assert(o.notAvailable,"cold storage cannot be enlarged") end
 click(assign[2])
 local reference=KnoxBaseManager.containerReference(object,1,base.id)
 assert(base.storage[reference.key].storageRole=="food" and base.storage[reference.key].containerIndex==1)
@@ -78,7 +78,7 @@ kinds[1]="corpse"
 assert(not KnoxBaseManager.setStoragePolicy(base.id,object,"food",0))
 kinds[1]="crate"
 open()
-click(optionsNamed("Use as Main Supplies (500)")[1])
-assert(base.toolCupboardKey~=nil and capacity[1]==500 and capacity[2]==20,
+click(optionsNamed("Use as Main Supplies (100)")[1])
+assert(base.toolCupboardKey~=nil and capacity[1]==100 and capacity[2]==20,
     "the same menu designates dry main supplies using the existing cupboard boundary")
 print("Storage menu PASS callback_indices=true fridge=true capacity=true removal=true bounds=true main=true")

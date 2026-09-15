@@ -16,12 +16,12 @@ local manager = { containsSquare = function() return allowed end,
         local policy = { key = key, category = category, depot = true }; base.storage[key] = policy; return policy
     end }
 local policy = assert(KnoxToolCupboard.designate(base, object, 0, manager))
-assert(capacity == 500 and policy.depot and policy.toolCupboard)
+assert(capacity == 100 and policy.depot and policy.toolCupboard)
 assert(base.toolCupboardKey == key and data.KnoxToolCupboard.originalCapacity == 40)
 assert(KnoxToolCupboard.designate(base, object, 0, manager))
 assert(data.KnoxToolCupboard.originalCapacity == 40, "reselecting preserves original capacity")
 SandboxVars = { KnoxSurvivors = { ToolCupboardCapacity = 200 } }
-assert(KnoxToolCupboard.apply(object, container, key) and capacity == 200 and #items == 2,
+assert(KnoxToolCupboard.apply(object, container, key) and capacity == 100 and #items == 2,
     "capacity changes preserve real contents")
 assert(not KnoxToolCupboard.apply(object, container, "wrong-key"), "no capacity change on replacement containers")
 key = "home:container:2:1:0:0:0"
@@ -34,14 +34,14 @@ local oldObject = { getModData = function() return oldData end }
 local oldContainer = { setCapacity = function(_, value) oldCapacity = value end }
 KnoxBaseStorage = { resolvePolicy = function() return nil, "storage_square_unloaded" end }
 assert(not KnoxToolCupboard.designate(base, object, 0, manager), "unloaded cupboard cannot be orphaned")
-assert(base.toolCupboardKey == oldKey and oldCapacity == 200)
+assert(base.toolCupboardKey == oldKey and oldCapacity == 100)
 KnoxBaseStorage.resolvePolicy = function()
     return { object = oldObject, container = oldContainer }
 end
 local savePolicy = manager.setStoragePolicy
 manager.setStoragePolicy = function() return nil, "assignment_rejected" end
 assert(not KnoxToolCupboard.designate(base, object, 0, manager))
-assert(base.toolCupboardKey == oldKey and oldCapacity == 200
+assert(base.toolCupboardKey == oldKey and oldCapacity == 100
     and oldData.KnoxToolCupboard ~= nil and base.storage[oldKey].toolCupboard,
     "failed replacement leaves current cupboard ownership and capacity intact")
 manager.setStoragePolicy = savePolicy

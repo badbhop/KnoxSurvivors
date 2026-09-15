@@ -2,6 +2,32 @@ require "KS_Settings"
 local Cupboard = {}
 KnoxToolCupboard = Cupboard
 
+-- Build 42.20.3 enforces 100 for ordinary world ItemContainers.  A vehicle
+-- container can use the larger native vehicle limit; nested item containers
+-- have the smaller native bag limit.  Never ask the engine to apply a value it
+-- will reject and warn about.
+local WORLD_CONTAINER_MAX = 100
+local BAG_CONTAINER_MAX = 50
+local VEHICLE_CONTAINER_MAX = 1000
+
+function Cupboard.nativeCapacityLimit(container)
+    if container == nil then return WORLD_CONTAINER_MAX end
+    if container.isVehiclePart ~= nil then
+        local ok, vehiclePart = pcall(container.isVehiclePart, container)
+        if ok and vehiclePart == true then return VEHICLE_CONTAINER_MAX end
+    end
+    if container.getContainingItem ~= nil then
+        local ok, containingItem = pcall(container.getContainingItem, container)
+        if ok and containingItem ~= nil then return BAG_CONTAINER_MAX end
+    end
+    return WORLD_CONTAINER_MAX
+end
+
+function Cupboard.effectiveCapacity(container)
+    local requested = KnoxSettings.toolCupboardCapacity()
+    return math.max(1, math.min(requested, Cupboard.nativeCapacityLimit(container)))
+end
+
 function Cupboard.isDryContainerType(containerType)
     local kind = string.lower(tostring(containerType or "container"))
     return kind ~= "corpse" and not kind:find("fridge", 1, true)
@@ -14,7 +40,7 @@ function Cupboard.apply(object, container, key)
     local marker = data ~= nil and data.KnoxToolCupboard or nil
     if type(marker) ~= "table" or marker.key ~= key or container == nil
         or container.setCapacity == nil then return false end
-    local capacity = KnoxSettings.toolCupboardCapacity()
+    local capacity = Cupboard.effectiveCapacity(container)
     if container:getCapacity() ~= capacity then container:setCapacity(capacity) end
     return true
 end
@@ -55,7 +81,11 @@ function Cupboard.designate(base, object, containerIndex, manager)
     -- actually been accepted. A rejected assignment must leave it usable.
     if oldResolved ~= nil then
         local oldData = oldResolved.object:getModData()
-        oldResolved.container:setCapacity(tonumber(oldData.KnoxToolCupboard.originalCapacity) or 40)
+        local originalCapacity = math.min(
+            tonumber(oldData.KnoxToolCupboard.originalCapacity) or 40,
+            Cupboard.nativeCapacityLimit(oldResolved.container)
+        )
+        oldResolved.container:setCapacity(originalCapacity)
         oldData.KnoxToolCupboard = nil
         if oldResolved.object.transmitModData ~= nil then oldResolved.object:transmitModData() end
     end
