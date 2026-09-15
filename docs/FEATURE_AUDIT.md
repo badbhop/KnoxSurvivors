@@ -12,8 +12,9 @@ use one relevant spoken acknowledgement, and autonomous group leaders speak
 when a shared objective changes. Armed scavenging and supply searches can
 break a locked door or window only when the structure is damageable, the
 survivor has a usable melee weapon, and endurance is sufficient. Fence
-traversal now asks Build 42's player-aware hop check before starting an
-animation, and unowned scavengers continue searching the same building's
+  traversal now asks Build 42's player-aware hop check before starting an
+  animation and clears stale run/sprint input so a normal carried load does
+  not turn a vault into a repeated fall. Unowned scavengers continue searching the same building's
 remaining useful containers before selecting another building. Focused and
 full offline verification pass; live replay should confirm native shove,
 forced entry, high-fence rejection, and reduced order animation repetition.

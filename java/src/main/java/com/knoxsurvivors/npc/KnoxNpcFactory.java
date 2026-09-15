@@ -802,8 +802,7 @@ final class KnoxNpcFactory {
             }
             // isHoppableTo reports a fence-like edge, but does not guarantee
             // that this survivor can vault it. Use Build 42's player-aware
-            // check so tall fences are rejected before an impossible climb
-            // animation starts.
+            // check before starting the native climb animation.
             boolean canHop = (Boolean) invoke(
                 currentSquare,
                 "isPlayerAbleToHopWallTo",
@@ -815,6 +814,13 @@ final class KnoxNpcFactory {
             if (!canHop) {
                 return "FAILED_UNCLIMBABLE_FENCE";
             }
+            // Build 42 calculates a vault-fall chance from the RUN/SPRINT
+            // state and the HeavyLoad moodle. NPC route pacing can leave those
+            // flags set while the survivor is already at the fence, which
+            // makes a normal carried load look overweight and repeatedly
+            // flops a climb that should succeed. Vault at walking pace; the
+            // next route tick restores the requested pace after the state ends.
+            clearHumanMovementIntent(body);
             invoke(
                 body,
                 "faceDirection",
