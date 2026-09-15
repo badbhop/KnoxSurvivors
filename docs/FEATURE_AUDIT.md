@@ -1,5 +1,14 @@
 # Feature-completion audit
 
+### Base ambient movement failure recovery - 2026-09-15
+
+**Implemented; live route failure replay pending.** Failed base patrol and
+return routes now cancel the native movement owner, release the reserved ambient
+tile immediately, record a bounded movement backoff, and return the resident to
+base idle. This prevents a blocked leisure tile from remaining reserved forever
+and keeps the controller from retrying the same route without recovery. The
+focused base-leisure regression and full offline suite pass.
+
 ### Live log fixes: client test supplies and native storage capacity - 2026-09-15
 
 **Implemented; requires one live confirmation after reload.** The developer-only

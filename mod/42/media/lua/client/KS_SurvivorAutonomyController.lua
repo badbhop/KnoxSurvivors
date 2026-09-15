@@ -4062,6 +4062,21 @@ function Controller:releaseAmbientMovement()
     end
 end
 
+-- Base patrol/return movement owns a transient ambient reservation.  A failed
+-- native route must release it immediately, otherwise the failed tile remains
+-- blocked for this resident's lifetime and other residents can never claim it.
+function Controller:handleBaseMovementFailure(movement, ticks)
+    if self.bridge ~= nil and self.bridge.cancelNpcMove ~= nil then
+        self.bridge:cancelNpcMove(self.id)
+    end
+    self:releaseAmbientMovement()
+    self:recordMovementFailure("base_movement", movement, ticks)
+    self.activeDecision = "base_idle"
+    self.state = "BASE_IDLE"
+    self.nextThink = math.max(self.nextThink or 0, (ticks or 0) + THINK_MIN_TICKS)
+    return true
+end
+
 function Controller:finishBaseTask(succeeded, reason)
     self.securityRoute=nil
     self:releaseBaseCooking()
@@ -8592,10 +8607,7 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "BASE_RETURN" or self.state == "BASE_PATROL" then
-                self.bridge:cancelNpcMove(self.id)
-                self.activeDecision = "base_idle"
-                self.state = "BASE_IDLE"
-                self.nextThink = math.max(self.nextThink or 0, ticks + 180)
+                self:handleBaseMovementFailure(movement, ticks)
                 return
             end
             if self.state == "BASE_TASK_SUPPLY_MOVE" then

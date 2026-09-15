@@ -44,8 +44,9 @@ local bridge={moveNpcWithinArea=function(_,id,target,x1,y1,x2,y2,z)
     assert(KnoxBaseManager.containsSquare(base,target))
     moves=moves+1
     return "MOVE_STARTED"
-end}
-local c=setmetatable({id="resident",base=base,character=actor,bridge=bridge},Controller)
+end, cancelNpcMove=function() end}
+local c=setmetatable({id="resident",base=base,character=actor,bridge=bridge,
+    counts={failures=0},failureReasons={}},Controller)
 for i=1,40 do
     local before=requested
     local target=assert(c:findBaseMovementTarget(false,i*100))
@@ -74,6 +75,12 @@ local c2=setmetatable({id="resident-2",base=base,character=actor,bridge=bridge,
     reservations=c.reservations},Controller)
 assert(not c2:beginBaseMovement(5000,false) and moves==1,
     "two idle residents must not claim the same ambient tile")
+local failuresBefore = c.movementFailureCount or 0
+assert(c:handleBaseMovementFailure("FailedStuck", 5000)
+    and c.state == "BASE_IDLE" and c.ambientMovementTarget == nil
+    and c.movementFailureCount == failuresBefore + 1
+    and c.nextThink >= 5030,
+    "failed ambient movement releases its reservation and backs off")
 assert(not c:beginBaseMovement(5001,false) and moves==1,"the movement cooldown is retained")
 local old=current;current=forced;forced=old
 assert(c:findBaseMovementTarget(false,7000)==nil,"idle walks must not immediately bounce to their previous origin")
