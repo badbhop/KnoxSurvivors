@@ -11,7 +11,7 @@ import com.knoxsurvivors.npc.KnoxNpcRegistry;
  * milestone is verified in game.</p>
  */
 public final class KnoxBridge {
-    public static final String RUNTIME_VERSION = "0.0.1-dev";
+    public static final String RUNTIME_VERSION = "0.3.0-rc1";
 
     private long pingCount;
     private final KnoxNpcRegistry npcRegistry = new KnoxNpcRegistry();

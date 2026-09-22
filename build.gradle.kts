@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.knoxsurvivors"
-version = "0.0.1-dev"
+version = "0.3.0-rc1"
 
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -124,7 +124,7 @@ tasks.register("prepareWorkshopUpload") {
         val description = file("workshop/description.bbcode").readLines(Charsets.UTF_8)
         val metadata = listOf(
             "version=1", "id=3749727604",
-            "title=[42.20.4] Knox Survivors - Early Rebuild (Launcher Required)"
+            "title=[42.20.4] Knox Survivors - Survivor NPC Rebuild"
         ) + description.map { "description=$it" } + listOf("tags=Build 42", "visibility=public")
         root.resolve("workshop.txt").writeText(metadata.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
         file("mod/poster.png").copyTo(root.resolve("preview.png"), overwrite = true)

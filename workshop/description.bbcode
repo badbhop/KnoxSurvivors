@@ -1,47 +1,65 @@
-[h1]ðŸ§Ÿ Knox Survivors â€” Early Rebuild[/h1]
-Rare survivors, companions, and people trying to make it through the apocalypse alongside you. The goal is a living world, not a free army.
+[h1]Knox Survivors - Survivor NPC Rebuild[/h1]
+Knox Survivors adds other human survivors to Project Zomboid while trying to keep the vanilla Zomboid feel. It is inspired by the survivor-world idea behind Superb Survivors, but this rebuild was made from the ground up by .exe.
 
-[b]This is an early public test of the new IsoPlayer rebuild, replacing the old zombie-shell version. Bugs and unfinished behavior are expected.[/b]
+Survivors use human, player-based NPC bodies and reuse Project Zomboid's existing clothing, items, animations, containers, farming, combat and world systems wherever practical. The goal is a living world - not a free army.
 
-[h2]âš ï¸ Before you play[/h2]
+[b]Current release candidate: 0.3.0-rc1[/b]
+[b]Built for Project Zomboid 42.20.4. Single-player is the focus. Bugs are expected.[/b]
+
+[h2]Before you play[/h2]
 [list]
-[*][b]One extra setup step loads the Knox Java systems.[/b] Pick either method below; without one of them survivors cannot spawn.
-[*]Use a fresh test save and back up any saves you care about. Old Knox survivor data is not guaranteed to carry over to this rebuild.
-[*]Built and checked against Project Zomboid [b]42.20.4[/b]. Single-player is the focus; full multiplayer NPC support is not available.
+[*][b]The current rebuild needs the Knox Java runtime loaded when the game starts.[/b] Use either the Steam method or the optional launcher below. Do not use both at the same time.
+[*]Use a fresh save for the rebuild and back up saves you care about. Old Knox survivor data is not guaranteed to migrate.
+[*]This is a release candidate, not a claim that every edge case is finished.
 [/list]
 
-[h2]ðŸ”§ What you can test[/h2]
+[h2]What is implemented[/h2]
 [list]
-[*]Human NPCs with saved identities, appearances, clothing, equipment, inventories, health, and needs.
-[*]Roaming, scavenging, equipment choices, eating, drinking, resting, and basic first aid.
-[*]Zombie combat, melee weapons, and early firearm/reload behavior.
-[*]Recruitment, companion orders, survivor groups, and early camps/base jobs and storage.
-[*]Companion HUD, survivor cards, inventory interaction, and an activity feed.
+[*]Persistent human survivors with their own identity, appearance, clothing, inventory, equipment, health, needs, traits, skills and relationships.
+[*]World survivors that can roam, scavenge, choose useful equipment, eat, drink, rest, use basic first aid and fight zombies.
+[*]Melee combat plus current firearm and reload support. Firearms are newer and may be rougher than melee.
+[*]Survivor meetings, dialogue, groups, factions, camps and settlement behavior.
+[*]Recruitment and companion orders including Follow, Hold, Return to Base, Dismiss, Go To, Guard and loot-related orders.
+[*]Player/faction bases with residents, work areas, storage categories and queued work.
+[*]Base jobs including guard, patrol, storage sorting, window barricading, farming, tree cutting, log sawing, corpse hauling/cleanup, trough care and damaged-structure repair.
+[*]Companion HUD, survivor information, inventory interaction, activity messages and the current survivor-management UI.
+[*]Save/load and off-screen survivor/needs simulation so the living world does not require every NPC to stay physically loaded.
 [/list]
-Pathing, combat, equipment choices, base work, and save/load still need real playtesting. This rebuild does not yet match every feature of the old mod. Raids, missions, and larger base systems are not being advertised as finished.
 
-[h2]â–¶ï¸ Install and play[/h2]
-1. Subscribe here and let Steam finish downloading.
-2. [b]Method A (recommended, nothing to download):[/b] in Steam, right-click Project Zomboid > Properties > General > Launch Options, and paste exactly this one line:
-[b]cmd /c "set JAVA_TOOL_OPTIONS=-javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game && %command%"[/b]
-If Steam lives somewhere else, keep the whole line identical but swap the [b]C:\Program Files (x86)\Steam[/b] part for your own Steam folder. Then just press Play in Steam.
-3. [b]Method B:[/b] [url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.2-preview.1]download the Knox Survivors launcher[/url] (Windows/Linux/macOS ZIP, not Source code), extract it, and press [b]PLAY KNOX SURVIVORS[/b] each time instead of using a launch option. Do not use both methods at once.
-4. In the game, enable [b]Knox Survivors[/b] in Mods and for your new save.
+[h2]Not being promised as finished[/h2]
+Full multiplayer NPC support, autonomous survivor driving, raids/large faction events, away-team resource missions and full construction are not advertised as finished features in this release. Pathing, combat, jobs and save/load can still hit bugs during real Build 42 play.
 
-How to confirm it worked: after reaching the main menu, open [b]Documents\Zomboid\KnoxIsoPlayer.log[/b] and check it mentions [b]agent start[/b]. If survivors never appear and the activity feed warns the Java systems are not loaded, the launch option has a typo or Steam updated the mod mid-line: re-paste it and restart.
+[h2]Install and play[/h2]
+1. Subscribe here and let Steam finish downloading the item.
+2. Pick [b]one[/b] launch method below.
+3. In Project Zomboid, enable [b]Knox Survivors[/b] for your fresh save.
 
-Steam supplies the mod and Java files together and keeps them updated; the launcher and the launch option both use the game's bundled Java. No separate Java installation is needed.
+[b]Method A - Steam-only on Windows (no separate launcher download):[/b]
+Open Steam > Project Zomboid > Properties > General > Launch Options and paste this line:
 
-Windows is the primary test platform. Linux/macOS launcher builds pass automated checks, but real game launches on those systems still need tester reports. If the game reports the Java systems are missing, let Steam finish updating before trying again.
+[b]-javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --[/b]
 
-[h2]ðŸ’¬ Feedback[/h2]
-[url=https://discord.gg/cTfd2WWD4s]Join the Discord[/url] for test reports and updates. Tell me what happened, your game version, and whether you used a fresh save. Check logs for personal information before sharing them.
+If Steam is installed elsewhere, change only the [b]C:\Program Files (x86)\Steam[/b] part. Then launch Project Zomboid normally from Steam. This keeps the normal Steam/PZ launch path and passes the Knox agent directly to Project Zomboid. No terminal window is required.
 
-Comments are temporarily disabled while I focus on the rebuild. Thanks for helping test it.
+If you previously saved custom game arguments inside the Knox launcher (for example a custom -cachedir), those launcher-only arguments are not automatically transferred to Steam. Add the same arguments after the final [b]--[/b] if you still need them. Normal Project Zomboid saves, sandbox settings, mod settings and memory configuration stay in their normal locations.
 
-[h2]â¤ï¸ Optional support[/h2]
-Knox Survivors is free and will stay free. Support does not unlock gameplay content.
+[b]Method B - optional Knox Survivors Launcher:[/b]
+[url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases]Download the latest Knox Survivors Launcher release[/url], extract the complete ZIP for your system and press [b]PLAY KNOX SURVIVORS[/b]. The launcher verifies the Workshop files/checksum and starts the normal game executable. It does not change Project Zomboid's configured memory or set permanent system options.
+
+Steam provides the mod and Knox runtime together. No separate Java installation is required.
+
+[h2]Confirm it loaded[/h2]
+After reaching the main menu, open [b]Documents\Zomboid\KnoxIsoPlayer.log[/b] and look for [b]agent start[/b]. If the mod says the Java systems are unavailable, check the Steam launch option or use the launcher, then restart Project Zomboid.
+
+[h2]Feedback[/h2]
+[url=https://discord.gg/cTfd2WWD4s]Join the Discord[/url] for bug reports and updates. Include your Project Zomboid version, whether the save was fresh, what the survivor was doing, and relevant logs after checking them for personal information.
+
+Knox Survivors is free. Optional support does not unlock gameplay content.
 [url=https://www.patreon.com/c/stackzyapackz/membership]Optional Patreon support[/url]
+
+[h2]Credits / ownership[/h2]
+Knox Survivors' original code and framework were built from the ground up and are owned by .exe. Superb Survivors inspired the survivor-mod concept; this rebuild does not claim or depend on its source code. Project Zomboid and its base-game assets belong to The Indie Stone.
 
 Workshop ID: 3749727604
 Mod ID: KnoxSurvivors
+Version: 0.3.0-rc1

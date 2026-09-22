@@ -1056,7 +1056,7 @@ update = function()
     local player = getAnyLoadedPlayer()
     if bridge == nil then
         if not bridgeMissingReported or ticks % STATUS_INTERVAL_TICKS == 0 then
-            print(TAG .. " BLOCKED bridge_unavailable; launch through the Knox Survivors launcher")
+            print(TAG .. " BLOCKED bridge_unavailable; configure the Steam launch option or use the Knox Survivors launcher")
             bridgeMissingReported = true
         end
         return

@@ -1,7 +1,8 @@
 name=Knox Survivors
 id=KnoxSurvivors
 author=.exe
-description=Early IsoPlayer rebuild. One-time Steam launch-option setup required (see Workshop page). Use a fresh test save; bugs and unfinished behavior are expected. Tested against 42.20.4, single-player focus.
+version=0.3.0-rc1
+description=Survivor NPC rebuild inspired by Superb Survivors. Human player-based NPCs can survive, scavenge, fight, form groups, join the player, and work at settlements. Build 42.20.4 release candidate; single-player focus and bugs are expected.
 poster=poster.png
 icon=icon.png
 versionMin=42.20
