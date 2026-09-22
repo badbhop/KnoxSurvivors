@@ -28,6 +28,16 @@ assert(service:find('function CompanionService.boardAllPlayerVehicle', 1, true)
     "party vehicle orders must reuse existing companion vehicle actions")
 assert(service:find('No more seats.', 1, true),
     "full vehicles must give the player-facing wait message")
+assert(service:find("Taking passenger seat", 1, true)
+    and service:find("leave the driver's seat first", 1, true)
+    and service:find("Taking the driver's seat", 1, true),
+    "vehicle orders explain passenger seating and the explicit driver-seat handoff")
+
+local catalog = read(rootPath .. "/mod/42/media/lua/client/KS_OrderCatalog.lua")
+assert(catalog:find('Take Passenger Seat', 1, true)
+    and catalog:find('driver seat stays yours', 1, true)
+    and catalog:find('Take Driver Seat & Drive', 1, true),
+    "vehicle labels make passenger and driver responsibilities explicit")
 
 local context = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorContextMenu.lua")
 assert(context:find('KnoxOrderCatalog.label("enter_vehicle")', 1, true)

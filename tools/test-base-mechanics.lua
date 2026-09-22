@@ -18,6 +18,7 @@ local wood = read("mod/42/media/lua/client/KS_BaseWoodcutting.lua")
 local storage = read("mod/42/media/lua/client/KS_BaseStorage.lua")
 local corpse = read("mod/42/media/lua/client/KS_BaseCorpseHandling.lua")
 local autonomy = read("mod/42/media/lua/client/KS_SurvivorAutonomy.lua")
+local controller = read("mod/42/media/lua/client/KS_SurvivorAutonomyController.lua")
 local jobs = read("mod/42/media/lua/client/KS_BaseJobs.lua")
 local gameDirectory = arg[2]
 
@@ -31,8 +32,10 @@ assert(not corpse:find("character:pickUpCorpse", 1, true),
     "corpse handling must not repeat the native pickup outside the vanilla action")
 assert(corpse:find("ISGrabCorpseAction:new", 1, true),
     "corpse handling must retain the vanilla grab action")
-assert(autonomy:find("abandonBaseTask", 1, true),
-    "controller failures must release claimed base work")
+assert(autonomy:find("recoverFromControllerError", 1, true)
+        and controller:find("base_task_fallback", 1, true)
+        and controller:find("releaseAllTransientReservations", 1, true),
+    "controller failures must release claimed work and transient leases")
 assert(not jobs:find("return next(items)", 1, true),
     "base requirements must not call Lua next(), which Kahlua does not expose")
 assert(autonomy:find('controller.state = "IDLE"', 1, true)

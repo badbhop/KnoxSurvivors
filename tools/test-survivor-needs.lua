@@ -162,20 +162,22 @@ local bottle = water("Base.WaterBottle", 0.8, false)
 local badWater = water("Base.TaintedBottle", 1.0, true)
 carried = { rotten, meal, badWater, bottle }
 
-statsValues.hunger = 0.54
-statsValues.thirst = 0.54
+statsValues.hunger = 0.44
+statsValues.thirst = 0.44
 assert(Needs.decide(character, nil).kind == "roam",
     "sub-threshold hunger and thirst do not trigger robotic self-care")
 assert(not Needs.isNeedCurrent(character, "find_food")
     and not Needs.isNeedCurrent(character, "find_water"),
     "healthy native needs cannot produce stale resource callouts")
-statsValues.hunger = 0.60
-statsValues.thirst = 0.60
+statsValues.hunger = 0.50
+statsValues.thirst = 0.50
 assert(Needs.isNeedCurrent(character, "find_food")
     and Needs.isNeedCurrent(character, "find_water"),
     "current native resource pressure permits a need callout")
-statsValues.hunger = 0.54
-statsValues.thirst = 0.54
+assert(not Needs.isNeedCurrent(character, "stale_need_kind"),
+    "unknown or stale need intents cannot produce a player-facing callout")
+statsValues.hunger = 0.44
+statsValues.thirst = 0.44
 
 statsValues.hunger = 0.80
 statsValues.thirst = 0.85

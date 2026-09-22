@@ -58,20 +58,19 @@ local ZONE_TYPES = {
     { label = "Guard Post", kind = "guard" },
     { label = "Patrol Area", kind = "patrol" },
     { label = "Farming Area", kind = "farming" },
-    { label = "Cooking Area (Microwave)", kind = "cooking" },
+    -- No cooking area: survivors cook at any powered stove or microwave in
+    -- home territory automatically, and eat/drink on their own needs.
     { label = "Woodcutting Area", kind = "woodcutting" },
     { label = "Log Processing Area", kind = "log_processing" },
     { label = "Corpse Drop Area", kind = "corpse" },
-    { label = "Animal Care Area", kind = "animal_care" },
-    { label = "Defense Construction Area", kind = "construction" },
 }
 local ZONE_COLORS = {
     guard = { r=0.85, g=0.20, b=0.20 }, patrol = { r=0.85, g=0.55, b=0.15 },
     farming = { r=0.20, g=0.70, b=0.20 }, woodcutting = { r=0.55, g=0.35, b=0.15 },
     log_processing = { r=0.60, g=0.42, b=0.18 }, corpse = { r=0.55, g=0.55, b=0.55 },
     cooking = { r=0.75, g=0.35, b=0.30 },
-    animal_care = { r=0.85, g=0.70, b=0.10 }, repair = { r=0.20, g=0.50, b=0.85 },
-    construction = { r=0.70, g=0.40, b=0.85 }, general = { r=0.52, g=0.52, b=0.75 },
+    repair = { r=0.20, g=0.50, b=0.85 },
+    general = { r=0.52, g=0.52, b=0.75 },
 }
 -- Keep the Notebook's resident-role picker on the same catalogue used by the
 -- context menu and party orders. This prevents a new base preference from
@@ -82,8 +81,7 @@ local function baseJobChoices()
         local entry = KnoxOrderCatalog.basePreferences[value]
         if entry ~= nil then
             choices[#choices + 1] = {
-                label = value == "woodwork" and "Woodwork / Barricade Windows"
-                    or value == "hauling" and "Move Corpses"
+                label = value == "hauling" and "Move Corpses"
                     or entry.label or value,
                 value = value,
             }
@@ -115,8 +113,8 @@ end
 
 local RESOURCE_LABELS = {
     food="Food", water="Water", medical="Medical", weapons="Weapons",
-    ammunition="Ammo", tools="Tools", building="Building",
-    farming="Farming", clothing="Clothing", other="Other",
+    ammunition="Ammo", tools="Tools", building="Materials",
+    farming="Farming", clothing="Clothing", junk="Junk", other="Other",
 }
 
 local function readableReason(value)
@@ -426,16 +424,16 @@ function WorkView:populate(playerNum)
         "Storage: " .. tostring(#(KnoxBaseStorage.policies(base) or {}))
         .. " assigned | " .. stockState, self.width-UI_BORDER_SPACING*2)
     local any=false
-    local mainPolicy = KnoxBaseStorage.mainPolicy(base)
-    if mainPolicy == nil then addRow(self.storageList,"setup","Set Main Supplies: right-click a crate/cupboard at home") end
-    for _, policy in ipairs(KnoxBaseStorage.policies(base)) do
+    local assigned = KnoxBaseStorage.policies(base)
+    if #assigned == 0 then addRow(self.storageList,"setup","Assign storage: right-click a container at home > Use for ...") end
+    for _, policy in ipairs(assigned) do
         local resolved = KnoxBaseStorage.resolvePolicy(policy)
         local text = KnoxBaseStorage.label(policy) .. " (" .. tostring(policy.containerType) .. ") at "
             .. tostring(policy.x) .. ", " .. tostring(policy.y) .. ", floor " .. tostring(policy.z)
         if resolved == nil then text = text .. " — unavailable" end
         addRow(self.storageList,policy.key,text)
     end
-    addRow(self.storageList,"food-help","Optional: right-click a fridge or pantry > Use for Food & Drink")
+    addRow(self.storageList,"food-help","Right-click a container at home > Use for Food, Tools, ...")
     local reserveByCategory={}
     for _,reserve in ipairs(settlement~=nil and settlement.reserves or {}) do reserveByCategory[reserve.category]=reserve end
     for _,cat in ipairs(KnoxBaseStorage.RESOURCE_CATEGORIES) do

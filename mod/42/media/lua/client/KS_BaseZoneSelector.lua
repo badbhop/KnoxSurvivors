@@ -9,17 +9,17 @@ require "KS_Persistence"
 local BaseZoneSelector = rawget(_G, "KnoxBaseZoneSelector") or {}
 _G.KnoxBaseZoneSelector = BaseZoneSelector
 
+-- Draft-cursor hues mirror KS_BaseHighlights one-to-one (same hues, softer
+-- alpha) so a zone looks the same while drawing it and after placing it.
 local ZONE_HIGHLIGHT = {
-    guard       = { r = 0.85, g = 0.20, b = 0.20, a = 0.32 },
-    patrol      = { r = 0.85, g = 0.55, b = 0.15, a = 0.32 },
-    cooking     = { r = 0.75, g = 0.35, b = 0.30, a = 0.30 },
-    farming     = { r = 0.20, g = 0.70, b = 0.20, a = 0.30 },
+    guard       = { r = 0.88, g = 0.16, b = 0.16, a = 0.32 },
+    patrol      = { r = 0.92, g = 0.55, b = 0.12, a = 0.32 },
+    cooking     = { r = 0.80, g = 0.30, b = 0.50, a = 0.30 },
+    farming     = { r = 0.22, g = 0.75, b = 0.22, a = 0.30 },
     woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = 0.30 },
-    log_processing = { r = 0.60, g = 0.42, b = 0.18, a = 0.30 },
-    corpse      = { r = 0.55, g = 0.55, b = 0.55, a = 0.28 },
-    animal_care = { r = 0.85, g = 0.70, b = 0.10, a = 0.30 },
-    repair      = { r = 0.20, g = 0.50, b = 0.85, a = 0.30 },
-    construction= { r = 0.70, g = 0.40, b = 0.85, a = 0.30 },
+    log_processing = { r = 0.82, g = 0.68, b = 0.16, a = 0.30 },
+    corpse      = { r = 0.50, g = 0.50, b = 0.58, a = 0.28 },
+    repair      = { r = 0.30, g = 0.32, b = 0.88, a = 0.30 },
     general     = { r = 0.52, g = 0.52, b = 0.75, a = 0.28 },
 }
 
@@ -51,8 +51,38 @@ end
 
 -- Work areas describe jobs, not ownership. They may be outside the home
 -- territory or on another floor; native routing decides reachability.
-local function isValidWorkArea(minX, minY, maxX, maxY, z, base)
-    return base ~= nil and minX <= maxX and minY <= maxY and z ~= nil
+-- Exclusive production areas cannot share tiles with another exclusive area.
+-- Territory (border) and overlay duties (guard/patrol/...) remain
+-- shareable, matching persistence overlap rules.
+local WORK_OVERLAY_TYPES = {
+    guard = true, patrol = true,
+    general = true,
+}
+
+local function zonesOverlap(minX, minY, maxX, maxY, z, zone)
+    if zone == nil or zone.x1 == nil or (tonumber(zone.z) or 0) ~= (tonumber(z) or 0) then
+        return false
+    end
+    local zx1 = math.min(tonumber(zone.x1), tonumber(zone.x2))
+    local zx2 = math.max(tonumber(zone.x1), tonumber(zone.x2))
+    local zy1 = math.min(tonumber(zone.y1), tonumber(zone.y2))
+    local zy2 = math.max(tonumber(zone.y1), tonumber(zone.y2))
+    return minX <= zx2 and zx1 <= maxX and minY <= zy2 and zy1 <= maxY
+end
+
+local function isValidWorkArea(minX, minY, maxX, maxY, z, base, zoneType)
+    if base == nil or minX > maxX or minY > maxY or z == nil then return false end
+    if WORK_OVERLAY_TYPES[zoneType] == true then return true end
+    if base.zones ~= nil then
+        for _, zone in pairs(base.zones) do
+            if zone ~= nil and zone.enabled ~= false
+                and WORK_OVERLAY_TYPES[zone.type] ~= true
+                and zonesOverlap(minX, minY, maxX, maxY, z, zone) then
+                return false
+            end
+        end
+    end
+    return true
 end
 
 local function draftTick()
@@ -75,7 +105,7 @@ local function draftTick()
     local minY = math.min(y1, wy)
     local maxY = math.max(y1, wy)
     local base = KnoxPersistence.getBase(activeSelection.baseId)
-    local valid = isValidWorkArea(minX, minY, maxX, maxY, z, base)
+    local valid = isValidWorkArea(minX, minY, maxX, maxY, z, base, activeSelection.zoneType)
     local col = ZONE_HIGHLIGHT[activeSelection.zoneType] or ZONE_HIGHLIGHT.general
     -- Preview uses the same external-area policy as persisted work zones.
     if not valid then
@@ -94,7 +124,7 @@ local function draftTick()
         end
         -- Overlaps remain readable: draw intersect borders with thin contrasting outline
         -- over the subdued existing fills, instead of blending into one block.
-        if base ~= nil and base.zones ~= nil and inside then
+        if base ~= nil and base.zones ~= nil then
             local pn = player:getPlayerNum()
             for _, zone in pairs(base.zones) do
                 if zone ~= nil and zone.x1 ~= nil and (zone.z or 0) == z then
@@ -193,6 +223,10 @@ function Selection:confirmCreate(secondSquare)
             )
             if zone ~= nil then
                 KnoxActivityFeed.event(tostring(self.label) .. " saved — " .. tostring(w) .. "x" .. tostring(h) .. " (" .. tostring(total) .. " tiles).")
+                if KnoxBaseHighlights ~= nil and KnoxBaseHighlights.refresh ~= nil then
+                    local pn = self.player ~= nil and self.player:getPlayerNum() or 0
+                    KnoxBaseHighlights.refresh(pn)
+                end
             else
                 KnoxActivityFeed.event("Could not save work area: " .. tostring(result) .. ".")
             end

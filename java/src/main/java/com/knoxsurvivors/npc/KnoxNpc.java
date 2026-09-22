@@ -25,6 +25,15 @@ public final class KnoxNpc {
     private Object traversalInteractionTarget;
     private String traversalInteractionStage = "NONE";
     private boolean climbingAllowed = true;
+    private boolean doorWindowOpeningAllowed = true;
+    // Close-behind bookkeeping: the last door this NPC opened itself, with
+    // the square it sits on. Only doors recorded here are ever closed back,
+    // so doors the player (or anyone else) left open are never touched.
+    private Object lastOpenedDoor;
+    private int lastOpenedDoorX;
+    private int lastOpenedDoorY;
+    private int lastOpenedDoorZ;
+    private boolean hasOpenedDoor;
     private boolean combatActive;
     private boolean hasProtectedArea;
     private int protectedMinX;
@@ -102,7 +111,9 @@ public final class KnoxNpc {
         movementRoute.clear();
         movementRouteIndex = 0;
         movementTraversalState = "NONE";
-        movementTraversalEvidence.clear();
+        // Keep terminal traversal evidence available to the QA bridge until the
+        // next route is installed. The old clear here made a successful fence
+        // climb disappear between the final native tick and Lua's poll.
         clearTraversalInteraction();
     }
 
@@ -179,6 +190,10 @@ public final class KnoxNpc {
         return climbingAllowed;
     }
 
+    boolean isDoorWindowOpeningAllowed() {
+        return doorWindowOpeningAllowed;
+    }
+
     boolean isCombatActive() {
         return combatActive;
     }
@@ -189,6 +204,43 @@ public final class KnoxNpc {
 
     void setClimbingAllowed(boolean allowed) {
         climbingAllowed = allowed;
+    }
+
+    void setDoorWindowOpeningAllowed(boolean allowed) {
+        doorWindowOpeningAllowed = allowed;
+    }
+
+    void rememberOpenedDoor(Object door, int x, int y, int z) {
+        lastOpenedDoor = door;
+        lastOpenedDoorX = x;
+        lastOpenedDoorY = y;
+        lastOpenedDoorZ = z;
+        hasOpenedDoor = door != null;
+    }
+
+    void clearOpenedDoor() {
+        lastOpenedDoor = null;
+        hasOpenedDoor = false;
+    }
+
+    boolean hasOpenedDoor() {
+        return hasOpenedDoor && lastOpenedDoor != null;
+    }
+
+    Object getOpenedDoor() {
+        return lastOpenedDoor;
+    }
+
+    int getOpenedDoorX() {
+        return lastOpenedDoorX;
+    }
+
+    int getOpenedDoorY() {
+        return lastOpenedDoorY;
+    }
+
+    int getOpenedDoorZ() {
+        return lastOpenedDoorZ;
     }
 
     void setProtectedArea(int minX, int minY, int maxX, int maxY) {

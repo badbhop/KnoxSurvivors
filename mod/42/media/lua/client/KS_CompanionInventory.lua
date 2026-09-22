@@ -319,6 +319,13 @@ local function isActiveSurvivor(character)
         and KnoxSurvivorRuntime.idForCharacter(character) ~= nil
 end
 
+-- Shared by inventory context actions. The active survivor inventory is a
+-- vanilla loot pane backed by an off-slot IsoPlayer, so item ownership must be
+-- resolved from the container rather than from the local player number.
+function CompanionInventory.getSurvivorForItem(item)
+    return getSurvivorForItem(item)
+end
+
 -- Build 42's player equip/wear actions correctly mutate the IsoPlayer shell,
 -- but their terminal callbacks also refresh that character's local inventory
 -- window. Knox survivors deliberately have no local player UI, so the refresh
@@ -464,14 +471,44 @@ if ISInventoryPaneContextMenu ~= nil and ISInventoryPaneContextMenu.transferIfNe
     ISInventoryPaneContextMenu.transferIfNeeded = function(playerObj, item, preventTransferWorldObjects)
         local ch, sid = getSurvivorForItem(item)
         if ch ~= nil and ch == playerObj then
-            -- Already in correct inventory, just log
+            -- Already owned by this off-slot survivor. Vanilla's helper still
+            -- asks for getPlayerInventory(ch:getPlayerNum()), which is nil for
+            -- Knox shells and can crash while the item menu is closing. Move a
+            -- nested-bag item to the survivor's main inventory through the
+            -- real timed transfer, and make the already-correct case a true
+            -- no-op.
             inventoryLog("transferIfNeeded-survivor-noop", sid, item, playerObj:getPlayerNum())
-            -- For survivor, haveToBeTransfered should be false (item already in survivor inv), so do nothing
-            return origTransfer(playerObj, item, preventTransferWorldObjects)
+            local source = item ~= nil and item.getContainer ~= nil
+                and item:getContainer() or nil
+            local destination = ch.getInventory ~= nil and ch:getInventory() or nil
+            if source ~= nil and destination ~= nil and source ~= destination
+                and sourceHasItem(source, item) then
+                local action = ISInventoryTransferUtil.newInventoryTransferAction(
+                    ch, item, source, destination
+                )
+                if action ~= nil then
+                    ISTimedActionQueue.add(action)
+                    return action
+                end
+            end
+            return nil
         end
         if ch ~= nil then
             inventoryLog("transferIfNeeded-survivor-redirect", sid, item, playerObj:getPlayerNum())
-            return origTransfer(ch, item, preventTransferWorldObjects)
+            local source = item ~= nil and item.getContainer ~= nil
+                and item:getContainer() or nil
+            local destination = ch.getInventory ~= nil and ch:getInventory() or nil
+            if source ~= nil and destination ~= nil and source ~= destination
+                and sourceHasItem(source, item) then
+                local action = ISInventoryTransferUtil.newInventoryTransferAction(
+                    ch, item, source, destination
+                )
+                if action ~= nil then
+                    ISTimedActionQueue.add(action)
+                    return action
+                end
+            end
+            return nil
         end
         return origTransfer(playerObj, item, preventTransferWorldObjects)
     end

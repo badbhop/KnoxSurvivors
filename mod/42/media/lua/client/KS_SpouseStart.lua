@@ -60,11 +60,38 @@ function SpouseStart.update(player, activate)
     if spouse ~= nil and spouse.setFemale ~= nil and oppositeGender ~= nil then
         pcall(function() spouse:setFemale(oppositeGender) end)
     end
+    -- Spawn dressed for a random gender; redress for the spouse gender so body
+    -- and clothing agree instead of mismatching.
+    if oppositeGender ~= nil and ClothingSelectionDefinitions ~= nil
+        and ClothingSelectionDefinitions.default ~= nil then
+        pcall(function()
+            local bridge = rawget(_G, "KnoxJavaBridge")
+            local definition = ClothingSelectionDefinitions.default
+            local genderDefinition = oppositeGender and definition.Female
+                or (definition.Male or definition.Female)
+            if bridge ~= nil and genderDefinition ~= nil then
+                for _, selection in pairs(genderDefinition) do
+                    local chance = selection.chance
+                    if (chance == nil or ZombRand(100) < chance) and #selection.items > 0 then
+                        local fullType = selection.items[ZombRand(0, #selection.items) + 1]
+                        if bridge.dressNpcItem ~= nil then
+                            bridge:dressNpcItem(start.id, fullType)
+                        else
+                            bridge:wearNpcItem(start.id, fullType)
+                        end
+                    end
+                end
+            end
+        end)
+    end
     if spouse ~= nil and KnoxPersistence.ensureSurvivorIdentityFromCharacter ~= nil then
         local identity = KnoxPersistence.ensureSurvivorIdentityFromCharacter(
             start.id, spouse, getGameTime():getWorldAgeHours()
         )
         if identity ~= nil and surname ~= "" then identity.surname = surname end
+        -- Recapture so the corrected surname/gender persist instead of the
+        -- random values captured during spawn.
+        pcall(function() KnoxPersistence.captureActiveSurvivor(start.id) end)
     end
     local now = getGameTime():getWorldAgeHours()
     local assigned = KnoxPersistence.setPlayerCompanion(start.id, playerId, "follow", now)

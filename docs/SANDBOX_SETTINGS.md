@@ -14,15 +14,14 @@ Knox Survivors adds two pages to Project Zomboid's sandbox options.
 - **Follower Formation** selects **Paired** (default) or **Single File** behind the leader for companions and travelling groups. Single File is narrower and longer. These are preferred positions; native paths and blocked-tile recovery may break the formation.
 - **Follower Spacing** controls grid separation from 1–3 tiles per axis, default 1. Larger spacing places rear members farther behind. Neither setting controls combat positioning or vehicles.
 - **Survivor Encounter Distance** is effectively at least ten tiles beyond Minimum Spawn Distance, preserving a usable first-appearance band even when configured values overlap. Hidden, loaded, safe-square requirements still apply.
-- **Allow NPC Factions (Work in Progress)** controls new faction formation and base scouting. It remains enabled for the intended living-world test loop. Existing factions remain intact when disabled.
-- **Enable Knox Events (Experimental)** is off by default. It controls dispatch and processing of scripted faction/named-world events; event records are preserved, and the setting can be enabled later for focused testing.
+- **Allow NPC Factions** controls new faction formation and base scouting. It remains enabled for the intended living-world loop. Existing factions remain intact when disabled.
+- **Enable Knox Events** is off by default. It controls dispatch and processing of scripted faction/named-world events; event records are preserved.
 - **Survivors Needed to Form a Faction** defaults to four (range 3-8). Smaller travelling groups remain informal, and reaching the number still does not bypass the existing shared-survival relationship requirement.
 - **Maximum NPC Faction Members** defaults to eight (range 3-24), with an effective minimum equal to Survivors Needed to Form a Faction. It limits future recruitment; lowering it never removes existing members or affects player-owned groups.
-- **Allow Hostile Survivor Encounters (Experimental)** controls threats and robberies between independent survivors. It remains enabled, but human encounter/combat behavior is still being polished.
-- **Allow Survivor Fleeing (Experimental)** defaults off. Enabling it restores combat-risk retreat behavior. Survivors still perceive, fight and defend themselves while it is disabled; only autonomous retreat ownership is suppressed while escape routing receives more live testing.
-- **Allow Experimental NPC Driving** defaults off. When enabled, a companion can use **Drive Ahead** from their Orders while the player is a passenger in an already-running driveable vehicle. The driver seat must be free; the order uses a short loaded lane and releases controls at its target or if the lane becomes invalid. Longer destinations and convoys remain future live gates.
-- **Allow Faction Raids (Experimental)** defaults off. Players may opt into the real-member raid system; the first possible raid defaults to day 14.
-- **Allow Survivor and Player Combat (Experimental)** remains enabled so hostile relationships can resolve naturally, but human combat is still being polished.
+- **Allow Hostile Survivor Encounters** controls threats and robberies between independent survivors. It remains enabled for the living-world loop.
+- **Allow NPC Driving** defaults off. When enabled, a companion can use **Take Driver Seat & Drive** while the player is a passenger in an already-running driveable vehicle. The driver seat must be free; the order uses a short loaded lane and releases controls at its target or if the lane becomes invalid.
+- **Allow Faction Raids** defaults off. Players may opt into the real-member raid system; the first possible raid defaults to day 14.
+- **Allow Survivor and Player Combat** remains enabled so hostile relationships can resolve naturally.
 - **Automatic NPC Base Work Areas** defaults on. Autonomous NPC factions receive practical guard, patrol, farming, wood, corpse, and storage defaults. Player bases remain manually configured through the Notebook.
 - **Show Companion HUD** controls the right-side companion panel.
 - **Show Survivor Activity Feed** controls the Knox message window. Speech bubbles still work.

@@ -330,7 +330,33 @@ function CompanionService.askNeeds(player, survivorId)
     elseif state.endurance <= needs.thresholds.lowEndurance then
         line = "I just need a minute to catch my breath."
     else
-        line = "I'm all right for now."
+        -- Mood and vice expression: survivors name what they cannot fix
+        -- alone, exactly like a player would call it out.
+        local motive = needs.smokeMotive ~= nil
+            and needs.smokeMotive(character) or false
+        local hasSmoke = needs.findSmokeItem ~= nil
+            and needs.findSmokeItem(character) ~= nil or false
+        if motive and not hasSmoke then
+            line = "I could really use a smoke. Got any cigarettes?"
+        elseif motive then
+            line = "I am going to step aside for a smoke."
+        else
+            local stressed, unhappy = 0, 0
+            pcall(function()
+                local moodles = character:getMoodles()
+                if moodles ~= nil and MoodleType ~= nil then
+                    stressed = tonumber(moodles:getMoodleLevel(MoodleType.STRESS)) or 0
+                    unhappy = tonumber(moodles:getMoodleLevel(MoodleType.UNHAPPY)) or 0
+                end
+            end)
+            if unhappy >= 2 then
+                line = "I am feeling low. I could use some company or a drink."
+            elseif stressed >= 2 then
+                line = "I am wound up. I need a quiet minute."
+            else
+                line = "I'm all right for now."
+            end
+        end
     end
     KnoxActivityFeed.speak(character, line)
     return true, line
@@ -346,6 +372,85 @@ function CompanionService.askNeedsAll(player)
         KnoxActivityFeed.event("Party needs check.")
     end
     return answered > 0, answered
+end
+
+-- Sims-style social menu. Trust deltas run through the shared reputation
+-- ledger; emotes use only vanilla radial-menu keys. Hostile acts on a
+-- stranger with low trust can turn them hostile, exactly like a bad lure.
+local SOCIAL_ACTS = {
+    joke = { trust = 4, cooldown = 0.5, emote = "clap",
+        lines = { "Okay, that was actually funny.", "Ha! Tell that one again sometime.", "I needed that laugh." } },
+    compliment = { trust = 5, cooldown = 1, emote = "thumbsup",
+        lines = { "That means a lot, genuinely.", "You are all right, you know that?", "I will remember you said that." } },
+    funny_face = { trust = 3, cooldown = 0.5, emote = "shrug",
+        lines = { "What was that face?! Okay, that got me.", "You are ridiculous. I like it.", "Ha! Do it again." } },
+    offer_gift = { trust = 8, cooldown = 6, emote = "thankyou",
+        lines = { "You did not have to do that. Thank you.", "This helps more than you know.", "I owe you one." } },
+    give_money = { trust = 6, cooldown = 6, emote = "thankyou",
+        lines = { "I can put this to good use. Thanks.", "Generous. I will not forget it.", "Are you sure? Thank you." } },
+    insult = { trust = -12, cooldown = 1, emote = "insult",
+        lines = { "Say that again and we have a problem.", "You just made an enemy.", "Watch your mouth." } },
+    slap = { trust = -20, cooldown = 2, emote = "thumbsdown",
+        lines = { "You just earned a fight.", "That is the last mistake you make near me.", "Now we settle this." } },
+}
+
+function CompanionService.socialActs()
+    local names = {}
+    for name in pairs(SOCIAL_ACTS) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
+
+function CompanionService.socialAct(player, survivorId, act)
+    local definition = SOCIAL_ACTS[tostring(act)]
+    if definition == nil then return false, "unknown_social_act" end
+    local character, availability = validateInteraction(player, survivorId)
+    local playerId = CompanionService.getPlayerId(player)
+    if character == nil or playerId == nil then
+        return false, availability
+    end
+    if KnoxPersistence.isSurvivorHostileToPlayer(survivorId, playerId) then
+        return false, "hostile"
+    end
+    local attentive, attentionReason = KnoxSurvivorRuntime.beginPlayerConversation(survivorId, player)
+    if not attentive then
+        KnoxActivityFeed.speak(character, attentionReason == "danger"
+            and "Not safe to talk here." or "Give me a moment to finish this.")
+        return false, attentionReason
+    end
+    local relation = socialRelation(playerId, survivorId) or {}
+    local before = tonumber(relation.trust) or 30
+    local recorded, result = KnoxPersistence.recordPlayerSocialAct(
+        playerId, survivorId, act, definition.trust, definition.cooldown, worldAge()
+    )
+    if recorded == nil then
+        KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
+        return false, result
+    end
+    if result == "cooldown" then
+        KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
+        -- Cooldowns only bite while upset; otherwise this is a quiet pass.
+        KnoxActivityFeed.speak(character, before < 25 and "Give me a minute." or "We just did that one.")
+        return false, result
+    end
+    local after = tonumber(recorded.trust) or before
+    signalOrder(player, survivorId, act)
+    local line = definition.lines[((recorded.meetings - 1) % #definition.lines) + 1]
+    KnoxActivityFeed.speak(character, line)
+    if KnoxActivityFeed.reputation ~= nil then
+        KnoxActivityFeed.reputation(character, after - before)
+    end
+    if (act == "insult" or act == "slap") and after < 10 then
+        KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+        socialSpeech(character, survivorId, "player_attack_warning", line)
+        KnoxActivityFeed.event("The conversation turned hostile.")
+        KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
+        return false, "hostile"
+    end
+    print("[KnoxSurvivors][Companions] social survivor=" .. survivorId
+        .. " player=" .. playerId .. " act=" .. tostring(act)
+        .. " trust=" .. tostring(before) .. "->" .. tostring(after))
+    return true, recorded
 end
 
 function CompanionService.canRecruit(player, survivorId)
@@ -387,9 +492,13 @@ function CompanionService.canRecruit(player, survivorId)
         return false, "lure"
     end
     if social == "lure" then return false, "dangerous" end
-    -- Recruitment is an immediate social choice. Relationship history still
-    -- drives dialogue and reputation, but it never blocks an otherwise valid
-    -- survivor from choosing to join the player.
+    -- Reputation gates recruiting when the sandbox switch is on (default).
+    -- Strangers who distrust the player refuse; friends join freely. Off
+    -- means contact rules alone decide, as before.
+    if KnoxSettings.useReputation ~= nil and KnoxSettings.useReputation() then
+        local trust = tonumber(relation.trust) or 30
+        if trust < 20 then return false, "low_reputation" end
+    end
     return true, "ready"
 end
 
@@ -412,7 +521,11 @@ function CompanionService.recruit(player, survivorId)
                 or reason == "dangerous"
                 and "You should have kept walking."
                 or "I can't come with you right now."
-            if reason == "needs_time" then
+            if reason == "low_reputation" then
+                recordSocialEvent(playerId, survivorId, "recruit_attempt")
+                line = "You have not exactly earned my trust yet."
+                KnoxActivityFeed.speak(character, line)
+            elseif reason == "needs_time" then
                 recordSocialEvent(playerId, survivorId, "recruit_attempt")
                 socialSpeech(character, survivorId, "player_warm_up", line)
             elseif reason == "lure" then
@@ -593,6 +706,14 @@ function CompanionService.issueOrder(player, survivorId, kind, payload)
             normalizedKind == "allow_climbing"
         )
     end
+    if normalizedKind == "allow_doors"
+        or normalizedKind == "disallow_doors" then
+        return CompanionService.setDoorOpening(
+            player,
+            survivorId,
+            normalizedKind == "allow_doors"
+        )
+    end
     if normalizedKind == "combat_stance" then
         local stance = type(payload) == "table" and payload.stance or payload
         return CompanionService.setCombatStance(player, survivorId, stance)
@@ -751,6 +872,14 @@ function CompanionService.issueOrderAll(player, kind, payload)
         )
         return success, changed, success and "updated" or "no_companions"
     end
+    if normalizedKind == "allow_doors"
+        or normalizedKind == "disallow_doors" then
+        local success, changed = CompanionService.setDoorOpeningAll(
+            player,
+            normalizedKind == "allow_doors"
+        )
+        return success, changed, success and "updated" or "no_companions"
+    end
     if normalizedKind == "combat_stance" then
         local stance = type(payload) == "table" and payload.stance or payload
         local success, changed = CompanionService.setCombatStanceAll(player, stance)
@@ -894,6 +1023,7 @@ function CompanionService.setFormation(player, survivorId, formation, spacing)
         return false, "not_your_companion"
     end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    signalOrder(player, survivorId, "formation")
     return true, "formation_updated"
 end
 
@@ -914,6 +1044,7 @@ function CompanionService.setCombatStance(player, survivorId, stance)
         }
         KnoxActivityFeed.speak(character, lines[stance] or "I'll adjust.")
     end
+    signalOrder(player, survivorId, "combat_stance")
     return true, stance
 end
 
@@ -943,6 +1074,7 @@ function CompanionService.setWeaponPreference(player, survivorId, preference)
         survivorId, playerId, preference, worldAge()
     ) then return false, "invalid_companion_weapon_preference" end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    signalOrder(player, survivorId, "weapon_preference")
     return true, preference
 end
 
@@ -965,7 +1097,10 @@ function CompanionService.boardPlayerVehicle(player, survivorId)
     if vehicle == nil then return false, "player_not_in_vehicle" end
     local success, result = KnoxCompanionVehicles.board(character, vehicle)
     if success then
-        KnoxActivityFeed.speak(character, "I'll take a seat.")
+        local seat = tostring(result or ""):match("boarding_seat=(%d+)")
+        KnoxActivityFeed.speak(character, seat ~= nil
+            and "Taking passenger seat " .. seat .. "." or "Taking a passenger seat.")
+        signalOrder(player, survivorId, "enter_vehicle")
     elseif result == "no_free_passenger_seat" then
         KnoxActivityFeed.speak(character, "I'll wait here. No more seats.")
     end
@@ -979,11 +1114,12 @@ function CompanionService.drivePlayerVehicle(player, survivorId)
     local vehicle = player:getVehicle()
     if vehicle == nil then return false, "player_not_in_vehicle" end
     if vehicle.isDriver ~= nil and vehicle:isDriver(player) then
+        KnoxActivityFeed.speak(character, "You need to leave the driver's seat first.")
         return false, "player_must_vacate_driver_seat"
     end
     local success, result = KnoxCompanionVehicles.driveAhead(character, vehicle)
     if success then
-        KnoxActivityFeed.speak(character, "I can drive us ahead.")
+        KnoxActivityFeed.speak(character, "Taking the driver's seat. I'll drive us ahead.")
     end
     return success, result
 end
@@ -994,11 +1130,14 @@ function CompanionService.drivePlayerVehicleTo(player,survivorId,x,y)
     if character==nil then return false,reason end
     local vehicle=player:getVehicle()
     if vehicle==nil then return false,"player_not_in_vehicle" end
-    if vehicle:getDriver()==player then return false,"player_must_vacate_driver_seat" end
+    if vehicle:getDriver()==player then
+        KnoxActivityFeed.speak(character,"You need to leave the driver's seat first.")
+        return false,"player_must_vacate_driver_seat"
+    end
     local square=vehicle:getSquare()
     if square==nil then return false,"vehicle_unavailable" end
     local success,result=KnoxCompanionVehicles.driveTo(character,vehicle,x,y,square:getZ())
-    if success then KnoxActivityFeed.speak(character,"I'll drive us there.") end
+    if success then KnoxActivityFeed.speak(character,"Taking the driver's seat. I'll drive us there.") end
     return success,result
 end
 
@@ -1011,12 +1150,101 @@ function CompanionService.stopPlayerVehicle(player,survivorId)
     return KnoxCompanionVehicles.stopDriving(character)
 end
 
+-- Unstick: teleport a stuck companion/resident to the nearest free tile by
+-- the player (falling back to the survivor's own neighbourhood). Uses the
+-- same setX/setY + setMovingSquareNow placement the persistence restore
+-- path relies on; the autonomy movement watchdog re-decides from there.
+function CompanionService.unstick(player, survivorId)
+    local playerId = CompanionService.getPlayerId(player)
+    local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId)
+    if playerId == nil or affiliation == nil or affiliation.kind ~= "player"
+        or (affiliation.ownerId ~= playerId and affiliation.ownerId ~= nil) then
+        return false, "not_your_survivor"
+    end
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if player == nil or character == nil or getCell == nil or getCell() == nil then
+        return false, "unavailable"
+    end
+    local fromSquare = character:getCurrentSquare()
+    local anchor = player:getCurrentSquare()
+    local fx, fy, fz = nil, nil, nil
+    if anchor ~= nil then
+        for radius = 0, 6 do
+            local found = nil
+            for dx = -radius, radius do
+                for dy = -radius, radius do
+                    if found == nil
+                        and math.max(math.abs(dx), math.abs(dy)) == radius then
+                        local square = getCell():getGridSquare(
+                            anchor:getX() + dx, anchor:getY() + dy, anchor:getZ())
+                        if square ~= nil and square:canStand() then
+                            found = square
+                        end
+                    end
+                end
+            end
+            if found ~= nil then
+                fx, fy, fz = found:getX(), found:getY(), found:getZ()
+                break
+            end
+        end
+    end
+    if fx == nil and fromSquare ~= nil then
+        for radius = 0, 6 do
+            local found = nil
+            for dx = -radius, radius do
+                for dy = -radius, radius do
+                    if found == nil
+                        and math.max(math.abs(dx), math.abs(dy)) == radius then
+                        local square = getCell():getGridSquare(
+                            fromSquare:getX() + dx, fromSquare:getY() + dy,
+                            fromSquare:getZ())
+                        if square ~= nil and square:canStand() then
+                            found = square
+                        end
+                    end
+                end
+            end
+            if found ~= nil then
+                fx, fy, fz = found:getX(), found:getY(), found:getZ()
+                break
+            end
+        end
+    end
+    if fx == nil then return false, "no_free_tile" end
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge ~= nil and bridge.cancelNpcMove ~= nil then
+        pcall(function() bridge:cancelNpcMove(survivorId) end)
+    end
+    local placed, placeError = pcall(function()
+        character:setX(fx + 0.5)
+        character:setY(fy + 0.5)
+        character:setMovingSquareNow()
+    end)
+    if not placed then return false, "teleport_failed:" .. tostring(placeError) end
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("movement", survivorId, "unstuck", {
+            x = fx, y = fy, z = fz,
+        }) end)
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    if KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        KnoxActivityFeed.speak(character, "Thanks, I was stuck.")
+    end
+    signalOrder(player, survivorId, "signalok")
+    return true, "unstuck"
+end
+
 function CompanionService.exitVehicle(player, survivorId)
     if not isPlayerCompanion(player, survivorId) then return false, "not_companion" end
     local character, reason = validateInteraction(player, survivorId)
     if character == nil then return false, reason end
     local success, result = KnoxCompanionVehicles.exit(character)
-    if success then KnoxActivityFeed.speak(character, "Getting out.") end
+    if success then
+        KnoxActivityFeed.speak(character, "Getting out.")
+        signalOrder(player, survivorId, "exit_vehicle")
+    end
     return success, result
 end
 
@@ -1031,6 +1259,8 @@ function CompanionService.setClimbing(player, survivorId, allowed)
         return false, "not_your_companion"
     end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    signalOrder(player, survivorId,
+        allowed == true and "allow_climbing" or "disallow_climbing")
     return true, allowed == true and "climbing_allowed" or "climbing_disabled"
 end
 
@@ -1044,6 +1274,53 @@ function CompanionService.setClimbingAll(player, allowed)
         KnoxActivityFeed.event(allowed
             and "Party traversal: vaulting and climbing allowed."
             or "Party traversal: vaulting and climbing disabled.")
+    end
+    return changed > 0, changed
+end
+
+function CompanionService.setDoorOpening(player, survivorId, allowed, quiet)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionDoorOpening(
+        survivorId,
+        playerId,
+        allowed,
+        worldAge()
+    ) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    if not quiet then
+        local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+        if character ~= nil then
+            KnoxActivityFeed.speak(character, allowed == true
+                and "I'll use doors and windows."
+                or "I won't touch doors or windows.")
+        end
+        signalOrder(player, survivorId,
+            allowed == true and "allow_doors" or "disallow_doors")
+    end
+    return true, allowed == true and "doors_allowed" or "doors_disabled"
+end
+
+function CompanionService.setDoorOpeningAll(player, allowed)
+    local changed, members = 0, {}
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.setDoorOpening(player, survivorId, allowed, true)
+        if success then
+            changed = changed + 1
+            local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+            if character ~= nil then members[#members + 1] = character end
+        end
+    end
+    if changed > 0 then
+        KnoxActivityFeed.event(allowed
+            and "Party doors: opening doors and windows allowed."
+            or "Party doors: opening doors and windows disabled.")
+        local signals = rawget(_G, "KnoxOrderSignals")
+        if signals ~= nil and signals.group ~= nil then
+            signals.group(player, members,
+                allowed == true and "allow_doors" or "disallow_doors")
+        end
     end
     return changed > 0, changed
 end
@@ -1161,6 +1438,7 @@ function CompanionService.sendToBase(player, survivorId)
         if character ~= nil then
             KnoxActivityFeed.speak(character, "I'll head back and help out there.")
         end
+        signalOrder(player, survivorId, "return_to_base")
         local autonomy = rawget(_G, "KnoxSurvivorAutonomy")
         if character ~= nil and autonomy ~= nil and autonomy.beginVirtualBaseReturn ~= nil then
             local handedOff, handoffResult = autonomy.beginVirtualBaseReturn(survivorId, base.id)
@@ -1214,9 +1492,10 @@ function CompanionService.setBaseJobPreference(player, survivorId, preference)
             guard = "I'll keep watch.",
             patrol = "I'll patrol the area.",
             farming = "I'll take care of the garden.",
-            woodwork = "I'll handle repairs and timber.",
+            woodwork = "I'll handle timber and repairs.",
+            barricade = "I'll board up the windows.",
             hauling = "I'll move the bodies to the drop area.",
-            animal_care = "I'll look after the animals.",
+
             repair = "I'll handle maintenance.",
             rest = "I'll rest and recover for now.",
         }
@@ -1251,6 +1530,7 @@ function CompanionService.setBaseSupplyOrder(player, survivorId, kind)
         KnoxActivityFeed.speak(character, "I'll look for "
             .. string.gsub(KnoxOrderCatalog.label(normalized), "^Find ", "") .. ".")
     end
+    signalOrder(player, survivorId, normalized)
     return true, "base_supply_ordered"
 end
 
@@ -1272,6 +1552,30 @@ function CompanionService.clearBaseSupplyOrder(player, survivorId)
         KnoxActivityFeed.speak(character, "I'll get back to my normal work.")
     end
     return true, "base_supply_cleared"
+end
+
+-- Per-resident loot-run permission: the player decides who may leave the
+-- base on automatic shortage runs. There is no global switch; residents
+-- stay home unless explicitly allowed here.
+function CompanionService.setResidentLootRuns(player, survivorId, allowed)
+    local playerId = CompanionService.getPlayerId(player)
+    local duty = KnoxPersistence.getSurvivorDuty(survivorId) or {}
+    if playerId == nil or duty.mode ~= "base" or duty.baseId == nil
+        or KnoxPersistence.setResidentLootRuns == nil then
+        return false, "not_your_base_resident"
+    end
+    local saved = KnoxPersistence.setResidentLootRuns(
+        survivorId, playerId, duty.baseId, allowed == true, worldAge()
+    )
+    if not saved then return false, "not_your_base_resident" end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        KnoxActivityFeed.speak(character, allowed == true
+            and "I'll run supplies when the base needs them."
+            or "I'll stay home from now on.")
+    end
+    return true, allowed == true and "loot_runs_allowed" or "loot_runs_stay_home"
 end
 
 function CompanionService.activateFromBase(player, survivorId)
@@ -1311,6 +1615,7 @@ function CompanionService.dismiss(player, survivorId)
     end
     if saved then
         KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+        signalOrder(player, survivorId, "dismiss")
     end
     return saved, saved and "dismissed" or "save_failed"
 end
@@ -1341,6 +1646,19 @@ function CompanionService.syncController(survivorId, controller)
         local revision = duty ~= nil and duty.revision or ""
         local supplyOrder = duty ~= nil and tostring(duty.baseSupplyOrder) or ""
         local climbing = policies.allowClimbing ~= false and "1" or "0"
+        -- Companion policy wins; nil inherits the sandbox default. The old
+        -- `...() or true` chain forced open even when the sandbox said off.
+        local sandboxOpening = true
+        if KnoxSettings ~= nil
+            and KnoxSettings.allowSurvivorDoorWindowOpening ~= nil then
+            sandboxOpening = KnoxSettings.allowSurvivorDoorWindowOpening() ~= false
+        end
+        local opening = policies.allowDoorOpening
+        if opening == nil then
+            opening = sandboxOpening
+        else
+            opening = opening ~= false
+        end
         local roster = ""
         if duty ~= nil and duty.mode == "companion" then
             local ids = KnoxPersistence.getCompanionIds(duty.ownerId) or {}
@@ -1352,6 +1670,7 @@ function CompanionService.syncController(survivorId, controller)
             tostring(controller), tostring(mode), tostring(owner), tostring(order),
             tostring(stance), directive, tostring(baseId), tostring(jobPreference),
             tostring(revision), supplyOrder, roster, tostring(policies.weaponPreference or "auto"), climbing,
+            tostring(policies.allowDoorOpening), tostring(opening),
         }, "|")
         local previous = syncCache[controller]
         -- Base assignment also reconciles an active supply trip. Its runtime
@@ -1364,6 +1683,9 @@ function CompanionService.syncController(survivorId, controller)
         -- duty after a partially applied update.
         syncCache[controller] = nil
         controller:setWeaponPreference(policies.weaponPreference)
+        if controller.setDoorWindowOpeningPolicy ~= nil then
+            controller:setDoorWindowOpeningPolicy(opening)
+        end
     else
         syncCache[controller] = nil
     end

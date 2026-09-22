@@ -5,6 +5,18 @@ _G.KnoxEventFactions = EventFactions
 
 -- Policy only. These definitions grant no actors, items, skills, accuracy,
 -- health or hostility. Later event instances must use ordinary Knox survivors.
+--
+-- Behavior fields:
+--   persistsAfterEvent=false patrols (police/military/scientists) arrive, work
+--     their objective and leave the county instead of settling a base.
+--   hostilePatrol marks patrols that shoot on sight (military). Deserters are
+--     exempt individually via the survivor deserter flag.
+--   deserters lets one member desert after the event and become recruitable.
+--   cureCarrier lets scientists rarely carry the Knox cure (a real renamed
+--     medical item, no custom item definition).
+--   schedulerWeight/partySize drive the automatic patrol scheduler; scientists
+--     are rare by weight and late by minimumWorldDays.
+--   disabled keeps Black Division (custom-gear faction) out of scheduling.
 local DEFINITIONS = {
     police = {
         displayName = "Police",
@@ -13,8 +25,10 @@ local DEFINITIONS = {
         defaultDisposition = "neutral",
         loadoutTheme = "police",
         professionId = "base:policeofficer",
-        objectives = { "assist", "secure_area" },
-        persistsAfterEvent = true,
+        objectives = { "secure_area", "assist" },
+        persistsAfterEvent = false,
+        partySize = { 3, 4 },
+        schedulerWeight = 4,
     },
     scientists = {
         displayName = "Scientists",
@@ -26,12 +40,15 @@ local DEFINITIONS = {
         appearanceItems = { "Base.JacketLong_Doctor" },
         objectives = { "research", "recover_research" },
         persistsAfterEvent = false,
+        partySize = { 2, 2 },
+        schedulerWeight = 1,
+        cureCarrier = true,
     },
     military = {
         displayName = "Military",
         basePolicy = "event_only",
         minimumWorldDays = 14,
-        defaultDisposition = "neutral",
+        defaultDisposition = "hostile",
         loadoutTheme = "military",
         professionId = "base:veteran",
         appearanceItems = {
@@ -42,6 +59,10 @@ local DEFINITIONS = {
         },
         objectives = { "secure_area", "recover_resource" },
         persistsAfterEvent = false,
+        hostilePatrol = true,
+        deserters = true,
+        partySize = { 4, 5 },
+        schedulerWeight = 2,
     },
     black_division = {
         displayName = "Black Division",
@@ -51,6 +72,7 @@ local DEFINITIONS = {
         loadoutTheme = "black_division",
         objectives = { "recover_knox_vials" },
         persistsAfterEvent = false,
+        disabled = true,
     },
     scavengers = {
         displayName = "Scavengers",
@@ -106,11 +128,50 @@ local function valid(definition)
         if type(objective) ~= "string" or objective == "" or seen[objective] then return false end
         seen[objective] = true
     end
+    if definition.disabled ~= nil and definition.disabled ~= true
+        and definition.disabled ~= false then return false end
+    if definition.hostilePatrol ~= nil and definition.hostilePatrol ~= true
+        and definition.hostilePatrol ~= false then return false end
+    if definition.deserters ~= nil and definition.deserters ~= true
+        and definition.deserters ~= false then return false end
+    if definition.cureCarrier ~= nil and definition.cureCarrier ~= true
+        and definition.cureCarrier ~= false then return false end
+    if definition.schedulerWeight ~= nil then
+        if type(definition.schedulerWeight) ~= "number"
+            or definition.schedulerWeight < 1
+            or definition.schedulerWeight % 1 ~= 0 then return false end
+    end
+    if definition.partySize ~= nil then
+        if type(definition.partySize) ~= "table"
+            or type(definition.partySize[1]) ~= "number"
+            or type(definition.partySize[2]) ~= "number"
+            or definition.partySize[1] < 2 or definition.partySize[2] > 6
+            or definition.partySize[1] > definition.partySize[2] then return false end
+    end
     return true
 end
 
 function EventFactions.ids()
     local ids = {}; for id in pairs(DEFINITIONS) do ids[#ids + 1] = id end
+    table.sort(ids)
+    return ids
+end
+
+function EventFactions.isDisabled(id)
+    local definition = type(id) == "string" and DEFINITIONS[id] or nil
+    return definition ~= nil and definition.disabled == true
+end
+
+-- Policies the automatic patrol scheduler may pick, weighted by
+-- schedulerWeight (scientists rare, police common). Disabled policies and
+-- policies without a weight never schedule automatically.
+function EventFactions.automaticPolicies()
+    local ids = {}
+    for id, definition in pairs(DEFINITIONS) do
+        if definition.disabled ~= true and type(definition.schedulerWeight) == "number" then
+            ids[#ids + 1] = id
+        end
+    end
     table.sort(ids)
     return ids
 end

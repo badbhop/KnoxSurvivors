@@ -107,16 +107,24 @@ public final class KnoxCombatControllerVerifier {
             "requestAttack", Object.class, boolean.class, boolean.class
         );
         requestAttack.setAccessible(true);
-        requestAttack.invoke(null, body, false, true);
+        Field unarmedField = KnoxCombatController.class.getDeclaredField("unarmedCombat");
+        unarmedField.setAccessible(true);
+        unarmedField.setBoolean(controller, false);
+        requestAttack.invoke(controller, body, false, true);
         require(body.authorizeMelee,
             "Build 42 general attack authorization remains enabled for firearms");
         require(!body.authorizeShoveStomp,
             "firearm request does not authorize shove/stomp");
+        require(!body.doShove,
+            "firearm request clears stale shove mode before native attackHook");
         require(body.pressedAttackCount == 0,
             "Java firearm request yields to native Lua attack hook");
-        requestAttack.invoke(null, body, false, false);
+        unarmedField.setBoolean(controller, true);
+        requestAttack.invoke(controller, body, false, false);
         require(body.authorizeShoveStomp,
             "unarmed standing request authorizes native shove/stomp");
+        require(body.doShove,
+            "unarmed request explicitly selects the native shove path");
         require(body.pressedAttackCount == 1,
             "unarmed request enters the native hand-to-hand attack path");
         Method clearAttack = KnoxCombatController.class.getDeclaredMethod("clearAttackIntent");
@@ -161,6 +169,7 @@ public final class KnoxCombatControllerVerifier {
         boolean initiateAttack = true;
         boolean attackStarted = true;
         boolean aimAtFloor = true;
+        boolean doShove = true;
         boolean zombiesDontAttack = true;
         boolean bannedAttacking;
         int pressedAttackCount;
@@ -176,6 +185,7 @@ public final class KnoxCombatControllerVerifier {
         public void setInitiateAttack(boolean value) { initiateAttack = value; }
         public void setAttackStarted(boolean value) { attackStarted = value; }
         public void setAimAtFloor(boolean value) { aimAtFloor = value; }
+        public void setDoShove(boolean value) { doShove = value; }
         public void setZombiesDontAttack(boolean value) { zombiesDontAttack = value; }
         public void setBannedAttacking(boolean value) { bannedAttacking = value; }
         public void pressedAttack() { pressedAttackCount++; }

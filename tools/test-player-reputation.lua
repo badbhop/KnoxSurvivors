@@ -129,6 +129,8 @@ now = 60
 assert(service.talk(player, "neutral"))
 assert(reputationNotices[#reputationNotices] == 1, "conversation shows actual capped gain, not promised gain")
 local noticeCount = #reputationNotices
-assert(not service.talk(player, "neutral"))
-assert(#reputationNotices == noticeCount, "conversation cooldown gives no reputation spam")
+assert(service.talk(player, "neutral"), "friendly survivors chat without a timer")
+assert(#reputationNotices == noticeCount + 1, "each friendly talk records its capped gain once")
+conversation.trust, conversation.nextTalkHours = 10, 999
+assert(not service.talk(player, "neutral"), "upset survivors keep the talk timer")
 print("Player reputation PASS verified_defense=true aggression=true bounded=true persistent=true faction=true split_screen=true")

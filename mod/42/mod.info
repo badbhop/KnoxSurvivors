@@ -1,7 +1,7 @@
 name=Knox Survivors
 id=KnoxSurvivors
 author=.exe
-description=Early IsoPlayer rebuild. Knox Survivors Launcher required. Use a fresh test save; bugs and unfinished behavior are expected. Tested against 42.20.3, single-player focus.
+description=Early IsoPlayer rebuild. Knox Survivors Launcher required. Use a fresh test save; bugs and unfinished behavior are expected. Tested against 42.20.4, single-player focus.
 poster=poster.png
 icon=icon.png
 versionMin=42.20

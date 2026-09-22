@@ -3,8 +3,10 @@ require "ISUI/ISInventoryPane"
 require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISInventoryTransferUtil"
 require "KS_CompanionService"
+require "KS_CompanionInventory"
 require "KS_SurvivorRuntime"
 require "KS_ActivityFeed"
+require "KS_BaseWoodcutting"
 
 local InventoryMenu = rawget(_G, "KnoxCompanionInventoryMenu") or {}
 _G.KnoxCompanionInventoryMenu = InventoryMenu
@@ -60,13 +62,87 @@ function InventoryMenu.give(_, player, target, survivorId, items)
     end
 end
 
+local function selectedLog(items)
+    for _, item in ipairs(ISInventoryPane.getActualItems(items) or {}) do
+        if item ~= nil and item.getFullType ~= nil
+            and item:getFullType() == "Base.Log" then
+            return true
+        end
+    end
+    return false
+end
+
+local function canSawLogs(character)
+    return character ~= nil
+        and KnoxBaseWoodcutting.findLog(character) ~= nil
+        and KnoxBaseWoodcutting.findSaw(character) ~= nil
+end
+
+function InventoryMenu.sawLogs(_, character, survivorId)
+    if not canSawLogs(character) then
+        KnoxActivityFeed.event(displayName(survivorId) .. " is missing a saw or log.")
+        return
+    end
+    local action, result = KnoxBaseWoodcutting.queueSawLogs(character)
+    if action == nil then
+        KnoxActivityFeed.event(displayName(survivorId) .. " cannot saw logs: "
+            .. tostring(result or "recipe_unavailable") .. ".")
+        return
+    end
+    KnoxActivityFeed.event(displayName(survivorId) .. " is sawing logs.")
+end
+
+local function addSawLogsOptions(context, player, items, companions)
+    if not selectedLog(items) then return end
+    local actors, seen = {}, {}
+
+    -- When the clicked log belongs to the open survivor pane, that survivor is
+    -- the actor. Never redirect this to the local player's timed-action queue.
+    for _, item in ipairs(ISInventoryPane.getActualItems(items) or {}) do
+        local owner, survivorId = nil, nil
+        if KnoxCompanionInventory.getSurvivorForItem ~= nil then
+            owner, survivorId = KnoxCompanionInventory.getSurvivorForItem(item)
+        end
+        if owner ~= nil and canSawLogs(owner) then
+            survivorId = KnoxSurvivorRuntime.idForCharacter(owner)
+            local key = tostring(survivorId or owner)
+            if not seen[key] then
+                seen[key] = true
+                actors[#actors + 1] = { character = owner, id = survivorId }
+            end
+        end
+    end
+
+    -- A log in the player's inventory may still be an explicit order for a
+    -- nearby survivor, but only a survivor carrying both ingredients is offered.
+    for _, entry in ipairs(companions or {}) do
+        if canSawLogs(entry.character) then
+            local key = tostring(entry.id)
+            if not seen[key] then
+                seen[key] = true
+                actors[#actors + 1] = entry
+            end
+        end
+    end
+    if #actors == 0 then return end
+
+    local root = context:addOption("Saw Logs", nil, nil)
+    local menu = ISContextMenu:getNew(context)
+    context:addSubMenu(root, menu)
+    for _, entry in ipairs(actors) do
+        menu:addOption("Have " .. displayName(entry.id) .. " saw logs",
+            InventoryMenu, InventoryMenu.sawLogs, entry.character, entry.id)
+    end
+end
+
 local function onFillInventoryObjectContextMenu(playerNum, context, items)
     local player = getSpecificPlayer(playerNum)
     local companions = nearbyCompanions(player)
-    if player == nil or #companions == 0
-        or #(ISInventoryPane.getActualItems(items) or {}) == 0 then
+    if player == nil or #(ISInventoryPane.getActualItems(items) or {}) == 0 then
         return
     end
+    addSawLogsOptions(context, player, items, companions)
+    if #companions == 0 then return end
     local root = context:addOption("Give to Companion", nil, nil)
     local menu = ISContextMenu:getNew(context)
     context:addSubMenu(root, menu)

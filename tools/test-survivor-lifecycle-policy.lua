@@ -10,7 +10,8 @@ assert(not should and reason == "preserve-grace")
 should, reason = policy.detachedDecision(25, 100, 2, 3)
 assert(not should and reason == "preserve-grace")
 should, reason = policy.detachedDecision(25, 100, 3, 3)
-assert(should and reason == "hibernate-grace-expired")
+assert(not should and reason == "preserve-near-detached",
+    "a near native traversal shell must not hibernate after the grace window")
 
 should, reason = policy.detachedDecision(101, 100, 1, 3)
 assert(should and reason == "hibernate-far")

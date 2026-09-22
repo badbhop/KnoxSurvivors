@@ -1,5 +1,387 @@
 # Feature-completion audit
 
+### Foolproof unattended QA: observer protection and full-mechanic boundary checks - 2026-09-21
+
+**Implemented; disposable-save live run pending.** The opt-in QA coordinator now
+keeps the player invincible and invisible to zombies for the whole run (god,
+ghost and invisible mode, reapplied every tick, released on main-menu return),
+so the observer cannot die or drag zombies into a fixture mid-suite. A global
+run timeout fails the active scenario instead of hanging the suite forever.
+
+Five synchronous boundary checks run after faction admission: a hostile
+survivor-pair relationship record, raid planning eligibility through the real
+duty-safe `proposeRaid`, passenger-seat availability through the real free-seat
+selector, indoor night-shelter search with the temporary-group territory
+filter, and a real `captureAllActiveSurvivors` save round trip with a living
+roster comparison. Each reports honest `BLOCKED` when its world fixture is
+absent and never counts that as a pass. Live raid travel/combat, native
+driving, long faction lifecycles and player-death succession remain separate
+manual acceptance gates. Offline verification passes; one disposable-save run
+must confirm the new stages advance in a real loaded world.
+
+### Passenger handoff and autonomous vehicle travel - 2026-09-20
+
+**Implemented; live physics replay pending.** Following companions now detect a
+nearby parked player vehicle and queue the existing native passenger action
+instead of continuing to form up behind the car. Passenger boarding never
+reserves seat zero, so the player can use vanilla seat swapping without a Knox
+companion taking the driver position. A companion may drive only after the
+player has explicitly vacated the driver seat; native seat switching, control
+ownership, and cancellation retain the existing safety boundary.
+
+Autonomous travel-group leaders may now use a nearby running, empty, driveable
+vehicle for a long loaded-world event journey. Nearby group members reserve
+passenger seats before the leader begins the same native driving route. The
+selector rejects every player-occupied or player-near vehicle, moving/towed or
+undriveable vehicles, unpowered engines, non-leaders, short trips, and invalid
+routes; it falls back to ordinary foot travel in each rejected case. The new
+regression covers leader ownership, passenger boarding, and player-vehicle
+exclusion. This is intentionally not offscreen teleportation or NPC hotwiring;
+a live test must still confirm a faction departure, passenger entry, and safe
+arrival in a streamed world.
+
+### Firearm, vehicle, scavenging, and faction-base acceptance - 2026-09-20
+
+**Offline verified; focused live replay pending.** A design-only comparison
+against the locally supplied Project Remnants reference was used to check
+capability and failure boundaries only; no reference source was copied. Knox
+keeps firearm readiness, reloads, chamber state, firing, projectiles, damage,
+tracers, audio, and ammunition transitions on Build 42's native reload and
+attack hooks. Its prior firearm QA target spawned inside close-pressure range,
+so a melee cleanup could be reported as a firearm result. The Knox-owned QA
+now begins at an eight-tile clear lane and passes only after a native-shot
+hook, a Java ranged request, and zombie health loss while the survivor remains
+at ranged distance. It records telemetry without changing native ballistic
+state.
+
+Companion driving remains an opt-in experimental feature: it uses a
+whole-vehicle route sweep, native seat actions, engine/health/towing gates,
+speed limits, obstacle braking, bounded replanning, and throttle release on
+loss of route or control. It is not yet eligible to be called generally
+finished until a disposable live drive confirms its behavior in a real loaded
+world. Scavenging already selects real containers, limits each pickup batch,
+prioritizes group supplies during a settlement sortie, preserves personal
+essentials, and deposits recovered settlement items into typed base storage.
+Faction scouts use staged loaded-world building search, reject player and
+persisted-base overlaps, then claim a confirmed building as both a Knox base
+and an engine safehouse with distinct resident arrival positions. The current
+offline suite covers these safety and ownership paths; live confirmation is
+still needed for native shots/hits, real traffic conditions, and streamed
+world base selection.
+
+### Base-job comparison and usable exits - 2026-09-20
+
+**Implemented; live replay pending.** A design-only comparison against the
+locally supplied Project Remnants reference confirmed that Knox already has the
+needed base-job families: native farming, woodcutting and log sawing, corpse
+hauling, cooking, repairs, guard/patrol, storage delivery, and window defense.
+The actionable gap was in Knox's automatic defense selector: it could choose a
+normal or thumpable door, despite building-specific batching excluding doors.
+Automatic barricade discovery and its streamed-target recovery now exclude all
+doors so the player and residents retain a stable exit for supply, hauling and
+ordinary work routes. The Knox-owned barricade regression covers normal and
+thumpable door exclusion alongside native action, object-index recovery, and
+external completion. No reference source was copied.
+
+### Barricade completion and base hygiene - 2026-09-20
+
+**Implemented; live replay pending.** The latest disposable QA run showed
+barricade jobs reaching the work site but later reporting `target_no_longer_valid`
+and becoming blocked. Barricade targets now retain a sprite fingerprint in
+addition to the volatile native object index. A sole matching opening can be
+re-resolved after streamed-square updates, and a window secured by another
+resident or the player while supplies are collected completes the stale claim
+instead of blocking and requeueing it. The base-job QA resident fixture also
+now unpacks `pcall` correctly; it previously attempted to assign the boolean
+success value as a player resident, so it never reached the real job matrix.
+
+Residents now use the engine's `ISWashYourself` action as a low-priority base
+activity when four or more visible body parts are dirty and a reachable water
+source is inside their base. It never invents water, yields to danger, and
+backs off without chatter when the settlement has no usable source. Focused
+regressions cover streamed barricade resolution, externally completed windows,
+and threshold/source/native-action hygiene flow. Offline verification: 100 Lua
+files, 138 scripts, 239 checks, zero failures; Java build and all verifiers
+pass. The next disposable QA run must confirm native barricade completion and
+that the corrected base resident fixture advances into the matrix.
+
+### Unattended engine QA coordinator - 2026-09-20
+
+**Implemented; corrected replay pending.** Two disposable-save runs exposed two
+coordinator defects rather than completing the intended matrix. Child probes
+were reading the startup-time `KnoxDevTests.enabled=false` value even after the
+live Automated QA gate succeeded, and native traversal's one-tick `Succeeded`
+result could clear to `NOT_REQUESTED` before the interval status poll observed
+it. The coordinator now refreshes the child-probe gate only after its sandbox
+authorization succeeds, sets the traversal scenario explicitly, latches native
+success immediately, prints its scenario list from the real step table, and
+continues after an individual scenario failure so traversal can no longer hide
+the base/job/firearm results. Faction settlement now runs last and its temporary
+native survivors are retired at the fixture boundary, preventing combat, shelter
+claims, and doorway occupancy from contaminating another case.
+
+The opt-in `Automated QA`
+sandbox setting starts one coordinator that chains the existing native
+ probes for equipment/persistence, needs, injury, medical treatment, loot,
+ NPC combat, population autonomy, faction/group admission, and traversal, then checks base
+ storage/resident/guard-task admission, runs a nine-job discovery, claim, native
+ work-entry and finite-task completion matrix, executes the firearm scenario,
+ and checks that a new faction reaches distinct indoor settlement positions.
+ Each case has a
+ timeout and produces explicit PASS, FAIL, or BLOCKED log lines; missing world
+ fixtures are never treated as passes. A claimed task or unrelated combat/needs
+ state can no longer count as job execution. `tools/parse-live-qa.ps1` converts the
+latest `DebugLog.txt` results into `build/live-qa/latest.json`. Farming,
+woodcutting, corpse hauling, cooking, barricading, and repair now enter the pass
+count only after the persisted native task reports `complete`; a world without
+the corresponding real target reports `BLOCKED`. Long-running faction life,
+vehicles, and player death succession remain outside this run. Offline verification passes;
+one new disposable-save run must confirm that the formerly blocked probes and
+traversal now advance into the base/job stages.
+
+### Faction settlement arrival and crowding - 2026-09-20
+
+**Implemented; live replay pending.** The second disposable QA run showed all
+four faction members piled at an exterior corner after the faction claimed its
+home. Base return always chose the persisted scout coordinate first, even when
+that point was outside the building, and did not reserve the destination per
+resident. Return movement now prefers unoccupied indoor squares inside the
+claimed building, reserves a distinct arrival square for each resident, and
+releases the reservation through the existing success/failure cleanup. A newly
+assigned resident also receives one immediate ambient dispersal move before
+ordinary idle base life. The focused regression verifies distinct indoor
+destinations and the one-time settlement arrival intent.
+
+### Owned-base locked entry recovery - 2026-09-20
+
+**Implemented; live replay pending.** The first QA run showed patrol,
+barricade, cooking, and corpse routes repeatedly ending at
+`FAILED_LOCKED_DOOR`. Base-task movement previously bypassed the alternate-entry
+path used by scavenging and simply retried or blocked the job. An armed,
+rested resident may now invoke the existing native locked-door combat transition
+for a route inside its owned settlement, then re-resolve and resume the same
+claimed task. Player/safehouse structure protection remains authoritative, and
+a resident already dragging a corpse never starts door combat. The action
+lifecycle regression covers start, task-preserving resume, and the protected
+corpse-drop case.
+
+### Stale survivor need intents - 2026-09-19
+
+**Implemented; live replay pending.** `Needs.isNeedCurrent` now fails closed
+for an unknown or stale need kind. An interrupted or migrated autonomy state
+can no longer keep producing a hunger, thirst, rest, or medical callout after
+the planner has moved on. The survivor-needs regression covers the stale-kind
+guard alongside the native stat thresholds and real recovery verification.
+
+### Unloaded survivor card safety - 2026-09-20
+
+**Implemented; live replay pending.** The latest live log showed the card
+opening for a persisted survivor whose body was not currently loaded. The card
+was creating vanilla character and skill views with no `IsoPlayer`, producing
+repeating `ISCharacterScreen.lua` errors during `getCharacterTraits` and
+`isFemale`. Unloaded cards now keep the Knox summary visible and defer vanilla
+views until the survivor shell is loaded; the focused UI regression covers the
+guard and later live-view handoff.
+
+### Base job supply receipt - 2026-09-20
+
+**Implemented; live replay pending.** A resident no longer advances from an
+assigned-storage transfer into native work merely because its timed-action
+queue became empty. The controller now requires the exact real tool or
+material to be present in the worker inventory before starting the job, and
+releases the claim with a bounded failure when the transfer was rejected or
+ended elsewhere. The base action lifecycle regression covers both a missing
+receipt and a successful receipt.
+
+### Off-slot survivor transfer safety - 2026-09-20
+
+**Implemented; live replay pending.** The latest live log showed a survivor
+inventory transfer being redirected through vanilla's local-player helper,
+which then reached `ISInventoryPaneContextMenu.lua:isVisible` with no player
+inventory UI. Transfers for Knox survivor-owned items now use the native timed
+transfer only when a nested bag must be flattened into the survivor's main
+inventory; an item already in that inventory is a true no-op. The focused
+inventory regression covers rejected, early, successful, and late transfer
+outcomes. Live replay should verify attach, equip, unequip, wear, and drop from
+the survivor inventory while the player inventory window is open and closed.
+
+### Bounded base-task route recovery - 2026-09-20
+
+**Implemented; live job replay pending.** The shared base-task movement path
+used to block a valid claimed job on the first native `FailedStuck`, even when
+the route had become stale because a door, streamed square, or approach side
+changed after claim. A worker now gets one fresh route/target attempt before
+the task is recorded as blocked. Barricade and corpse-grab targets are
+re-resolved for that retry. A corpse already in the drop phase remains
+fail-closed and is released through the existing cleanup path, so retry logic
+cannot create an endless one-direction drag. The lifecycle regression covers
+the single retry, retry limit, and protected corpse-drop case.
+
+### Base supply claim handoff - 2026-09-20
+
+**Implemented; live replay pending.** `Controller:baseSupplyNeed` now removes a
+shortage lease when its claimant is no longer present, has entered an event, or
+is assigned to an away team. The same presence and away-team rules now apply
+when electing a new worker, so a stale departed roster entry cannot be selected
+from an otherwise valid loaded snapshot. A resident leaving the base can no
+longer block the next eligible worker from retrieving food, water, or medical
+supplies. The focused regression covers both event handoff and stale-roster
+election.
+
+### Workforce summary handoff - 2026-09-20
+
+**Implemented; live replay pending.** The player-facing workforce summary now
+uses the same alive, present, base-duty, and away-team checks as task dispatch.
+An away or departed resident with a stale claimed task is no longer shown as
+working, and a stale supply run is not counted as active base labor. The base
+jobs regression covers the displayed handoff while persistence reconciliation
+remains authoritative for repairing the saved task itself.
+
+### Scavenging presence handoff - 2026-09-20
+
+**Implemented; live replay pending.** Faction scavenging eligibility now
+honors the persisted survivor-presence boundary as well as alive, event, away
+team, and duty checks. A loaded controller that is already departing cannot be
+drafted into a new pair during the handoff window. The group-scavenge
+regression covers a departed resident with stale base duty data.
+
+### Scavenging return ownership - 2026-09-20
+
+**Implemented; live replay pending.** An expired faction sortie now keeps its
+leader committed to returning when the first route request fails. The failed
+attempt installs a short retry and consumes the decision, preventing ordinary
+roaming or unrelated base work from taking over while the resident is still
+outside the settlement. The group-scavenge regression covers the retry,
+cooldown, and recovered-route handoff.
+
+### Nested assigned storage needs - 2026-09-20
+
+**Implemented; live replay pending.** Assigned storage summaries, job-resource
+checks, item discovery, and resident need searches now traverse real nested
+inventory containers. Food, water, tools, and job materials stored inside a
+bag or insert can be found and transferred through the existing native action
+path. The storage and base-needs regressions cover nested food and requirement
+discovery without fabricating inventory.
+
+### Scavenging pair recovery gate - 2026-09-20
+
+**Implemented; live replay pending.** Faction/camp scavenging pairs now keep a
+resident home for every urgent needs decision, including low endurance recovery.
+The previous gate accidentally treated `rest` as ordinary idle behavior, so a
+tired survivor could leave with a pair and immediately interrupt the outing.
+Food, water, medical, sleep, and endurance recovery now share the same sortie
+eligibility boundary, with a focused regression for the endurance case.
+
+### Security coverage during duty handoff - 2026-09-20
+
+**Implemented; live replay pending.** The settlement overview now ignores a
+claimed guard or patrol task while its resident is marked away, event-owned, or
+no longer present. A durable roster entry can survive that handoff, so counting
+it as active coverage made the base look protected while no survivor was
+actually on post. The scheduler's claim reconciliation remains authoritative;
+this closes the matching player-facing coverage view.
+
+### Already-arrived movement handoff - 2026-09-20
+
+**Implemented; live replay pending.** A normal work or formation destination
+that was already within the Java arrival radius could still start a fresh native
+route. Lua then waited in its movement state even though there was no useful
+distance left to travel. The runtime now completes that movement handshake on
+the next tick, while exact fence, wall, and window edge crossings still invoke
+the native traversal path. The focused movement verifier covers ownership
+release and confirms no native route is started for an already-arrived order.
+
+### Barricade task priority refresh - 2026-09-20
+
+**Implemented; live job replay pending.** Rediscovery of an existing barricade
+task now preserves its defensive priority instead of assigning an undefined
+value. This keeps refreshed window work ahead of ordinary low-priority duties
+after a task-board refresh or reopen. The base-job regression now covers the
+queued refresh path.
+
+### Native fence-climb request latch - 2026-09-19
+
+**Implemented; live replay pending.** The latest development log showed the
+same route edge receiving repeated `STARTED_FENCE_CLIMB` transitions before the
+native vault had completed, followed by `FailedStuck`. The Java movement bridge
+now records one pending climb request for the current fence or wall edge. While
+that native transition is unresolved it waits for the body to cross or lets the
+existing stuck watchdog report one bounded failure; it does not restart the
+climb every route tick. Native player-aware climb and load/fitness checks remain
+authoritative.
+
+`KnoxTraversalVerifier` and the Java build pass. Live acceptance must show one
+climb request per edge, a completed crossing when the native check allows it,
+and a bounded route failure when the edge is genuinely un-climbable.
+
+### Reference-informed completion pass - 2026-09-19
+
+The public Project Remnants page was reviewed for player-facing ideas only:
+safehouse roles and storage, loot/corpse drop areas, guard routes, autonomous
+work, social chatter, formations, and cautious vehicle behavior. No source,
+asset, or implementation detail was copied. Knox already owns original slices
+for these systems, so this pass closes a behavior conflict instead of adding a
+new menu or parallel subsystem: faction scavenging pairs now refuse residents
+whose normal needs controller reports urgent food, water, medical, sleep, or
+recovery work. A ready resident can still leave during the normal daytime pair
+window, while an urgent resident remains at the settlement and returns to
+scavenging after self-care. A sortie that finds no useful loaded destination, or
+reaches its return buffer, now clears its temporary lease and uses the existing
+safehouse return path instead of falling through into random roaming. Focused
+group-scavenge and full offline verification cover both gates.
+
+### Live barricade route and target handoff - 2026-09-19
+
+**Implemented; live acceptance pending.** The September 19 test log showed a
+barricade task selecting `(10717,10560,0)`, routing to that window's own square,
+and ending in `movement:FailedStuck` before the native action could start. The
+worker now uses Build 42's `AdjacentFreeTileFinder.FindWindowOrDoor`, matching
+the vanilla window/door approach calculation. Claim-time validation caches the
+resolved opening through movement and action startup, revalidates the object at
+arrival, and reports the precise stale/unloaded reason if the world changed.
+This removes the object-index re-resolution race that could produce the generic
+`barricade_target_invalid` after a successful walk. Focused and full offline
+checks cover target discovery, side-aware routing, cached-target invalidation,
+real material gating, native action queueing, and plank-count completion.
+
+Live acceptance still needs one worker to fetch or receive a hammer, one plank,
+and two nails, approach the correct side, play the native action, consume the
+materials, and leave the window with one additional plank.
+
+### Base jobs and faction expedition ownership - 2026-09-19
+
+**Implemented; live acceptance pending.** Reviewed the existing uncommitted
+development work without replacing it or migrating save schemas.
+
+- Automatic free-resource preparation no longer dumps the entire developer kit
+  (including eight logs) into an unstored worker's pockets. Small discovery
+  supplies depend on enabled work areas; claimed jobs top up exact requirements.
+  The explicit bulk developer kit remains available. Failed item creation now
+  blocks before walking instead of reporting successful provisioning.
+- Free-mode barricade discovery accepts empty inventories/storage and records a
+  real hammer requirement. Native execution still requires carried materials.
+- Relationship reconciliation respects live temporary scavenging pairs instead
+  of clearing their formations. Dead, unloaded, reassigned, event-bound, and
+  task-bound members release the expedition. Guards and other explicit job
+  preferences are not drafted; departing base residents must be physically home.
+- Secondary faction guard/patrol zones can now be created without the generic
+  one-zone-per-type helper rejecting them. Existing zones are preserved.
+- Faction outdoor searches use max/min territory dimensions correctly. New farm
+  plots require a native diggable center. Remaining dry containers fill missing
+  storage roles, including a pantry in houses without refrigeration, without
+  overwriting existing assignments or creating world supplies in normal mode.
+
+Regression coverage includes real coordinator interaction, failed provisioning,
+empty free-mode barricade preparation, guard exclusion, death/unload cleanup,
+secondary-zone idempotence, and refrigerator-free food storage.
+
+Remaining limits: a diggable plot center does not guarantee every tile is
+farmable; automatic wood lots/drop areas still need resource/access-aware layout
+verification. Road staging currently scores open ground, not verified road
+networks. Full loaded expedition loot/deposit and multi-day faction upkeep need
+live replay. This pass does not establish complete offscreen faction simulation.
+
+
 ### Combat, entry, orders, traversal, and scavenging bug pass - 2026-09-15
 
 **Implemented; live replay pending.** Unarmed survivors now authorize the
@@ -7323,3 +7705,67 @@ use the existing native combat owner.
 Focused social, dialogue, combat, and full offline verification pass. Live
 replay is still required to confirm speech bubbles, hostile response timing,
 and the native damage result in Build 42.
+
+### Human combat and protected faction property - 2026-09-20
+
+**Implemented; native single-player confirmation pending.** Human threat selection already resolves
+persisted personal hostility, faction diplomacy, and hostile patrol policy before native combat starts.
+This pass corrects the predatory-player disposition lookup so it reads the current player/survivor pair,
+not the reversed IDs. A confirmed player hit still uses the established first-aggression path: companions,
+owned residents, and allies stay protected; an independent retaliates personally; hitting a member of an
+NPC faction makes the player faction hostile to that faction, so its other members can defend one another.
+
+Faction territory is now also a protected social boundary. After a real local single-player inventory
+transfer removes an item from a world container inside an NPC faction base, the same persistent faction
+diplomacy record becomes hostile with reason `player_theft`. The hook excludes failed transfers, nearby
+unclaimed containers, NPC transfers, player-owned destinations that are not the local actor, and
+multiplayer packet completion. It reports the transition once; repeated transfers retain the relationship
+without message spam. Existing personal encounter hostility, hostile-patrol policy, and faction-versus-
+faction combat continue to use the same disposition classifier.
+
+Verification: `tools/test-faction-property-hostility.lua`, `tools/test-faction-diplomacy.lua`,
+`tools/test-relationship-coherence.lua`, `tools/test-combat-intelligence.lua`,
+`tools/test-combat-scenarios.lua`, and `tools/test-faction-persistence.lua` pass. The remaining live
+check is deliberately narrow: take one item from an NPC faction-base container in single-player, verify
+the one-time hostility message and nearby defenders targeting the player, then save/reload and confirm
+the relation remains hostile. Multiplayer transfer authority remains outside this client-side hook.
+
+### Combat, hauling and settled-base correction pass - 2026-09-19
+
+**Implemented; live replay pending.** Armed standing attacks now explicitly clear Build 42's
+persistent shove mode, while bare-handed survivors retain the native shove path. This also prevents
+the firearm hook from entering its melee branch when a stale shove flag survives a prior attack.
+Combat no longer clears a hostile survivor's knocked-down state, so the native get-up graph owns
+recovery time.
+
+Corpse drag locomotion now compensates for the backward-drag animation and suppresses running or
+sprinting during the carry. Defensive companions can acquire a nearby survivor already classified
+as hostile to their player/faction. Zombie acquisition rejects an immediately separating fence or
+wall edge, leaving the survivor to reassess after the zombie crosses rather than pathing into it.
+
+Travel-objective speech is keyed to the actual destination and rate limited. A faction leader that
+claims a home immediately adopts base duty and retires the old travel formation; all resident duty
+still persists through the existing base record. Idle residents have bounded movement, native
+reading/rest and sparse base-relevant thoughts. Owned survivors can treat a bleeding player through
+a new default-on sandbox option. HUD/card needs now use the same higher-is-better Food, Water and
+Rest values, with compact HUD labels.
+
+Faction and personal disposition remain the single hostility source for player and NPC encounters;
+explicit hostility can produce NPC-versus-NPC combat, while neutral, allied and owned survivors are
+not acquired as combat targets. Full offline verification passes. The cases in
+`docs/DEVELOPMENT_TESTING.md` remain required live acceptance.
+# Code-first completion review — 2026-09-20
+
+Reload preparation now measures elapsed controller ticks instead of poll count.
+Repeated preparation checks no longer abort a native reload after four calls.
+The immediate-threat fallback remains intact. Boundary/duplicate-poll regressions
+and the full offline verifier pass (237 checks); native reload/fire acceptance
+remains open. See `COMPLETION_REVIEW.md` for the remaining scope.
+
+The ongoing requirement ledger is in `COMPLETION_REVIEW.md`. First-capture
+persistence now rejects stale dead/departed bodies without reviving developer
+identities, and failed captures create no ghost identities. Tool summaries now
+classify native weapon-capable hand tools correctly. Behavioral regressions and
+the full offline verifier pass (237 checks). Full lifecycle/reconstruction,
+firearm acceptance, base movement, and the remaining mechanic audit are open.
+No new user playtest is requested at this checkpoint.

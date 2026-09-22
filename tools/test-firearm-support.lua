@@ -4,6 +4,7 @@
 local rootPath = arg[1] or "."
 
 local reloadAttempts = 0
+local nextItemId = 0
 ISTimedActionQueue = { queues = {} }
 function ISTimedActionQueue.add(action)
     local queue = ISTimedActionQueue.queues[action.character]
@@ -66,8 +67,10 @@ end
 
 local function item(fullType, options)
     options = options or {}
+    nextItemId = nextItemId + 1
     local storedMagazine = options.magazine
     return {
+        id = options.id or nextItemId,
         ranged = options.ranged,
         broken = options.broken,
         safeMode = options.safeMode,
@@ -94,6 +97,9 @@ local function item(fullType, options)
         getMaxDamage = function() return options.damage or 0 end,
         getCondition = function() return options.condition or 10 end,
         getFullType = function(self) return self.fullType end,
+        getID = function(self) return self.id end,
+        IsInventoryContainer = function() return options.nestedInventory ~= nil end,
+        getInventory = function() return options.nestedInventory end,
         getMagazineType = function() return options.magazineType end,
         getBestMagazine = function() return storedMagazine end,
         getAmmoType = function()
@@ -128,6 +134,13 @@ local function character(values, ammoCounts)
     }
     value.inventory = {
         getItems = function() return list(values) end,
+        AddItem = function(_, candidate)
+            for _, existing in ipairs(values) do
+                if existing == candidate then return candidate end
+            end
+            values[#values + 1] = candidate
+            return candidate
+        end,
         getItemCountRecurse = function(_, itemKey)
             return (ammoCounts or {})[itemKey] or 0
         end,
@@ -148,6 +161,17 @@ local bridge = {
         for index = 0, activeCharacter.inventory:getItems():size() - 1 do
             local candidate = activeCharacter.inventory:getItems():get(index)
             if candidate:getFullType() == fullType then
+                activeCharacter.primary = candidate
+                firearmEquips = firearmEquips + 1
+                return "EQUIPPED_WEAPON " .. fullType
+            end
+        end
+        return "EQUIP_FAILED"
+    end,
+    equipNpcOwnedWeaponById = function(_, _, fullType, itemId)
+        for index = 0, activeCharacter.inventory:getItems():size() - 1 do
+            local candidate = activeCharacter.inventory:getItems():get(index)
+            if candidate:getFullType() == fullType and candidate:getID() == itemId then
                 activeCharacter.primary = candidate
                 firearmEquips = firearmEquips + 1
                 return "EQUIPPED_WEAPON " .. fullType
@@ -184,6 +208,23 @@ local equipsAfterReady = firearmEquips
 state = support.prepareForThreat("loaded", activeCharacter, bridge)
 assert(state == "ready" and firearmEquips == equipsAfterReady,
     "current viable firearm remains equipped instead of being reequipped every refresh")
+
+-- A ready gun inside a backpack must be selected as the same real item. The
+-- root inventory contains another pistol with the same type, so a type-only
+-- bridge would equip the wrong weapon and then falsely report ranged readiness.
+local nestedReady = item("Base.Pistol", {
+    ranged = true, haveChamber = true, chambered = true, ammoCount = 6,
+    range = 18, damage = 2,
+})
+local bag = item("Base.Backpack", { nestedInventory = { getItems = function() return list({ nestedReady }) end } })
+local sameTypeButDry = item("Base.Pistol", {
+    ranged = true, haveChamber = true, chambered = false, ammoCount = 0,
+    range = 8, damage = 1,
+})
+activeCharacter = character({ sameTypeButDry, bag })
+state = support.prepareForThreat("nested", activeCharacter, bridge)
+assert(state == "ready" and activeCharacter.primary == nestedReady,
+    "bagged ready gun is moved and equipped by exact real item identity")
 
 local spare = magazine("Base.9mmClip", 8)
 local empty = item("Base.Pistol", {
@@ -249,6 +290,8 @@ assert(fired and string.find(result, "native_attack_hook", 1, true) == 1,
 assert(activeCharacter.nativeShots == 1 and activeCharacter.gunshotSounds == 1
         and activeCharacter.worldSounds == 1,
     "native hook owns attack, gunshot sound, and world noise")
+assert(support.nativeShotCount(activeCharacter) == 1,
+    "native hook telemetry records only a successful real hook invocation")
 
 print("Firearm support PASS readiness=true stable=true reload=true rack=true noAmmo=true nativeFire=true")
 

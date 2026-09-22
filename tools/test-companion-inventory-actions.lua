@@ -21,6 +21,10 @@ assert(inventory:find('ISInventoryPaneContextMenu.unequipItem = function', 1, tr
 assert(inventory:find('ISInventoryPaneContextMenu.onClothingItemExtra = function', 1, true)
     and inventory:find('ISClothingExtraAction:new(ch, item, extra)', 1, true),
     "survivor clothing attachment callbacks must target the survivor shell")
+assert(inventory:find('ISInventoryTransferUtil.newInventoryTransferAction(\n                    ch, item, source, destination', 1, true),
+    "off-slot transferIfNeeded must use the native survivor transfer path")
+assert(inventory:find('return nil\n        end\n        if ch ~= nil then', 1, true),
+    "already-correct survivor inventory must not call the local-player transfer helper")
 assert(inventory:find("sourceSurvivor ~= character", 1, true)
     and inventory:find("detachTransferredSurvivorItem", 1, true),
     "taking survivor equipment must reconcile that survivor's equipment")

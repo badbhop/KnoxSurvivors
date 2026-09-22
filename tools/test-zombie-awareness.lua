@@ -2,6 +2,12 @@ dofile((arg[1] or ".") .. "/mod/42/media/lua/client/KS_ThreatClassifier.lua")
 require = function() return true end
 dofile((arg[1] or ".") .. "/mod/42/media/lua/client/KS_ZombieDiscovery.lua")
 
+-- The engine always provides instanceof; the classifier gates the zombie-only
+-- grapple flag on it so human shells can never throw through pcall.
+instanceof = function(object, class)
+    return class == "IsoZombie" and type(object) == "table" and object.__zombie == true
+end
+
 local directed = 0
 local activePlayer = nil
 local function square(x, y, z)
@@ -22,6 +28,7 @@ local npc = {
 npc.getX=function(self) return self.current:getX() end
 npc.getY=function(self) return self.current:getY() end
 local zombie = {
+    __zombie = true,
     visible = true,
     getX=function() return 14 end, getY=function() return 10 end,
     getLookDirectionX=function() return -1 end,getLookDirectionY=function() return 0 end,
@@ -98,6 +105,7 @@ assert(directed == 5 and zombie.target == npc,
 
 activePlayer = nil
 local memoryZombie = {
+    __zombie = true,
     visible = false,
     getX=function(self) return self.current:getX() end, getY=function(self) return self.current:getY() end,
     getLookDirectionX=function() return -1 end,getLookDirectionY=function() return 0 end,
@@ -146,7 +154,7 @@ print("Corpse proxy awareness PASS")
 -- Initial discovery must not poison target memory when a crouching NPC only
 -- has geometric LOS. Existing pursuit still uses the paced native bridge.
 memoryZombie.target=nil
-local quietZombie={current=square(18,10,0),visible=true,
+local quietZombie={__zombie=true,current=square(18,10,0),visible=true,
     getCurrentSquare=function(self) return self.current end,isDead=function() return false end,
     getTarget=function(self) return self.target end,setTarget=function(self,target) self.target=target end,
     getX=function(self) return self.current:getX() end,getY=function(self) return self.current:getY() end,

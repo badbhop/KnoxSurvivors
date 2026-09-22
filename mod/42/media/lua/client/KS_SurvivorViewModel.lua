@@ -11,6 +11,12 @@ _G.KnoxSurvivorViewModel = ViewModel
 
 local ACTIVITY_LABELS = {
     reading = "Reading",
+    eating = "Eating", drinking = "Drinking", sleeping = "Sleeping",
+    washing = "Washing", reloading = "Reloading",
+    treating_wounds = "Treating wounds", preparing_bandages = "Preparing bandages",
+    barricading = "Barricading windows", hauling_corpse = "Hauling a corpse",
+    farming = "Farming", woodcutting = "Cutting trees", sawing_logs = "Sawing logs",
+    repairing = "Repairing",
     waiting_for_route = "Keeping watch; route blocked",
     cooking_collect = "Collecting ingredients", cooking_load = "Preparing the microwave",
     cooking_heat = "Cooking food", cooking_deposit = "Storing cooked meals",
@@ -120,7 +126,7 @@ end
 
 local function weaponName(character)
     if character == nil then
-        return "Unarmed"
+        return "Equipment unavailable"
     end
     local success, item = pcall(function()
         return character:getPrimaryHandItem() or character:getSecondaryHandItem()
@@ -322,19 +328,53 @@ local function runtimeActivity(id)
     return ACTIVITY_LABELS[tostring(snapshot.activity or "")]
 end
 
-local function needSummary(state, available, alive)
+-- True when any body part carries a zombie bite. Native BodyDamage owns
+-- infection and turning; this only surfaces it so a doomed survivor reads
+-- as Bitten! in the HUD and card instead of merely Hurt.
+local function isBitten(character, state)
+    if character == nil or character.getBodyDamage == nil then return false end
+    -- Cheap gate: a bite always costs at least some health or blood. Full
+    -- health with no bleeding skips the per-part scan every refresh.
+    if state ~= nil and (tonumber(state.health) or 0) >= 99.999
+        and (tonumber(state.bleedingParts) or 0) <= 0 then
+        return false
+    end
+    local ok, damage = pcall(function() return character:getBodyDamage() end)
+    if not ok or damage == nil or damage.getBodyParts == nil then return false end
+    local okParts, parts = pcall(function() return damage:getBodyParts() end)
+    if not okParts or parts == nil then return false end
+    local okSize, count = pcall(function() return parts:size() end)
+    for index = 0, (okSize and tonumber(count) or 0) - 1 do
+        local okPart, part = pcall(function() return parts:get(index) end)
+        if okPart and part ~= nil and part.isBitten ~= nil then
+            local okBite, bite = pcall(function() return part:isBitten() end)
+            if okBite and bite == true then return true end
+        end
+    end
+    return false
+end
+
+local function needSummary(state, available, alive, includeLivePain, bitten)
     if not alive then return nil end
-    if not available then return "Unknown" end
+    if not available then return "Condition unavailable" end
     local labels = {}
     local thresholds = KnoxSurvivorNeeds.thresholds
+    -- A bite is‐the death sentence: surface it first, ahead of bleeding.
+    if bitten == true then labels[#labels + 1] = "Bitten!" end
     if (tonumber(state.bleedingParts) or 0) > 0 then labels[#labels + 1] = "Bleeding" end
     if (tonumber(state.bleedingParts) or 0) == 0 and (tonumber(state.health) or 100) < 75 then
         labels[#labels + 1] = "Hurt"
     end
-    if (tonumber(state.thirst) or 0) >= thresholds.thirst then labels[#labels + 1] = "Water" end
-    if (tonumber(state.hunger) or 0) >= thresholds.hunger then labels[#labels + 1] = "Food" end
-    if (tonumber(state.endurance) or 1) <= thresholds.lowEndurance then labels[#labels + 1] = "Catch breath" end
-    if (tonumber(state.fatigue) or 0) >= thresholds.fatigue then labels[#labels + 1] = "Sleep / rest" end
+    if includeLivePain and tonumber(state.pain) ~= nil and tonumber(state.pain) > 0 then
+        labels[#labels + 1] = "Pain"
+    end
+    if (tonumber(state.thirst) or 0) >= 0.90 then labels[#labels + 1] = "Dehydrated"
+    elseif (tonumber(state.thirst) or 0) >= thresholds.thirst then labels[#labels + 1] = "Water" end
+    if (tonumber(state.hunger) or 0) >= 0.90 then labels[#labels + 1] = "Starving"
+    elseif (tonumber(state.hunger) or 0) >= thresholds.hunger then labels[#labels + 1] = "Food" end
+    if (tonumber(state.endurance) or 1) <= 0.12 then labels[#labels + 1] = "Critical exhaustion"
+    elseif (tonumber(state.endurance) or 1) <= thresholds.lowEndurance then labels[#labels + 1] = "Catch breath" end
+    if (tonumber(state.fatigue) or 0) >= thresholds.fatigue then labels[#labels + 1] = "Sleep" end
     return #labels > 0 and table.concat(labels, ", ") or nil
 end
 
@@ -406,7 +446,9 @@ function ViewModel.getSurvivor(id, playerNum)
         return nil
     end
 
-    local player = getSpecificPlayer(tonumber(playerNum) or 0)
+    local playerIndex = tonumber(playerNum)
+    if playerIndex == nil then return nil end
+    local player = getSpecificPlayer(playerIndex)
     local character = liveCharacter(id)
     local affiliation = KnoxPersistence.getSurvivorAffiliation(id) or {
         kind = "independent",
@@ -475,7 +517,8 @@ function ViewModel.getSurvivor(id, playerNum)
         orderLabel = orderLabelFor(duty, id),
         order = tostring(duty.order or "survive"),
         activity = activityFor(duty, state, character ~= nil, alive, currentActivity),
-        needSummary = needSummary(state, vitalsAvailable, alive),
+        needSummary = needSummary(state, vitalsAvailable, alive, character ~= nil,
+            isBitten(character, state)),
         lifeIntent = lifeIntent ~= nil and {
             kind = lifeIntent.kind,
             phase = lifeIntent.phase,
@@ -483,13 +526,16 @@ function ViewModel.getSurvivor(id, playerNum)
         } or nil,
         loaded = character ~= nil,
         alive = alive,
-        health = clamp01((tonumber(state.health) or 100) / 100),
+        health = vitalsAvailable and clamp01((tonumber(state.health) or 100) / 100) or nil,
         bleedingParts = math.max(0, tonumber(state.bleedingParts) or 0),
         needs = {
-            food = 1 - clamp01(state.hunger),
-            water = 1 - clamp01(state.thirst),
-            rest = 1 - clamp01(state.fatigue),
-            endurance = clamp01(state.endurance),
+            food = vitalsAvailable and (1 - clamp01(state.hunger)) or nil,
+            water = vitalsAvailable and (1 - clamp01(state.thirst)) or nil,
+            -- Sleepiness (fatigue). The legacy `rest` key stays as an alias
+            -- for older HUD/card builds reading the same snapshot.
+            sleep = vitalsAvailable and (1 - clamp01(state.fatigue)) or nil,
+            rest = vitalsAvailable and (1 - clamp01(state.fatigue)) or nil,
+            endurance = vitalsAvailable and clamp01(state.endurance) or nil,
         },
         vitals = {
             available = vitalsAvailable == true,
@@ -497,6 +543,9 @@ function ViewModel.getSurvivor(id, playerNum)
             hunger = vitalsAvailable and clamp01(state.hunger) or nil,
             thirst = vitalsAvailable and clamp01(state.thirst) or nil,
             fatigue = vitalsAvailable and clamp01(state.fatigue) or nil,
+            endurance = vitalsAvailable and clamp01(state.endurance) or nil,
+            bleedingParts = vitalsAvailable and math.max(0, tonumber(state.bleedingParts) or 0) or nil,
+            pain = character ~= nil and vitalsAvailable and tonumber(state.pain) or nil,
         },
         weaponName = weaponName(character),
         distanceTiles = distance,
@@ -524,7 +573,8 @@ function ViewModel.getSurvivor(id, playerNum)
 end
 
 function ViewModel.getForPlayer(playerNum)
-    local playerIndex = tonumber(playerNum) or 0
+    local playerIndex = tonumber(playerNum)
+    if playerIndex == nil then return {} end
     local player = getSpecificPlayer(playerIndex)
     if player == nil then
         return {}

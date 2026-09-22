@@ -166,6 +166,35 @@ final class KnoxNpcRuntime {
             if (change == KnoxMovementRequest.Change.KEEP && !sameArea) {
                 change = KnoxMovementRequest.Change.REPLACE;
             }
+            // A normal destination that is already under the survivor does not
+            // need another native route. Starting one anyway leaves Lua in a
+            // BASE_TASK_MOVE/GROUP_FOLLOW state while the engine has no useful
+            // distance to cover, which looks like a brief freeze or a route
+            // reconsideration. Edge crossings are deliberately excluded: a
+            // crossing request must still invoke the native interaction even
+            // when the actor is close to the requested edge.
+            if (!exactAdjacentCrossing
+                && KnoxMovementGeometry.arrived(
+                    movementEngine.bodyX(npc),
+                    movementEngine.bodyY(npc),
+                    movementEngine.bodyZ(npc),
+                    targetX,
+                    targetY,
+                    targetZ,
+                    ARRIVAL_DISTANCE
+                )) {
+                if (change == KnoxMovementRequest.Change.REPLACE) {
+                    String cancellationFailure = releaseEngineMovement("MOVE_REPLACE_FAILED");
+                    resetMovement();
+                    if (cancellationFailure != null) {
+                        return cancellationFailure;
+                    }
+                }
+                npc.setMovementPace(pace);
+                movementRequest.activate(targetX, targetY, targetZ, false);
+                movementControllerState = "Succeeded";
+                return "MOVE_STARTED already_at_target=true " + movementDescription();
+            }
             if (change == KnoxMovementRequest.Change.KEEP) {
                 npc.setMovementPace(pace);
                 return (exactAdjacentCrossing ? "CROSS_STARTED " : "MOVE_STARTED ")
@@ -209,10 +238,15 @@ final class KnoxNpcRuntime {
     }
 
     boolean updateMovementPace(String pace) {
-        if (!movementRequest.isActive()) {
-            return false;
-        }
         npc.setMovementPace(pace);
+        // A companion may already be standing at its formation slot when the
+        // player toggles crouch.  Preserve that requested stance while idle so
+        // the next movement request and the visible posture agree.
+        try {
+            KnoxNpcFactory.applyIdleMovementStance(npc);
+        } catch (ReflectiveOperationException ignored) {
+            // Pace remains saved even if this Build 42 native posture hook is unavailable.
+        }
         return true;
     }
 

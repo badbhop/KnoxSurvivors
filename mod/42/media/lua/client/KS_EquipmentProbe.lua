@@ -1,3 +1,20 @@
+
+local function getAnyLoadedPlayer()
+    if getSpecificPlayer == nil then return nil end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for i = 0, math.max(0, count - 1) do
+        local ok, p = pcall(getSpecificPlayer, i)
+        if ok and p ~= nil and p.getCurrentSquare ~= nil then
+            local okSq, sq = pcall(function() return p:getCurrentSquare() end)
+            if okSq and sq ~= nil then return p end
+        end
+    end
+    return nil
+end
 local TAG = "[KnoxSurvivors][EquipmentTest]"
 -- Start on the first tick where the player, cell, and Java bridge are ready. The
 -- former fixed 120-tick pause made a restored survivor visibly pop in late.
@@ -7,9 +24,15 @@ local MAX_WAIT_TICKS = 900
 local ticks = 0
 local phase = "IDLE"
 local phaseStartedAt = 0
+local lastResult = nil
 local update
 
 local function report(status, reason, evidence)
+    lastResult = {
+        status = tostring(status),
+        reason = tostring(reason),
+        evidence = tostring(evidence or "none"),
+    }
     print(
         TAG
             .. " RESULT scenario=equipment status="
@@ -174,6 +197,14 @@ update = function()
             fail("auto_equip_failed", result)
             return
         end
+        -- Persist the valid fixture before the destructive body recreation.
+        -- This keeps the remaining QA probes independent when recreation
+        -- reports a mismatch; a failed recreation must not erase their input.
+        local saved, record = saveRecord()
+        if not saved then
+            fail("record_capture_failed", record)
+            return
+        end
         phase = "RECREATE_BODY"
         phaseStartedAt = ticks
         print(TAG .. " equipment=" .. tostring(result))
@@ -208,17 +239,23 @@ update = function()
     end
 end
 
-local function onGameStart()
+local function start()
     local config = rawget(_G, "KnoxDevTests")
     if config == nil or config.enabled ~= true or config.activeScenario ~= "equipment" then
-        return
+        return false, "disabled"
     end
     print(TAG .. " START auto=true scenario=equipment")
     ticks = 0
     phase = "WAIT_START"
     phaseStartedAt = 0
+    lastResult = nil
     stop()
     Events.OnTick.Add(update)
+    return true, "started"
+end
+
+local function onGameStart()
+    start()
 end
 
 local function onMainMenuEnter()
@@ -230,3 +267,20 @@ end
 
 Events.OnGameStart.Add(onGameStart)
 Events.OnMainMenuEnter.Add(onMainMenuEnter)
+
+local Probe = rawget(_G, "KnoxEquipmentProbe") or {}
+_G.KnoxEquipmentProbe = Probe
+function Probe.start()
+    return start()
+end
+function Probe.status()
+    return {
+        phase = phase,
+        finished = phase == "FINISHED",
+        result = lastResult,
+        ticks = ticks,
+    }
+end
+function Probe.cleanup()
+    stop()
+end

@@ -89,6 +89,13 @@ function Nameplates.update(ticks)
                 setVisible(character, false)
             else
                 local playerId = KnoxPersistence.ensurePlayerId(player)
+                -- Spending time nearby builds reputation passively.
+                if playerId ~= nil and getGameTime ~= nil and getGameTime() ~= nil then
+                    pcall(function()
+                        KnoxPersistence.recordPlayerProximity(playerId, id,
+                            getGameTime():getWorldAgeHours())
+                    end)
+                end
                 local relation = Nameplates.classify(id, playerId)
                 local color = COLORS[relation] or COLORS.neutral
                 local name = fullName(id)

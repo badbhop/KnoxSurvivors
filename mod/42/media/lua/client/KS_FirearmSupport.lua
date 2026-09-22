@@ -6,10 +6,15 @@
 require "TimedActions/ISReloadWeaponAction"
 require "TimedActions/ISRackFirearm"
 require "TimedActions/ISTimedActionQueue"
+pcall(function() require "KS_DebugLog" end)
 
 local Firearms = rawget(_G, "KnoxFirearmSupport") or {}
 _G.KnoxFirearmSupport = Firearms
 local FIREARM_SWITCH_MARGIN = 1.5
+-- This is telemetry only.  It records a successful call into the same native
+-- hook a local player uses; it never substitutes for vanilla ballistics or
+-- changes a weapon's ammunition/chamber state.
+local successfulNativeShots = setmetatable({}, { __mode = "k" })
 local AIMING_ASSIST_BONUS = {
     [1] = 0,
     [2] = 2,
@@ -74,29 +79,54 @@ local function items(character)
     return safe(function() return character:getInventory():getItems() end, nil)
 end
 
+local function topLevelContains(character, candidate)
+    local carried = items(character)
+    if carried == nil or candidate == nil then return false end
+    for index = 0, carried:size() - 1 do
+        if carried:get(index) == candidate then return true end
+    end
+    return false
+end
+
 local function gunScore(item)
     return safe(function() return item:getMaxRange() end, 0)
         + safe(function() return item:getMaxDamage() end, 0) * 8
         + safe(function() return item:getCondition() end, 0) * 0.1
 end
 
-local function bestReadyGun(character)
-    local inventoryItems = items(character)
-    if inventoryItems == nil then
-        return nil
-    end
-    local best = nil
-    local bestScore = -math.huge
-    for index = 0, inventoryItems:size() - 1 do
-        local item = inventoryItems:get(index)
-        if canShoot(character, item) then
-            local score = gunScore(item)
-            if score > bestScore then
-                best = item
-                bestScore = score
+-- The Java equipment bridge can only equip an item at the survivor's root
+-- inventory.  Search bags when selecting a firearm, then move the same real
+-- item into that root before equipping it.  This mirrors the existing bagged
+-- melee recovery and never creates ammunition, magazines or weapons.
+local function carriedGuns(character, qualifies)
+    local inventory = character ~= nil
+        and safe(function() return character:getInventory() end, nil) or nil
+    if inventory == nil or inventory.getItems == nil then return nil end
+    local seen, best, bestScore = {}, nil, -math.huge
+    local function walk(container)
+        if container == nil or seen[container] then return end
+        seen[container] = true
+        local carried = safe(function() return container:getItems() end, nil)
+        if carried == nil then return end
+        for index = 0, carried:size() - 1 do
+            local item = carried:get(index)
+            if qualifies(item) then
+                local score = gunScore(item)
+                if score > bestScore then best, bestScore = item, score end
+            end
+            if safe(function() return item:IsInventoryContainer() end, false) then
+                walk(safe(function() return item:getInventory() end, nil))
             end
         end
     end
+    walk(inventory)
+    return best, bestScore
+end
+
+local function bestReadyGun(character)
+    local best, bestScore = carriedGuns(character, function(item)
+        return canShoot(character, item)
+    end)
     local primary = safe(function() return character:getPrimaryHandItem() end, nil)
     if canShoot(character, primary) and best ~= nil
         and gunScore(primary) + FIREARM_SWITCH_MARGIN >= bestScore then
@@ -106,13 +136,7 @@ local function bestReadyGun(character)
 end
 
 local function bestReloadableGun(character)
-    local inventoryItems = items(character)
-    if inventoryItems == nil then
-        return nil
-    end
-    local best, bestScore = nil, -math.huge
-    for index = 0, inventoryItems:size() - 1 do
-        local item = inventoryItems:get(index)
+    local best, bestScore = carriedGuns(character, function(item)
         if isFunctionalGun(item) then
             local needsRack = safe(function()
                 return ISReloadWeaponAction.canRack(item)
@@ -127,13 +151,11 @@ local function bestReloadableGun(character)
                     and character:getInventory():getItemCountRecurse(ammoType:getItemKey()) > 0
             end, false)
             if needsRack or hasLoadedMagazine or hasAmmo then
-                local score = gunScore(item)
-                if score > bestScore then
-                    best, bestScore = item, score
-                end
+                return true
             end
         end
-    end
+        return false
+    end)
     local primary = safe(function() return character:getPrimaryHandItem() end, nil)
     if primary ~= nil and isFunctionalGun(primary) and best ~= nil
         and gunScore(primary) + FIREARM_SWITCH_MARGIN >= bestScore then
@@ -146,8 +168,26 @@ local function equip(id, character, bridge, gun)
     if safe(function() return character:getPrimaryHandItem() == gun end, false) then
         return true, "EQUIPMENT_STABLE " .. tostring(gun:getFullType())
     end
-    local result = tostring(bridge:equipNpcOwnedWeapon(id, gun:getFullType()))
-    return string.find(result, "EQUIPPED_WEAPON", 1, true) == 1, result
+    local inventory = safe(function() return character:getInventory() end, nil)
+    if not topLevelContains(character, gun) and inventory ~= nil then
+        pcall(function() inventory:AddItem(gun) end)
+    end
+    if not topLevelContains(character, gun) then
+        return false, "EQUIP_FAILED_GUN_NOT_AT_ROOT " .. tostring(gun:getFullType())
+    end
+    local itemId = tonumber(safe(function() return gun:getID() end, nil))
+    local result
+    if itemId ~= nil and bridge.equipNpcOwnedWeaponById ~= nil then
+        result = tostring(bridge:equipNpcOwnedWeaponById(id, gun:getFullType(), itemId))
+    else
+        result = tostring(bridge:equipNpcOwnedWeapon(id, gun:getFullType()))
+    end
+    local equipped = string.find(result, "EQUIPPED_WEAPON", 1, true) == 1
+        and safe(function() return character:getPrimaryHandItem() == gun end, false)
+    if not equipped and string.find(result, "EQUIPPED_WEAPON", 1, true) == 1 then
+        result = "EQUIP_FAILED_DIFFERENT_GUN " .. tostring(gun:getFullType())
+    end
+    return equipped, result
 end
 
 local function equipMeleeFallback(id, bridge)
@@ -213,6 +253,60 @@ local function hasUsableMelee(character)
     return false
 end
 
+local function isUsableMelee(item)
+    return safe(function()
+        return item:IsWeapon() and not item:isRanged() and not item:isBroken()
+    end, false)
+end
+
+-- Recursive: bagged blades count. The Java equipper only sees top-level
+-- inventory, so an armed survivor can still enter combat empty-handed when
+-- their only melee weapon sits in a backpack.
+function Firearms.findCarriedMelee(character)
+    local inventory = character ~= nil
+        and safe(function() return character:getInventory() end, nil) or nil
+    if inventory == nil or inventory.getItems == nil then return nil end
+    local seen, found = {}, nil
+    local function walk(container)
+        if found ~= nil or container == nil or seen[container] then return end
+        seen[container] = true
+        local carried = safe(function() return container:getItems() end, nil)
+        if carried == nil then return end
+        for index = 0, carried:size() - 1 do
+            local item = carried:get(index)
+            if isUsableMelee(item) then
+                found = item
+                return
+            end
+            if safe(function() return item:IsInventoryContainer() end, false) then
+                walk(safe(function() return item:getInventory() end, nil))
+            end
+        end
+    end
+    walk(inventory)
+    return found
+end
+
+-- Pulls a bagged melee weapon into the top-level inventory so the normal
+-- equip bridge can see it. Native AddItem detaches the same object from its
+-- bag; nothing is created or duplicated.
+function Firearms.pullMeleeToHands(id, character, bridge)
+    local primary = safe(function() return character:getPrimaryHandItem() end, nil)
+    if isUsableMelee(primary) then return true, "already_equipped" end
+    local weapon = Firearms.findCarriedMelee(character)
+    if weapon == nil then return false, "no_carried_melee" end
+    local inventory = safe(function() return character:getInventory() end, nil)
+    if inventory ~= nil then
+        pcall(function() inventory:AddItem(weapon) end)
+    end
+    if bridge == nil or bridge.equipBestNpc == nil then
+        return isUsableMelee(safe(function() return character:getPrimaryHandItem() end, nil)),
+            "no_equip_bridge"
+    end
+    local result = tostring(bridge:equipBestNpc(id))
+    return isUsableMelee(safe(function() return character:getPrimaryHandItem() end, nil)), result
+end
+
 -- This decides preference, never firearm viability. Native ammo/reload checks
 -- still decide whether a ranged choice can actually be used.
 function Firearms.wantsRanged(id, character, target)
@@ -249,6 +343,22 @@ function Firearms.cancelPreparation(character)
     return false
 end
 
+local function diagFirearm(id, event, details)
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("firearm", id, event, details) end)
+    end
+end
+
+local function resolveId(character, fallback)
+    local runtime = rawget(_G, "KnoxSurvivorRuntime")
+    if runtime ~= nil and runtime.idForCharacter ~= nil then
+        local ok, id = pcall(function() return runtime.idForCharacter(character) end)
+        if ok and id ~= nil then return tostring(id) end
+    end
+    return tostring(fallback or "unknown")
+end
+
 local function queueNativePreparation(character, gun)
     if safe(function() return ISReloadWeaponAction.canRack(gun) end, false) then
         ISTimedActionQueue.add(ISRackFirearm:new(character, gun))
@@ -260,6 +370,11 @@ local function queueNativePreparation(character, gun)
     if firearmActionActive(character, gun) then
         return true, "native_reload_queued " .. tostring(gun:getFullType())
     end
+    diagFirearm(resolveId(character, nil), "reload_queue_failed", {
+        gun = safe(function() return gun:getFullType() end, "unknown"),
+        ammo = safe(function() return gun:getCurrentAmmoCount() end, nil),
+        chambered = safe(function() return gun:isRoundChambered() end, nil),
+    })
     return false, "native_preparation_unavailable " .. tostring(gun:getFullType())
 end
 
@@ -287,16 +402,23 @@ function Firearms.prepareForThreat(id, character, bridge, target)
 
     local reloadable = bestReloadableGun(character)
     if reloadable == nil then
+        diagFirearm(id, "no_usable_firearm", nil)
         return "melee", "no_usable_firearm " .. equipMeleeFallback(id, bridge)
     end
     local equipped, result = equip(id, character, bridge, reloadable)
     if not equipped then
+        diagFirearm(id, "equip_failed", { detail = tostring(result) })
         return "melee", result
     end
     local queued, preparation = queueNativePreparation(character, reloadable)
     if queued then
+        local log = rawget(_G, "KnoxDebugLog")
+        if log ~= nil and log.once ~= nil then
+            pcall(function() log.once("firearm", id, "reloading", { detail = tostring(preparation) }) end)
+        end
         return "reloading", preparation
     end
+    diagFirearm(id, "reload_failed", { detail = tostring(preparation) })
     return "melee", preparation .. " " .. equipMeleeFallback(id, bridge)
 end
 
@@ -333,19 +455,64 @@ function Firearms.fireNative(character)
     if firearmActionActive(character, gun) then
         return false, "native_action_active"
     end
-    if not canShoot(character, gun) then
+    if gun == nil then
+        -- Empty hand: fail silently without touching native metadata getters.
         return false, "firearm_not_ready"
     end
+    if not canShoot(character, gun) then
+        -- Not-ready is the common silent case (empty mag, unchambered,
+        -- jammed, broken, safe mode): log the exact gun state so a
+        -- survivor that never fires can be diagnosed from one line.
+        local state = safe(function() return gun:getFullType() end, "no_gun")
+        local ammo = safe(function() return gun:getCurrentAmmoCount() end, nil)
+        local chambered = safe(function() return gun:isRoundChambered() end, nil)
+        local jammed = safe(function()
+            if gun ~= nil and gun.isJammed ~= nil then return gun:isJammed() end
+            return false
+        end, false)
+        diagFirearm(resolveId(character, nil), "not_ready", {
+            gun = state, ammo = ammo, chambered = chambered, jammed = jammed,
+        })
+        return false, "firearm_not_ready"
+    end
+    -- Pass the primed charge so vanilla renders muzzle/tracer. Java primes
+    -- useChargeDelta=36 on the firearm request; passing 0 looks uncharged
+    -- (click sound, no tracer) even though damage lands.
+    local charge = 36.0
+    pcall(function()
+        if character.getUseChargeDelta ~= nil then
+            local v = character:getUseChargeDelta()
+            if tonumber(v) ~= nil and tonumber(v) > 0 then charge = tonumber(v) end
+        elseif character.useChargeDelta ~= nil and tonumber(character.useChargeDelta) > 0 then
+            charge = tonumber(character.useChargeDelta)
+        end
+    end)
     local success, failure = pcall(
         ISReloadWeaponAction.attackHook,
         character,
-        0,
+        charge,
         gun
     )
     if not success then
+        diagFirearm(resolveId(character, nil), "shot_failed", {
+            gun = safe(function() return gun:getFullType() end, "unknown"),
+            error = tostring(failure),
+        })
         return false, "native_attack_hook_failed " .. tostring(failure)
     end
+    successfulNativeShots[character] = (successfulNativeShots[character] or 0) + 1
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("firearm", resolveId(character, nil), "shot_fired", {
+            gun = safe(function() return gun:getFullType() end, "unknown"),
+            total = successfulNativeShots[character],
+        }) end)
+    end
     return true, "native_attack_hook " .. tostring(gun:getFullType())
+end
+
+function Firearms.nativeShotCount(character)
+    return character ~= nil and (successfulNativeShots[character] or 0) or 0
 end
 
 return Firearms

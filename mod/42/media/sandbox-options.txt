@@ -144,8 +144,24 @@ option KnoxSurvivors.AllowSurvivorPlayerCombat = {
     type = boolean, default = true, page = KnoxSurvivors_World, translation = KnoxSurvivors_AllowSurvivorPlayerCombat,
 }
 
+option KnoxSurvivors.UseReputation = {
+    type = boolean, default = true, page = KnoxSurvivors_World, translation = KnoxSurvivors_UseReputation,
+}
+
+option KnoxSurvivors.AllowSurvivorDoorWindowOpening = {
+    type = boolean, default = true, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_AllowSurvivorDoorWindowOpening,
+}
+
+option KnoxSurvivors.AllowSurvivorsTreatPlayer = {
+    type = boolean, default = true, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_AllowSurvivorsTreatPlayer,
+}
+
 option KnoxSurvivors.EnableDeveloperTools = {
     type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_EnableDeveloperTools,
+}
+
+option KnoxSurvivors.AutomatedQAMode = {
+    type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_AutomatedQAMode,
 }
 
 option KnoxSurvivors.DeveloperScenario = {
@@ -162,10 +178,6 @@ option KnoxSurvivors.AllowDestructiveDeveloperTests = {
 
 option KnoxSurvivors.ShowDeveloperDiagnostics = {
     type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_ShowDeveloperDiagnostics,
-}
-
-option KnoxSurvivors.DeveloperJobSupplies = {
-    type = boolean, default = false, page = KnoxSurvivors_Developer, translation = KnoxSurvivors_DeveloperJobSupplies,
 }
 
 option KnoxSurvivors.ContinueSurvivorsAfterPlayerDeath = {

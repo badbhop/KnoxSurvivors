@@ -135,10 +135,7 @@ function Panel:releasePortrait(index)
     if portrait == nil then
         return
     end
-    if portrait.boundCharacter ~= nil then
-        portrait:setCharacter(nil)
-        portrait.boundCharacter = nil
-    end
+    portrait.boundCharacter = nil
     self.portraitAvailable[index] = false
     portrait:setVisible(false)
 end
@@ -248,7 +245,6 @@ function Panel:refreshPortraits()
             else
                 if portrait.boundCharacter ~= character then
                     local success = pcall(function()
-                        portrait:setCharacter(nil)
                         portrait:setCharacter(character)
                         portrait:setState("idle")
                     end)
@@ -256,9 +252,6 @@ function Panel:refreshPortraits()
                         portrait.boundCharacter = character
                         self.portraitAvailable[slot] = true
                     else
-                        pcall(function()
-                            portrait:setCharacter(nil)
-                        end)
                         portrait.boundCharacter = nil
                         self:releasePortrait(slot)
                     end
@@ -319,13 +312,38 @@ local BAR_COLOURS = {
     fatigue = { r = 0.68, g = 0.34, b = 0.72 },
 }
 
-function Panel:drawBar(x, y, width, value, colour)
+function Panel:drawBar(x, y, width, value, colour, label)
+    if tonumber(value) == nil then
+        self:drawRect(x, y, width, BAR_HEIGHT, 0.92, 0.10, 0.10, 0.10)
+        self:drawRectBorder(x, y, width, BAR_HEIGHT, 0.70, 0.36, 0.36, 0.36)
+        if label ~= nil then
+            self:drawTextCentre(label .. "?", x + width / 2, y - 3,
+                0.58, 0.58, 0.56, 1, UIFont.Small)
+        end
+        return
+    end
     local amount = clamp(tonumber(value) or 0, 0, 1)
     self:drawRect(x, y, width, BAR_HEIGHT, 0.92, 0.10, 0.10, 0.10)
     local c = colour or BAR_COLOURS.health
     local fade = 0.55 + amount * 0.45
     self:drawRect(x, y, math.floor(width * amount), BAR_HEIGHT,
         0.92, c.r * fade, c.g * fade, c.b * fade)
+    -- Critically low needs read at a glance: amber label plus a red frame
+    -- so a starving/thirsty/exhausted companion pops without reading bars.
+    local critical = tonumber(value) ~= nil and amount < 0.30
+    if critical then
+        self:drawRectBorder(x - 1, y - 1, width + 2, BAR_HEIGHT + 2,
+            0.95, 0.85, 0.25, 0.25)
+    end
+    if label ~= nil then
+        if critical then
+            self:drawTextCentre(label .. "!", x + width / 2, y - 3,
+                1.0, 0.85, 0.40, 1, UIFont.Small)
+        else
+            self:drawTextCentre(label, x + width / 2, y - 3,
+                0.96, 0.96, 0.94, 1, UIFont.Small)
+        end
+    end
 end
 
 function Panel:prerender()
@@ -411,10 +429,14 @@ function Panel:prerender()
         local barY = y + self.rowHeight - BAR_HEIGHT - 5
         local gap = 4
         local barWidth = math.floor((textWidth - gap * 3) / 4)
-        self:drawBar(textX, barY, barWidth, snapshot.health, BAR_COLOURS.health)
-        self:drawBar(textX + barWidth + gap, barY, barWidth, snapshot.needs.food, BAR_COLOURS.hunger)
-        self:drawBar(textX + (barWidth + gap) * 2, barY, barWidth, snapshot.needs.water, BAR_COLOURS.thirst)
-        self:drawBar(textX + (barWidth + gap) * 3, barY, barWidth, snapshot.needs.rest, BAR_COLOURS.fatigue)
+        self:drawBar(textX, barY, barWidth, snapshot.health, BAR_COLOURS.health, "H")
+        self:drawBar(textX + barWidth + gap, barY, barWidth,
+            snapshot.needs ~= nil and snapshot.needs.food or nil, BAR_COLOURS.hunger, "F")
+        self:drawBar(textX + (barWidth + gap) * 2, barY, barWidth,
+            snapshot.needs ~= nil and snapshot.needs.water or nil, BAR_COLOURS.thirst, "W")
+        self:drawBar(textX + (barWidth + gap) * 3, barY, barWidth,
+            snapshot.needs ~= nil and (snapshot.needs.sleep or snapshot.needs.rest) or nil,
+            BAR_COLOURS.fatigue, "S")
     end
 end
 
@@ -568,7 +590,9 @@ end
 
 function CompanionHUD.refresh(playerNum)
     if playerNum ~= nil then
-        local panel = ensurePanel(tonumber(playerNum) or 0)
+        local n = tonumber(playerNum)
+        if n == nil then return end
+        local panel = ensurePanel(n)
         if panel ~= nil then
             panel:refresh(false)
         end

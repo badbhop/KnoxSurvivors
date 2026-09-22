@@ -104,6 +104,11 @@ final class KnoxEquipmentController {
      * ammunition or changes firearm fields directly.
      */
     static String equipOwnedWeapon(Object body, String fullType) throws ReflectiveOperationException {
+        return equipOwnedWeapon(body, fullType, -1L);
+    }
+
+    static String equipOwnedWeapon(Object body, String fullType, long itemId)
+        throws ReflectiveOperationException {
         if (fullType == null || fullType.isBlank()) {
             return "EQUIP_FAILED INVALID_WEAPON";
         }
@@ -113,6 +118,9 @@ final class KnoxEquipmentController {
             if (!inherits(item, "zombie.inventory.types.HandWeapon")
                 || (Boolean) invoke(item, "isBroken")
                 || !fullType.equals(String.valueOf(invoke(item, "getFullType")))) {
+                continue;
+            }
+            if (itemId >= 0L && ((Number) invoke(item, "getID")).longValue() != itemId) {
                 continue;
             }
             selected = item;

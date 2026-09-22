@@ -32,6 +32,7 @@ final class KnoxCombatController {
     private float weaponMaxRange;
     private float desiredAttackRange;
     private boolean rangedWeapon;
+    private boolean unarmedCombat;
     private Object combatWeapon;
     private boolean damageObserved;
     private boolean attackAnimationObserved;
@@ -168,6 +169,7 @@ final class KnoxCombatController {
             initialWeaponCondition = -1;
             combatWeapon = null;
             rangedWeapon = false;
+            unarmedCombat = true;
             weaponMaxRange = 1.0f;
             desiredAttackRange = 1.0f;
         } else if (inherits(weapon, "zombie.inventory.types.HandWeapon")) {
@@ -175,6 +177,7 @@ final class KnoxCombatController {
                 .invoke(weapon)).intValue();
             combatWeapon = weapon;
             rangedWeapon = (Boolean) weapon.getClass().getMethod("isRanged").invoke(weapon);
+            unarmedCombat = false;
         } else {
             reset();
             return "COMBAT_FAILED INVALID_PRIMARY_ITEM";
@@ -183,11 +186,21 @@ final class KnoxCombatController {
         // Combat always interrupts rest. Clear posture flags that can remain set for a
         // frame after a timed sit/rest action and make both zombie eligibility and melee
         // movement treat the visibly standing shell as prone.
+        boolean knockedDown = (Boolean) body.getClass().getMethod("isKnockedDown").invoke(body);
+        if (knockedDown) {
+            reset();
+            return "COMBAT_FAILED ACTOR_KNOCKED_DOWN";
+        }
         body.getClass().getMethod("setSitOnGround", boolean.class).invoke(body, false);
         body.getClass().getMethod("setSittingOnFurniture", boolean.class).invoke(body, false);
         body.getClass().getMethod("setOnFloor", boolean.class).invoke(body, false);
+        // Player parity for knockdowns: vanilla only pulses forceGetUp on a
+        // discrete input (sit key, timed-action start). Latching it true here
+        // re-armed on every engagement, so every later knockdown stood up
+        // instantly. Actively clear any stale latch instead; knocked-down
+        // bodies are refused above and recover on the native timer.
         body.getClass().getMethod("setVariable", String.class, boolean.class)
-            .invoke(body, "forceGetUp", true);
+            .invoke(body, "forceGetUp", false);
         if (weapon == null) {
             weaponMaxRange = 1.0f;
             desiredAttackRange = 1.0f;
@@ -657,6 +670,14 @@ final class KnoxCombatController {
         if (npc != null) {
             npc.setCombatActive(false);
             try {
+                // Never leave a latched get-up behind: the next knockdown
+                // must run the native timer exactly like a player's does.
+                npc.getBody().getClass().getMethod("setVariable", String.class, boolean.class)
+                    .invoke(npc.getBody(), "forceGetUp", false);
+            } catch (ReflectiveOperationException ignored) {
+                // World teardown may invalidate the body before the bridge is notified.
+            }
+            try {
                 clearAttackIntent();
             } catch (ReflectiveOperationException ignored) {
                 // World teardown may invalidate the body before the bridge is notified.
@@ -679,6 +700,7 @@ final class KnoxCombatController {
         weaponMaxRange = 0.0f;
         desiredAttackRange = 0.0f;
         rangedWeapon = false;
+        unarmedCombat = false;
         combatWeapon = null;
         damageObserved = false;
         attackAnimationObserved = false;
@@ -747,6 +769,7 @@ final class KnoxCombatController {
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class).invoke(body, false);
+        body.getClass().getMethod("setDoShove", boolean.class).invoke(body, false);
         body.getClass().getMethod("setInitiateAttack", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAttackStarted", boolean.class).invoke(body, false);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, false);
@@ -840,7 +863,7 @@ final class KnoxCombatController {
         setAiAttackIntent(body, true, false);
     }
 
-    private static void applyCombatStance(
+    private void applyCombatStance(
         Object body,
         boolean initiate,
         boolean aimAtFloor,
@@ -852,17 +875,22 @@ final class KnoxCombatController {
         // ISReloadWeaponAction.attackHook rejects ranged fire when it is false.
         body.getClass().getMethod("setAuthorizeMeleeAction", boolean.class).invoke(body, true);
         body.getClass().getMethod("setAuthorizeShoveStomp", boolean.class)
-            // Shove is a standing hand-to-hand action too.  Gating it on
-            // aimAtFloor left an unarmed survivor unable to push an upright
-            // zombie and made the native combat loop look idle until death.
-            .invoke(body, !ranged);
+            // Armed survivors should swing their weapon. Native shove/stomp is
+            // reserved for the unarmed fallback and floor attacks.
+            .invoke(body, !ranged && (unarmedCombat || aimAtFloor));
+        // doShove survives between native attacks. If it remains true when a
+        // gun is equipped, Build 42's attackHook takes its melee branch and the
+        // survivor appears to fire once without a projectile. Clear it for every
+        // armed attack and enable it only for the bare-hands fallback.
+        body.getClass().getMethod("setDoShove", boolean.class)
+            .invoke(body, !ranged && unarmedCombat);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);
         body.getClass().getMethod("setIsAiming", boolean.class).invoke(body, true);
         body.getClass().getField("isCharging").setBoolean(body, true);
         setAiAttackIntent(body, true, initiate);
     }
 
-    private static void requestAttack(Object body, boolean aimAtFloor, boolean ranged)
+    private void requestAttack(Object body, boolean aimAtFloor, boolean ranged)
         throws ReflectiveOperationException {
         body.getClass().getMethod("clearHandToHandAttack").invoke(body);
         body.getClass().getMethod("setAimAtFloor", boolean.class).invoke(body, aimAtFloor);

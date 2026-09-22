@@ -53,10 +53,9 @@ assert(string.find(persistenceText, "task.manual = nil", 1, true)
 assert(string.find(persistenceText, "task.lastClaimedBy = task.claimedBy", 1, true)
     and string.find(persistenceText, "task.claimedBy = nil", 1, true),
     "completed task claims must release ownership while preserving fairness history")
-assert(string.find(persistenceText, "animal_care_requires_concrete_action", 1, true)
-    and string.find(persistenceText, "task.target.action", 1, true)
+assert(string.find(persistenceText, "animal_care_retired", 1, true)
     and string.find(persistenceText, 'task.state = "cancelled"', 1, true),
-    "legacy generic animal-care tasks must be migrated to a concrete action or retired")
+    "retired animal-care tasks must be cancelled")
 assert(string.find(persistenceText, "getBaseResidentWorkStatus", 1, true)
     and string.find(persistenceText, "offscreenHours", 1, true),
     "resident work status must expose persisted loaded and off-screen duty")

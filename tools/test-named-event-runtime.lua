@@ -123,14 +123,29 @@ for _, id in ipairs(event.memberIds) do
 end
 R.update(controllers, hours)
 event = E.get(event.id)
+assert(event.phase == "withdrawing", "police patrol leaves instead of settling")
+-- Simulate the autonomy owner capturing/removing the loaded shells; the
+-- unloaded records wait at the departure point.
+for _, id in ipairs(event.memberIds) do
+    assert(P.beginEventDeparture(id, event.id, hours), "withdrawn patrol departs the county")
+    local destination = R.destination(event, id)
+    P.setUnloadedSurvivalState(id, { hunger = .1, thirst = .1, health = 100,
+        bleedingParts = 0, fatigue = .1, endurance = .9, lastHours = hours,
+        virtualX = destination.x, virtualY = destination.y, virtualZ = destination.z,
+        virtualAtHours = hours, status = "hibernated" })
+    bodies[id] = nil
+    controllers[id] = nil
+end
+R.update(controllers, hours)
+event = E.get(event.id)
 assert(event.phase == "completed")
 for _, id in ipairs(event.memberIds) do
     assert(P.getSurvivorDuty(id).eventId == nil and P.isSurvivorAlive(id)
         and P.getUnloadedSurvivalState(id).eventEntryId == nil,
-        "completion releases event duty and entry wait without deleting persistent survivors")
+        "departure releases event duty and entry wait without deleting persistent survivors")
 end
 assert(P.getFaction(faction.id) ~= nil and #P.getAllWorldSurvivorIds() == count,
-    "Police party remains ordinary persistent world population")
+    "Police party leaves no base and loses no population")
 
 hours = hours + 1
 local storedEvent = assert(E.scheduleFactionEntry("police", "secure_area",

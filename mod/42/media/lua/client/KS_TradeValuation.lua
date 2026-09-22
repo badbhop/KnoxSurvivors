@@ -200,7 +200,12 @@ local function relationContext(player, id)
     if persistence == nil or runtime == nil or not persistence.isSurvivorAlive(id) then return nil, "not_alive" end
     local localPlayer = false
     if rawget(_G, "getSpecificPlayer") ~= nil then
-        for index = 0, 3 do if getSpecificPlayer(index) == player and player ~= nil then localPlayer = true end end
+        local count = 4
+        if rawget(_G, "getNumActivePlayers") ~= nil then
+            local ok, n = pcall(getNumActivePlayers)
+            if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+        end
+        for index = 0, math.max(0, count - 1) do if getSpecificPlayer(index) == player and player ~= nil then localPlayer = true end end
     end
     if not localPlayer or read(player, "isDead", true) then return nil, "invalid_player" end
     local modData = read(player, "getModData", {})

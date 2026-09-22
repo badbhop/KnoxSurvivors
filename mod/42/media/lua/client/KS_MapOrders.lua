@@ -34,7 +34,7 @@ function Orders.fill(context,player,x,y)
         if character~=nil and not character:isDead() then candidates[#candidates+1]=id end
     end
     if #candidates==0 then return false end
-    local option=context:addOption("Drive Here (Experimental)",nil,nil)
+    local option=context:addOption("Drive Here",nil,nil)
     local menu=ISContextMenu:getNew(context);context:addSubMenu(option,menu)
     for _,id in ipairs(candidates) do
         local identity=KnoxPersistence.getSurvivorIdentity(id) or {}
@@ -55,13 +55,15 @@ if ISWorldMap~=nil and not ISWorldMap.knoxDrivingOrdersInstalled then
     function ISWorldMap:onRightMouseUp(x,y)
         local result=original(self,x,y)
         if result==true then return result end -- A map-symbol tool consumed it.
-        local player=getSpecificPlayer(self.playerNum or 0)
+        local pn = tonumber(self.playerNum)
+        if pn == nil then return result end
+        local player=getSpecificPlayer(pn)
         if player==nil or player:getVehicle()==nil or not KnoxSettings.enableExperimentalNpcDriving()
             or #KnoxCompanionService.getCompanionIds(player)==0 then return result end
         local context
         if getDebug() or (isClient() and getAccessLevel()=="admin") then
-            context=getPlayerContextMenu(self.playerNum or 0) -- Preserve native debug entries.
-        else context=ISContextMenu.get(self.playerNum or 0,x+self:getAbsoluteX(),y+self:getAbsoluteY()) end
+            context=getPlayerContextMenu(pn) -- Preserve native debug entries.
+        else context=ISContextMenu.get(pn,x+self:getAbsoluteX(),y+self:getAbsoluteY()) end
         Orders.fill(context,player,math.floor(self.mapAPI:uiToWorldX(x,y))+0.5,
             math.floor(self.mapAPI:uiToWorldY(x,y))+0.5)
         return true

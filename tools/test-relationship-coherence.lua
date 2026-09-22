@@ -39,9 +39,10 @@ local function prepareFaction(ids, hour)
     return group, faction
 end
 
-persist({ "a", "b", "c", "d", "e", "f", "g" })
+persist({ "a", "b", "c", "d", "e", "f", "g", "h", "i", "j" })
 local firstGroup, firstFaction = prepareFaction({ "a", "b", "c" }, 72)
 local secondGroup, secondFaction = prepareFaction({ "e", "f", "g" }, 72)
+local thirdGroup, thirdFaction = prepareFaction({ "h", "i", "j" }, 72)
 assert(type(firstFaction.name) == "string" and firstFaction.name ~= "",
     "NPC factions receive a persisted player-facing name")
 
@@ -78,14 +79,28 @@ assert(KnoxPersistence.areSurvivorsAllied("a", "b"),
     "active shared membership must override a stale personal hostile flag")
 assert(KnoxPersistence.getSurvivorDisposition("a", "d") == "neutral",
     "unrelated survivors must default neutral")
-KnoxPersistence.setRelationshipDisposition("c", "d", "hostile", 96)
+local personalConflict, personalResult = KnoxPersistence.escalateSurvivorConflict(
+    "c", "d", 72, "test_personal"
+)
+assert(personalConflict ~= nil and personalResult == "personal_hostile",
+    "a conflict between non-faction survivors remains personal")
 assert(KnoxPersistence.areSurvivorsHostile("c", "d"),
     "explicit personal hostility must persist")
-KnoxPersistence.setFactionRelationshipDisposition(
-    firstFaction.id, secondFaction.id, "hostile", 72, "test"
+local factionConflict, factionResult = KnoxPersistence.escalateSurvivorConflict(
+    "b", "e", 72, "test_faction"
 )
+assert(factionConflict ~= nil and factionResult == "faction_hostile",
+    "a conflict between established NPC factions escalates through diplomacy")
 assert(KnoxPersistence.areSurvivorsHostile("b", "e"),
     "hostile factions must classify their living members as hostile")
+assert(KnoxPersistence.getFactionDisposition(firstFaction.id, thirdFaction.id) == "neutral",
+    "unrelated factions remain neutral by default")
+firstFaction.hostilePatrol = "military"
+assert(KnoxPersistence.getFactionDisposition(firstFaction.id, thirdFaction.id) == "hostile"
+    and KnoxPersistence.areSurvivorsHostile("b", "h"),
+    "persisted hostile-patrol policy applies to factions formed afterward")
+assert(KnoxPersistence.getFactionDisposition(firstFaction.id, firstFaction.id) == "allied",
+    "a faction never treats its own members as hostile")
 
 local camp = assert(KnoxPersistence.createFactionCamp(firstFaction.id, {
     name = "Coherence Camp",
@@ -168,4 +183,34 @@ local restoredObjective = assert(
 assert(restoredObjective.kind == "scavenge" and restoredObjective.leaderId == "e",
     "valid shared purpose survives a Lua reload")
 
-print("Relationship coherence PASS canonical=true allies=true neutral=true hostile=true death=true reload=true")
+-- A normal faction that loses its final member must release every faction-owned
+-- record immediately: successor selection keeps it alive through the first
+-- loss, then the last loss removes base ownership and stale diplomacy.
+local factionBase = assert(KnoxPersistence.createBase("faction", firstFaction.id, {
+    minX = 120, minY = 220, width = 6, height = 6,
+}, 74))
+firstFaction.homeBaseId = factionBase.id
+assert(KnoxPersistence.setFactionRelationshipDisposition(
+    firstFaction.id, secondFaction.id, "hostile", 74, "collapse_test"
+))
+local removedSafehouses = 0
+SafeHouse = {
+    getSafehouseByOwner = function(owner)
+        return owner == "KnoxSurvivors:" .. firstFaction.id and { owner = owner } or nil
+    end,
+    removeSafeHouse = function() removedSafehouses = removedSafehouses + 1 end,
+}
+assert(KnoxPersistence.markSurvivorDead("b", 75, "collapse_test"))
+assert(KnoxPersistence.getFaction(firstFaction.id).leaderId == "c",
+    "remaining living member must become deterministic successor")
+assert(KnoxPersistence.markSurvivorDead("c", 76, "collapse_test"))
+assert(KnoxPersistence.getFaction(firstFaction.id) == nil,
+    "empty ordinary faction must collapse")
+assert(KnoxPersistence.getBase(factionBase.id) == nil,
+    "collapsed faction must release its complete base record")
+assert(KnoxPersistence.getFactionRelationship(firstFaction.id, secondFaction.id) == nil,
+    "collapsed faction must not retain diplomacy")
+assert(removedSafehouses == 1,
+    "collapsed faction must release the generated engine safehouse when available")
+
+print("Relationship coherence PASS canonical=true allies=true neutral=true hostile=true death=true reload=true collapse=true")

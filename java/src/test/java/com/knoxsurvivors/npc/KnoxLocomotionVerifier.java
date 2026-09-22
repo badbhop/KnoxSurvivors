@@ -24,8 +24,11 @@ public final class KnoxLocomotionVerifier {
         KnoxLocomotionPolicy.Decision sprint = decide("sprint", 15.0f);
         require(sprint.running() && sprint.sprinting(), "far eligible catch-up sprints");
         KnoxLocomotionPolicy.Decision closing = decide("sprint", 5.0f);
-        require(closing.running() && !closing.sprinting(),
-            "sprint request downgrades to run as the gap closes");
+        require(closing.running() && closing.sprinting(),
+            "a nearby formation gap can retain requested sprint pace");
+        KnoxLocomotionPolicy.Decision arrival = decide("sprint", 2.0f);
+        require(!arrival.running() && !arrival.sprinting(),
+            "a companion stops cleanly once it reaches the formation slot");
         require(!decide("sprint", 1.0f).running(),
             "catch-up drops to walking near the destination");
     }

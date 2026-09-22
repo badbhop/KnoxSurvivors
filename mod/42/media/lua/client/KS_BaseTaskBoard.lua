@@ -16,12 +16,11 @@ TaskBoard.TASK_TYPES = {
     saw_logs = true,
     guard = true,
     patrol = true,
-    haul_corpse = true,
-    animal_care = true,
-    animal_water = true,
-    animal_feed = true,
+    haul_corpse = true, burn_corpse = true,
+
+
+
     repair = true,
-    construct_defense = true,
     cook = true,
 }
 

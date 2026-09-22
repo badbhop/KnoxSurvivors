@@ -30,5 +30,26 @@ assert(string.find(source, 'progressBar.char = self.char', 1, true)
     "vanilla skill bars must use a valid local UI slot and read the selected survivor")
 assert(not string.find(source, 'pcall(function() view:createChildren() end)', 1, true),
     "health children must be instantiated exactly once by the vanilla addView lifecycle")
+assert(string.find(source, 'sectionHeader("Condition")', 1, true),
+    "knox tab must show a condition section with needs detail")
+for _, row in ipairs({ '"Health"', '"Food"', '"Water"', '"Sleep"', '"Endurance"' }) do
+    assert(string.find(source, 'needBar(' .. row, 1, true),
+        "knox tab must display " .. row .. " with a bar")
+end
+assert(string.find(source, 'snapshot.vitals', 1, true),
+    "condition bars must read the live vitals snapshot, not static text")
+assert(string.find(source, 'KnoxSurvivorViewModel.getSurvivor(survivorId, playerNum)', 1, true),
+    "view card must fall back to the full survivor record for base residents outside the companion roster")
+assert(string.find(source, 'hideAppearanceButtons(self)', 1, true),
+    "appearance buttons must be forced off every render because vanilla recreates them after the first hide")
+assert(string.find(source, 'view.beardButton:setVisible(false)', 1, true)
+    and string.find(source, 'view.literatureButton:setVisible(false)', 1, true),
+    "hair, beard and literature buttons must stay hidden on the read-only card")
+assert(string.find(source, 'if survivor ~= nil and window.infoView == nil then', 1, true),
+    "unloaded survivors must not create a vanilla character screen without a live shell")
+assert(string.find(source, 'if survivor ~= nil and window.skillsView == nil then', 1, true),
+    "unloaded survivors must not create vanilla skill views without a live shell")
+assert(string.find(source, 'window.infoView ~= nil and window.infoView.char ~= survivor', 1, true),
+    "live view rebinding must tolerate a card that was opened while unloaded")
 
-print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true")
+print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true resident_fallback=true appearance_hidden=true condition=true")

@@ -171,6 +171,13 @@ final class KnoxInventorySnapshot {
         return result.toString();
     }
 
+    boolean equivalentAfterRestore(KnoxInventorySnapshot other) {
+        return other != null
+            && size() == other.size()
+            && primaryType().equals(other.primaryType())
+            && summary().equals(other.summary());
+    }
+
     /**
      * Returns a new portable inventory after consuming one exact item type.  This is
      * intentionally record-only: unloaded simulation must not materialize a body,

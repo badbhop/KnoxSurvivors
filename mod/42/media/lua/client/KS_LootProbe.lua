@@ -1,3 +1,20 @@
+
+local function getAnyLoadedPlayer()
+    if getSpecificPlayer == nil then return nil end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for i = 0, math.max(0, count - 1) do
+        local ok, p = pcall(getSpecificPlayer, i)
+        if ok and p ~= nil and p.getCurrentSquare ~= nil then
+            local okSq, sq = pcall(function() return p:getCurrentSquare() end)
+            if okSq and sq ~= nil then return p end
+        end
+    end
+    return nil
+end
 require "TimedActions/ISInventoryTransferAction"
 require "TimedActions/ISTimedActionQueue"
 require "Util/AdjacentFreeTileFinder"
@@ -48,9 +65,20 @@ local sourceContainer = nil
 local targetItem = nil
 local transferAction = nil
 local actionObserved = false
+local lastResult = nil
+-- A locked house must not fail the probe when an open one stands nearby.
+-- Tried containers are skipped and the next reachable candidate is used.
+local triedContainerKeys = {}
+local containerAttempts = 0
+local MAX_CONTAINER_ATTEMPTS = 4
 local update
 
 local function report(status, reason, evidence)
+    lastResult = {
+        status = tostring(status),
+        reason = tostring(reason),
+        evidence = tostring(evidence or "none"),
+    }
     print(
         TAG
             .. " RESULT scenario=loot status="
@@ -146,6 +174,14 @@ local function inspectSquare(square, character)
     return nil, nil, nil
 end
 
+local function containerKey(square, container)
+    local ok, text = pcall(function()
+        return tostring(square:getX()) .. "," .. tostring(square:getY())
+            .. "," .. tostring(square:getZ()) .. ":" .. tostring(container:getType())
+    end)
+    return ok and text or nil
+end
+
 local function findNearestContainer(character)
     local origin = character:getCurrentSquare()
     local cell = getCell()
@@ -163,13 +199,57 @@ local function findNearestContainer(character)
                     )
                     local container, object, approach = inspectSquare(square, character)
                     if container ~= nil then
-                        return container, object, approach
+                        local key = containerKey(square, container)
+                        if key == nil or triedContainerKeys[key] ~= true then
+                            return container, object, approach
+                        end
                     end
                 end
             end
         end
     end
     return nil, nil, nil
+end
+
+-- Route to the next untried container after a routing failure
+-- (locked door, unusable window, stuck). Returns true when a fresh
+-- approach started, false when no candidate remains.
+local function retryNextContainer(bridge, reason)
+    if containerAttempts >= MAX_CONTAINER_ATTEMPTS then
+        return false
+    end
+    pcall(function()
+        local parent = sourceContainer ~= nil and sourceContainer:getParent() or nil
+        local sourceSquare = parent ~= nil and parent:getSquare() or nil
+        if sourceSquare ~= nil and sourceContainer ~= nil then
+            local key = containerKey(sourceSquare, sourceContainer)
+            if key ~= nil then triedContainerKeys[key] = true end
+        end
+    end)
+    if sourceContainer ~= nil and targetItem ~= nil then
+        pcall(function() sourceContainer:Remove(targetItem) end)
+        targetItem = nil
+    end
+    local sourceObject, approachSquare
+    sourceContainer, sourceObject, approachSquare = findNearestContainer(npc)
+    if sourceContainer == nil then
+        return false
+    end
+    targetItem = sourceContainer:AddItem(TEST_ITEM_TYPE)
+    if targetItem == nil then
+        return false
+    end
+    sourceContainer:setDrawDirty(true)
+    local moveResult = bridge:moveTestNpc(approachSquare)
+    if string.find(tostring(moveResult), "MOVE_STARTED", 1, true) ~= 1 then
+        return false
+    end
+    containerAttempts = containerAttempts + 1
+    print(TAG .. " loot-target=RETRY attempt=" .. tostring(containerAttempts)
+        .. "/" .. tostring(MAX_CONTAINER_ATTEMPTS)
+        .. " reason=" .. tostring(reason)
+        .. " container=" .. tostring(sourceContainer:getType()))
+    return true
 end
 
 local function beginTransfer()
@@ -214,7 +294,7 @@ update = function()
     end
 
     local bridge = rawget(_G, "KnoxJavaBridge")
-    local player = getSpecificPlayer(0)
+    local player = getAnyLoadedPlayer()
     if bridge == nil or player == nil or player:getCurrentSquare() == nil or getCell() == nil then
         return
     end
@@ -261,7 +341,12 @@ update = function()
         sourceContainer:setDrawDirty(true)
         local moveResult = bridge:moveTestNpc(approachSquare)
         if string.find(tostring(moveResult), "MOVE_STARTED", 1, true) ~= 1 then
-            fail("loot_approach_failed", moveResult)
+            if retryNextContainer(bridge, moveResult) then
+                phase = "APPROACHING"
+                return
+            end
+            fail("loot_approach_failed", tostring(moveResult)
+                .. " attempts=" .. tostring(containerAttempts))
             return
         end
         phase = "APPROACHING"
@@ -281,7 +366,13 @@ update = function()
         local movement = tostring(bridge:tickTestNpc())
         if string.find(movement, "Failed", 1, true) ~= nil
             or string.find(movement, "TICK_FAILED", 1, true) ~= nil then
-            fail("loot_approach_failed", movement)
+            -- Locked door / unusable window / stuck: hop to the next
+            -- reachable container instead of failing the whole probe.
+            if retryNextContainer(bridge, movement) then
+                return
+            end
+            fail("loot_approach_failed", movement
+                .. " attempts=" .. tostring(containerAttempts))
             return
         end
         if movement == "Succeeded" then
@@ -356,10 +447,10 @@ update = function()
     end
 end
 
-local function onGameStart()
+local function start()
     local config = rawget(_G, "KnoxDevTests")
     if config == nil or config.enabled ~= true or config.activeScenario ~= "loot" then
-        return
+        return false, "disabled"
     end
     print(
         TAG
@@ -372,8 +463,16 @@ local function onGameStart()
     targetItem = nil
     transferAction = nil
     actionObserved = false
+    lastResult = nil
+    triedContainerKeys = {}
+    containerAttempts = 0
     stop()
     Events.OnTick.Add(update)
+    return true, "started"
+end
+
+local function onGameStart()
+    start()
 end
 
 local function onMainMenuEnter()
@@ -389,3 +488,23 @@ end
 
 Events.OnGameStart.Add(onGameStart)
 Events.OnMainMenuEnter.Add(onMainMenuEnter)
+
+local Probe = rawget(_G, "KnoxLootProbe") or {}
+_G.KnoxLootProbe = Probe
+function Probe.start()
+    return start()
+end
+function Probe.status()
+    return {
+        phase = phase,
+        finished = phase == "FINISHED",
+        result = lastResult,
+        ticks = ticks,
+    }
+end
+function Probe.cleanup()
+    if npc ~= nil and transferAction ~= nil and ISTimedActionQueue.hasAction(transferAction) then
+        pcall(function() ISTimedActionQueue.clear(npc) end)
+    end
+    stop()
+end

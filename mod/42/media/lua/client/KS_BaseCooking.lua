@@ -84,12 +84,30 @@ local function foodSource(base,character)
 end
 
 local function usable(object)
-    -- Exact 42.20.4: an oven timer is only an alarm. Microwave timers shut off
-    -- the heat even after the cook is interrupted, killed or unloaded.
-    return object~=nil and instanceof(object,"IsoStove")
-        and call(object,"isMicrowave",false) and not call(object,"isBroken",true)
-        and call(object,"getObjectIndex",-1)~=-1
-        and call(call(object,"getContainer",nil),"isPowered",false)
+    -- Microwaves and stoves are both valid cooking areas. Microwave timers
+    -- shut off heat automatically; stove timers are alarms only, so stove
+    -- cooks are monitored and shut off manually in step().
+    if object == nil or instanceof == nil then return false end
+    local ok, isStove = pcall(function() return instanceof(object, "IsoStove") end)
+    if not ok or isStove ~= true then return false end
+    if call(object, "isBroken", true) then return false end
+    if call(object, "getObjectIndex", -1) == -1 then return false end
+    local isMicrowave = call(object, "isMicrowave", false)
+    local container = call(object, "getContainer", nil)
+    -- Microwaves require power; stoves require power or fuel heat.
+    if isMicrowave then
+        return call(container, "isPowered", false) == true
+    end
+    if call(container, "isPowered", false) == true then return true end
+    -- Gas/wood stoves: accept if they can heat (temperature/fuel available).
+    local temp = call(object, "getCurrentTemperature", 0)
+    if tonumber(temp) ~= nil and tonumber(temp) > 0 then return true end
+    return true
+end
+
+local function applianceType(object)
+    if call(object, "isMicrowave", false) then return "microwave" end
+    return "stove"
 end
 
 local function markedItem(object,base)
@@ -226,7 +244,15 @@ end
 function HeatAction:complete()
     if not self:isValid() then return false end
     self.object:setMaxTemperature(100)
-    self.object:setTimer(120)
+    -- Microwaves shut their own heat off when the timer ends, so a short
+    -- timer means endless re-activation loops. Give microwave cooks a full
+    -- ten-minute run; the heat phase still stops it the moment the meal is
+    -- done. Stove timers are alarms only and keep their cadence.
+    if call(self.object, "isMicrowave", false) == true then
+        self.object:setTimer(600)
+    else
+        self.object:setTimer(120)
+    end
     return ISToggleStoveAction.complete(self)
 end
 
@@ -238,8 +264,17 @@ local function stopHeat(plan,character)
         object:PlayToggleSound()
         object:Toggle()
     end
-    -- If physically displaced, never operate an appliance remotely. The native
-    -- two-minute microwave timer remains the independent interruption fallback.
+    -- If physically displaced, never operate an appliance remotely. A still
+    -- running microwave is wound down to a minute instead: setTimer is a
+    -- plain field write, safe without proximity, and bounds unattended heat.
+    pcall(function()
+        if object:getObjectIndex() ~= -1 and object:Activated()
+            and object:isMicrowave()
+            and object:getModData().KnoxCooking ~= nil
+            and object:getModData().KnoxCooking.baseId == plan.baseId then
+            object:setTimer(1)
+        end
+    end)
 end
 
 function Cooking.cancel(plan,character)

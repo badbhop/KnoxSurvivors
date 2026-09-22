@@ -1,5 +1,88 @@
 # Development testing
 
+## Unattended QA suite
+
+Use a disposable save for this suite. In Sandbox settings enable **Enable
+Developer Tools** and **Run Automated Knox QA**. Leave the automatic developer
+scenario set to **None**, load the save, and leave the game running. While the
+suite runs, the player is kept invincible and invisible to zombies (god, ghost
+and invisible mode, reapplied every tick), so the observer cannot die or drag
+zombies into a fixture mid-run. Knox starts the coordinator after the world is
+ready and runs native traversal, base storage/task admission, needs, and
+firearm combat checks without requiring manual orders. It discovers a nearby
+building and ordinary container when the loaded cell provides one, so you do
+not need to prebuild a base or assign a storage role by hand.
+
+The suite prints one result per scenario and a final summary into the current
+Project Zomboid `DebugLog.txt`. The single run covers equipment and save
+restoration, needs consumption, injury, medical treatment, loot transfer, NPC
+combat, multi-survivor autonomy, traversal, base storage/resident/guard-task
+admission, NPC group-to-faction admission, a nine-job discovery/claim matrix
+with exact-task native work-state assertions and finite-job completion results,
+the faction's distinct indoor settlement arrival, the firearm duel, a hostile
+survivor encounter relationship check, raid planning eligibility, passenger-seat
+boarding availability, indoor night-shelter search, and a real save-capture
+round trip. Parse the newest log after the run with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools/parse-live-qa.ps1
+```
+
+The JSON report is written to `build/live-qa/latest.json`. A missing world
+fixture is reported as `BLOCKED`; it is never counted as a pass. A timeout or
+assertion failure is `FAIL`. The run is deliberately disposable because it
+creates temporary native survivors, items, zombies, storage policy and base
+records. Each step retries transient failures up to three times and the whole
+run has a global timeout, so one stuck fixture fails its scenario instead of
+hanging the suite. Live raid travel/combat, native driving, long-running
+faction life, and save-after-player-death succession remain separate acceptance
+gates. Farming,
+woodwork, corpse hauling, cooking, barricading, and repair are reported
+`BLOCKED` when the selected real base lacks a suitable target; when a target
+exists, they pass only after the native task reports successful completion. A
+queued claim or unrelated survivor activity cannot produce a pass.
+
+After a faction claims the generated base, verify its residents take different
+indoor arrival positions instead of stacking on the scout's exterior square.
+The log should show the full scenario list, including `faction_admission`, and
+the equipment-through-population probes must no longer report
+`probe_start_rejected evidence=disabled`.
+
+## Barricade route regression - 2026-09-19
+
+Assign one resident to barricade an accessible unbarricaded window. Confirm the
+resident walks to the usable side adjacent to the opening instead of targeting
+the window's own tile. The log should reach `base_task_barricade` without
+`base_task_move:FailedStuck`, then the native action should add exactly one
+plank. Repeat while another worker or the player changes that opening during
+the trip; the old task should stop with a specific stale-target reason and must
+not barricade a different object that took the old object index.
+
+## Base work and faction expeditions - 2026-09-19
+
+1. On a backed-up save, enable Ignore Job Tool and Resource Requirements. Give
+   an empty-handed resident barricade work with no assigned storage. Verify a
+   real hammer/plank/nails, native action, increased plank count, and resumed
+   duty. Repeat with a full typed store and disabled farming/wood areas: no bulk
+   kit of logs should be added to the worker or store automatically.
+2. Enable a farming or wood area and verify native work, inventory quantities,
+   and carry load. Disable the free-resource option: no further items should
+   be supplied automatically, and existing real inventory must survive reload.
+3. Observe an NPC faction with at least three loaded residents. An idle automatic
+   pair should keep its formation across relationship updates, loot real world
+   containers, return, and deposit. Assign guard duty mid-trip; the expedition
+   must release that member. Repeat with death and streaming unload/reload.
+4. With six residents, verify two guard and two patrol areas without duplicates
+   after reconciliation/reload. A new farm plot must be centered on diggable
+   terrain. A house with enough dry containers but no fridge should get food
+   storage. Existing player/faction storage assignments must remain intact.
+5. Let a faction scavenging pair search a building with no useful remaining
+   containers. Confirm the leader returns toward the faction home instead of
+   switching into random roaming. At the return buffer or lease end, confirm
+   the pair dissolves cleanly and carried surplus follows the existing base
+   deposit path.
+
+
 ## Autonomous leader order gesture replay - 2026-09-14
 
 Create a loaded autonomous group with a leader and nearby followers. Let the
@@ -925,6 +1008,26 @@ acceptable while a companion is seated.
 
 ## Known limits
 
+### Fence and wall climb replay
+
+Use an open disposable save with a survivor approaching a climbable tall fence
+and then a wall edge. Confirm the log contains one `STARTED_FENCE_CLIMB` or
+`STARTED_WALL_CLIMB` for each attempted edge while the native transition is in
+progress; repeated route ticks must not issue duplicate climb requests. A
+successful native crossing should advance to the next route node. An actually
+unclimbable or blocked edge should end through the ordinary bounded movement
+failure path instead of holding the survivor against the obstacle forever.
+
+### Already-arrived work and formation orders
+
+Give a survivor a work or follow order while they are already standing on the
+selected destination tile or an adjacent arrival tile. The order should enter
+the action or follow state on the next autonomy tick without a visible turn,
+backtrack, or new route attempt. Repeat this for a guard post, patrol stop,
+corpse-drop approach, and a companion follow refresh. Fence, wall, and window
+edge crossings remain separate: being near an edge must still issue the native
+crossing interaction and must not be treated as ordinary arrival.
+
 - The active gate integrates already verified survival actions per survivor; it does not
   claim every action will naturally occur during one short run.
 - Firearm sound-attraction/targeting, cooking, lethal survivor PvP, deliberate construction, and
@@ -1066,3 +1169,32 @@ across hibernation/reload, and withdrawal returns/releases survivors without dup
 Inspect `[KnoxSurvivors][Events]` transitions; timers must not claim combat victories.
 Automatic scheduling and real supply objectives are implemented but not live-proven and must
 not be presented as a release-ready raid feature. No substitute NPCs or free equipment are permitted.
+
+### 2026-09-19 combat, hauling, settlement and HUD replay
+
+Run `powershell -ExecutionPolicy Bypass -File tools/verify.ps1` before the live replay. In a
+disposable save, verify these native behavior boundaries:
+
+1. Give one armed and one unarmed survivor several standing zombies. The armed survivor should
+   swing; the unarmed survivor should shove. Equip a loaded gun and confirm repeated shots create
+   normal projectiles, impacts, sound, ammunition use and reload actions instead of entering shove.
+2. Knock a hostile survivor down. Their controller must wait for Build 42's native get-up graph;
+   combat must not clear the floor state immediately.
+3. Order a resident to haul a corpse around a corner into its drop area. The backward-drag
+   animation must move toward the chosen destination, finish once, and release the corpse.
+4. Attack a neutral until they become hostile near defensive companions and residents. Owned
+   allies should acquire that hostile human while friendly/allied humans remain protected.
+5. Put a zombie directly across a fence or wall edge. The survivor should hold/ignore it until the
+   barrier no longer separates them instead of walking continuously into the obstruction.
+6. Let a travelling faction claim a base. Its leader and followers should leave their temporary
+   travel formation, receive resident duty immediately, and begin a job or bounded base-life choice.
+7. Leave residents idle with chairs and readable books. They should alternate bounded yard/room
+   movement, native rest/reading and sparse relevant thoughts without synchronized pacing or spam.
+8. Bleed beside an idle owned survivor carrying a usable bandage. With **Survivors Bandage Their
+   Player** enabled, they should approach and use the native aid action; disabling it should stop
+   player treatment.
+9. Compare the compact companion HUD with the Knox survivor card. `H/F/W/R` mean Health, Food,
+   Water and Rest remaining; the card uses the same higher-is-better values.
+
+Offline verification proves decision boundaries, compilation and fixtures. Projectile visuals,
+native drag direction, get-up timing, real pathfinding and UI readability remain live acceptance.

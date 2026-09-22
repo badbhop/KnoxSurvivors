@@ -327,23 +327,29 @@ local policy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     objectIndex = 2,
     containerIndex = 1,
     containerType = "crate",
-}, "depot", true))
-assert(policy.containerIndex == 1 and policy.category == "depot"
-    and base.toolCupboardKey == "container-stable-1")
+}, "tools", false))
+assert(policy.containerIndex == 1 and policy.category == "tools"
+    and policy.storageRole == "tools")
 local foodPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     key = "container-stable-2", x = 11, y = 20, z = 0,
     objectIndex = 3, containerIndex = 0, containerType = "fridge",
 }, "food", false))
 assert(foodPolicy.storageRole == "food" and not foodPolicy.toolCupboard
-    and base.storage["container-stable-1"] ~= nil, "optional food storage preserves main supplies")
-assert(not KnoxPersistence.setBaseStoragePolicy(base.id, {key=base.toolCupboardKey}, "food", false),
-    "the main cupboard cannot be accidentally relabeled as food only")
-assert(KnoxPersistence.setBaseStoragePolicy(base.id, {key="new-main"}, "depot", true))
-assert(base.storage["container-stable-2"] == foodPolicy and base.storage["container-stable-1"] == nil,
-    "replacing main supplies preserves the kitchen")
+    and base.storage["container-stable-1"] ~= nil, "typed storages coexist")
+local converted = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
+    key = "container-stable-1", x = 10, y = 20, z = 0,
+    objectIndex = 2, containerIndex = 1, containerType = "crate",
+}, "building", false))
+assert(converted.storageRole == "building" and base.storage["container-stable-1"] == converted,
+    "the same container can be converted between typed storages")
+assert(not KnoxPersistence.setBaseStoragePolicy(base.id, {key="new-main"}, "depot", true),
+    "main supplies retired")
+assert(base.storage["container-stable-2"] == foodPolicy and base.storage["container-stable-1"] == converted,
+    "rejected main preserves typed assignments")
 assert(KnoxPersistence.removeBaseStoragePolicy(base.id, foodPolicy.key)
-    and base.storage[foodPolicy.key] == nil, "food assignment can be removed without discarding main supplies")
-assert(not KnoxPersistence.removeBaseStoragePolicy(base.id, base.toolCupboardKey))
+    and base.storage[foodPolicy.key] == nil, "food assignment can be removed")
+assert(KnoxPersistence.removeBaseStoragePolicy(base.id, converted.key)
+    and base.storage[converted.key] == nil, "typed assignments can be removed")
 local buildingPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id,
     {key="old-category"}, "building", false))
 assert(buildingPolicy.storageRole == "building" and base.storage[buildingPolicy.key] == buildingPolicy,

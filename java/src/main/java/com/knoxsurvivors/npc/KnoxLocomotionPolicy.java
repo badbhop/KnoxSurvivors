@@ -5,7 +5,9 @@ import java.util.Locale;
 /** Pure walk/run/sprint selection for an already-owned movement request. */
 final class KnoxLocomotionPolicy {
     private static final float RUN_REMAINING_DISTANCE = 2.0f;
-    private static final float SPRINT_REMAINING_DISTANCE = 8.0f;
+    // Formation slots sit only a few tiles behind a sprinting leader.  Requiring
+    // an eight-tile gap made an explicit sprint request visibly lag behind.
+    private static final float SPRINT_REMAINING_DISTANCE = 2.5f;
 
     static final class Decision {
         private final boolean running;

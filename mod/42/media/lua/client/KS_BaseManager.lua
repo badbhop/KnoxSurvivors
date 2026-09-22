@@ -18,15 +18,11 @@ BaseManager.ZONE_TYPES = {
     guard = true,
     patrol = true,
     corpse = true,
-    animal_care = true,
     repair = true,
-    construction = true,
-    defense = true,
     general = true,
 }
 
 BaseManager.STORAGE_CATEGORIES = {
-    depot = true,
     food = true,
     water = true,
     medical = true,
@@ -36,6 +32,7 @@ BaseManager.STORAGE_CATEGORIES = {
     building = true,
     farming = true,
     clothing = true,
+    junk = true,
 }
 
 local function worldAge()
@@ -100,26 +97,29 @@ local function countZoneType(base, zoneType)
     return count
 end
 
-local function ensureFactionZone(base, zoneType, bounds, label)
-    if not hasZoneType(base, zoneType) and bounds ~= nil then
+local function ensureFactionZone(base, zoneType, bounds, label, count)
+    if countZoneType(base, zoneType) < (count or 1) and bounds ~= nil then
         return KnoxPersistence.addBaseZone(base.id, zoneType, bounds, label)
     end
     return nil, "existing"
 end
 
-local function findOutdoorSquare(area, preferredDistance)
+local function findOutdoorSquare(area, preferredDistance, accepts)
     local cell = getCell ~= nil and getCell() or nil
     if cell == nil or area == nil then return nil end
     local centerX = math.floor((tonumber(area.minX) or 0)
-        + math.max(1, tonumber(area.width) or 1) / 2)
+        + math.max(1, tonumber(area.width)
+            or ((tonumber(area.maxX) or area.minX) - area.minX + 1)) / 2)
     local centerY = math.floor((tonumber(area.minY) or 0)
-        + math.max(1, tonumber(area.height) or 1) / 2)
+        + math.max(1, tonumber(area.height)
+            or ((tonumber(area.maxY) or area.minY) - area.minY + 1)) / 2)
     local z = tonumber(area.z) or 0
     for radius = math.max(2, tonumber(preferredDistance) or 2), 18 do
         for dx = -radius, radius do
             for _, dy in ipairs({ -radius, radius }) do
                 local square = cell:getGridSquare(centerX + dx, centerY + dy, z)
-                if square ~= nil and square:canStand() and square:getRoom() == nil then
+                if square ~= nil and square:canStand() and square:getRoom() == nil
+                    and (accepts == nil or accepts(square)) then
                     return square
                 end
             end
@@ -127,39 +127,9 @@ local function findOutdoorSquare(area, preferredDistance)
         for dy = -radius + 1, radius - 1 do
             for _, dx in ipairs({ -radius, radius }) do
                 local square = cell:getGridSquare(centerX + dx, centerY + dy, z)
-                if square ~= nil and square:canStand() and square:getRoom() == nil then
+                if square ~= nil and square:canStand() and square:getRoom() == nil
+                    and (accepts == nil or accepts(square)) then
                     return square
-                end
-            end
-        end
-    end
-    return nil
-end
-
--- Animal care should only appear when the claimed territory actually contains
--- a vanilla feeding trough.  This keeps normal bases uncluttered while making
--- the existing real trough executor discoverable for ranch/farm settlements.
-local function findAnimalCareSquare(area)
-    local cell = getCell ~= nil and getCell() or nil
-    if cell == nil or area == nil or instanceof == nil then return nil end
-    local minX = tonumber(area.minX) or 0
-    local minY = tonumber(area.minY) or 0
-    local maxX = tonumber(area.maxX)
-        or (minX + math.max(1, tonumber(area.width) or 1) - 1)
-    local maxY = tonumber(area.maxY)
-        or (minY + math.max(1, tonumber(area.height) or 1) - 1)
-    local z = tonumber(area.z) or 0
-    for x = minX, maxX do
-        for y = minY, maxY do
-            local square = cell:getGridSquare(x, y, z)
-            local objects = square ~= nil and square:getObjects() or nil
-            if objects ~= nil then
-                for index = 0, objects:size() - 1 do
-                    local object = objects:get(index)
-                    local success, trough = pcall(function()
-                        return instanceof(object, "IsoFeedingTrough")
-                    end)
-                    if success and trough == true then return square end
                 end
             end
         end
@@ -208,7 +178,7 @@ local function ensureFactionZones(base)
         ensureFactionZone(base, "patrol", {
             x1 = patrolX - 3, y1 = patrolY - 3,
             x2 = patrolX + 3, y2 = patrolY + 3, z = z, priority = 71,
-        }, "Outer Patrol")
+        }, "Outer Patrol", 2)
     end
     if residentCount >= 4 and countZoneType(base, "guard") < 2 then
         local farWatch = findOutdoorSquare(area, math.max(4,
@@ -220,26 +190,15 @@ local function ensureFactionZones(base)
         ensureFactionZone(base, "guard", {
             x1 = farX - 1, y1 = farY - 1,
             x2 = farX + 1, y2 = farY + 1, z = z, priority = 83,
-        }, "Outer Watch")
+        }, "Outer Watch", 2)
     end
     -- Structure repair scans the owned territory directly; it does not need a
-    -- second full-base work-area overlay. Keep generated zones limited to work
-    -- the player can understand spatially.
-    if not hasZoneType(base, "construction") and not hasZoneType(base, "defense") then
-        ensureFactionZone(base, "construction", {
-            x1 = minX - 1, y1 = minY - 1,
-            x2 = maxX + 1, y2 = maxY + 1, z = z, priority = 75,
-        }, "Defense Perimeter")
-    end
-    local animalSquare = findAnimalCareSquare(area)
-    if animalSquare ~= nil then
-        ensureFactionZone(base, "animal_care", {
-            x1 = animalSquare:getX() - 2, y1 = animalSquare:getY() - 2,
-            x2 = animalSquare:getX() + 2, y2 = animalSquare:getY() + 2,
-            z = animalSquare:getZ(), priority = 86,
-        }, "Animal Care")
-    end
-    local work = findOutdoorSquare(area, 4)
+    -- second full-base work-area overlay. Construction areas were removed.
+    local work = not hasZoneType(base, "farming") and findOutdoorSquare(area, 4, function(square)
+        if ISFarmingMenu == nil or ISFarmingMenu.canDigHereSquare == nil then return false end
+        local ok, diggable = pcall(ISFarmingMenu.canDigHereSquare, square)
+        return ok and diggable == true
+    end) or nil
     if work ~= nil then
         ensureFactionZone(base, "farming", {
             x1 = work:getX() - 2, y1 = work:getY() - 2,
@@ -255,19 +214,49 @@ local function ensureFactionZones(base)
             z = outer:getZ(), priority = 68,
         }, "Wood Lot")
         -- Keep log processing close to the wood lot while exposing it as its
-        -- own durable work area. The executor distinguishes the two and uses
-        -- real logs/saws; this only supplies a sensible default for new bases.
+        -- own durable work area. Offset east so exclusive production areas do
+        -- not share tiles; the executor distinguishes the two.
         ensureFactionZone(base, "log_processing", {
-            x1 = outer:getX() - 2, y1 = outer:getY() - 2,
-            x2 = outer:getX() + 2, y2 = outer:getY() + 2,
+            x1 = outer:getX() + 7, y1 = outer:getY() - 2,
+            x2 = outer:getX() + 11, y2 = outer:getY() + 2,
             z = outer:getZ(), priority = 70,
         }, "Log Processing")
+        -- Corpse drop sits west of the wood lot for the same exclusivity reason.
         ensureFactionZone(base, "corpse", {
-            x1 = outer:getX() - 1, y1 = outer:getY() - 1,
-            x2 = outer:getX() + 1, y2 = outer:getY() + 1,
+            x1 = outer:getX() - 10, y1 = outer:getY() - 1,
+            x2 = outer:getX() - 8, y2 = outer:getY() + 1,
             z = outer:getZ(), priority = 91,
         }, "Corpse Drop")
     end
+end
+
+-- Faction storage helpers: a role is covered when any assigned policy serves
+-- it, and container kinds map to roles by what those containers hold in the
+-- world (cupboards/counters hold tools, crates/shelves hold materials).
+local function storageRoleAssigned(base, role)
+    for _, policy in pairs(base ~= nil and base.storage or {}) do
+        if policy ~= nil and tostring(policy.storageRole or policy.key) == role then
+            return true
+        end
+    end
+    return false
+end
+
+local function containerFitsFactionRole(kind, role)
+    kind = string.lower(tostring(kind or ""))
+    if role == "tools" then
+        return kind:find("cupboard", 1, true) ~= nil
+            or kind:find("counter", 1, true) ~= nil
+            or kind:find("drawer", 1, true) ~= nil
+            or kind:find("locker", 1, true) ~= nil
+            or kind:find("cabinet", 1, true) ~= nil
+    end
+    if role == "building" then
+        return kind:find("crate", 1, true) ~= nil
+            or kind:find("shelf", 1, true) ~= nil
+            or kind:find("pallet", 1, true) ~= nil
+    end
+    return false
 end
 
 local function ensureFactionStorage(base)
@@ -311,8 +300,45 @@ local function ensureFactionStorage(base)
             if reference ~= nil and base.storage[reference.key] == nil then
                 BaseManager.setStoragePolicy(base.id, entry.object, "food", entry.containerIndex)
             end
-        elseif base.toolCupboardKey == nil and KnoxToolCupboard ~= nil then
-            KnoxToolCupboard.designate(base, entry.object, entry.containerIndex, BaseManager)
+        end
+        -- Main Supplies auto-designation retired: typed storages are explicit.
+    end
+    -- Faction upkeep needs the same typed stores a player assigns by hand:
+    -- without a tools/materials cupboard, barricade/repair/woodcutting tasks
+    -- can never leave the supply-wait state. Designate from real world
+    -- containers only; map loot and resident scavenging fill them.
+    local roles = { "tools", "building" }
+    for _, role in ipairs(roles) do
+        if not storageRoleAssigned(base, role) then
+            for _, entry in ipairs(found) do
+                if containerFitsFactionRole(entry.kind, role) then
+                    local reference = BaseManager.containerReference(
+                        entry.object, entry.containerIndex, base.id)
+                    if reference ~= nil and base.storage[reference.key] == nil then
+                        BaseManager.setStoragePolicy(
+                            base.id, entry.object, role, entry.containerIndex)
+                        break
+                    end
+                end
+            end
+        end
+    end
+    -- Houses without a refrigerator still need a pantry. Fill uncovered
+    -- categories from remaining real dry containers without reassigning any
+    -- existing player or faction policy. Separate roles are optional capacity.
+    for _, role in ipairs({ "food", "water", "tools", "building", "medical",
+        "farming", "weapons", "ammunition", "clothing", "junk" }) do
+        if not storageRoleAssigned(base, role) then
+            for _, entry in ipairs(found) do
+                if KnoxToolCupboard ~= nil and KnoxToolCupboard.isDryContainerType ~= nil
+                    and KnoxToolCupboard.isDryContainerType(entry.kind) then
+                    local reference = BaseManager.containerReference(entry.object, entry.containerIndex, base.id)
+                    if reference ~= nil and base.storage[reference.key] == nil then
+                        local policy = BaseManager.setStoragePolicy(base.id, entry.object, role, entry.containerIndex)
+                        if policy ~= nil then break end
+                    end
+                end
+            end
         end
     end
 end
@@ -415,32 +441,6 @@ function BaseManager.ensureFactionBase(faction)
         if (base.name == nil or base.name == "" or base.name == "Survivor Camp")
             and type(faction.name) == "string" and faction.name ~= "" then
             base.name = faction.name .. " Base"
-        end
-        local hasDefenseZone = false
-        for _, zone in pairs(base.zones or {}) do
-            if zone ~= nil and (zone.type == "construction" or zone.type == "defense") then
-                hasDefenseZone = true
-                break
-            end
-        end
-        if not hasDefenseZone then
-            local territory = base.territory or base.home
-            if territory ~= nil then
-                -- Factions choose a modest perimeter one tile beyond their home. It
-                -- only becomes real work when residents carry the normal materials.
-                KnoxPersistence.addBaseZone(base.id, "construction", {
-                    x1 = (tonumber(territory.minX) or 0) - 1,
-                    y1 = (tonumber(territory.minY) or 0) - 1,
-                    x2 = (tonumber(territory.maxX)
-                        or ((tonumber(territory.minX) or 0)
-                            + (tonumber(territory.width) or 1) - 1)) + 1,
-                    y2 = (tonumber(territory.maxY)
-                        or ((tonumber(territory.minY) or 0)
-                            + (tonumber(territory.height) or 1) - 1)) + 1,
-                    z = tonumber(territory.z) or 0,
-                    priority = 75,
-                }, "Defense Perimeter")
-            end
         end
         if KnoxSettings.autoGenerateBaseWorkAreas() then
             ensureFactionZones(base)
@@ -614,6 +614,7 @@ function BaseManager.setStoragePolicy(baseId, object, category, containerIndex)
     if base == nil or object == nil or not BaseManager.containsSquare(base, object:getSquare()) then
         return nil, "outside_base"
     end
+    if category == "depot" then return nil, "main_supplies_retired" end
     if BaseManager.STORAGE_CATEGORIES[category] ~= true then return nil, "unknown_storage_category" end
     local reference = BaseManager.containerReference(object, containerIndex, baseId)
     if reference == nil then return nil, "not_a_container" end
@@ -621,12 +622,26 @@ function BaseManager.setStoragePolicy(baseId, object, category, containerIndex)
     if kind == "corpse" or kind:find("water", 1, true) or kind:find("rain", 1, true) then
         return nil, "use_item_storage"
     end
-    if category == "depot" and not KnoxToolCupboard.isDryContainerType(kind) then
-        return nil, "use_dry_storage"
-    end
-    -- Normalize legacy references before adding an explicit food store.
+    -- Normalize legacy references before adding an explicit store.
     KnoxBaseStorage.policies(base)
-    return KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, category == "depot")
+    local policy, result = KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, false)
+    if policy ~= nil then
+        -- Mirror the assigned type onto the world container for organization,
+        -- and grant infinite weight (native max + bypass markers).
+        local container = object.getContainerByIndex ~= nil
+            and object:getContainerByIndex(tonumber(containerIndex) or 0) or nil
+        if container ~= nil then
+            if KnoxBaseStorage.syncContainerName ~= nil then
+                KnoxBaseStorage.syncContainerName(policy, container)
+            end
+            if KnoxToolCupboard ~= nil and KnoxToolCupboard.applyInfinite ~= nil then
+                pcall(function()
+                    KnoxToolCupboard.applyInfinite(object, container, policy.key)
+                end)
+            end
+        end
+    end
+    return policy, result
 end
 
 local function findTraitDefinition(id)
@@ -708,6 +723,9 @@ local function onGameStart()
     BaseManager.ensureFactionBases()
     BaseManager.ensurePlayerBases()
     BaseManager.syncStructureProtection()
+    if KnoxPersistence.applyBaseDoorLocks ~= nil then
+        pcall(function() KnoxPersistence.applyBaseDoorLocks() end)
+    end
 end
 
 Events.OnGameStart.Add(onGameStart)

@@ -26,6 +26,23 @@ local MEDICAL_TYPES = {
     ["Base.Tweezers"] = true,
 }
 
+-- Base-value materials worth hauling home for the group even when the
+-- carrier personally needs nothing. Ordered looting (loot_area, loot
+-- building, loot corpses, raid/event takes) plans for the group; idle
+-- self-scavenging stays personal so survivors do not hoard.
+local GROUP_MATERIALS = {
+    ["Base.Plank"] = true,
+    ["Base.Nails"] = true,
+    ["Base.NailsBox"] = true,
+    ["Base.Log"] = true,
+    ["Base.Hinge"] = true,
+    ["Base.Doorknob"] = true,
+    ["Base.SheetMetal"] = true,
+    ["Base.Screws"] = true,
+    ["Base.Wire"] = true,
+    ["Base.Twine"] = true,
+}
+
 local function safe(call, fallback)
     local success, value = pcall(call)
     if success then return value end
@@ -212,7 +229,7 @@ local function inventoryFacts(character)
     return facts
 end
 
-local function candidateScore(character, facts, item)
+local function candidateScore(character, facts, item, forGroup)
     local firearm = firearmScore(item)
     if firearm ~= nil and facts.firearms < 1 then
         return 62 + firearm, "firearm"
@@ -261,6 +278,36 @@ local function candidateScore(character, facts, item)
     if fullType ~= nil and ESSENTIAL_TOOLS[fullType] and not facts.fullTypes[fullType] then
         return 40, "tool_stock"
     end
+    if forGroup == true then
+        -- Ordered looting serves the group, not the carrier's pockets. A
+        -- geared survivor still strips food, water, medicine, ammunition,
+        -- spare tools, and building materials for the base.
+        if isAmmo(item) or isMagazine(item) then
+            return 40, "group_ammunition"
+        end
+        if safeFood(item) then
+            return 44, "group_food"
+        end
+        if waterItem(item, false) then
+            return 44, "group_water"
+        end
+        if canBandage(item) then
+            return 44, "group_medical"
+        end
+        local groupType = itemType(item)
+        if groupType ~= nil then
+            if MEDICAL_TYPES[groupType] then
+                return 44, "group_medical"
+            end
+            if ESSENTIAL_TOOLS[groupType]
+                and not safe(function() return item:isBroken() end, false) then
+                return 40, "group_tool"
+            end
+            if GROUP_MATERIALS[groupType] then
+                return 38, "group_material"
+            end
+        end
+    end
     return nil, nil
 end
 
@@ -294,16 +341,17 @@ local function applySelectedFacts(facts, item)
     if fullType ~= nil then facts.fullTypes[fullType] = true end
 end
 
-function Looting.plan(character, container, maximumItems)
+function Looting.plan(character, container, maximumItems, forGroup)
     if character == nil or container == nil then
         return {}
     end
+    local groupMode = forGroup == true
     local facts = inventoryFacts(character)
     local candidates = {}
     local items = container:getItems()
     for index = 0, items:size() - 1 do
         local item = items:get(index)
-        local score, reason = candidateScore(character, facts, item)
+        local score, reason = candidateScore(character, facts, item, groupMode)
         if score ~= nil then
             candidates[#candidates + 1] = { item = item, score = score, reason = reason }
         end
@@ -322,7 +370,8 @@ function Looting.plan(character, container, maximumItems)
         local currentScore, currentReason = candidateScore(
             character,
             facts,
-            candidate.item
+            candidate.item,
+            groupMode
         )
         local weight = math.max(0, safe(function()
             return candidate.item:getUnequippedWeight()

@@ -113,6 +113,20 @@ final class KnoxPhysiologySnapshot {
             + " asleep=" + asleep;
     }
 
+    boolean equivalentAfterRestore(KnoxPhysiologySnapshot other) {
+        if (other == null || asleep != other.asleep) return false;
+        return close(hunger, other.hunger)
+            && close(thirst, other.thirst)
+            && close(fatigue, other.fatigue)
+            && close(endurance, other.endurance)
+            && Math.abs(asleepTime - other.asleepTime) <= 0.05f
+            && Math.abs(hoursSurvived - other.hoursSurvived) <= 0.05d;
+    }
+
+    private static boolean close(float first, float second) {
+        return Math.abs(first - second) <= 0.01f;
+    }
+
     private static String save(Object state) throws ReflectiveOperationException {
         ByteBuffer buffer = ByteBuffer.allocate(BUFFER_BYTES);
         state.getClass().getMethod("save", ByteBuffer.class).invoke(state, buffer);

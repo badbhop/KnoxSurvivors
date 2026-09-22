@@ -25,8 +25,12 @@ For the read-only native payload check, compile `tools/WorkshopPayloadVerifier.j
 with the development JDK (`javac --release 17 -d build/release-checks ...`), then run
 `WorkshopPayloadVerifier` with the game's bundled Java 25 and a classpath containing
 `build/release-checks` and the installed `projectzomboid.jar`. Pass the staging folder
-as its single argument. This checks native mod/file acceptance, not preview metadata,
-Steam publication, or gameplay. The bundled runtime does not contain javac.
+as its single argument. The verifier supports an isolated staging folder under
+`build/` using a process-local native filesystem context. It checks mod/file
+acceptance, exactly one agent, the matching SHA-256 sidecar and agent premain entry.
+When `workshop.txt` is present it also checks the existing item ID, description and
+preview. This does not publish or verify gameplay. The bundled runtime does not
+contain javac.
 
 From the launcher checkout, its built `LauncherVerifier` also accepts two optional
 arguments: the installed game directory and this staging folder's `Contents` directory.

@@ -47,14 +47,35 @@ assert(string.find(policeEvidence, "theme=police", 1, true) ~= nil)
 rolls = { 0, 0, 0, 0, 0, 0, 0, 0 }
 rollIndex = 0
 added = {}
+local renamed = nil
+local baseAdd = inventory.AddItem
+inventory.AddItem = function(self, fullType)
+    local item = baseAdd(self, fullType)
+    item.setCustomName = function(_, name) renamed = name end
+    return item
+end
 local scienceOk, scienceEvidence = gear.initialize("ks-world-1", character, bridge, "science")
 assert(scienceOk, scienceEvidence)
-assert(#added == 6, scienceEvidence)
+assert(#added == 7, scienceEvidence)
 assert(added[1] == "Base.Clipboard" and added[2] == "Base.Pen"
     and added[3] == "Base.Scalpel", "science kit must use real ordinary field items")
-assert(added[4] == "Base.WaterBottle" and added[5] == "Base.Crisps"
-    and added[6] == "Base.RippedSheets")
+assert(added[4] == "Base.AntibioticsBox" and renamed == "Knox Cure",
+    "scientists can carry the renamed cure")
+assert(added[5] == "Base.WaterBottle" and added[6] == "Base.Crisps"
+    and added[7] == "Base.RippedSheets")
 assert(string.find(scienceEvidence, "theme=science", 1, true) ~= nil)
+
+rolls = { 50, 0, 0, 0, 0, 0, 0, 0 }
+rollIndex = 0
+added = {}
+renamed = nil
+local plainOk, plainEvidence = gear.initialize("ks-world-1", character, bridge, "science")
+assert(plainOk, plainEvidence)
+assert(#added == 6, plainEvidence)
+for _, fullType in ipairs(added) do
+    assert(fullType ~= "Base.AntibioticsBox", "the cure stays rare")
+end
+assert(renamed == nil, "no cure, no rename")
 
 rolls = { 0, 0, 0, 0, 0, 0, 0, 0 }
 rollIndex = 0

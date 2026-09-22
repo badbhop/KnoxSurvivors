@@ -82,6 +82,14 @@ final class KnoxHealthSnapshot {
             + " bleedingParts=" + bleedingParts;
     }
 
+    boolean equivalentAfterRestore(KnoxHealthSnapshot other) {
+        if (other == null || injuredParts != other.injuredParts
+            || bleedingParts != other.bleedingParts) {
+            return false;
+        }
+        return Math.abs(health - other.health) <= 0.05f;
+    }
+
     private static int worldVersion(Object body) throws ReflectiveOperationException {
         Class<?> isoWorld = Class.forName(
             "zombie.iso.IsoWorld",

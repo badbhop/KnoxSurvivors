@@ -1,4 +1,23 @@
+
+local function getAnyLoadedPlayer()
+    if getSpecificPlayer == nil then return nil end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for i = 0, math.max(0, count - 1) do
+        local ok, p = pcall(getSpecificPlayer, i)
+        if ok and p ~= nil and p.getCurrentSquare ~= nil then
+            local okSq, sq = pcall(function() return p:getCurrentSquare() end)
+            if okSq and sq ~= nil then return p end
+        end
+    end
+    return nil
+end
 local TAG = "[KnoxSurvivors][TestLab]"
+local Probe = rawget(_G, "KnoxNpcSpawnProbe") or {}
+_G.KnoxNpcSpawnProbe = Probe
 local DISCOVERY_DELAY_TICKS = 120
 local SPAWN_SETTLE_TICKS = 90
 local BETWEEN_CASE_TICKS = 45
@@ -119,7 +138,7 @@ local function addCase(found, name, first, second, evidence)
         return
     end
 
-    local player = getSpecificPlayer(0)
+    local player = getAnyLoadedPlayer()
     if player == nil or player:getCurrentSquare() == nil then
         return
     end
@@ -154,7 +173,11 @@ local function inspectEdge(found, first, second, config)
         and not window:IsOpen()
         and not window:isSmashed()
         and not window:isBarricaded() then
+        -- Native open cannot turn a key-locked window either: the crossing
+        -- policy burns its one open attempt and reports LOCKED_OR_UNUSABLE.
+        -- Mirror that here so window_open only admits truly openable glass.
         local locked = window:isLocked() or window:isPermaLocked()
+            or safeBoolean(window, "isLockedByKey")
         if locked and config.allowDestructiveWindowTest == true then
             addCase(found, "window_locked", first, second, "locked=true destructive=true")
         elseif not locked then
@@ -211,7 +234,7 @@ local function findBaselineMovementCase(player, radius)
 end
 
 local function discoverCases(config)
-    local player = getSpecificPlayer(0)
+    local player = getAnyLoadedPlayer()
     local cell = getCell()
     if player == nil or player:getCurrentSquare() == nil or cell == nil then
         return false
@@ -424,6 +447,34 @@ local function findForbiddenTraversalEvidence(bridge)
     return nil
 end
 
+local function finishSuccessfulMovement(bridge, tickResult)
+    local statusSuccess, statusResult = pcall(function()
+        return bridge:getTestNpcStatus()
+    end)
+    local forbiddenEvidence = findForbiddenTraversalEvidence(bridge)
+    local missingEvidence = findMissingTraversalEvidence(bridge)
+    if forbiddenEvidence ~= nil then
+        finishActiveCase(
+            "FAIL",
+            "forbidden_traversal_evidence",
+            "found=" .. forbiddenEvidence .. " status=" .. tostring(statusResult)
+        )
+    elseif missingEvidence ~= nil then
+        finishActiveCase(
+            "FAIL",
+            "missing_traversal_evidence",
+            "expected=" .. missingEvidence .. " status=" .. tostring(statusResult)
+        )
+    else
+        finishActiveCase(
+            "PASS",
+            "crossing_completed",
+            activeCase.evidence .. " tick=" .. tostring(tickResult)
+                .. " status=" .. tostring(statusSuccess and statusResult or "unavailable")
+        )
+    end
+end
+
 local function tickMovement()
     local bridge = rawget(_G, "KnoxJavaBridge")
     local tickSuccess, tickResult = pcall(function()
@@ -436,6 +487,14 @@ local function tickMovement()
         return
     end
 
+    -- Succeeded is a one-tick terminal result. On the next tick the bridge has
+    -- already released the route and reports NOT_REQUESTED, so polling status
+    -- only every interval turned completed walks and crossings into timeouts.
+    if tostring(tickResult) == "Succeeded" then
+        finishSuccessfulMovement(bridge, tickResult)
+        return
+    end
+
     if ticks % STATUS_INTERVAL_TICKS == 0 then
         local statusSuccess, statusResult = pcall(function()
             return bridge:getTestNpcStatus()
@@ -443,27 +502,7 @@ local function tickMovement()
         print(TAG .. " status=" .. tostring(statusSuccess) .. " result=" .. tostring(statusResult))
         if statusSuccess
             and string.find(tostring(statusResult), "controller=Succeeded", 1, true) ~= nil then
-            local forbiddenEvidence = findForbiddenTraversalEvidence(bridge)
-            local missingEvidence = findMissingTraversalEvidence(bridge)
-            if forbiddenEvidence ~= nil then
-                finishActiveCase(
-                    "FAIL",
-                    "forbidden_traversal_evidence",
-                    "found=" .. forbiddenEvidence .. " status=" .. tostring(statusResult)
-                )
-            elseif missingEvidence ~= nil then
-                finishActiveCase(
-                    "FAIL",
-                    "missing_traversal_evidence",
-                    "expected=" .. missingEvidence .. " status=" .. tostring(statusResult)
-                )
-            else
-                finishActiveCase(
-                    "PASS",
-                    "crossing_completed",
-                    activeCase.evidence .. " status=" .. tostring(statusResult)
-                )
-            end
+            finishSuccessfulMovement(bridge, statusResult)
             return
         end
     end
@@ -514,17 +553,19 @@ update = function()
     end
 end
 
-local function onGameStart()
-    local config = rawget(_G, "KnoxDevTests")
-    if config == nil or config.enabled ~= true then
-        print(TAG .. " DISABLED")
-        return
-    end
-    if config.activeScenario ~= "obstacle_suite" then
-        print(TAG .. " INACTIVE activeScenario=" .. tostring(config.activeScenario))
-        return
-    end
+function Probe.status()
+    return {
+        phase = phase,
+        finished = phase == "FINISHED",
+        failures = suiteFailures,
+        passes = obstaclePasses,
+        completed = completedCaseCount,
+        total = #testCases,
+    }
+end
 
+function Probe.start()
+    local config = rawget(_G, "KnoxDevTests") or {}
     print(
         TAG
             .. " START auto=true scenario=obstacle_suite sandboxOverrides="
@@ -550,6 +591,20 @@ local function onGameStart()
     completedCaseCount = 0
     stop()
     Events.OnTick.Add(update)
+end
+
+local function onGameStart()
+    local config = rawget(_G, "KnoxDevTests")
+    if config == nil or config.enabled ~= true then
+        print(TAG .. " DISABLED")
+        return
+    end
+    if config.activeScenario ~= "obstacle_suite" then
+        print(TAG .. " INACTIVE activeScenario=" .. tostring(config.activeScenario))
+        return
+    end
+
+    Probe.start()
 end
 
 local function onMainMenuEnter()

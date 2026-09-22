@@ -113,14 +113,33 @@ for _, id in ipairs({ "a", "b" }) do
     bodies[id].x, bodies[id].y, bodies[id].z = goal.x, goal.y, goal.z
     controllers[id].state = "IDLE"
 end
+-- Arrival uses the durable virtual position for an unloaded member, so a
+-- save/load boundary cannot leave an otherwise-arrived raid stuck approaching.
+local storedGoal = R.destination(event, "a")
+P.setUnloadedSurvivalState("a", { hunger = .1, thirst = .1, health = 100, bleedingParts = 0,
+    fatigue = .1, endurance = .9, lastHours = hours, virtualX = storedGoal.x,
+    virtualY = storedGoal.y, virtualZ = storedGoal.z, status = "hibernated" })
+bodies.a, controllers.a = nil, nil
 R.update(controllers, 11)
 assert(E.get(event.id).phase == "active", "actual positions, not a timer, establish arrival")
+bodies.a, controllers.a = ca.character, ca
+-- A defender or zombie can pull an arriving raider off its exact exterior
+-- approach square.  Reaching the target perimeter is sufficient to begin the
+-- real objective; normal combat remains responsible for the fight itself.
+for _, id in ipairs({ "a", "b" }) do
+    bodies[id].x, bodies[id].y = 198, 202
+    controllers[id].state = id == "a" and "COMBAT" or "IDLE"
+end
+assert(R.raidMemberAtTarget(E.get(event.id), "a", ca)
+    and R.raidMemberAtTarget(E.get(event.id), "b", cb),
+    "raiders engaging around the target base remain at the raid target")
 R.update(controllers, 11)
 assert(E.get(event.id).phase == "objective" and E.get(event.id).objective.requiredItems == 4,
-    "arrived real party begins the bounded native-looting objective")
-P.setFactionRelationshipDisposition(faction.id, playerFaction.id, "neutral", 12, "peace")
+    "target-area combat does not block the bounded native-looting objective")
+ca.state = "FLEEING"
 R.update(controllers, 12)
-assert(E.get(event.id).phase == "withdrawing")
+assert(E.get(event.id).phase == "withdrawing" and E.get(event.id).reason == "party_retreating",
+    "zombie or survival retreat cleanly withdraws an active raid")
 R.syncController("a", ca)
 assert(ca.eventAssignment.phase == "withdrawing" and P.getSurvivorDuty("a").eventId == event.id)
 bodies.a.x, bodies.a.y = 102, 102

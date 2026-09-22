@@ -6,14 +6,15 @@ require "KS_BaseBarricades"
 require "KS_BaseFarming"
 require "KS_BaseWoodcutting"
 require "KS_BaseCorpseHandling"
-require "KS_BaseAnimalCare"
+-- animal care retired (vanilla zones later)
 require "KS_BaseCooking"
 require "KS_BaseRepairs"
-require "KS_BaseConstruction"
+-- construction retired
 require "KS_BaseNeeds"
 require "KS_BaseSupplyPlanner"
 require "KS_CompanionPatrol"
 require "KS_JobTestSupplies"
+require "KS_NightShelter"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -33,11 +34,8 @@ BaseJobs.AUTOMATIC_TYPES = {
     chop_tree = true,
     saw_logs = true,
     haul_corpse = true,
-    animal_care = true,
-    animal_water = true,
-    animal_feed = true,
+    burn_corpse = true,
     repair = true,
-    construct_defense = true,
     cook = true,
 }
 
@@ -103,6 +101,20 @@ function BaseJobs.securityCoverage(base)
             and not KnoxPersistence.isSurvivorAlive(claimedBy) then
             return false
         end
+        if KnoxPersistence.isSurvivorPresent ~= nil
+            and not KnoxPersistence.isSurvivorPresent(claimedBy) then
+            return false
+        end
+        -- A resident can remain in the base roster while an event, away team,
+        -- or duty handoff is in progress. Do not show that person as staffing
+        -- a post until the durable duty record says they are back here.
+        if KnoxPersistence.getSurvivorDuty ~= nil then
+            local duty = KnoxPersistence.getSurvivorDuty(claimedBy)
+            if duty ~= nil and (duty.mode ~= "base"
+                or duty.baseId ~= base.id or duty.eventId ~= nil) then
+                return false
+            end
+        end
         return true
     end
     local seenTasks = {}
@@ -156,6 +168,38 @@ function BaseJobs.workforceSummary(base)
     for _, survivorId in ipairs(type(residentIds) == "table" and residentIds or {}) do
         residentSet[tostring(survivorId)] = true
     end
+    local dutyByResident = {}
+    local function validResident(survivorId)
+        if not residentSet[tostring(survivorId)] then return false end
+        if KnoxPersistence.isSurvivorAlive ~= nil
+            and not KnoxPersistence.isSurvivorAlive(survivorId) then
+            return false
+        end
+        if KnoxPersistence.isSurvivorPresent ~= nil
+            and not KnoxPersistence.isSurvivorPresent(survivorId) then
+            return false
+        end
+        local duty = dutyByResident[tostring(survivorId)]
+        if duty == nil and KnoxPersistence.getSurvivorDuty ~= nil then
+            duty = KnoxPersistence.getSurvivorDuty(survivorId)
+            dutyByResident[tostring(survivorId)] = duty or false
+        elseif duty == false then
+            duty = nil
+        end
+        if duty ~= nil then
+            if duty.eventId ~= nil then return false end
+            if duty.mode ~= nil and duty.mode ~= "base" then return false end
+            if duty.baseId ~= nil
+                and tostring(duty.baseId) ~= tostring(base.id) then
+                return false
+            end
+        end
+        if KnoxPersistence.getAwayTeamForSurvivor ~= nil
+            and KnoxPersistence.getAwayTeamForSurvivor(survivorId) ~= nil then
+            return false
+        end
+        return true
+    end
     local function taskTypeOf(taskType)
         local catalog = rawget(_G, "KnoxOrderCatalog")
         if catalog ~= nil and catalog.normalizeTaskType ~= nil then
@@ -169,7 +213,7 @@ function BaseJobs.workforceSummary(base)
                 summary.queued = summary.queued + 1
             elseif task.state == "claimed" then
                 local claimant = task.claimedBy
-                if claimant ~= nil and residentSet[tostring(claimant)] then
+                if claimant ~= nil and validResident(claimant) then
                     summary.claimed = summary.claimed + 1
                     local key = tostring(claimant)
                     summary.claimedBy[key] = task
@@ -183,21 +227,22 @@ function BaseJobs.workforceSummary(base)
     for _, survivorId in ipairs(type(residentIds) == "table" and residentIds or {}) do
         summary.residents = summary.residents + 1
         local key = tostring(survivorId)
-        local task = summary.claimedBy[key]
-        if task ~= nil then
-            summary.working = summary.working + 1
-        else
-            local duty = KnoxPersistence.getSurvivorDuty ~= nil
-                and KnoxPersistence.getSurvivorDuty(survivorId) or nil
-            local preference = duty ~= nil and tostring(duty.jobPreference or "") or ""
-            if duty ~= nil and (type(duty.baseSupplyOrder) == "table"
-                or type(duty.activeSupplyRun) == "table") then
+        if validResident(survivorId) then
+            local task = summary.claimedBy[key]
+            if task ~= nil then
                 summary.working = summary.working + 1
-                summary.supplyRuns = summary.supplyRuns + 1
-            elseif preference == "rest" then
-                summary.resting = summary.resting + 1
             else
-                summary.idle = summary.idle + 1
+                local duty = dutyByResident[key]
+                local preference = duty ~= nil and tostring(duty.jobPreference or "") or ""
+                if duty ~= nil and (type(duty.baseSupplyOrder) == "table"
+                    or type(duty.activeSupplyRun) == "table") then
+                    summary.working = summary.working + 1
+                    summary.supplyRuns = summary.supplyRuns + 1
+                elseif preference == "rest" then
+                    summary.resting = summary.resting + 1
+                else
+                    summary.idle = summary.idle + 1
+                end
             end
         end
     end
@@ -275,14 +320,8 @@ end
 local function sortedZones(base)
     local zones = {}
     for _, zone in pairs(base ~= nil and base.zones or {}) do
-        -- Animal Care is a work-area preference, not a runnable task by
-        -- itself.  The animal-care executor emits the concrete
-        -- `animal_water` or `animal_feed` task only when a real trough and
-        -- matching carried item are available.  Admitting the zone here as a
-        -- generic task creates an unsupported record that the controller can
-        -- repeatedly claim and block.
         local zoneType = zone ~= nil and canonicalZoneType(zone.type) or nil
-        local executableZone = zone ~= nil and zoneType ~= "animal_care"
+        local executableZone = zone ~= nil
         if executableZone and zone.enabled ~= false
             and BaseJobs.AUTOMATIC_TYPES[zoneType] == true then
             if zoneType == zone.type then
@@ -422,15 +461,30 @@ local function availableWorkFilter(base, now, family)
 end
 
 local function ensureBarricadeTask(base, now, character)
+    local priority = 95
+    -- Player bases board windows only on player order (right-click order or
+    -- Notebook assignment): automatic discovery would spend the player's
+    -- planks/nails without being asked. NPC faction bases keep automatic
+    -- defense boarding. Overridable per base via settings.autoBarricade.
+    local autoSetting = base ~= nil and base.settings ~= nil
+        and base.settings.autoBarricade or nil
+    local allowAuto = (base == nil or base.ownerKind ~= "player")
+    if autoSetting ~= nil then
+        allowAuto = autoSetting == true
+    end
+    if not allowAuto then
+        return nil, "manual_barricade_only"
+    end
     if character == nil or not KnoxBaseBarricades.canPrepare(character, base) then
         return nil, "missing_barricade_materials"
     end
     local target = KnoxBaseBarricades.findTarget(base, character,
-        availableWorkFilter(base, now, { repair = true, construct_defense = true, barricade = true }))
+        availableWorkFilter(base, now, { repair = true, barricade = true }))
     if target == nil then
         return nil, "no_unbarricaded_window"
     end
-    local hammerType = KnoxBaseBarricades.findHammer(character, base):getFullType()
+    local hammer = KnoxBaseBarricades.findHammer(character, base)
+    local hammerType = hammer ~= nil and hammer:getFullType() or "Base.Hammer"
     local requirements = itemRequirements(hammerType, "Base.Plank", "Base.Nails", "Base.Nails")
     requireUsableItem(requirements, hammerType)
     local existing = taskForTargetId(base, target.id)
@@ -457,7 +511,7 @@ local function ensureBarricadeTask(base, now, character)
         "barricade",
         target,
         requirements,
-        95
+        priority
     )
     if task ~= nil then
         task.baseId = base.id
@@ -592,22 +646,21 @@ local function ensureCorpseTask(base, now, character)
     return nil, result
 end
 
-local function ensureAnimalCareTask(base, now, character)
-    local target = KnoxBaseAnimalCare.findTask(base, character, availableWorkFilter(base, now, "animal_"))
-    if target == nil then
-        return nil, "no_animal_care_ready"
+local function ensureBurnTask(base, now, character)
+    if KnoxBaseCorpseHandling == nil or KnoxBaseCorpseHandling.findBurnTask == nil then
+        return nil, "no_burn_ready"
     end
-    local requirements = itemRequirements(target.itemType)
-    requireUsableItem(requirements, target.itemType, {
-        animalWater = target.action == "animal_water",
-        animalFeed = target.action == "animal_feed",
-    })
+    local target, discovery = KnoxBaseCorpseHandling.findBurnTask(base, character,
+        availableWorkFilter(base, now, { burn_corpse = true }))
+    if target == nil then
+        return nil, discovery or "no_burn_ready"
+    end
+    -- Burning needs a lighter in inventory or assigned storage.
+    local requirements = { items = { ["Base.Lighter"] = 1 } }
     local existing = taskForTargetId(base, target.id)
     if existing ~= nil then
         existing.baseId = base.id
-        if existing.state == "claimed" then return existing, "existing" end
-        if existing.state == "queued" then
-            existing.target, existing.requirements = target, requirements
+        if existing.state == "queued" or existing.state == "claimed" then
             return existing, "existing"
         end
         local reopened = reopenWhenReady(existing, now)
@@ -620,10 +673,10 @@ local function ensureAnimalCareTask(base, now, character)
     end
     local task, result = KnoxBaseTaskBoard.queue(
         base.id,
-        target.action,
+        "burn_corpse",
         target,
         requirements,
-        target.action == "animal_water" and 89 or 87
+        93
     )
     if task ~= nil then
         task.baseId = base.id
@@ -636,7 +689,7 @@ end
 
 local function ensureRepairTask(base, now, character)
     local target = KnoxBaseRepairs.findTask(base, character,
-        availableWorkFilter(base, now, { repair = true, construct_defense = true, barricade = true }))
+        availableWorkFilter(base, now, { repair = true, barricade = true }))
     if target == nil then
         return nil, "no_repair_ready"
     end
@@ -673,31 +726,6 @@ local function ensureRepairTask(base, now, character)
     return nil, result
 end
 
-local function ensureConstructionTask(base, now, character)
-    local target = KnoxBaseConstruction.findTask(base, character,
-        availableWorkFilter(base, now, { repair = true, construct_defense = true, barricade = true }))
-    if target == nil then return nil, "no_construction_ready" end
-    local requirements = KnoxBaseConstruction.requirements(target, character, base)
-    if requirements == nil then return nil, "missing_construction_materials" end
-    local existing = taskForTargetId(base, target.id)
-    if existing ~= nil then
-        existing.baseId = base.id
-        if existing.state == "queued" or existing.state == "claimed" then return existing, "existing" end
-        local reopened = reopenWhenReady(existing, now)
-        if reopened ~= nil then
-            reopened.target, reopened.requirements = target, requirements
-            return reopened, "reopened"
-        end
-        return nil, "retry_not_ready"
-    end
-    local task, result = KnoxBaseTaskBoard.queue(base.id, "construct_defense", target,
-        requirements, 96)
-    if task ~= nil then
-        task.baseId, task.auto, task.retryAtHours = base.id, true, now
-    end
-    return task, result
-end
-
 local function ensureCookingTask(base, now, character)
     local target,reason = KnoxBaseCooking.findTask(base,character)
     if target == nil then return nil,reason end
@@ -732,16 +760,49 @@ local function canonicalTaskType(taskType)
     return taskType
 end
 
+-- RimWorld-style duty schedule assignment for a base resident. Sleep and
+-- recreation are no-work windows honored by the controller bypass (same as
+-- explicit rest); work defers to preference/skill/rotation; anything (and
+-- any non-base duty, missing record, or player survivor without a schedule)
+-- preserves historical behavior exactly. NPC groups/factions receive the
+-- default clock once, lazily, on first read.
+function BaseJobs.scheduleAssignment(survivorId)
+    local persistence = KnoxPersistence
+    if survivorId == nil or persistence == nil
+        or persistence.getSurvivorDuty == nil then
+        return "anything"
+    end
+    local duty = persistence.getSurvivorDuty(survivorId)
+    if type(duty) ~= "table" or duty.mode ~= "base" then
+        return "anything"
+    end
+    local schedule = duty.schedule
+    if schedule == nil and persistence.getSurvivorAffiliation ~= nil
+        and persistence.ensureAutoDutySchedule ~= nil then
+        local affiliation = persistence.getSurvivorAffiliation(survivorId)
+        if type(affiliation) == "table" and affiliation.kind ~= "player" then
+            if persistence.ensureAutoDutySchedule(survivorId, worldAge()) then
+                schedule = persistence.getDutySchedule(survivorId)
+            end
+        end
+    end
+    if schedule == nil or persistence.scheduleAssignmentFor == nil then
+        return "anything"
+    end
+    local hour = KnoxNightShelter ~= nil and KnoxNightShelter.currentHour ~= nil
+        and KnoxNightShelter.currentHour() or 12
+    return persistence.scheduleAssignmentFor(schedule, hour)
+end
+
 -- Skills are a bounded tie-breaker, not a new assignment system.  Hard task
 -- requirements still belong to BaseManager.canPerformTask; this only lets an
 -- eligible carpenter/farmer/medic/security worker win an otherwise comparable
 -- duty instead of relying on queue order.
 local TASK_SKILL_HINTS = {
-    barricade = "Woodwork", construct_defense = "Woodwork", repair = "Mechanics",
+    barricade = "Woodwork", repair = "Mechanics",
     chop_tree = "Axe", saw_logs = "Woodwork",
     farm_seed = "Farming", farm_water = "Farming", farm_harvest = "Farming",
-    farm_plow = "Farming", animal_care = "Farming", animal_water = "Farming",
-    animal_feed = "Farming", guard = "Aiming", patrol = "Aiming",
+    farm_plow = "Farming", guard = "Aiming", patrol = "Aiming",
     haul_corpse = "Strength", cook = "Cooking",
 }
 
@@ -777,6 +838,8 @@ function BaseJobs.effectivePreference(duty, profile)
     if normalized ~= nil and KnoxOrderCatalog.isBasePreference(normalized) then
         selected = normalized
     end
+    -- Retired preferences fall back to automatic instead of matching nothing.
+    if selected == "construction" then return "auto" end
     if selected ~= nil and selected ~= "" and selected ~= "auto" then return selected end
     local profession = string.lower(tostring(profile ~= nil and profile.professionId or ""))
     if string.find(profession, "police", 1, true)
@@ -794,10 +857,6 @@ function BaseJobs.effectivePreference(duty, profile)
     if string.find(profession, "farmer", 1, true)
         or string.find(profession, "gardener", 1, true) then
         return "farming"
-    end
-    if string.find(profession, "ranch", 1, true)
-        or string.find(profession, "animal", 1, true) then
-        return "animal_care"
     end
     return "auto"
 end
@@ -990,7 +1049,6 @@ function BaseJobs.prepareWorkforce(base, character, now)
     if base == nil then return false end
     now = tonumber(now) or worldAge()
     local jobTests = rawget(_G, "KnoxJobTestSupplies")
-    if jobTests ~= nil then jobTests.ensure(base, character) end
     local signature = workforceSignature(base)
     local cached = workforcePreparation[base]
     local recent = cached ~= nil and cached.signature == signature
@@ -1020,13 +1078,15 @@ function BaseJobs.prepareWorkforce(base, character, now)
         end
     end
     if discover then
+        if jobTests ~= nil and jobTests.prepareDiscovery ~= nil then
+            jobTests.prepareDiscovery(base, character)
+        end
         if KnoxBaseCooking ~= nil then ensureCookingTask(base, now, character) end
         ensureFarmingTask(base, now, character)
         ensureWoodcuttingTask(base, now, character)
         ensureCorpseTask(base, now, character)
-        ensureAnimalCareTask(base, now, character)
+        ensureBurnTask(base, now, character)
         ensureRepairTask(base, now, character)
-        ensureConstructionTask(base, now, character)
         ensureBarricadeTask(base, now, character)
         if character ~= nil and clock ~= nil then discovery[character] = clock end
     end
@@ -1127,12 +1187,25 @@ function BaseJobs.resolveTaskSquare(task, character)
         )
         return resolved ~= nil and resolved.approach or nil
     end
-    if taskType == "animal_water" or taskType == "animal_feed" then
-        return KnoxBaseAnimalCare.resolveTaskSquare(
-            KnoxBaseManager.get(task.baseId),
-            target,
-            character
-        )
+    if taskType == "burn_corpse" or target.action == "burn_corpse" then
+        local square = cell:getGridSquare(
+            tonumber(target.x) or 0, tonumber(target.y) or 0, tonumber(target.z) or 0)
+        if square == nil then return nil end
+        if AdjacentFreeTileFinder ~= nil and character ~= nil then
+            local ok, approach = pcall(function()
+                return AdjacentFreeTileFinder.Find(square, character)
+            end)
+            if ok and approach ~= nil then return approach end
+        end
+        return square
+    end
+    if taskType == "barricade" then
+        local base = KnoxBaseManager.get(task.baseId)
+        local approach = KnoxBaseBarricades ~= nil
+            and KnoxBaseBarricades.approachSquare ~= nil
+            and KnoxBaseBarricades.approachSquare(base, target, character)
+            or nil
+        return approach
     end
     if taskType == "cook" then
         return KnoxBaseCooking.resolveTaskSquare(KnoxBaseManager.get(task.baseId),target,character)
@@ -1143,10 +1216,6 @@ function BaseJobs.resolveTaskSquare(task, character)
             target,
             character
         )
-    end
-    if taskType == "construct_defense" then
-        return KnoxBaseConstruction.resolveTaskSquare(
-            KnoxBaseManager.get(task.baseId), target, character)
     end
     local x1 = tonumber(target.x1 or target.x) or 0
     local y1 = tonumber(target.y1 or target.y) or 0

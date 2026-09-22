@@ -57,11 +57,13 @@ public final class KnoxShellVisibility {
 
     private static float alpha(Object shell, int viewerIndex) {
         int slot = Math.max(0, Math.min(VIEWER_SLOTS - 1, viewerIndex));
-        // Use the real player LOS channel for every survivor, including a
-        // companion. The stored party flag is intentionally not a render
-        // override; alpha below gives the same soft fade behaviour rather than
-        // a hard invisible/visible pop.
-        boolean visible = isVisible(shell, viewerIndex);
+        // Companions are party members in the same way a split-screen player
+        // is. Keep their shell renderable when they pass behind the camera or
+        // a short occluding edge, otherwise turning around causes them to
+        // disappear and reappear while their movement continues. This is a
+        // render visibility choice only; it does not grant zombie awareness,
+        // targeting, or wall traversal.
+        boolean visible = isPartyVisible(shell) || isVisible(shell, viewerIndex);
         long now = System.nanoTime();
         synchronized (fadeStates) {
             FadeState state = fadeStates.computeIfAbsent(shell, ignored -> new FadeState(now));

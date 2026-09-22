@@ -64,6 +64,72 @@ function MedicalActions.queueBandage(character, item, bodyPart)
     return action, "queued"
 end
 
+-- Survivor-to-survivor first aid: the same native bandage action with a
+-- distinct doctor and patient. The engine owns approach validation,
+-- animation, and bandage consumption; Lua only lines up a nearby bleeding
+-- ally, a carried bandage, and adjacency. Constructor shape mirrors the
+-- proven self-bandage path with only the patient swapped in.
+local KnoxNpcAidBandage = ISApplyBandage:derive("KnoxNpcAidBandage")
+
+function KnoxNpcAidBandage:isValid()
+    return self.item ~= nil and self.patient ~= nil
+        and self.character:getInventory():contains(self.item)
+        and self.bodyPart:HasInjury()
+        and not self.bodyPart:bandaged()
+end
+
+function KnoxNpcAidBandage:waitToStart()
+    return false
+end
+
+function KnoxNpcAidBandage:new(doctor, patient, item, bodyPart)
+    local action = ISApplyBandage.new(self, doctor, patient, item, bodyPart, true)
+    action.patient = patient
+    return action
+end
+
+function MedicalActions.findBandageItem(doctor)
+    if doctor == nil or doctor.getInventory == nil then
+        return nil
+    end
+    local inventory = doctor:getInventory()
+    if inventory == nil or inventory.getItems == nil then
+        return nil
+    end
+    local items = inventory:getItems()
+    for index = 0, items:size() - 1 do
+        local item = items:get(index)
+        if item ~= nil and item.isCanBandage ~= nil then
+            local ok, usable = pcall(function()
+                return item:isCanBandage() and not item:isBroken()
+            end)
+            if ok and usable then
+                return item
+            end
+        end
+    end
+    return nil
+end
+
+function MedicalActions.queueAidBandage(doctor, patient, item, bodyPart)
+    if doctor == nil or patient == nil or item == nil or bodyPart == nil then
+        return nil, "missing_aid_input"
+    end
+    if doctor == patient then
+        return MedicalActions.queueBandage(doctor, item, bodyPart)
+    end
+    local action = nil
+    local ok, result = pcall(function()
+        return KnoxNpcAidBandage:new(doctor, patient, item, bodyPart)
+    end)
+    if not ok or result == nil then
+        return nil, "aid_action_unavailable"
+    end
+    action = result
+    ISTimedActionQueue.add(action)
+    return action, "queued"
+end
+
 function MedicalActions.mostUrgentInjury(character)
     if character == nil then
         return nil
@@ -81,3 +147,5 @@ function MedicalActions.mostUrgentInjury(character)
     end
     return fallback
 end
+
+return MedicalActions

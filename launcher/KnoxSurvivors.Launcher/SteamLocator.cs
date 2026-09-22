@@ -22,9 +22,14 @@ namespace KnoxSurvivors.Launcher
                 );
             }
 
+            return LocateFromSteamDirectory(steamDirectory);
+        }
+
+        internal LauncherInstallation LocateFromSteamDirectory(string steamDirectory)
+        {
             IReadOnlyList<string> libraries = FindLibraries(steamDirectory);
             string gameDirectory = libraries
-                .Select(path => Path.Combine(path, "steamapps", "common", "ProjectZomboid"))
+                .Select(FindGameDirectory)
                 .FirstOrDefault(IsGameDirectory);
             if (gameDirectory == null)
             {
@@ -52,13 +57,19 @@ namespace KnoxSurvivors.Launcher
                 );
             }
 
-            string modDirectory = Path.Combine(
-                workshopDirectory,
-                "Contents",
-                "mods",
-                "KnoxSurvivors"
-            );
-            string agentDirectory = Path.Combine(workshopDirectory, "java", "build", "libs");
+            string modDirectory = new[]
+            {
+                Path.Combine(workshopDirectory, "mods", "KnoxSurvivors"),
+                Path.Combine(workshopDirectory, "Contents", "mods", "KnoxSurvivors"),
+            }.FirstOrDefault(Directory.Exists);
+            if (modDirectory == null)
+            {
+                throw new LauncherException(
+                    "The Workshop item does not contain the KnoxSurvivors mod files."
+                );
+            }
+
+            string agentDirectory = Path.Combine(modDirectory, "java");
             string[] agentJars = Directory.Exists(agentDirectory)
                 ? Directory.GetFiles(agentDirectory, "knox-agent-*.jar", SearchOption.TopDirectoryOnly)
                 : Array.Empty<string>();
@@ -66,8 +77,8 @@ namespace KnoxSurvivors.Launcher
             {
                 throw new LauncherException(
                     agentJars.Length == 0
-                        ? "The Workshop download is missing the Knox Java runtime. Let Steam verify the item and try again."
-                        : "The Workshop download contains multiple Knox Java runtimes. Verify the item through Steam and try again."
+                        ? "The Knox Java runtime was not found in " + agentDirectory + "."
+                        : "Multiple Knox Java runtimes were found in " + agentDirectory + "."
                 );
             }
 
@@ -80,6 +91,26 @@ namespace KnoxSurvivors.Launcher
                 AgentJarPath = agentJars[0],
                 GameBatchPath = Path.Combine(gameDirectory, "ProjectZomboid64.bat"),
             };
+        }
+
+        private static string FindGameDirectory(string library)
+        {
+            string steamApps = Path.Combine(library, "steamapps");
+            string installDirectory = "ProjectZomboid";
+            string manifest = Path.Combine(steamApps, "appmanifest_" + SteamAppId + ".acf");
+            if (File.Exists(manifest))
+            {
+                Match match = Regex.Match(
+                    File.ReadAllText(manifest),
+                    "\\\"installdir\\\"\\s+\\\"(?<name>[^\\\"]+)\\\"",
+                    RegexOptions.CultureInvariant | RegexOptions.IgnoreCase
+                );
+                if (match.Success && !string.IsNullOrWhiteSpace(match.Groups["name"].Value))
+                {
+                    installDirectory = match.Groups["name"].Value;
+                }
+            }
+            return Path.Combine(steamApps, "common", installDirectory);
         }
 
         internal static IReadOnlyList<string> FindLibraries(string steamDirectory)

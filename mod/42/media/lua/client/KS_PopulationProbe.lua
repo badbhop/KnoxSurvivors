@@ -1,3 +1,20 @@
+
+local function getAnyLoadedPlayer()
+    if getSpecificPlayer == nil then return nil end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for i = 0, math.max(0, count - 1) do
+        local ok, p = pcall(getSpecificPlayer, i)
+        if ok and p ~= nil and p.getCurrentSquare ~= nil then
+            local okSq, sq = pcall(function() return p:getCurrentSquare() end)
+            if okSq and sq ~= nil then return p end
+        end
+    end
+    return nil
+end
 local TAG = "[KnoxSurvivors][Population]"
 local IDS = { "ks-test-1", "ks-test-2" }
 local ROUTES_REQUIRED = 3
@@ -12,6 +29,7 @@ local agents = {}
 local ticks = 0
 local passReported = false
 local populationReady = false
+local lastResult = nil
 local update
 
 local function stop()
@@ -238,6 +256,14 @@ local function reportPassIfReady()
         KnoxPersistence.markDevGateComplete(RELOAD_GATE_KEY)
     end
     passReported = true
+    lastResult = {
+        status = "PASS",
+        reason = "two_independent_survivors",
+        evidence = "active=2 routes=" .. tostring(agents[IDS[1]].routes)
+            .. "," .. tostring(agents[IDS[2]].routes)
+            .. " saved=" .. tostring(evidence)
+            .. " reloadVerified=" .. tostring(alreadyPassed),
+    }
     print(
         TAG
             .. " RESULT scenario=population status=PASS"
@@ -252,7 +278,7 @@ end
 update = function()
     ticks = ticks + 1
     local bridge = rawget(_G, "KnoxJavaBridge")
-    local player = getSpecificPlayer(0)
+    local player = getAnyLoadedPlayer()
     if bridge == nil or player == nil or player:getCurrentSquare() == nil or getCell() == nil then
         return
     end
@@ -286,18 +312,24 @@ update = function()
     end
 end
 
-local function onGameStart()
+local function start()
     local config = rawget(_G, "KnoxDevTests")
     if config == nil or config.enabled ~= true or config.activeScenario ~= "population" then
-        return
+        return false, "disabled"
     end
     ticks = 0
     agents = {}
     passReported = false
     populationReady = false
+    lastResult = nil
     stop()
     Events.OnTick.Add(update)
     print(TAG .. " START auto=true survivors=2 zombiesDontAttack=true")
+    return true, "started"
+end
+
+local function onGameStart()
+    start()
 end
 
 local function onMainMenuEnter()
@@ -307,3 +339,20 @@ end
 
 Events.OnGameStart.Add(onGameStart)
 Events.OnMainMenuEnter.Add(onMainMenuEnter)
+
+local Probe = rawget(_G, "KnoxPopulationProbe") or {}
+_G.KnoxPopulationProbe = Probe
+function Probe.start()
+    return start()
+end
+function Probe.status()
+    return {
+        phase = populationReady and (passReported and "FINISHED" or "ACTIVE") or "WAITING",
+        finished = passReported,
+        result = lastResult,
+        ticks = ticks,
+    }
+end
+function Probe.cleanup()
+    stop()
+end

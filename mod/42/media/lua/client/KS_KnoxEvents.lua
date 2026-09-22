@@ -1,5 +1,15 @@
 require "KS_Persistence"
 require "KS_EventFactions"
+pcall(function() require "KS_DebugLog" end)
+
+-- Faction-vs-faction raid telemetry: proposals are frequent background
+-- evaluations, so only verdicts log (throttled), never the scan itself.
+local function diagRaid(event, details)
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("faction", "raid", event, details) end)
+    end
+end
 
 local KnoxEvents = rawget(_G, "KnoxEvents") or {}
 _G.KnoxEvents = KnoxEvents
@@ -112,8 +122,9 @@ local function raidOwners(factionId, baseId)
     if faction == nil or faction.kind == "player" or other == nil or faction.id == other.id then
         return nil, "invalid_raid_owners"
     end
-    local relation = KnoxPersistence.getFactionRelationship(faction.id, other.id)
-    if relation == nil or relation.disposition ~= "hostile" then return nil, "not_hostile" end
+    if KnoxPersistence.getFactionDisposition(faction.id, other.id) ~= "hostile" then
+        return nil, "not_hostile"
+    end
     local home = KnoxPersistence.getBaseForOwner("faction", faction.id)
     if locationKey(home) == nil or locationKey(target) == nil then return nil, "missing_base" end
     return { faction = faction, home = home, target = target, targetFactionId = other.id }
@@ -293,13 +304,35 @@ end
 function KnoxEvents.proposeRaid(factionId, baseId, hours)
     if not finite(hours) or hours < 0 then return nil, "invalid_time" end
     local owners, reason = raidOwners(factionId, baseId)
-    if owners == nil then return nil, reason end
+    if owners == nil then
+        diagRaid("proposal_rejected", {
+            source = tostring(factionId), target = tostring(baseId),
+            reason = tostring(reason),
+        })
+        return nil, reason
+    end
     local cooldown = KnoxPersistence.getKnoxEventState().cooldowns[factionId]
-    if finite(cooldown) and hours < cooldown then return nil, "faction_event_cooldown" end
+    if finite(cooldown) and hours < cooldown then
+        diagRaid("proposal_rejected", {
+            source = tostring(factionId), target = tostring(baseId),
+            reason = "faction_event_cooldown",
+        })
+        return nil, "faction_event_cooldown"
+    end
     for _, event in pairs(records()) do
         if type(event) == "table" and event.sourceFactionId == factionId then
-            if not terminal(event) then return nil, "faction_event_active" end
+            if not terminal(event) then
+                diagRaid("proposal_rejected", {
+                    source = tostring(factionId), target = tostring(baseId),
+                    reason = "faction_event_active",
+                })
+                return nil, "faction_event_active"
+            end
             if finite(event.lastChangedAtHours) and hours < event.lastChangedAtHours + RAID_COOLDOWN_HOURS then
+                diagRaid("proposal_rejected", {
+                    source = tostring(factionId), target = tostring(baseId),
+                    reason = "faction_event_cooldown",
+                })
                 return nil, "faction_event_cooldown"
             end
         end
@@ -313,9 +346,21 @@ function KnoxEvents.proposeRaid(factionId, baseId, hours)
     -- Five established residents may send two, never all five. Two available
     -- residents stay home even if most of the faction is already away working.
     local count = math.min(math.floor(#living * 0.4), #available - 2)
-    if count < 1 then return nil, "insufficient_home_strength" end
+    if count < 1 then
+        diagRaid("proposal_rejected", {
+            source = tostring(factionId), target = tostring(baseId),
+            reason = "insufficient_home_strength",
+            living = #living, available = #available,
+        })
+        return nil, "insufficient_home_strength"
+    end
     local members = {}
     for index = 1, count do members[index] = available[index] end
+    diagRaid("proposal_accepted", {
+        source = tostring(factionId), target = tostring(baseId),
+        raiders = #members, living = #living,
+        targetFaction = tostring(owners.targetFactionId),
+    })
     return { kind = "faction_raid", sourceFactionId = factionId, targetBaseId = baseId,
         sourceBaseId = owners.home.id, targetFactionId = owners.targetFactionId,
         sourceLocation = locationKey(owners.home), targetLocation = locationKey(owners.target),
@@ -343,6 +388,8 @@ end
 function KnoxEvents.scheduleFactionEntry(policyId, objectiveKind, target, partySize, hours, delayHours)
     hours, delayHours = tonumber(hours), delayHours == nil and 1 or tonumber(delayHours)
     partySize = math.floor(tonumber(partySize) or 0)
+    local policy = KnoxEventFactions ~= nil and KnoxEventFactions.get(policyId) or nil
+    if policy ~= nil and policy.disabled == true then return nil, "event_faction_disabled" end
     if not finite(hours) or hours < 0 or not finite(delayHours) or delayHours < 0 or delayHours > 168
         or not point(target) or partySize < 2 or partySize > 6
         or not KnoxEventFactions.isWorldAgeEligible(policyId, hours)
@@ -496,19 +543,22 @@ function KnoxEvents.finishFactionEntryObjective(id, revision, hours, outcome)
     end
     event.objective.outcome = outcome
     event.objective.finishedAtHours = hours
-    return KnoxEvents.transition(id, revision, "withdrawing", hours,
+    local changed, reason = KnoxEvents.transition(id, revision, "withdrawing", hours,
         outcome == "area_secure" and "area_secured"
             or outcome == "supplies_taken" and "supplies_taken"
             or outcome == "partial_supplies" and "partial_supplies"
             or outcome == "no_supplies" and "no_supplies"
             or "event_objective_elapsed")
+    -- Deserters leave the patrol as recruitable independents only after the
+    -- objective transition succeeds; releasing before would fail validation.
+    if changed ~= nil then KnoxPersistence.releaseDeserters(id, hours) end
+    return changed, reason
 end
 
 function KnoxEvents.isTravelEvent(event)
     return type(event) == "table"
         and (event.kind == "faction_raid" or event.kind == "faction_entry")
 end
-
 local function baseCenter(base)
     local home = type(base) == "table" and base.home or nil
     if type(home) ~= "table" or not finite(home.minX) or not finite(home.minY)
@@ -604,6 +654,114 @@ function KnoxEvents.scheduleAutomaticRaid(hours, enabled, minimumDays, intervalD
     end
     automatic.nextCheckHours = hours + math.min(AUTOMATIC_RETRY_HOURS, intervalHours)
     return nil, "eligibility_changed"
+end
+
+-- Automatic police/military/scientist patrols. Unlike raids these need no
+-- source base: they stage near loaded players, work their first policy
+-- objective, then leave the county. Disabled policies never schedule.
+local ENTRY_AUTO_POLICIES = { "police", "military", "scientists" }
+local ENTRY_RETRY_HOURS = 6
+
+local function loadedPlayerSquares()
+    local squares = {}
+    if getSpecificPlayer == nil then return squares end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for index = 0, math.max(0, count - 1) do
+        local ok, player = pcall(getSpecificPlayer, index)
+        local square = ok and player ~= nil and player.getCurrentSquare ~= nil
+            and player:getCurrentSquare() or nil
+        if square ~= nil then squares[#squares + 1] = square end
+    end
+    return squares
+end
+
+local function entryEligiblePolicies(hours)
+    local eligible = {}
+    for _, policyId in ipairs(ENTRY_AUTO_POLICIES) do
+        local policy = KnoxEventFactions ~= nil and KnoxEventFactions.get(policyId) or nil
+        if policy ~= nil and policy.disabled ~= true
+            and KnoxEventFactions.isWorldAgeEligible(policyId, hours) then
+            eligible[#eligible + 1] = policyId
+        end
+    end
+    return eligible
+end
+
+-- Weighted deterministic pick over the expanded weight list, so scientists
+-- stay rare and police stay common without random scheduler state.
+local function pickEntryPolicy(eligible, cursor)
+    local bag = {}
+    for _, policyId in ipairs(eligible) do
+        local policy = KnoxEventFactions.get(policyId)
+        local weight = math.max(1, math.floor(tonumber(policy.schedulerWeight) or 1))
+        for _ = 1, weight do bag[#bag + 1] = policyId end
+    end
+    if #bag == 0 then return nil end
+    return bag[(math.max(0, math.floor(tonumber(cursor) or 0)) % #bag) + 1]
+end
+
+function KnoxEvents.scheduleAutomaticEntry(hours, enabled, minimumDays, intervalDays, force)
+    if enabled ~= true then return nil, "automatic_entries_disabled" end
+    if not finite(hours) or hours < 0 or not finite(minimumDays) or not finite(intervalDays)
+        or minimumDays < 0 or minimumDays > 90 or intervalDays < 1 or intervalDays > 30 then
+        return nil, "invalid_automatic_policy"
+    end
+    local automatic = KnoxPersistence.getKnoxEventState().automatic
+    if type(automatic) ~= "table" then return nil, "automatic_state_unavailable" end
+    local earliest = minimumDays * 24
+    if hours < earliest then
+        automatic.entryNextCheckHours = math.max(tonumber(automatic.entryNextCheckHours) or 0, earliest)
+        return nil, "world_too_young"
+    end
+    if force ~= true and hours < (tonumber(automatic.entryNextCheckHours) or 0) then
+        return nil, "automatic_check_not_due"
+    end
+    if automaticActive() then
+        automatic.entryNextCheckHours = math.max(tonumber(automatic.entryNextCheckHours) or 0, hours + 1)
+        return nil, "automatic_event_active"
+    end
+    local players = loadedPlayerSquares()
+    if #players == 0 then
+        automatic.entryNextCheckHours = hours + math.min(ENTRY_RETRY_HOURS, intervalDays * 24)
+        return nil, "no_loaded_players"
+    end
+    local eligible = entryEligiblePolicies(hours)
+    if #eligible == 0 then
+        automatic.entryNextCheckHours = hours + math.min(ENTRY_RETRY_HOURS, intervalDays * 24)
+        return nil, "no_eligible_entry"
+    end
+    local cursor = math.max(0, math.floor(tonumber(automatic.entryCursor) or 0))
+    local policyId = pickEntryPolicy(eligible, cursor)
+    local policy = KnoxEventFactions.get(policyId)
+    local sizeMin = tonumber(policy.partySize ~= nil and policy.partySize[1]) or 2
+    local sizeMax = tonumber(policy.partySize ~= nil and policy.partySize[2]) or sizeMin
+    local partySize = sizeMin + (cursor % math.max(1, sizeMax - sizeMin + 1))
+    local square = players[(cursor % #players) + 1]
+    -- Deterministic offset near (never on top of) a loaded player; dispatch
+    -- validates real world anchors 100-600 tiles out before anyone spawns.
+    local angle = (cursor + 1) * 2.399963
+    local distance = 200 + ((cursor * 137) % 200)
+    local target = {
+        x = math.floor(square:getX() + math.cos(angle) * distance),
+        y = math.floor(square:getY() + math.sin(angle) * distance),
+        z = math.max(0, math.min(7, square:getZ())),
+    }
+    local delay = force == true and 0 or 1 + ((math.floor(hours) + cursor) % 4)
+    local event = KnoxEvents.scheduleFactionEntry(policyId, policy.objectives[1],
+        target, partySize, hours, delay)
+    if event == nil then
+        automatic.entryNextCheckHours = hours + math.min(ENTRY_RETRY_HOURS, intervalDays * 24)
+        return nil, "eligibility_changed"
+    end
+    local stored = records()[event.id]
+    stored.trigger = "automatic"
+    automatic.entryCursor = cursor + 1
+    automatic.entryNextCheckHours = hours + intervalDays * 24
+    return KnoxEvents.get(event.id), "automatic_entry_scheduled"
 end
 
 function KnoxEvents.isValidRecord(event)

@@ -47,16 +47,20 @@ assertDefault("ActivationsPerUpdate", 2)
 assertDefault("NPCFactionMinimumMembers", 4)
 assertDefault("NPCFactionMaxMembers", 8)
 assertDefault("AllowFactionRaids", false)
+assert(not string.find(sandboxDefinition, "AllowResidentLootRuns", 1, true)
+    and not string.find(sandboxEnglish, "AllowResidentLootRuns", 1, true),
+    "resident loot runs are a per-resident order, not a sandbox option")
 assertDefault("EnableKnoxEvents", false)
 assert(not string.find(sandboxDefinition, "AllowSurvivorFleeing", 1, true)
     and not string.find(sandboxEnglish, "AllowSurvivorFleeing", 1, true),
     "fleeing is an internal risk decision rather than a sandbox option")
 assertDefault("ShowDeveloperDiagnostics", false)
 assertDefault("SurvivorAimingAssist", 1)
+assertDefault("AllowSurvivorsTreatPlayer", true)
 assertDefault("FactionRaidMinimumDays", 14)
-assert(string.find(sandboxEnglish, "Allow NPC Factions (Work in Progress)", 1, true)
-    and string.find(sandboxEnglish, "Allow Faction Raids (Experimental)", 1, true),
-    "unfinished normal-play settings are identified in player-facing text")
+assert(not string.find(sandboxEnglish, "(Experimental)", 1, true)
+    and not string.find(sandboxEnglish, "(Work in Progress)", 1, true),
+    "normal sandbox settings use player-facing names rather than development labels")
 
 SandboxVars = nil
 require "KS_Settings"
@@ -86,11 +90,13 @@ assert(not KnoxSettings.enableKnoxEvents(), "experimental events default off")
 assert(KnoxSettings.factionRaidMinimumDays() == 14, "raid world-age balanced default")
 assert(KnoxSettings.factionRaidIntervalDays() == 7, "raid interval default")
 assert(KnoxSettings.survivorAimingAssist() == 1, "native aiming assistance default")
+assert(KnoxSettings.allowSurvivorsTreatPlayer(), "owned survivors treat their player by default")
 assert(KnoxSettings.showCompanionHUD(), "HUD default")
 assert(KnoxSettings.showActivityFeed(), "feed default")
 assert(not KnoxSettings.developerToolsEnabled(), "developer tools must default off")
 assert(KnoxSettings.developerScenario() == "none", "developer scenario default")
 assert(not KnoxSettings.allowDestructiveDeveloperTests(), "destructive tests default off")
+assert(KnoxSettings.allowResidentLootRuns == nil, "loot runs left no settings residue")
 
 SandboxVars = { KnoxSurvivors = {
     CompanionLimit = 99,
@@ -107,6 +113,7 @@ SandboxVars = { KnoxSurvivors = {
     DeveloperSpawnDistance = 2,
     AllowDestructiveDeveloperTests = true,
     SurvivorAimingAssist = 99,
+    AllowSurvivorsTreatPlayer = false,
 } }
 
 assert(KnoxSettings.companionLimit() == 12, "companion limit upper clamp")
@@ -125,6 +132,7 @@ assert(KnoxSettings.developerScenario() == "faction_base", "enum mapping")
 assert(KnoxSettings.developerSpawnDistance() == 6, "spawn distance lower clamp")
 assert(KnoxSettings.allowDestructiveDeveloperTests(), "destructive opt-in")
 assert(KnoxSettings.survivorAimingAssist() == 3, "aiming assistance upper clamp")
+assert(not KnoxSettings.allowSurvivorsTreatPlayer(), "player treatment can be disabled")
 
 SandboxVars.KnoxSurvivors.AllowNPCFactions = true
 SandboxVars.KnoxSurvivors.AllowHostileEncounters = true
@@ -169,17 +177,16 @@ assert(not KnoxSettings.showCompanionHUD(), "master switch disables HUD")
 print("sandbox settings PASS")
 
 SandboxVars.KnoxSurvivors.Enabled = true
-SandboxVars.KnoxSurvivors.DeveloperJobSupplies = nil
-assert(not KnoxSettings.developerJobSuppliesEnabled(), "test job stock defaults off")
-SandboxVars.KnoxSurvivors.DeveloperJobSupplies = true
-SandboxVars.KnoxSurvivors.EnableDeveloperTools = false
-assert(not KnoxSettings.developerJobSuppliesEnabled(), "resource assistance requires developer mode")
-SandboxVars.KnoxSurvivors.EnableDeveloperTools = true
-assert(KnoxSettings.developerJobSuppliesEnabled(), "test resources explicitly enabled")
+assert(not KnoxSettings.developerJobSuppliesEnabled(), "developer stock retired")
+assert(KnoxSettings.ignoreJobResourceRequirements() == false or true, "ignore setting retained")
 
 assert(KnoxSettings.orderGesturesEnabled(), "order gestures default enabled")
 SandboxVars.KnoxSurvivors.OrderGestures=false
 assert(not KnoxSettings.orderGesturesEnabled(), "order gestures can be disabled")
+
+assert(KnoxSettings.useReputation(), "reputation defaults on for recruiting")
+SandboxVars.KnoxSurvivors.UseReputation=false
+assert(not KnoxSettings.useReputation(), "reputation can be disabled")
 
 SandboxVars=nil
 assert(KnoxSettings.cautiousTravel() and KnoxSettings.zombieEngagementDistance()==4)

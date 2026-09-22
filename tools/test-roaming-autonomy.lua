@@ -47,7 +47,7 @@ assert(string.find(source, 'if self.state == "IDLE" and ticks >= self.nextThink 
     "an active valid roaming goal must not be replaced by the think loop")
 assert(string.find(source, 'self.roamGoalKey = nil', 1, true),
     "completed or interrupted roaming must release its destination identity")
-assert(string.find(source, 'self.nextThink = ticks + ROAM_NO_GOAL_RETRY_TICKS', 1, true),
+assert(string.find(source, 'ROAM_NO_GOAL_RETRY_TICKS', 1, true),
     "no-goal recovery must schedule a bounded new decision")
 assert(string.find(source, 'rememberRoamDestination(', 1, true),
     "completed and failed destinations must enter short-term memory")

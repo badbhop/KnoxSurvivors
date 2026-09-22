@@ -4,6 +4,12 @@ require = function()
     return true
 end
 
+-- The engine always provides instanceof; the classifier gates the zombie-only
+-- grapple flag on it so human shells can never throw through pcall.
+instanceof = function(object, class)
+    return class == "IsoZombie" and type(object) == "table" and object.__zombie == true
+end
+
 local blockedEdge = function() return false end
 local function square(x, y, z)
     return {
@@ -44,6 +50,9 @@ KnoxPersistence = {
     areSurvivorsAllied = function(firstId, secondId)
         return firstId == "primary" and secondId == "persisted-ally"
     end,
+    areSurvivorsHostile = function(_, secondId)
+        return secondId == "hostile-human"
+    end,
 }
 local runtimeIds = {}
 KnoxSurvivorRuntime = {
@@ -73,9 +82,50 @@ local controllerSourceFile = assert(io.open(controllerPath, "r"))
 local controllerSource = controllerSourceFile:read("*a")
 controllerSourceFile:close()
 assert(string.find(controllerSource, "local haulingCorpse", 1, true)
-    and string.find(controllerSource, 'reason = "corpse_carrier_threat"', 1, true)
-    and string.find(controllerSource, 'KnoxBaseCorpseHandling.isDragging', 1, true),
-    "corpse carriers must hand close threats to flee before combat")
+    and string.find(controllerSource, "interruptCorpseHaulForDefense", 1, true)
+    and not string.find(controllerSource, 'reason = "corpse_carrier_threat"', 1, true),
+    "corpse carriers must release into defense without retired flee")
+
+-- Native grapple release is asynchronous: retain the haul claim while waiting,
+-- enter combat only after hands are free, and bound a release that never ends.
+do
+    local dragging, releaseAttempts, suspended, defended = true, 0, 0, nil
+    KnoxBaseCorpseHandling = { isDragging = function() return dragging end }
+    local threat = { getCurrentSquare = function() return {} end }
+    local carrier = setmetatable({
+        id = "corpse-carrier",
+        character = { setDoGrappleLetGo = function() releaseAttempts = releaseAttempts + 1 end },
+        bridge = { cancelNpcMove = function() end },
+        baseTask = { type = "haul_corpse", state = "claimed" },
+    }, Controller)
+    carrier.resetMovementRecovery = function() end
+    carrier.suspendBaseTaskForThreat = function(_, reason)
+        suspended = suspended + 1
+        carrier.baseTask.interruptedReason = reason
+        return true
+    end
+    carrier.allowsCompanionThreat = function() return true end
+    carrier.beginCombat = function(_, target) defended = target; return true end
+    assert(carrier:interruptCorpseHaulForDefense(threat, 100)
+            and carrier.state == "CORPSE_DEFENSE_RELEASE" and defended == nil,
+        "corpse carrier must wait for native release before attacking")
+    dragging = false
+    carrier:updateCorpseDefenseRelease(101)
+    assert(defended == threat and carrier.baseTask ~= nil and suspended == 1
+            and releaseAttempts >= 1,
+        "released carrier must defend while retaining the interrupted haul claim")
+
+    local abandoned = false
+    dragging = true
+    defended = nil
+    carrier.baseTask = { type = "haul_corpse", state = "claimed" }
+    carrier.abandonBaseTask = function() abandoned = true; carrier.baseTask = nil end
+    carrier.recordFailure = function() end
+    carrier:interruptCorpseHaulForDefense(threat, 200)
+    carrier:updateCorpseDefenseRelease(291)
+    assert(abandoned and defended == threat and carrier.state == "IDLE",
+        "failed native corpse release must abandon the stale claim and still defend")
+end
 
 local traversalCharacter = {
     getCurrentStateName = function() return "ClimbOverFenceState" end,
@@ -139,6 +189,7 @@ local function zombieAt(x, y, target, z, options)
     local currentTarget = target
     local currentSquare = square(x, y, z or 0)
     return {
+        __zombie = true,
         visible = true,
         isDead = function() return dead end,
         setDead = function(_, value) dead = value end,
@@ -312,6 +363,13 @@ c.companionCombatStance = "defensive"
 local defending = zombieAt(6, 0, ally)
 assert(c:allowsCompanionThreat(defending),
     "defensive companion can protect a nearby group member")
+local humanTarget = { getCurrentSquare = function() return square(2, 0, 0) end }
+assert(not c:allowsCompanionThreat(humanTarget),
+    "IsoPlayer human targets must not call the zombie-only getTarget method")
+runtimeIds[humanTarget] = "hostile-human"
+assert(c:allowsCompanionThreat(humanTarget),
+    "defensive companion acquires a nearby human already classified as hostile")
+runtimeIds[humanTarget] = nil
 
 local reservationThreat = zombieAt(4, 0, nil)
 local first = controller("first")
@@ -334,8 +392,8 @@ zombies = {
 }
 local capable = controller("capable")
 local shouldFlee, capableRisk = capable:assessFlee()
-assert(not shouldFlee and capableRisk.zombies == 3,
-    "a healthy skilled armed survivor may fight three spaced zombies")
+assert(not shouldFlee and capableRisk.reason == "flee_retired",
+    "flee retired: survivors fight")
 zombies = {
     zombieAt(1, 0, character),
     zombieAt(-1, 0, character),
@@ -343,15 +401,14 @@ zombies = {
     zombieAt(0, -1, nil),
 }
 shouldFlee, capableRisk = capable:assessFlee()
-assert(shouldFlee and capableRisk.reason == "close_collapse"
-        and capableRisk.immediate == 4,
-    "four zombies collapsing at contact range forces retreat regardless of raw ratio")
+assert(not shouldFlee,
+    "flee retired even at contact range")
 
 health = 20
 zombies = { zombieAt(2, 0, character) }
 shouldFlee, capableRisk = capable:assessFlee()
-assert(shouldFlee and capableRisk.reason == "critical_health",
-    "critical health forces retreat from even one active threat")
+assert(not shouldFlee,
+    "flee retired even at critical health")
 
 health, endurance = 65, 0.8
 bodyParts = {
@@ -363,9 +420,8 @@ zombies = {
     zombieAt(-2, 0, nil),
 }
 shouldFlee, capableRisk = capable:assessFlee()
-assert(shouldFlee and capableRisk.reason == "heavy_bleeding"
-        and capableRisk.bleedingParts == 2,
-    "multiple untreated bleeding wounds materially increase combat risk")
+assert(not shouldFlee,
+    "flee retired even when bleeding")
 
 health, endurance, bodyParts = 100, 0.12, {}
 weapon = nil
@@ -374,8 +430,8 @@ zombies = {
     zombieAt(-2, 0, character),
 }
 shouldFlee, capableRisk = capable:assessFlee()
-assert(shouldFlee and capableRisk.reason == "exhausted",
-    "exhaustion plus immediate attackers triggers retreat without a fixed ratio rule")
+assert(not shouldFlee,
+    "flee retired even when exhausted")
 
 health, endurance, bodyParts = 100, 0.8, {}
 weapon = nil
@@ -392,9 +448,8 @@ supported.groupMembers = {
     { getCurrentSquare = function() return square(-1, 1, 0) end },
 }
 local supportedFlee, supportedRisk = supported:assessFlee()
-assert(isolatedFlee and not supportedFlee
-        and supportedRisk.risk < isolatedRisk.risk,
-    "nearby allies increase combat capacity without changing threat geometry")
+assert(not isolatedFlee and not supportedFlee,
+    "flee retired: no retreat regardless of allies")
 
 zombies = {
     zombieAt(2, 0, nil),
@@ -403,77 +458,43 @@ zombies = {
     zombieAt(0, -2, nil),
 }
 local flee = controller("flee")
-local targetA = assert(flee:findFleeTarget(300), "symmetric threat field has an escape candidate")
-local targetB = assert(flee:findFleeTarget(300), "escape candidate remains available")
-assert(targetA:getX() == targetB:getX() and targetA:getY() == targetB:getY(),
-    "symmetric danger chooses a deterministic retreat direction")
-
-assert(not flee:retreatIsSafelyClear(true),
-    "unsafe scan keeps retreat active")
-assert(not flee:retreatIsSafelyClear(false),
-    "one clear scan is not enough to reverse retreat")
-assert(flee:retreatIsSafelyClear(false),
-    "bounded clear confirmation exits retreat")
-assert(not flee:retreatIsSafelyClear(true) and flee.fleeSafeScans == 0,
-    "renewed danger resets clear confirmation")
-assert(not flee:retreatIsSafelyClear(false, { targeting = 1 })
-    and not flee:retreatIsSafelyClear(false, { close = 1 }),
-    "falling below flee initiation threshold does not end an ongoing pursuit")
-assert(not flee:retreatIsSafelyClear(false, { nearestDistanceSquared = 25 }),
-    "a zombie five tiles away is not enough clearance to end an established retreat")
-assert(not flee:retreatIsSafelyClear(false, {}, 301)
-    and not flee:retreatIsSafelyClear(false, {}, 301)
-    and flee:retreatIsSafelyClear(false, {}, 302),
-    "arrival and threat scan in the same tick cannot count as two safe observations")
+assert(flee:findFleeTarget(300) == nil, "flee retired: no escape target")
+assert(flee:beginFlee(300, {}) == false, "flee retired: beginFlee fails")
+assert(flee:retreatIsSafelyClear(false) == true,
+    "flee retired: old FLEEING exits immediately")
 
 local surrounding = zombies
-zombies = { zombieAt(2, 0, character) }
-blockedEdge = function(a, b)
-    return a:getX() >= -1 and b:getX() < -1
-        or a:getX() < -1 and b:getX() >= -1
-end
-local wallEscape = assert(controller("wall"):findFleeTarget(310))
-assert(wallEscape:getX() >= -1, "standable destination beyond a blocking wall is not an escape lane")
-blockedEdge = function(_, b) return b:getY() ~= 0 or b:getX() < 0 end
-zombies = { zombieAt(3, 0, character) }
+assert(controller("wall"):findFleeTarget(310) == nil, "flee retired")
 assert(controller("crowded-corridor"):findFleeTarget(312) == nil,
-    "safe-looking far endpoint must not send escape straight through a zombie in the corridor")
+    "flee retired")
 blockedEdge = function(_, b)
     return not (b:getY() == 0 and (b:getX() == 0 or b:getX() == 1))
 end
 zombies = { zombieAt(1, 0, character) }
 local trapped = controller("trapped")
-trapped.state, trapped.companionOrder = "FLEEING", "follow"
+trapped.state, trapped.companionOrder = "IDLE", "follow"
 trapped.bridge = {
     beginNpcLiveCombat = function() return "COMBAT_STARTED" end,
     resetNpcCombat = function() end,
 }
-assert(trapped:findFleeTarget(315) == nil, "enclosed fixture has no immediate two-tile escape")
-assert(not trapped:beginFlee(315, { health = 100, endurance = .8 })
-    and trapped.state == "COMBAT" and trapped.combatTarget == zombies[1],
-    "no escape lane hands an adjacent attacker to existing combat instead of waiting for a bite")
+assert(trapped:findFleeTarget(315) == nil, "flee retired")
+assert(trapped:beginFlee(315, { health = 100, endurance = .8 }) == false,
+    "flee retired: no retreat")
 assert(trapped.companionOrder == "follow", "trapped defense retains companion intent")
 local passivePanic = controller("passive-panic")
 passivePanic.companionOrder = "follow"
 passivePanic.companionCombatStance = "passive"
-local panicMoves = 0
-passivePanic.bridge = {
-    cancelNpcMove = function() end,
-    resetNpcCombat = function() end,
-    moveNpcWithPace = function(_, _, target, pace)
-        panicMoves = panicMoves + 1
-        assert(target ~= nil and pace == "sprint",
-            "passive survivor panic route still uses a bounded sprint")
-        return "MOVE_STARTED"
-    end,
-}
-assert(passivePanic:findEmergencyFleeTarget(316) ~= nil,
-    "passive survivor gets a last-resort target when every checked lane is blocked")
-assert(passivePanic:beginFlee(316, { health = 100, endurance = .8 })
-    and passivePanic.state == "FLEEING" and panicMoves == 1,
-    "passive survivor starts panic movement instead of standing in a fatal surround")
+assert(passivePanic:findEmergencyFleeTarget(316) == nil, "flee retired")
+assert(passivePanic:beginFlee(316, { health = 100, endurance = .8 }) == false,
+    "flee retired: no panic movement")
 blockedEdge = function() return false end
 zombies = surrounding
+
+blockedEdge = function() return true end
+local fencedZombie = zombieAt(1, 0, character)
+assert(controller("fence-wait"):evaluateCombatThreat(fencedZombie, 320) == nil,
+    "an immediately separating fence or wall prevents a zombie pursuit loop")
+blockedEdge = function() return false end
 
 local moveCalls, cancelCalls = 0, 0
 flee.bridge = {
@@ -492,59 +513,9 @@ flee.reservations.threats[zombies[1]] = { flee = true }
 assert(flee:beginFlee(400, {
     reason = "outnumbered", zombies = 4, allies = 1,
     health = 100, endurance = 0.8,
-}), "retreat interrupts combat and starts one owned move")
-assert(moveCalls == 1 and cancelCalls == 1 and flee.state == "FLEEING",
-    "retreat produces one movement request without churn")
-assert(flee.combatTarget == nil and flee.companionOrder == "follow",
-    "retreat releases combat while preserving the underlying follow order")
+}) == false, "flee retired: no retreat")
 
-local movementTicks = 0
-flee.bridge.tickNpc = function()
-    movementTicks = movementTicks + 1
-    return "Succeeded"
-end
-flee.observedState = "FLEEING"
-flee.nextThreatScan = 999
-flee:tick(410)
-assert(movementTicks == 1 and flee.state == "FLEEING" and flee.fleeRecoveryUntil == 415,
-    "arrival releases native movement but does not resume looting while still surrounded")
-flee:tick(411)
-assert(moveCalls == 1 and movementTicks == 1, "escape continuation waits for its bounded retry")
-flee.fleeTarget = targetA
-flee:recoverFleeMovement("FailedStuck", 420)
-assert(flee.state == "FLEEING" and flee.fleeRecoveryUntil == 435
-    and flee.failedFleeTarget.untilTick > 435, "failure releases movement and retains short failed-lane memory")
-local recovered = assert(flee:findFleeTarget(435))
-assert((recovered:getX() - targetA:getX())^2 + (recovered:getY() - targetA:getY())^2 > 9,
-    "recovery does not immediately retry the same failed escape destination")
-local priorMoves = moveCalls
-flee:tick(434)
-assert(moveCalls == priorMoves, "controller refresh does not bypass flee recovery cooldown")
-flee:tick(435)
-assert(moveCalls == priorMoves + 1 and flee.fleeRecoveryUntil == nil,
-    "cooldown expiry requests one replacement escape")
-for index = 1, 5 do
-    flee:recoverFleeMovement("FailedStuck", 440 + index)
-    assert(flee.fleeRecoveryUntil - (440 + index) <= 60, "escape failure backoff remains bounded")
-end
-zombies = {}
-flee.nextThreatScan = 500
-flee:tick(500)
-flee.nextThreatScan = 510
-flee:tick(510)
-assert(flee.state == "IDLE" and flee.movementFailureCount == 0,
-    "confirmed safe retreat releases ownership and clears the failure streak")
-zombies = surrounding
-assert(flee.companionOrder == "follow",
-    "completed retreat leaves the durable Follow order available to resume")
 local postRetreat = zombieAt(4, 0, nil)
-assert(flee:evaluateCombatThreat(postRetreat, 511) == nil,
-    "completed retreat cannot immediately reacquire an ordinary four-tile fight")
-assert(flee:evaluateCombatThreat(zombieAt(1, 0, character), 512) ~= nil,
-    "disengagement still permits adjacent self defense")
-assert(flee:evaluateCombatThreat(postRetreat, flee.combatDisengageUntil) ~= nil,
-    "post-retreat chase restriction expires instead of permanently disabling combat")
-
 local unarmed = controller("unarmed")
 unarmed.bridge = {
     beginNpcLiveCombat = function() return "COMBAT_FAILED NO_EQUIPPED_WEAPON" end,
@@ -605,20 +576,11 @@ local groupSecond = groupRetreater("group-second", 2)
 assert(groupFirst:beginFlee(500, {
     reason = "outnumbered", zombies = 6, allies = 2,
     health = 100, endurance = 0.8,
-}), "first group member establishes a flee plan")
+}) == false, "flee retired")
 assert(groupSecond:beginFlee(500, {
     reason = "outnumbered", zombies = 6, allies = 2,
     health = 100, endurance = 0.8,
-}), "second group member follows the flee plan")
-local firstDx = groupTargets["group-first"]:getX() - survivorSquare:getX()
-local firstDy = groupTargets["group-first"]:getY() - survivorSquare:getY()
-local secondDx = groupTargets["group-second"]:getX() - survivorSquare:getX()
-local secondDy = groupTargets["group-second"]:getY() - survivorSquare:getY()
-assert(firstDx * secondDx + firstDy * secondDy > 0,
-    "overwhelmed group retreats in a coherent shared direction")
-assert(groupTargets["group-first"]:getX() ~= groupTargets["group-second"]:getX()
-        or groupTargets["group-first"]:getY() ~= groupTargets["group-second"]:getY(),
-    "group retreat keeps separate arrival tiles")
+}) == false, "flee retired")
 
 local selfCareCharacter = {
     actionsEmpty = false,
@@ -725,13 +687,13 @@ do
     assert(decisions == 1 and nativeTicks == 2, "native combat ticks between bounded decisions")
     target:setDead(true)
     combat:tick(deadline)
-    assert(decisions == 2 and finished == 1 and combat.combatTarget == nil,
-        "invalid target cleanup must actually run in the full tick")
+    assert(decisions == 1 and finished == 1 and combat.combatTarget == nil,
+        "invalid target cleanup runs before firearm state can preserve a stale reload/aim")
     assert(combat.companionOrder == "hold", "combat cleanup preserves durable Hold")
     mode = "reloading"
     combat.state, combat.combatTarget = "COMBAT", zombieAt(1, 0, character)
     combat:tick(combat.nextThreatScan)
-    assert(decisions == 3 and finished == 2 and combat.combatTarget == nil,
+    assert(decisions == 2 and finished == 2 and combat.combatTarget == nil,
         "scheduled reload handoff must release combat instead of starving")
     mode = "ready"
     local urgent = zombieAt(1, 0, character)
@@ -782,18 +744,18 @@ local indoors = controller("indoors")
 indoors.currentTicks = 3000
 zombies = { zombieAt(2, 0, nil), zombieAt(-2, 0, nil), zombieAt(0, 2, nil) }
 for _, value in ipairs(zombies) do value.visible = false end
-assert(not indoors:assessFlee(), "unseen idle zombies behind walls cannot evict an injured resident")
+assert(not indoors:assessFlee(), "flee retired")
 zombies[1]:setTarget(character)
-assert(indoors:assessFlee(), "an actual attacker releases indoor safety even without LOS")
+assert(not indoors:assessFlee(), "flee retired even with attacker")
 zombies[1]:setTarget(nil)
 zombies[1].visible = true
-assert(indoors:assessFlee(), "a visible threat still triggers critical-health retreat")
+assert(not indoors:assessFlee(), "flee retired even when visible")
 zombies[1].visible = false
 indoors.currentTicks = 3001
-assert(indoors:assessFlee(), "brief loss of sight retains recent danger")
+assert(not indoors:assessFlee(), "flee retired")
 indoors.currentTicks = 3121
-assert(not indoors:assessFlee(), "lost danger memory expires without repeated sighting")
-print("Retreat perception consistency PASS")
+assert(not indoors:assessFlee(), "flee retired")
+print("Retreat perception consistency PASS (retired)")
 
 -- Survivor/player hostility must enter the same risk and escape model as zombies.
 zombies = {}
@@ -808,15 +770,14 @@ KnoxPersistence.areSurvivorsHostile = function(a, b)
     return hostile and a == "threatened" and b == "enemy"
 end
 local retreat, risk = threatened:assessFlee()
-assert(retreat and risk.humans == 1 and risk.zombies == 0,
-    "critically injured survivor retreats from a hostile human")
-assert(threatened:findFleeTarget(4000) ~= nil, "human threat informs a real escape destination")
+assert(not retreat, "flee retired even vs hostile human")
+assert(threatened:findFleeTarget(4000) == nil, "flee retired: no escape destination")
 hostile = false
-assert(not threatened:assessFlee(), "peace immediately removes a human from retreat risk")
+assert(not threatened:assessFlee(), "flee retired")
 hostile = true
 enemy.visible = false
 threatened.perceivedThreats = {}
-assert(not threatened:assessFlee(), "unseen hostile humans do not grant wall awareness")
+assert(not threatened:assessFlee(), "flee retired")
 enemy.visible = true
 zombies = { zombieAt(4, 0, nil), zombieAt(4, 1, nil), zombieAt(4, -1, nil) }
 assert(not Controller.shouldRemainStealthy(threatened),
@@ -827,10 +788,10 @@ runtimeIds[enemy], player = nil, enemy
 KnoxPersistence.ensurePlayerId = function() return "hostile-player" end
 KnoxPersistence.isSurvivorHostileToPlayer = function() return true end
 KnoxSettings.allowSurvivorPlayerCombat = function() return false end
-assert(not threatened:assessFlee(), "disabled player combat excludes player retreat threats")
+assert(not threatened:assessFlee(), "flee retired")
 KnoxSettings.allowSurvivorPlayerCombat = function() return true end
-assert(threatened:assessFlee(), "enabled hostile player combat participates in retreat")
-print("Human retreat and faction peace PASS")
+assert(not threatened:assessFlee(), "flee retired")
+print("Human retreat and faction peace PASS (retired)")
 
 -- A working resident must not abandon home to clear the neighborhood.
 player = nil
@@ -883,8 +844,8 @@ assert(not hauling:assessFlee(), "carried corpse proxy does not scare an injured
 hauling.perceivedThreats = {[carriedBody]={lastSeen=6000}}
 assert(hauling:selectCombatThreat(6001)==nil, "old perception cannot resurrect a corpse proxy as a threat")
 carriedBody.isReanimatedForGrappleOnly = function() return false end
-assert(hauling:evaluateCombatThreat(carriedBody,6002)~=nil and hauling:assessFlee(),
-    "a real reanimated zombie remains a threat")
+assert(hauling:evaluateCombatThreat(carriedBody,6002)~=nil and not hauling:assessFlee(),
+    "a real reanimated zombie remains a threat (flee retired: fight)")
 print("Corpse combat classification PASS proxy_excluded=true actual_reanimation_preserved=true")
 
 -- Routine travel perceives danger without treating every sighting as an order to hunt.

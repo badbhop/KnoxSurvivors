@@ -34,6 +34,7 @@ local DEFAULTS = {
     ShowActivityFeed = true,
     ShowSurvivorSpeech = true,
     OrderGestures = true,
+    AllowSurvivorDoorWindowOpening = true,
     CautiousTravel = true,
     BaseReading = true,
     BaseCooking = true,
@@ -41,14 +42,16 @@ local DEFAULTS = {
     ShowSurvivorNameplates = true,
     SurvivorNameplateDistance = 24,
     AllowSurvivorPlayerCombat = true,
+    UseReputation = true,
     EnableDeveloperTools = false,
-    DeveloperJobSupplies = false,
+    AutomatedQAMode = false,
     IgnoreJobResourceRequirements = false,
     DeveloperScenario = 1,
     DeveloperSpawnDistance = 10,
     AllowDestructiveDeveloperTests = false,
     ShowDeveloperDiagnostics = false,
     AutoGenerateBaseWorkAreas = true,
+    AllowSurvivorsTreatPlayer = true,
 }
 
 local SCENARIOS = {
@@ -179,6 +182,10 @@ function Settings.npcDrivingSpeed()
     return integer("NpcDrivingSpeed", 5, 30)
 end
 
+function Settings.allowSurvivorDoorWindowOpening()
+    return value("AllowSurvivorDoorWindowOpening") ~= false
+end
+
 function Settings.survivorAimingAssist()
     return integer("SurvivorAimingAssist", 1, 3)
 end
@@ -193,6 +200,10 @@ end
 
 function Settings.autoGenerateBaseWorkAreas()
     return value("AutoGenerateBaseWorkAreas") ~= false
+end
+
+function Settings.allowSurvivorsTreatPlayer()
+    return Settings.enabled() and value("AllowSurvivorsTreatPlayer") ~= false
 end
 
 function Settings.enableKnoxEvents()
@@ -249,6 +260,10 @@ function Settings.allowSurvivorPlayerCombat()
     return Settings.enabled() and value("AllowSurvivorPlayerCombat") ~= false
 end
 
+function Settings.useReputation()
+    return Settings.enabled() and value("UseReputation") ~= false
+end
+
 function Settings.orderGesturesEnabled()
     return Settings.enabled() and value("OrderGestures") ~= false
 end
@@ -257,8 +272,14 @@ function Settings.developerToolsEnabled()
     return Settings.enabled() and value("EnableDeveloperTools") == true
 end
 
+function Settings.automatedQAMode()
+    return Settings.enabled() and Settings.developerToolsEnabled()
+        and value("AutomatedQAMode") == true
+end
+
 function Settings.developerJobSuppliesEnabled()
-    return Settings.developerToolsEnabled() and value("DeveloperJobSupplies") == true
+    -- Retired: use IgnoreJobResourceRequirements instead. Kept for old saves.
+    return false
 end
 
 function Settings.continueSurvivorsAfterPlayerDeath()

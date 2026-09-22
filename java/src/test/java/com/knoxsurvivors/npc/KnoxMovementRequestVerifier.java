@@ -107,6 +107,19 @@ public final class KnoxMovementRequestVerifier {
     }
 
     private static void verifyRuntimeLifecycle() {
+        FakeMovementEngine arrivedEngine = new FakeMovementEngine();
+        KnoxNpcRuntime arrivedRuntime = new KnoxNpcRuntime(
+            new KnoxNpc("already-arrived", new Object(), 0, 0, 0),
+            arrivedEngine
+        );
+        require(arrivedRuntime.beginMove(new Target(0, 0, 0), false)
+                .contains("already_at_target=true"),
+            "already-arrived normal orders complete without starting a native route");
+        require(arrivedEngine.starts == 0
+                && "Succeeded".equals(arrivedRuntime.tickMovement())
+                && "IDLE".equals(arrivedRuntime.tickMovement()),
+            "already-arrived movement releases ownership through the normal success path");
+
         FakeMovementEngine engine = new FakeMovementEngine();
         KnoxNpcRuntime runtime = new KnoxNpcRuntime(
             new KnoxNpc("movement-test", new Object(), 0, 0, 0),

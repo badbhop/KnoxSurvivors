@@ -15,5 +15,22 @@ assert(source:find('"BASE_AMBIENT_REST"', 1, true)
 assert(source:find('self.activeDecision == "base_ambient_rest"', 1, true)
     and source:find("self:leaveRecoveryPosture()", 1, true),
     "ambient rest must release its vanilla posture when it finishes")
+assert(source:find("function Controller:beginAmbientSnack", 1, true)
+    and source:find('self.activeDecision = "base_ambient_snack"', 1, true)
+    and source:find('self.state = "TIMED_ACTION"', 1, true)
+    and source:find("self.selfCareIntent = intent", 1, true),
+    "ambient snacks must consume real supplies through the shared self-care completion path")
+assert(source:find("function Controller:beginAmbientSocial", 1, true)
+    and source:find("faceThisObject", 1, true)
+    and source:find("self.nextSocialAt = ticks + 1800", 1, true),
+    "ambient socials must face a nearby resident and respect a shared cooldown")
 
-print("Base ambient life PASS vanilla_sit=true bounded=true cleanup=true")
+local dialoguePath = rootPath .. "/mod/42/media/lua/client/KS_SurvivorDialogue.lua"
+local dialogueFile = assert(io.open(dialoguePath, "r"))
+local dialogue = dialogueFile:read("*a")
+dialogueFile:close()
+assert(dialogue:find("base_social = {", 1, true)
+    and dialogue:find("base_snack = {", 1, true),
+    "ambient company needs its own dialogue banks")
+
+print("Base ambient life PASS vanilla_sit=true bounded=true cleanup=true snack=true social=true")

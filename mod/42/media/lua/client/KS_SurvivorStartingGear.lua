@@ -67,6 +67,22 @@ function StartingGear.initialize(id, character, bridge, loadoutTheme)
             or not add(inventory, "Base.Scalpel", added) then
             return false, "science_kit_item_unavailable"
         end
+        -- Rarely, a scientist carries the Knox cure: a real antibiotics box
+        -- renamed so players and survivors can recognize it. No custom item
+        -- definition is required and it still behaves as ordinary medicine.
+        if ZombRand(100) < 40 then
+            local cureOk, cureItem = pcall(function()
+                return inventory:AddItem("Base.AntibioticsBox")
+            end)
+            if cureOk and cureItem ~= nil then
+                added[#added + 1] = "Base.AntibioticsBox"
+                pcall(function()
+                    if cureItem.setCustomName ~= nil then
+                        cureItem:setCustomName("Knox Cure")
+                    end
+                end)
+            end
+        end
     elseif loadoutTheme == "military" then
         -- A real M9, compatible magazine and three five-round 9mm stacks let
         -- the existing native reload system establish weapon state. Nothing

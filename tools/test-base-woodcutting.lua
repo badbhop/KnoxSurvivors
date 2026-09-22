@@ -112,7 +112,7 @@ HandcraftLogic = { new = function()
 end }
 ISHandcraftAction = { new = function(_, owner, selectedRecipe, containers)
     assert(owner == character and selectedRecipe == recipe and containers ~= nil)
-    return { craftStarted = false }
+    return { craftStarted = false, character = owner }
 end }
 function square:canStand() return true end
 inventoryItems = { log, saw }
@@ -121,6 +121,9 @@ assert(target.action == "saw_logs", "carried log and saw discover processing wor
 resolved = assert(woodcutting.resolveTarget(base, target, character))
 action = assert(woodcutting.queueAction(character, resolved))
 assert(not woodcutting.isComplete(resolved), "queue acceptance is not log consumption")
+local directAction = assert(woodcutting.queueSawLogs(character))
+assert(directAction.character == character and queuedAction == directAction,
+    "an explicit saw-logs order must queue the survivor as the action owner")
 action.craftStarted = true
 assert(not woodcutting.isComplete(resolved), "started crafting alone is not completion")
 inventoryItems = { saw }

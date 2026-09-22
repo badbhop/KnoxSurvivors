@@ -1,0 +1,60 @@
+local root = arg[1] or "."
+require = function() return true end
+
+local function character(x, y, z)
+    return {
+        x = x, y = y, z = z or 0,
+        getX = function(self) return self.x end,
+        getY = function(self) return self.y end,
+        getZ = function(self) return self.z end,
+        getCurrentSquare = function(self) return self.square end,
+        getVehicle = function(self) return self.vehicle end,
+    }
+end
+local function square(owner)
+    return { getX = function() return owner.x end, getY = function() return owner.y end,
+        getZ = function() return owner.z end }
+end
+local leader, passenger, player = character(0, 0), character(2, 0), character(200, 200)
+leader.square, passenger.square, player.square = square(leader), square(passenger), square(player)
+local vehicle = character(4, 0)
+vehicle.square = square(vehicle)
+vehicle.getDriver = function(self) return self.driver end
+vehicle.isDriveable = function() return true end
+vehicle.isEngineRunning = function() return true end
+vehicle.getCurrentSpeedKmHour = function() return 0 end
+vehicle.getVehicleTowing = function() return nil end
+vehicle.getVehicleTowedBy = function() return nil end
+vehicle.getSquare = function(self) return self.square end
+local collection = { size = function() return 1 end, get = function(_, index) return index == 0 and vehicle or nil end }
+getCell = function() return { getVehicles = function() return collection end } end
+getNumActivePlayers = function() return 1 end
+getSpecificPlayer = function(index) return index == 0 and player or nil end
+KnoxPersistence = { getTravelGroupFor = function() return { leaderId = "leader" } end }
+local boarded, drives = 0, 0
+KnoxCompanionVehicles = {
+    board = function(member, candidate)
+        assert(candidate == vehicle)
+        member.vehicle = candidate
+        boarded = boarded + 1
+        return true
+    end,
+    driveTo = function(driver, candidate, x, y, z)
+        assert(driver == leader and candidate == vehicle and x == 100 and y == 0 and z == 0)
+        drives = drives + 1
+        return true, "driving_to_destination"
+    end,
+}
+local travel = dofile(root .. "/mod/42/media/lua/client/KS_NpcVehicleTravel.lua")
+local controller = { id = "leader", character = leader, groupMembers = { leader, passenger } }
+assert(travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 100),
+    "leader may use an eligible distant running vehicle")
+assert(boarded == 1 and drives == 1, "nearby group passengers board before native driver travel starts")
+controller.id = "member"
+assert(not travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 1000),
+    "a non-leader cannot take group vehicle control")
+controller.id, passenger.vehicle = "leader", nil
+player.vehicle = vehicle
+assert(not travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 2000),
+    "an occupied player vehicle is never eligible for autonomous travel")
+print("NPC vehicle travel PASS leader=true passengers=true player_vehicle_safe=true")

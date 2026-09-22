@@ -236,8 +236,9 @@ function Recreation.step(plan,character,base,bridge,id,ticks)
         if source==nil then return "failed","borrowed_book_missing" end
         local store=assignedStore(base,plan.sourcePolicy)
         if store==nil then
-            local main=KnoxBaseStorage.mainPolicy(base)
-            if main~=nil then store=KnoxBaseStorage.resolvePolicy(main) end
+            -- No main supplies: fall back to any assigned typed storage.
+            local policies=KnoxBaseStorage.policies(base)
+            if policies[1]~=nil then store=KnoxBaseStorage.resolvePolicy(policies[1]) end
         end
         if store==nil then return "done","book_retained_storage_unavailable" end
         if not nearby(character,store) then return moveToStore(plan,store,character,bridge,id,ticks,"return_move") end

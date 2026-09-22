@@ -68,7 +68,9 @@ local function buildingDirective(square)
 end
 
 local function player(playerNum)
-    return getSpecificPlayer(tonumber(playerNum) or 0)
+    local n = tonumber(playerNum)
+    if n == nil then return nil end
+    return getSpecificPlayer(n)
 end
 
 function PartyCommands.followAll(_, playerNum)
@@ -118,6 +120,13 @@ function PartyCommands.climbingAll(_, playerNum, allowed)
     )
 end
 
+function PartyCommands.doorsAll(_, playerNum, allowed)
+    KnoxCompanionService.issueOrderAll(
+        player(playerNum),
+        allowed and "allow_doors" or "disallow_doors"
+    )
+end
+
 function PartyCommands.combatStanceAll(_, playerNum, stance)
     KnoxCompanionService.issueOrderAll(player(playerNum), "combat_stance", { stance = stance })
 end
@@ -128,9 +137,12 @@ end
 
 function PartyCommands.directiveAll(_, playerNum, directive)
     if directive ~= nil then
-        KnoxCompanionService.issueOrderAll(
+        local ok, changed = KnoxCompanionService.issueOrderAll(
             player(playerNum), directive.kind, directive
         )
+        if not ok then
+            KnoxActivityFeed.event("Party order failed: no companion could take it.")
+        end
     end
 end
 
@@ -153,31 +165,37 @@ function PartyCommands.openNotebook(_, playerNum)
     KnoxSurvivorNotebook.show(playerNum)
 end
 
-function PartyCommands.openBaseSetup(_, playerNum)
-    KnoxSurvivorNotebook.show(playerNum)
-end
-
 local function populate(menu, playerNum, square)
-    local follow = menu:addOption(KnoxOrderCatalog.label("follow"), PartyCommands, PartyCommands.followAll, playerNum)
-    local hold = menu:addOption(KnoxOrderCatalog.label("hold"), PartyCommands, PartyCommands.holdAll, playerNum)
-    local relax = menu:addOption(KnoxOrderCatalog.label("relax"), PartyCommands, PartyCommands.relaxAll, playerNum)
-    menu:addOption(KnoxOrderCatalog.label("check_needs"), PartyCommands, PartyCommands.askNeedsAll, playerNum)
     local actor = player(playerNum)
     local common = {}
     for index, id in ipairs(KnoxCompanionService.getCompanionIds(actor)) do
         local duty = KnoxPersistence.getSurvivorDuty(id) or {}
         local policies = KnoxPersistence.getSurvivorPolicies(id) or {}
+        local doors = policies.allowDoorOpening
+        if doors == nil and KnoxSettings ~= nil
+            and KnoxSettings.allowSurvivorDoorWindowOpening ~= nil then
+            doors = KnoxSettings.allowSurvivorDoorWindowOpening() ~= false
+        end
         local values = { order = duty.order or "follow", stance = duty.combatStance or "defensive",
-            climbing = policies.allowClimbing ~= false, weapon = policies.weaponPreference or "auto" }
+            climbing = policies.allowClimbing ~= false, doors = doors ~= false,
+            weapon = policies.weaponPreference or "auto" }
         for key, value in pairs(values) do
             if index == 1 then common[key] = value
             elseif common[key] ~= value then common[key] = nil end
         end
     end
-    menu:setOptionChecked(follow, common.order == "follow")
-    menu:setOptionChecked(hold, common.order == "hold")
-    menu:setOptionChecked(relax, common.order == "relax")
-    local resume = menu:addOption(KnoxOrderCatalog.label("resume_normal_duty"), PartyCommands,
+    -- Everyday party orders in one place instead of scattered top-level rows.
+    local ordersRoot = menu:addOption("Orders", nil, nil)
+    local ordersMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(ordersRoot, ordersMenu)
+    local follow = ordersMenu:addOption(KnoxOrderCatalog.label("follow"), PartyCommands, PartyCommands.followAll, playerNum)
+    local hold = ordersMenu:addOption(KnoxOrderCatalog.label("hold"), PartyCommands, PartyCommands.holdAll, playerNum)
+    local relax = ordersMenu:addOption(KnoxOrderCatalog.label("relax"), PartyCommands, PartyCommands.relaxAll, playerNum)
+    ordersMenu:addOption(KnoxOrderCatalog.label("check_needs"), PartyCommands, PartyCommands.askNeedsAll, playerNum)
+    ordersMenu:setOptionChecked(follow, common.order == "follow")
+    ordersMenu:setOptionChecked(hold, common.order == "hold")
+    ordersMenu:setOptionChecked(relax, common.order == "relax")
+    local resume = ordersMenu:addOption(KnoxOrderCatalog.label("resume_normal_duty"), PartyCommands,
         PartyCommands.clearDirectiveAll, playerNum)
     local hasDirective = false
     for _, id in ipairs(KnoxCompanionService.getCompanionIds(actor)) do
@@ -190,7 +208,7 @@ local function populate(menu, playerNum, square)
     local base = baseManager ~= nil and playerId ~= nil
         and baseManager.getForOwner("player", playerId) or nil
     if base ~= nil then
-        menu:addOption(KnoxOrderCatalog.label("return_to_base"), PartyCommands, PartyCommands.returnAll, playerNum)
+        ordersMenu:addOption(KnoxOrderCatalog.label("return_to_base"), PartyCommands, PartyCommands.returnAll, playerNum)
         -- Keep settlement duty choices on the same canonical order catalogue
         -- used by the Notebook and resident scheduler. This is a player-facing
         -- convenience only; issueOrderAll remains the sole dispatch boundary.
@@ -218,8 +236,7 @@ local function populate(menu, playerNum, square)
         for _, preference in ipairs(KnoxOrderCatalog.basePreferenceOrder or {}) do
             local entry = KnoxOrderCatalog.basePreferences[preference]
             if entry ~= nil then
-                local label = preference == "woodwork" and "Woodwork / Barricade Windows"
-                    or preference == "hauling" and "Move Corpses"
+                local label = preference == "hauling" and "Move Corpses"
                     or entry.label
                 local option = baseOrderMenu:addOption(label, PartyCommands,
                     PartyCommands.basePreferenceAll, playerNum, preference)
@@ -247,6 +264,13 @@ local function populate(menu, playerNum, square)
     local disallow = traversalMenu:addOption(KnoxOrderCatalog.label("disallow_climbing"), PartyCommands, PartyCommands.climbingAll, playerNum, false)
     traversalMenu:setOptionChecked(allow, common.climbing == true)
     traversalMenu:setOptionChecked(disallow, common.climbing == false)
+    local doors = tacticsMenu:addOption(catalogLabel("door_orders", "Doors and Windows"), nil, nil)
+    local doorsMenu = ISContextMenu:getNew(tacticsMenu)
+    tacticsMenu:addSubMenu(doors, doorsMenu)
+    local doorsAllow = doorsMenu:addOption(KnoxOrderCatalog.label("allow_doors"), PartyCommands, PartyCommands.doorsAll, playerNum, true)
+    local doorsDisallow = doorsMenu:addOption(KnoxOrderCatalog.label("disallow_doors"), PartyCommands, PartyCommands.doorsAll, playerNum, false)
+    doorsMenu:setOptionChecked(doorsAllow, common.doors == true)
+    doorsMenu:setOptionChecked(doorsDisallow, common.doors == false)
     local formation = tacticsMenu:addOption("Formation", nil, nil)
     local formationMenu = ISContextMenu:getNew(tacticsMenu)
     tacticsMenu:addSubMenu(formation, formationMenu)
@@ -314,12 +338,11 @@ local function populate(menu, playerNum, square)
             PartyCommands.directiveAll, playerNum, areaDirective("clean_inventory", square, 12))
     end
     menu:addOption("Show Activity Feed", PartyCommands, PartyCommands.openActivity)
-        menu:addOption(KnoxOrderCatalog.label("open_notebook"), PartyCommands,
+    local manageRoot = menu:addOption("Manage", nil, nil)
+    local manageMenu = ISContextMenu:getNew(menu)
+    menu:addSubMenu(manageRoot, manageMenu)
+    manageMenu:addOption(KnoxOrderCatalog.label("open_notebook"), PartyCommands,
         PartyCommands.openNotebook, playerNum)
-    if base ~= nil then
-        menu:addOption(KnoxOrderCatalog.label("open_base"), PartyCommands,
-            PartyCommands.openBaseSetup, playerNum)
-    end
     return menu
 end
 

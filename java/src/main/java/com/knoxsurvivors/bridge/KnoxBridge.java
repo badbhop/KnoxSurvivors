@@ -100,6 +100,10 @@ public final class KnoxBridge {
         return npcRegistry.setClimbingAllowed(id, allowed);
     }
 
+    public boolean setNpcDoorWindowOpeningAllowed(String id, boolean allowed) {
+        return npcRegistry.setDoorWindowOpeningAllowed(id, allowed);
+    }
+
     public boolean setNpcProtectedArea(String id, int minX, int minY, int maxX, int maxY) {
         return npcRegistry.setProtectedArea(id, minX, minY, maxX, maxY);
     }
@@ -157,6 +161,11 @@ public final class KnoxBridge {
     /** Equip a real carried weapon chosen by the Lua planner. */
     public String equipNpcOwnedWeapon(String id, String fullType) {
         return npcRegistry.equipOwnedWeapon(id, fullType);
+    }
+
+    /** Equip the exact real inventory weapon selected by the Lua firearm planner. */
+    public String equipNpcOwnedWeaponById(String id, String fullType, long itemId) {
+        return npcRegistry.equipOwnedWeaponById(id, fullType, itemId);
     }
 
     /** Wears an existing owned clothing or container item without creating gear. */

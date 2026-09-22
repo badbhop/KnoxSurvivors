@@ -29,18 +29,6 @@ function Planner.matchesRequirement(item, requirements)
         local uses = safe(function() return ISFarmingMenu.getWaterUsesInteger(item) end, 0)
         if (tonumber(uses) or 0) <= 0 then return false end
     end
-    if rule.animalWater == true then
-        if safe(function() return item:canStoreWater() end, false) ~= true
-            or safe(function() return item:isWaterSource() end, false) ~= true then return false end
-        local amount = safe(function() return item:getFluidContainer():getAmount() end, 0)
-        if (tonumber(amount) or 0) <= 0 then return false end
-    end
-    if rule.animalFeed == true then
-        if safe(function() return item:isAnimalFeed() end, false) ~= true
-            or (tonumber(safe(function() return item:getCurrentUses() end, 0)) or 0) <= 0 then
-            return false
-        end
-    end
     return true
 end
 
@@ -189,6 +177,7 @@ function Planner.chooseWorker(candidates, shortageKind)
     local eligible = {}
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
         if type(candidate) == "table" and candidate.ready == true
+            and candidate.willing == true
             and candidate.resting ~= true and candidate.hasTask ~= true
             and candidate.explicitOrder ~= true then
             eligible[#eligible + 1] = candidate

@@ -285,6 +285,7 @@ final class KnoxNpcFactory {
 
     static String tickMovement(KnoxNpc npc, float remainingDistance, String pace)
         throws ReflectiveOperationException {
+        closeOpenedDoorBehind(npc);
         Object body = npc.getBody();
         Object pathfinder = invoke(body, "getPathFindBehavior2");
 
@@ -311,6 +312,42 @@ final class KnoxNpcFactory {
             clearHumanMovementIntent(body);
         }
         return state;
+    }
+
+    /**
+     * Close-behind for base doors, camp tents and any doorway the NPC opened
+     * itself. Fires once the body is more than two tiles from the door
+     * square; doors already open before we touched them are never recorded,
+     * so player-arranged entrances stay exactly as found.
+     */
+    static void closeOpenedDoorBehind(KnoxNpc npc) {
+        if (!npc.hasOpenedDoor()) {
+            return;
+        }
+        try {
+            Object body = npc.getBody();
+            float x = ((Number) invoke(body, "getX")).floatValue();
+            float y = ((Number) invoke(body, "getY")).floatValue();
+            float dx = x - (npc.getOpenedDoorX() + 0.5f);
+            float dy = y - (npc.getOpenedDoorY() + 0.5f);
+            if (dx * dx + dy * dy <= 4.0f) {
+                return;
+            }
+            Object door = npc.getOpenedDoor();
+            boolean open = (Boolean) invoke(door, "IsOpen");
+            boolean barricaded = (Boolean) invoke(door, "isBarricaded");
+            if (open && !barricaded) {
+                invoke(
+                    door,
+                    "ToggleDoor",
+                    classFor(body, "zombie.characters.IsoGameCharacter"),
+                    body
+                );
+            }
+        } catch (Throwable ignored) {
+            // Stale, streamed-out or destroyed door: drop the record either way.
+        }
+        npc.clearOpenedDoor();
     }
 
     static String describeLive(KnoxNpc npc) throws ReflectiveOperationException {
@@ -649,6 +686,9 @@ final class KnoxNpcFactory {
             if (action == KnoxTraversalPolicy.DoorAction.FAIL_BARRICADED) {
                 return "FAILED_BARRICADED_DOOR";
             }
+            if (!open && !npc.isDoorWindowOpeningAllowed()) {
+                return "FAILED_DOOR_OPENING_DISABLED";
+            }
             faceObject(body, door);
             if ((Boolean) invoke(body, "shouldBeTurning")) {
                 return "TURNING_TO_DOOR";
@@ -659,7 +699,23 @@ final class KnoxNpcFactory {
                 classFor(body, "zombie.characters.IsoGameCharacter"),
                 body
             );
-            return (Boolean) invoke(door, "IsOpen") ? "OPENING_DOOR" : "FAILED_LOCKED_DOOR";
+            boolean nowOpen = (Boolean) invoke(door, "IsOpen");
+            if (nowOpen && !open) {
+                // We opened a closed door ourselves: remember it so the
+                // movement tick can close it behind us once we walk on.
+                try {
+                    Object doorSquare = invoke(door, "getSquare");
+                    npc.rememberOpenedDoor(
+                        door,
+                        ((Number) invoke(doorSquare, "getX")).intValue(),
+                        ((Number) invoke(doorSquare, "getY")).intValue(),
+                        ((Number) invoke(doorSquare, "getZ")).intValue()
+                    );
+                } catch (Throwable ignored) {
+                    npc.clearOpenedDoor();
+                }
+            }
+            return nowOpen ? "OPENING_DOOR" : "FAILED_LOCKED_DOOR";
         }
 
         if (window != null) {
@@ -721,6 +777,9 @@ final class KnoxNpcFactory {
             }
             if (action == KnoxTraversalPolicy.WindowAction.FAIL_UNUSABLE) {
                 return "FAILED_LOCKED_OR_UNUSABLE_WINDOW";
+            }
+            if (!open && !smashed && !npc.isDoorWindowOpeningAllowed()) {
+                return "FAILED_WINDOW_OPENING_DISABLED";
             }
             if (action == KnoxTraversalPolicy.WindowAction.TRY_NATIVE_OPEN) {
                 invoke(
@@ -800,6 +859,18 @@ final class KnoxNpcFactory {
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
             }
+            // The native vault transition is asynchronous.  A second route
+            // tick can arrive before IsoPlayer reports isClimbing(), and
+            // issuing climbOverFence again in that gap restarts the animation
+            // or leaves the body pressed against the edge until the route
+            // watchdog reports FailedStuck.  Keep one request per edge and
+            // let the normal movement watchdog handle a genuinely failed
+            // native climb.  A successful crossing changes currentSquare and
+            // releases this interaction through useTraversalInteractionTarget.
+            if ("CLIMB_ATTEMPTED".equals(npc.getTraversalInteractionStage())) {
+                return (Boolean) invoke(body, "isClimbing")
+                    ? "CLIMBING" : "ManualRoute";
+            }
             // isHoppableTo reports a fence-like edge, but does not guarantee
             // that this survivor can vault it. Use Build 42's player-aware
             // check before starting the native climb animation.
@@ -836,6 +907,7 @@ final class KnoxNpcFactory {
                 classFor(body, "zombie.iso.IsoDirections"),
                 direction
             );
+            npc.setTraversalInteractionStage("CLIMB_ATTEMPTED");
             return "STARTED_FENCE_CLIMB";
         }
 
@@ -849,6 +921,13 @@ final class KnoxNpcFactory {
             npc.useTraversalInteractionTarget(wallHoppable);
             if (!npc.isClimbingAllowed()) {
                 return "FAILED_CLIMBING_DISABLED";
+            }
+            // Wall climbing has the same asynchronous native transition as a
+            // fence vault. Do not enqueue a second climb while the first one
+            // is still resolving.
+            if ("CLIMB_ATTEMPTED".equals(npc.getTraversalInteractionStage())) {
+                return (Boolean) invoke(body, "isClimbing")
+                    ? "CLIMBING" : "ManualRoute";
             }
             // IsoPlayer.canClimbOverWall rejects sprinting before checking the
             // wall. Release approach input first, just as a player must stop
@@ -873,6 +952,7 @@ final class KnoxNpcFactory {
                 classFor(body, "zombie.iso.IsoDirections"),
                 direction
             );
+            npc.setTraversalInteractionStage("CLIMB_ATTEMPTED");
             return "STARTED_WALL_CLIMB";
         }
 
@@ -960,6 +1040,22 @@ final class KnoxNpcFactory {
 
         float directionX = deltaX / length;
         float directionY = deltaY / length;
+        boolean draggingCorpse = false;
+        try {
+            draggingCorpse = (Boolean) invoke(body, "isDraggingCorpse");
+        } catch (ReflectiveOperationException ignored) {
+            // Build 42 currently exposes this on IsoGameCharacter. Keep ordinary
+            // movement available if a compatible build omits it.
+        }
+        if (draggingCorpse) {
+            // BwdDrag interprets human input relative to the facing direction.
+            // Supplying the ordinary route vector makes the shell walk away from
+            // its waypoint until it reaches a wall. Face away from the waypoint
+            // and feed the reverse vector so native backward locomotion moves the
+            // body and corpse along the captured route.
+            directionX = -directionX;
+            directionY = -directionY;
+        }
         Class<?> isoPlayerClass = classFor(body, ISO_PLAYER_CLASS);
         Object moveDirection = isoPlayerClass.getField("playerMoveDir").get(body);
         moveDirection.getClass().getField("x").setFloat(moveDirection, directionX);
@@ -998,8 +1094,8 @@ final class KnoxNpcFactory {
             health,
             nativeCanSprint
         );
-        boolean shouldRun = locomotion.running();
-        boolean shouldSprint = locomotion.sprinting();
+        boolean shouldRun = !draggingCorpse && locomotion.running();
+        boolean shouldSprint = !draggingCorpse && locomotion.sprinting();
         boolean shouldSneak = false;
         boolean urgentMovement = "run".equals(pace) || "sprint".equals(pace) || "catchup".equals(pace);
         try {
@@ -1073,6 +1169,14 @@ final class KnoxNpcFactory {
         } catch (ReflectiveOperationException ignored) {
             return 0.0f;
         }
+    }
+
+    static void applyIdleMovementStance(KnoxNpc npc) throws ReflectiveOperationException {
+        Object body = npc.getBody();
+        boolean sneaking = "sneak".equals(npc.getMovementPace());
+        invoke(body, "setRunning", boolean.class, false);
+        invoke(body, "setSprinting", boolean.class, false);
+        invoke(body, "setSneaking", boolean.class, sneaking);
     }
 
     private static void clearHumanMovementIntent(Object body) throws ReflectiveOperationException {

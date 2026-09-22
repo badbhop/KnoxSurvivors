@@ -60,6 +60,25 @@ final class KnoxSurvivorRecord {
         return inventory.summary();
     }
 
+    boolean equivalentAfterRestore(KnoxSurvivorRecord other) {
+        if (other == null || !id.equals(other.id)
+            || x != other.x || y != other.y || z != other.z
+            || Math.abs(positionX - other.positionX) > 0.15f
+            || Math.abs(positionY - other.positionY) > 0.15f
+            || appearance == null || !appearance.encode().equals(other.appearance.encode())
+            || !inventory.equivalentAfterRestore(other.inventory)) {
+            return false;
+        }
+        if (health == null || other.health == null) {
+            if (health != other.health) return false;
+        } else if (!health.equivalentAfterRestore(other.health)) {
+            return false;
+        }
+        return physiology == null || other.physiology == null
+            ? physiology == other.physiology
+            : physiology.equivalentAfterRestore(other.physiology);
+    }
+
     String consumeInventoryItem(String fullType) {
         KnoxInventorySnapshot consumed = inventory.withoutFirst(fullType);
         if (consumed == null) {

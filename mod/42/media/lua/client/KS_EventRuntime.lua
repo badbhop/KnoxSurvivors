@@ -1,7 +1,15 @@
 require "KS_ThreatClassifier"
+pcall(function() require "KS_DebugLog" end)
 local function isCorpseProxy(character)
     local threats = rawget(_G, "KnoxThreatClassifier")
     return threats ~= nil and threats.isCorpseProxy(character) or false
+end
+
+local function diagEvent(id, event, details)
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("faction", id, event, details) end)
+    end
 end
 
 require "KS_KnoxEvents"
@@ -142,6 +150,46 @@ local function nearDestination(character, destination)
     return dx * dx + dy * dy <= 9
 end
 
+-- Raiders approach from deliberately separated points outside a target base.
+-- Once the party has reached that perimeter, ordinary combat may move a member
+-- around the home while defending, pursuing a nearby intruder, or surviving a
+-- zombie interruption.  Do not keep measuring the objective phase against a
+-- single approach tile: that strands a live raid when normal combat correctly
+-- takes ownership of movement.
+local RAID_TARGET_MARGIN = 12
+
+local function inRaidTargetArea(event, id, character)
+    if event == nil or event.kind ~= "faction_raid" then return false end
+    local base = KnoxPersistence.getBase(event.targetBaseId)
+    local area = base ~= nil and (base.territory or base.home) or nil
+    if type(area) ~= "table" then return false end
+    local x, y, z
+    if character ~= nil then
+        local square = character:getCurrentSquare()
+        if square == nil then return false end
+        x, y, z = square:getX(), square:getY(), square:getZ()
+    else
+        local state = KnoxPersistence.getUnloadedSurvivalState(id)
+        if state == nil or state.pendingMaterialization then return false end
+        x, y, z = state.virtualX, state.virtualY, state.virtualZ
+    end
+    local minX, minY = tonumber(area.minX), tonumber(area.minY)
+    local width, height = tonumber(area.width), tonumber(area.height)
+    local storedMaxX, storedMaxY = tonumber(area.maxX), tonumber(area.maxY)
+    local areaZ = tonumber(area.z or (base.home ~= nil and base.home.z)) or 0
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number"
+        or minX == nil or minY == nil or z ~= areaZ then return false end
+    local maxX = storedMaxX or (width ~= nil and minX + width - 1)
+    local maxY = storedMaxY or (height ~= nil and minY + height - 1)
+    if maxX == nil or maxY == nil or maxX < minX or maxY < minY then return false end
+    return x >= minX - RAID_TARGET_MARGIN and x <= maxX + RAID_TARGET_MARGIN
+        and y >= minY - RAID_TARGET_MARGIN and y <= maxY + RAID_TARGET_MARGIN
+end
+
+function Runtime.raidMemberAtTarget(event, id, controller)
+    return inRaidTargetArea(event, id, controller ~= nil and controller.character or nil)
+end
+
 local function atDestination(id, character, destination)
     if character ~= nil then return nearDestination(character, destination) end
     local state = KnoxPersistence.getUnloadedSurvivalState(id)
@@ -177,6 +225,10 @@ local function change(event, phase, hours, reason)
     local result, status = KnoxEvents.transition(event.id, event.revision, phase, hours, reason)
     if result ~= nil and status == "changed" then
         print("[KnoxSurvivors][Events] id=" .. event.id .. " phase=" .. phase .. " reason=" .. tostring(reason))
+        diagEvent(tostring(event.id), "phase_" .. tostring(phase), {
+            kind = event.kind, reason = tostring(reason),
+            members = event.memberIds ~= nil and #event.memberIds or nil,
+        })
     end
     return result
 end
@@ -284,6 +336,32 @@ local function secureAreaThreatCount(event)
             end
         end
     end
+    -- Patrols keeping the peace also count hostile survivors menacing the
+    -- neighborhood, so the area only reads clear when both are gone.
+    if count < 24 and KnoxSurvivorRuntime ~= nil
+        and KnoxSurvivorRuntime.activeIds ~= nil then
+        local players = currentPlayers()
+        for _, id in ipairs(KnoxSurvivorRuntime.activeIds()) do
+            local character = KnoxSurvivorRuntime.getCharacter ~= nil
+                and KnoxSurvivorRuntime.getCharacter(id) or nil
+            local square = character ~= nil and character:getCurrentSquare() or nil
+            if square ~= nil and square:getZ() == target.z then
+                local dx, dy = square:getX() - target.x, square:getY() - target.y
+                if dx * dx + dy * dy <= radiusSquared then
+                    for _, player in ipairs(players) do
+                        local playerId = KnoxPersistence.ensurePlayerId ~= nil
+                            and KnoxPersistence.ensurePlayerId(player) or nil
+                        if playerId ~= nil and KnoxPersistence.isSurvivorHostileToPlayer ~= nil
+                            and KnoxPersistence.isSurvivorHostileToPlayer(id, playerId) then
+                            count = count + 1
+                            break
+                        end
+                    end
+                    if count >= 24 then return 24 end
+                end
+            end
+        end
+    end
     return count
 end
 
@@ -335,6 +413,9 @@ function Runtime.reviewObjective(event, hours)
         local result = KnoxEvents.finishRaidObjective(event.id, event.revision, hours, outcome)
         if result ~= nil then
             print("[KnoxSurvivors][Events] id=" .. event.id .. " phase=withdrawing reason=" .. outcome .. " items=" .. count)
+            diagEvent(tostring(event.id), "raid_withdrawn", {
+                outcome = tostring(outcome), items = count,
+            })
         end
     end
 end
@@ -455,12 +536,18 @@ function Runtime.update(controllers, hours)
                         arrived = false
                         break
                     end
-                    if controller ~= nil and (controller.eventMoveFailures or 0) >= 3 then
+                    if event.phase == "approaching" and controller ~= nil
+                        and (controller.eventMoveFailures or 0) >= 3 then
                         change(event, "withdrawing", hours, "approach_failed")
                         arrived = false
                         break
                     end
-                    arrived = nearDestination(controller ~= nil and controller.character or nil, Runtime.destination(event, id)) and arrived
+                    if event.phase == "approaching" then
+                        arrived = atDestination(id, controller ~= nil and controller.character or nil,
+                            Runtime.destination(event, id)) and arrived
+                    elseif event.phase == "active" and event.kind == "faction_raid" then
+                        arrived = Runtime.raidMemberAtTarget(event, id, controller) and arrived
+                    end
                 end
                 if arrived and event.phase == "approaching" then
                     change(event, "active", hours, "party_arrived")
@@ -471,6 +558,10 @@ function Runtime.update(controllers, hours)
                         KnoxEvents.beginFactionEntryObjective(event.id, event.revision, hours)
                     end
                 elseif event.phase == "objective" then
+                    -- Objective review deliberately continues while ordinary
+                    -- combat moves raiders around the target.  Fleeing above
+                    -- still withdraws the party; this merely avoids freezing
+                    -- a valid raid because its fixed approach positions moved.
                     Runtime.reviewObjective(event, hours)
                 end
             elseif event.phase == "withdrawing" then

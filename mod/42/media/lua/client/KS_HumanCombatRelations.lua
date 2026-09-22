@@ -2,6 +2,7 @@ require "KS_Settings"
 require "KS_Persistence"
 require "KS_SurvivorRuntime"
 require "KS_ActivityFeed"
+pcall(function() require "KS_DebugLog" end)
 
 local HumanCombat = rawget(_G, "KnoxHumanCombatRelations") or {}
 _G.KnoxHumanCombatRelations = HumanCombat
@@ -22,13 +23,117 @@ local function localPlayerId(character)
     return nil
 end
 
+local function diagCombat(event, id, details)
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("combat", id, event, details) end)
+    end
+end
+
+local function targetHealth(target)
+    -- Never chain target:getBodyDamage():getHealth(): zombies have no
+    -- BodyDamage, so the intermediate null indexed with :getHealth throws a
+    -- Java RuntimeException that Kahlua pcall cannot catch (live spam 33x).
+    if target == nil then return nil end
+    local damage = nil
+    pcall(function() damage = target:getBodyDamage() end)
+    if damage ~= nil then
+        local ok, value = pcall(function() return damage:getHealth() end)
+        if ok and tonumber(value) ~= nil then return tonumber(value) end
+    end
+    local okSimple, simple = pcall(function() return target:getHealth() end)
+    return okSimple and tonumber(simple) or nil
+end
+
+local function woundFlags(target)
+    if target == nil then return {} end
+    local flags = {}
+    local damage = nil
+    pcall(function() damage = target:getBodyDamage() end)
+    if damage == nil then return flags end
+    pcall(function()
+        if damage.getBleedingTime ~= nil then
+            flags.bleeding = tonumber(damage:getBleedingTime())
+        end
+    end)
+    local parts = nil
+    pcall(function() parts = damage:getBodyParts() end)
+    if parts ~= nil then
+        local count = nil
+        pcall(function() count = parts:size() end)
+        for index = 0, (tonumber(count) or 0) - 1 do
+            local part = nil
+            pcall(function() part = parts:get(index) end)
+            if part ~= nil then
+                local okBitten, bitten = pcall(function()
+                    if part.isBitten ~= nil then return part:isBitten() end
+                    return false
+                end)
+                if okBitten and bitten then flags.bitten = true end
+                local okCut, cut = pcall(function() return part:isCut() end)
+                if okCut and cut then flags.cut = true end
+                local okFrac, frac = pcall(function() return part:getFractureTime() end)
+                if okFrac and tonumber(frac) ~= nil and tonumber(frac) > 0 then
+                    flags.fracture = true
+                end
+            end
+        end
+    end
+    return flags
+end
+
 -- Native damage remains authoritative. This hook only records the social
 -- consequence after Build 42 confirms that a player actually hit a survivor.
-function HumanCombat.onWeaponHitCharacter(attacker, target)
+function HumanCombat.onWeaponHitCharacter(attacker, target, weapon)
+    -- Telemetry must never throw inside a native damage event. Every lookup
+    -- is pcall-guarded; a nil attacker, missing runtime, or renamed vanilla
+    -- API degrades to a skipped log line, never a Lua error in console.txt.
+    local attackerId, targetId = nil, nil
+    pcall(function()
+        if KnoxSurvivorRuntime.idForCharacter ~= nil then
+            attackerId = KnoxSurvivorRuntime.idForCharacter(attacker)
+            targetId = KnoxSurvivorRuntime.idForCharacter(target)
+        end
+    end)
+    -- General survivor-involved damage telemetry (survivor vs survivor,
+    -- zombie vs survivor, gunshots). Throttled inside KnoxDebugLog.
+    pcall(function()
+        if attackerId ~= nil or targetId ~= nil then
+            local kind = "unknown"
+            if instanceof ~= nil and attacker ~= nil then
+                local okZombie, isZombie = pcall(function()
+                    return instanceof(attacker, "IsoZombie")
+                end)
+                if okZombie and isZombie then
+                    kind = "zombie_on_survivor"
+                elseif attackerId ~= nil and targetId ~= nil then
+                    kind = "survivor_on_survivor"
+                elseif attackerId ~= nil then
+                    kind = "survivor_on_other"
+                elseif targetId ~= nil then
+                    kind = "other_on_survivor"
+                end
+            elseif attackerId ~= nil and targetId ~= nil then
+                kind = "survivor_on_survivor"
+            elseif attackerId ~= nil then
+                kind = "survivor_on_other"
+            elseif targetId ~= nil then
+                kind = "other_on_survivor"
+            end
+            local flags = target ~= nil and woundFlags(target) or {}
+            flags.health = target ~= nil and targetHealth(target) or nil
+            if weapon ~= nil then
+                local okWeapon, weaponType = pcall(function() return weapon:getFullType() end)
+                if okWeapon then flags.weapon = weaponType end
+            end
+            flags.kind = kind
+            diagCombat("damage", attackerId or targetId or "unknown", flags)
+        end
+    end)
     if not KnoxSettings.allowSurvivorPlayerCombat() then return end
     local playerId = localPlayerId(attacker)
     if playerId == nil then return end
-    local survivorId = KnoxSurvivorRuntime.idForCharacter(target)
+    local survivorId = targetId
     if survivorId == nil then return end
     -- The Java bridge should already have blocked protected targets. Keep the
     -- Lua consequence path defensive as well so a stale lease or native event
@@ -38,7 +143,10 @@ function HumanCombat.onWeaponHitCharacter(attacker, target)
     if KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
         and not alreadyHostile then
         KnoxPersistence.recordPlayerAggression(playerId, survivorId, worldAge())
-        KnoxActivityFeed.event("A survivor has turned hostile.")
+        local faction = KnoxPersistence.getFactionForSurvivor(survivorId)
+        KnoxActivityFeed.event(faction ~= nil and faction.kind ~= "player"
+            and "Your attack has made an NPC faction hostile."
+            or "A survivor has turned hostile.")
     end
 end
 

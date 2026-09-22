@@ -15,9 +15,11 @@ require "KS_UnloadedSurvival"
 require "KS_FactionCamps"
 require "KS_SurvivorNameplates"
 require "KS_HumanCombatRelations"
+require "KS_FactionProperty"
 require "KS_KnoxEvents"
 require "KS_EventRuntime"
 require "KS_BaseManager"
+require "KS_GroupScavenge"
 
 local TAG = "[KnoxSurvivors][Autonomy]"
 local Autonomy = rawget(_G, "KnoxSurvivorAutonomy") or {}
@@ -281,6 +283,9 @@ local function registerController(bridge, id, character, result)
     if character == nil then
         return false, "character_unavailable"
     end
+    if controllers[id] ~= nil then
+        return true, "ALREADY_ACTIVE"
+    end
     local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(
         id,
         character
@@ -392,11 +397,54 @@ local function currentPlayers()
     return players
 end
 
+-- Any loaded player, not just player 0, so splitscreen / respawned sessions work.
+local function getAnyLoadedPlayer()
+    for _, player in ipairs(currentPlayers()) do
+        if player ~= nil and player.getCurrentSquare ~= nil then
+            local ok, square = pcall(function() return player:getCurrentSquare() end)
+            if ok and square ~= nil then return player end
+        end
+    end
+    return nil
+end
+
 local function retireDeadSurvivor(bridge, id, controller)
-    pcall(function()
-        controller:shutdown()
-    end)
+    -- Mark dead first so a later capture cannot overwrite the alive record
+    -- with a corpse pose.
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    -- Killer attribution for survivor-vs-survivor / zombie kill forensics:
+    -- who (or what) landed the killing blow, resolved once at retirement.
+    pcall(function()
+        local log = rawget(_G, "KnoxDebugLog")
+        local runtime = rawget(_G, "KnoxSurvivorRuntime")
+        if log == nil or log.log == nil or controller == nil then return end
+        local killer, killerId, killerKind = nil, nil, "unknown"
+        local okAttacker, attacker = pcall(function()
+            return controller.character ~= nil
+                and controller.character:getAttackedBy() or nil
+        end)
+        if okAttacker and attacker ~= nil then
+            killer = attacker
+            if runtime ~= nil and runtime.idForCharacter ~= nil then
+                local okId, found = pcall(function()
+                    return runtime.idForCharacter(attacker)
+                end)
+                if okId and found ~= nil then killerId = tostring(found) end
+            end
+            if killerId ~= nil then
+                killerKind = "survivor"
+            else
+                local okZombie = pcall(function()
+                    if instanceof ~= nil then
+                        return instanceof(attacker, "IsoZombie")
+                    end
+                    return attacker.isZombie ~= nil and attacker:isZombie()
+                end)
+                killerKind = okZombie and "zombie" or "other"
+            end
+        end
+        log.log("combat", id, "died", { killerKind = killerKind, killer = killerId })
+    end)
     if KnoxPersistence.isSurvivorAlive(id) then
         if KnoxPersistence.markSurvivorDead(id, now, "world_death") then
             local feed = rawget(_G, "KnoxActivityFeed")
@@ -405,6 +453,9 @@ local function retireDeadSurvivor(bridge, id, controller)
             end
         end
     end
+    pcall(function()
+        controller:shutdown()
+    end)
     -- Convert the dead shell through Build 42's own IsoDeadBody constructor before
     -- removing its contained runtime shell. This retains the corpse, clothing and
     -- inventory for normal world cleanup/reanimation instead of deleting the body.
@@ -439,6 +490,24 @@ local function retireDeadControllers(bridge)
             end)
             if success and isDead then
                 dead[#dead + 1] = { id = id, controller = controller }
+            end
+        end
+    end
+    -- Also catch bridge orphans with no controller (hibernate remove-failed +
+    -- register overwrite) so stale bodies cannot stay alive forever.
+    local okIds, rawIds = pcall(function() return bridge:getActiveNpcIds() end)
+    if okIds and rawIds ~= nil and tostring(rawIds) ~= "" then
+        for id in string.gmatch(tostring(rawIds), "[^,]+") do
+            if controllers[id] == nil then
+                local okCh, ch = pcall(function() return bridge:getNpcCharacter(id) end)
+                if okCh and ch ~= nil then
+                    local okDead, isDead = pcall(function() return ch:isDead() end)
+                    if okDead and isDead then
+                        local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+                        KnoxPersistence.markSurvivorDead(id, now, "orphan_death")
+                        pcall(function() bridge:retireNpcAsCorpse(id) end)
+                    end
+                end
             end
         end
     end
@@ -593,6 +662,28 @@ local function actorXYZDescription(character)
     return tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
 end
 
+local function prepareUnloadedResourceHandoff(id, controller, reason)
+    local callOk, prepared, evidence = pcall(function()
+        return KnoxUnloadedSurvival.prepareBaseResidentForStorage(
+            id,
+            controller ~= nil and controller.character or nil,
+            getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+        )
+    end)
+    if not callOk then
+        print(TAG .. " id=" .. tostring(id)
+            .. " unloaded-provision-error reason=" .. tostring(reason)
+            .. " error=" .. tostring(prepared))
+        return false, tostring(prepared)
+    end
+    if prepared then
+        print(TAG .. " id=" .. tostring(id)
+            .. " unloaded-provision reason=" .. tostring(reason)
+            .. " " .. tostring(evidence))
+    end
+    return prepared == true, evidence
+end
+
 local function hibernateDistantWorldSurvivors(bridge, players)
     local world = activeWorldLookup()
     local hibernate = {}
@@ -615,6 +706,16 @@ local function hibernateDistantWorldSurvivors(bridge, players)
             local finiteDistance = finiteDistanceSquared and math.sqrt(finiteDistanceSquared) or nil
             local squareDistance = distanceSquared and math.sqrt(distanceSquared) or nil
             if square == nil then
+                -- Nil shell with no bridge character is already gone: drop
+                -- immediately instead of spinning hibernate-save-failed forever.
+                local live = nil
+                pcall(function() live = bridge:getNpcCharacter(id) end)
+                if controller.character == nil and live == nil then
+                    KnoxSurvivorRuntime.unregister(id, controller)
+                    controllers[id] = nil
+                    removeActiveId(id)
+                    detachedGrace[id] = nil
+                else
                 local grace = (detachedGrace[id] or 0) + 1
                 detachedGrace[id] = grace
                 local shouldHibernate, decision =
@@ -635,6 +736,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                         distanceSquared = finiteDistanceSquared,
                         detachedGrace = grace,
                     }
+                end
                 end
             else
                 if detachedGrace[id] ~= nil then
@@ -667,6 +769,10 @@ local function hibernateDistantWorldSurvivors(bridge, players)
     for _, entry in ipairs(hibernate) do
         local distance = entry.distanceSquared ~= nil and math.sqrt(entry.distanceSquared) or nil
         print(TAG .. " id=" .. entry.id .. " hibernate-attempt reason=" .. tostring(entry.reason) .. " square=" .. squareDescription(entry.square) .. " playerDistance=" .. tostring(distance) .. " threshold=" .. tostring(hibernationDistance()))
+        -- While this resident and its assigned containers are still real loaded
+        -- objects, move a bounded reserve from base storage into carried stock.
+        -- shutdown() then serializes those exact items for unloaded survival.
+        prepareUnloadedResourceHandoff(entry.id, entry.controller, "hibernate")
         -- shutdown() captures first. removeNpc() is intentionally not called unless
         -- persistence succeeds, so normal hibernation remains transactional.
         local success, saved, evidence = pcall(function()
@@ -677,6 +783,14 @@ local function hibernateDistantWorldSurvivors(bridge, players)
             local registryStillActive = bridge:getNpcCharacter(entry.id) ~= nil
             if string.find(removed, "REMOVED", 1, true) == 1
                 or removed == "NONE_ACTIVE" or not registryStillActive then
+                local marked, markResult = KnoxUnloadedSurvival.markStored(
+                    entry.id,
+                    getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+                )
+                if not marked then
+                    print(TAG .. " id=" .. entry.id
+                        .. " hibernate-state-warning=" .. tostring(markResult))
+                end
                 KnoxSurvivorRuntime.unregister(entry.id, entry.controller)
                 controllers[entry.id] = nil
                 removeActiveId(entry.id)
@@ -687,6 +801,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                     .. " saved=true"
                     .. " remove=" .. tostring(removed))
             else
+                entry.controller.state = "STOPPED"
                 print(TAG .. " id=" .. entry.id
                     .. " hibernate-remove-failed reason=" .. tostring(entry.reason)
                     .. " result=" .. removed)
@@ -938,7 +1053,7 @@ end
 update = function()
     ticks = ticks + 1
     local bridge = rawget(_G, "KnoxJavaBridge")
-    local player = getSpecificPlayer(0)
+    local player = getAnyLoadedPlayer()
     if bridge == nil then
         if not bridgeMissingReported or ticks % STATUS_INTERVAL_TICKS == 0 then
             print(TAG .. " BLOCKED bridge_unavailable; launch through the Knox Survivors launcher")
@@ -974,6 +1089,7 @@ update = function()
         if KnoxSettings.enableKnoxEvents ~= nil and KnoxSettings.enableKnoxEvents() then
             KnoxEvents.scheduleAutomaticRaid(hours, KnoxSettings.allowFactionRaids(),
                 KnoxSettings.factionRaidMinimumDays(), KnoxSettings.factionRaidIntervalDays())
+            KnoxEvents.scheduleAutomaticEntry(hours, true, 1, 3)
         end
         reconcileWorldPopulation(bridge)
         reconcileSettlementDefinitions()
@@ -996,6 +1112,14 @@ update = function()
         end
     end
     KnoxSurvivorRelationships.coordinate(controllers, activeIds, ticks)
+    if KnoxGroupScavenge ~= nil and KnoxGroupScavenge.coordinate ~= nil then
+        local scavengeOk, scavengeError = pcall(
+            KnoxGroupScavenge.coordinate, controllers, activeIds, ticks
+        )
+        if not scavengeOk then
+            print(TAG .. " group-scavenge-tick-failed=" .. tostring(scavengeError))
+        end
+    end
     if ticks % 30 == 0 and KnoxSettings.enableKnoxEvents ~= nil
         and KnoxSettings.enableKnoxEvents() then
         KnoxEventRuntime.update(controllers, getGameTime():getWorldAgeHours())
@@ -1003,22 +1127,37 @@ update = function()
     end
     for _, id in ipairs(activeIds) do
         local controller = controllers[id]
-        KnoxCompanionService.syncController(id, controller)
-        if controller.state ~= "STOPPED" then
+        if controller == nil then
+            KnoxSurvivorRuntime.unregister(id, nil)
+            removeActiveId(id)
+        else
+            KnoxCompanionService.syncController(id, controller)
+            if controller.state ~= "STOPPED" then
             local success, failure = pcall(function()
                 controller:tick(ticks)
             end)
             if not success then
-                controller.counts.failures = controller.counts.failures + 1
-                local released, releaseFailure = pcall(function()
-                    controller:abandonBaseTask("controller_error=" .. tostring(failure))
+                local recoveryCallOk, recovered, recoveryEvidence = pcall(function()
+                    return controller:recoverFromControllerError(
+                        ticks,
+                        "controller_error=" .. tostring(failure)
+                    )
                 end)
-                controller.state = "IDLE"
-                controller.nextThink = ticks + STATUS_INTERVAL_TICKS
+                if not recoveryCallOk then
+                    -- The recovery method is internally isolated, but retain a
+                    -- minimal boundary in case the controller itself is malformed.
+                    controller.state = "IDLE"
+                    controller.activeDecision = nil
+                    controller.nextThink = ticks + STATUS_INTERVAL_TICKS
+                    recoveryEvidence = recovered
+                    recovered = false
+                end
                 print(TAG .. " id=" .. id .. " ERROR controller_tick=" .. tostring(failure)
-                    .. " taskReleased=" .. tostring(released)
+                    .. " recovered=" .. tostring(recoveryCallOk and recovered == true)
                     .. " retryAt=" .. tostring(controller.nextThink)
-                    .. (released and "" or " releaseError=" .. tostring(releaseFailure)))
+                    .. ((recoveryCallOk and recovered == true) and ""
+                        or " recoveryError=" .. tostring(recoveryEvidence)))
+            end
             end
         end
     end
@@ -1102,7 +1241,43 @@ local function onMainMenuEnter()
     end
     KnoxPersistence.captureAllActiveSurvivors()
     KnoxSurvivorRuntime.clear()
+    controllers = {}
+    activeIds = {}
+    detachedGrace = {}
+    recentlyDetached = {}
     stop()
+end
+
+local function findBaseRespawnSquare(base)
+    local cell = getCell ~= nil and getCell() or nil
+    if base == nil or cell == nil then return nil end
+    local home = base.home
+    local territory = base.territory or home
+    local function scanArea(area)
+        if area == nil then return nil end
+        local minX = tonumber(area.minX) or 0
+        local minY = tonumber(area.minY) or 0
+        local maxX = tonumber(area.maxX) or (minX + (tonumber(area.width) or 1) - 1)
+        local maxY = tonumber(area.maxY) or (minY + (tonumber(area.height) or 1) - 1)
+        local z = tonumber(area.z) or 0
+        local cx = math.floor((minX + maxX) / 2)
+        local cy = math.floor((minY + maxY) / 2)
+        local best, bestDist = nil, math.huge
+        for x = minX, maxX do
+            for y = minY, maxY do
+                local square = cell:getGridSquare(x, y, z)
+                if square ~= nil and square.canStand ~= nil then
+                    local ok, standable = pcall(function() return square:canStand() end)
+                    if ok and standable == true then
+                        local d = (x - cx) ^ 2 + (y - cy) ^ 2
+                        if d < bestDist then best, bestDist = square, d end
+                    end
+                end
+            end
+        end
+        return best
+    end
+    return scanArea(home) or scanArea(territory)
 end
 
 local function onCreatePlayer(playerNum)
@@ -1114,7 +1289,22 @@ local function onCreatePlayer(playerNum)
         getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     )
     if adopted then
-        KnoxActivityFeed.event("Your survivors carried on. They are now available at your base.")
+        -- Spawn back at the base area so the new survivor rejoins residents.
+        local base = KnoxPersistence.getBase(result)
+        local square = findBaseRespawnSquare(base)
+        if square ~= nil then
+            pcall(function()
+                if player.teleportTo ~= nil then
+                    player:teleportTo(square)
+                elseif player.setX ~= nil then
+                    player:setX(square:getX() + 0.5)
+                    player:setY(square:getY() + 0.5)
+                    player:setZ(square:getZ())
+                    if player.setCurrentSquare ~= nil then player:setCurrentSquare(square) end
+                end
+            end)
+        end
+        KnoxActivityFeed.event("Your survivors carried on. You wake up at your base.")
         reconcileSettlementDefinitions()
         for _, id in ipairs(KnoxPersistence.getBaseResidentIds(result) or {}) do
             if KnoxSurvivorRuntime.notifyDutyChanged ~= nil then
@@ -1133,6 +1323,14 @@ local function onPlayerDeath(player)
     )
     if saved then
         print(TAG .. " player-death-succession=pending base=" .. tostring(result))
+    end
+    -- Freeze companions targeting the corpse so they do not follow a dead square.
+    for _, id in ipairs(activeIds) do
+        local c = controllers[id]
+        if c ~= nil and c.companionOwnerId == playerId then
+            c.nextThink = ticks + 300
+            pcall(function() c.bridge:cancelNpcMove(id) end)
+        end
     end
 end
 
@@ -1171,6 +1369,60 @@ function Autonomy.spawnDeveloperScenario(player, scenario)
         KnoxCompanionService.syncController(id, controllers[id])
     end
     return true, table.concat(ids, ",") .. " " .. tostring(configureResult)
+end
+
+-- Remove only survivors created through allocateDeveloperSurvivorId. Automated
+-- QA runs several real native fixtures in one save; without this ownership
+-- boundary an earlier faction can fight, claim a shelter, or occupy a doorway
+-- while a later traversal/job case is being measured.
+function Autonomy.cleanupDeveloperScenario(ids, reason)
+    if not KnoxSettings.developerToolsEnabled() then
+        return false, "developer_tools_disabled"
+    end
+    if type(ids) ~= "table" then return false, "invalid_ids" end
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil then return false, "bridge_unavailable" end
+    local removed, failures = 0, {}
+    local now = getGameTime() ~= nil and getGameTime() ~= nil
+        and getGameTime():getWorldAgeHours() or 0
+    for _, id in ipairs(ids) do
+        if type(id) ~= "string" or string.find(id, "ks-dev-", 1, true) ~= 1 then
+            failures[#failures + 1] = tostring(id) .. ":not_developer_survivor"
+        else
+            local controller = controllers[id]
+            if controller ~= nil then
+                local stopped, stopResult = pcall(function() return controller:shutdown() end)
+                if not stopped then
+                    failures[#failures + 1] = id .. ":shutdown=" .. tostring(stopResult)
+                end
+            end
+            local removeOk, removeResult = pcall(function() return bridge:removeNpc(id) end)
+            local encoded = removeOk and tostring(removeResult) or tostring(removeResult)
+            if not removeOk or (string.find(encoded, "REMOVED", 1, true) ~= 1
+                and encoded ~= "NONE_ACTIVE") then
+                failures[#failures + 1] = id .. ":remove=" .. encoded
+            else
+                KnoxSurvivorRuntime.unregister(id, controller)
+                controllers[id] = nil
+                removeActiveId(id)
+                for index = #scenarioIds, 1, -1 do
+                    if scenarioIds[index] == id then table.remove(scenarioIds, index) end
+                end
+                KnoxPersistence.markSurvivorDead(
+                    id,
+                    now,
+                    "developer_fixture_cleanup:" .. tostring(reason or "complete")
+                )
+                removed = removed + 1
+            end
+        end
+    end
+    if KnoxPersistence.purgeDeveloperQaBases ~= nil then
+        pcall(KnoxPersistence.purgeDeveloperQaBases)
+    end
+    return #failures == 0,
+        "removed=" .. tostring(removed)
+            .. (#failures > 0 and " failures=" .. table.concat(failures, ";") or "")
 end
 
 -- Developer-only handoff gate for the away-team lifecycle. It uses the same
@@ -1218,6 +1470,7 @@ function Autonomy.dispatchDeveloperScout(player, destinationSquare)
         local controller = controllers[id]
         local saved, evidence = false, "missing"
         if controller ~= nil then
+            prepareUnloadedResourceHandoff(id, controller, "away_team")
             saved, evidence = controller:shutdown()
         end
         if not saved then
@@ -1230,12 +1483,13 @@ function Autonomy.dispatchDeveloperScout(player, destinationSquare)
             return false, "remove_failed=" .. tostring(id) .. " " .. removed
         end
     end
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     for _, id in ipairs(selected) do
+        KnoxUnloadedSurvival.markStored(id, now)
         KnoxSurvivorRuntime.unregister(id, controllers[id])
         controllers[id] = nil
         removeActiveId(id)
     end
-    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     local team, result = KnoxPersistence.createAwayTeam(
         ownerKind,
         ownerId,
@@ -1283,6 +1537,7 @@ function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
     if not valid then
         return false, "mission_invalid=" .. tostring(validation)
     end
+    prepareUnloadedResourceHandoff(selected, controller, "base_scout")
     local saved, evidence = controller:shutdown()
     if not saved then
         return false, "capture_failed=" .. tostring(evidence)
@@ -1291,10 +1546,11 @@ function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
     if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
         return false, "remove_failed=" .. removed
     end
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    KnoxUnloadedSurvival.markStored(selected, now)
     KnoxSurvivorRuntime.unregister(selected, controller)
     controllers[selected] = nil
     removeActiveId(selected)
-    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     local team, result = KnoxPersistence.createAwayTeam(
         "player", playerId, { selected }, "scout",
         destination, now, now + 2,
@@ -1334,6 +1590,7 @@ function Autonomy.beginVirtualBaseReturn(survivorId, baseId)
         return false, "remove_failed=" .. removed
     end
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    KnoxUnloadedSurvival.markStored(survivorId, now)
     local started, result = KnoxUnloadedSurvival.beginBaseReturn(survivorId, base, now)
     KnoxSurvivorRuntime.unregister(survivorId, controller)
     controllers[survivorId] = nil

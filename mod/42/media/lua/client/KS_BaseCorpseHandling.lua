@@ -224,6 +224,117 @@ local function insideBounds(x, y, minX, minY, maxX, maxY)
     return x >= minX and x <= maxX and y >= minY and y <= maxY
 end
 
+local BURN_FULL_THRESHOLD = 8
+
+function CorpseHandling.countInZone(cell, zone)
+    if cell == nil or zone == nil then return 0 end
+    local minX, minY, maxX, maxY, z = zoneBounds(zone)
+    local count = 0
+    for x = minX, maxX do
+        for y = minY, maxY do
+            local square = cell:getGridSquare(x, y, z)
+            if square ~= nil and square.getStaticMovingObjects ~= nil then
+                local objects = square:getStaticMovingObjects()
+                if objects ~= nil then
+                    for index = 0, objects:size() - 1 do
+                        if haulable(objects:get(index)) then count = count + 1 end
+                    end
+                end
+            end
+        end
+    end
+    return count
+end
+
+function CorpseHandling.findFullZones(base)
+    local cell = getCell ~= nil and getCell() or nil
+    if base == nil or cell == nil then return {} end
+    local full = {}
+    for _, zone in ipairs(orderedZones(base)) do
+        if CorpseHandling.countInZone(cell, zone) >= BURN_FULL_THRESHOLD then
+            full[#full + 1] = zone
+        end
+    end
+    return full
+end
+
+-- Burn piled corpses in place when a drop area is full. Execution deletes
+-- bodies via native removal; a lighter in inventory or storage is required.
+function CorpseHandling.findBurnTask(base, character, eligible)
+    local cell = getCell ~= nil and getCell() or nil
+    if base == nil or cell == nil then return nil, "base_or_cell_unavailable" end
+    local origin = character ~= nil and character:getCurrentSquare() or nil
+    local best, bestDistance = nil, math.huge
+    for _, zone in ipairs(orderedZones(base)) do
+        local count = CorpseHandling.countInZone(cell, zone)
+        if count >= BURN_FULL_THRESHOLD then
+            local minX, minY, maxX, maxY, z = zoneBounds(zone)
+            local cx = math.floor((minX + maxX) / 2)
+            local cy = math.floor((minY + maxY) / 2)
+            local square = cell:getGridSquare(cx, cy, z)
+            if square == nil or not canStand(square) then
+                square = candidateDropSquare(cell, zone, character, nil)
+            end
+            if square ~= nil then
+                local target = {
+                    id = "burn:" .. tostring(base.id) .. ":" .. tostring(zone.id),
+                    auto = true,
+                    action = "burn_corpse",
+                    zoneType = "corpse",
+                    zoneId = zone.id,
+                    x = square:getX(), y = square:getY(), z = square:getZ(),
+                    corpseCount = count,
+                }
+                if eligible == nil or eligible(target) then
+                    local d = origin ~= nil and distanceSquared(origin, square) or 0
+                    if d < bestDistance then best, bestDistance = target, d end
+                end
+            end
+        end
+    end
+    return best, best ~= nil and "found_burn" or "no_burn_ready"
+end
+
+function CorpseHandling.burnZoneCorpses(base, zoneId)
+    local cell = getCell ~= nil and getCell() or nil
+    local zone = base ~= nil and base.zones ~= nil and base.zones[zoneId] or nil
+    if cell == nil or zone == nil then return 0, "zone_unavailable" end
+    local minX, minY, maxX, maxY, z = zoneBounds(zone)
+    local removed = 0
+    for x = minX, maxX do
+        for y = minY, maxY do
+            local square = cell:getGridSquare(x, y, z)
+            if square ~= nil and square.getStaticMovingObjects ~= nil then
+                local objects = square:getStaticMovingObjects()
+                if objects ~= nil then
+                    local victims = {}
+                    for index = 0, objects:size() - 1 do
+                        local body = objects:get(index)
+                        if haulable(body) then victims[#victims + 1] = body end
+                    end
+                    for _, body in ipairs(victims) do
+                        local done = false
+                        pcall(function()
+                            if body.removeFromWorld ~= nil then body:removeFromWorld(); done = true end
+                        end)
+                        if not done then pcall(function()
+                            if body.removeFromSquare ~= nil then body:removeFromSquare(square); done = true end
+                        end) end
+                        if not done then pcall(function()
+                            if square.removeCorpse ~= nil then square:removeCorpse(body, false); done = true end
+                        end) end
+                        if not done then pcall(function()
+                            local c = getCell(); if c ~= nil and c.removeCorpse ~= nil then c:removeCorpse(body); done = true end
+                        end) end
+                        if done then removed = removed + 1 end
+                    end
+                end
+            end
+        end
+    end
+    return removed, removed > 0 and "burned" or "nothing_burned"
+end
+
 function CorpseHandling.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     if base == nil or cell == nil then

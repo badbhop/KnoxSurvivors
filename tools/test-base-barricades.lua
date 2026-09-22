@@ -3,6 +3,7 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 
 package.loaded["TimedActions/ISBarricadeAction"] = true
 package.loaded["TimedActions/ISTimedActionQueue"] = true
+package.loaded["Util/AdjacentFreeTileFinder"] = true
 ISBarricadeAction = {
     new = function(_, character, object, isMetal, isMetalBar)
         return {
@@ -10,6 +11,7 @@ ISBarricadeAction = {
             object = object,
             isMetal = isMetal,
             isMetalBar = isMetalBar,
+            isValid = function() return true end,
         }
     end,
 }
@@ -26,9 +28,14 @@ end
 
 local function item(full)
     local value = { full = full }
-    function value:getFullType() return self.full end
-    function value:IsInventoryContainer() return false end
-    function value:isBroken() return false end
+function value:getFullType() return self.full end
+function value:IsInventoryContainer() return false end
+function value:isBroken() return false end
+function value:hasTag(tag)
+    return (tag == "hammer" or (ItemType ~= nil and tag == ItemType.HAMMER)
+        or (ItemTag ~= nil and tag == ItemTag.HAMMER))
+        and (self.full == "Base.Hammer" or self.full == "Base.HammerForged")
+end
     return value
 end
 
@@ -57,6 +64,14 @@ function square:getX() return 10 end
 function square:getY() return 20 end
 function square:getZ() return 0 end
 function square:getObjects() return list({ object }) end
+local approachSquare = { id = "window-side" }
+AdjacentFreeTileFinder = {
+    FindWindowOrDoor = function(targetSquare, targetObject, actor)
+        assert(targetSquare == square and targetObject == object and actor == character,
+            "barricade approach must use the exact native window/door arguments")
+        return approachSquare
+    end,
+}
 local base = {
     id = "base-1",
     home = { z = 0 },
@@ -75,15 +90,71 @@ assert(target ~= nil and targetResult == "found")
 assert(target.objectIndex == 4 and target.zoneType == "barricade")
 local resolved, resolvedResult = barricades.resolveTarget(base, target, character)
 assert(resolved ~= nil and resolvedResult == "resolved")
+assert(barricades.isTargetValid(resolved, character), "resolved opening should remain valid")
+local cachedApproach, cachedApproachResult = barricades.approachResolved(resolved, character)
+assert(cachedApproach == approachSquare and cachedApproachResult == "resolved",
+    "cached target must preserve the native side-aware approach")
+local approach, approachResult = barricades.approachSquare(base, target, character)
+assert(approach == approachSquare and approachResult == "resolved",
+    "barricade movement must use the native side-aware window approach")
 assert(barricades.plankCount(resolved, character) == 0)
 local action, actionResult = barricades.queueAction(character, resolved)
 assert(action ~= nil and actionResult == "queued" and queuedAction == action)
 assert(character.primary == items[1] and character.secondary == items[2])
 
+-- The native timed action accepts tagged hammers. It rejects some blunt tools
+-- that the old Knox allow-list incorrectly admitted, so they must never be
+-- selected for a wooden window barricade.
+local mallet = item("Base.WoodenMallet")
+assert(not barricades.findHammer({ getInventory = function()
+    return { getItems = function() return list({ mallet }) end }
+end }), "non-native hammer tools must not be selected")
+
 barricade = { getNumPlanks = function() return 1 end, canAddPlank = function() return true end }
 assert(barricades.isComplete(resolved, character, 0), "new plank should be observable")
+assert(barricades.isTargetComplete(base, target, character),
+    "a window secured while another worker traveled must satisfy its stale claim")
 
-print("Base barricades PASS target_discovery=true material_gate=true vanilla_action=true completion=true")
+function object:getObjectIndex() return -1 end
+assert(not barricades.isTargetValid(resolved, character), "removed opening must invalidate cached target")
+function object:getObjectIndex() return 4 end
+
+-- A streamed object update may allocate a new index. The saved sprite
+-- fingerprint still resolves the sole eligible opening instead of blocking it.
+local streamedObject = setmetatable({}, { __index = object })
+function streamedObject:getObjectIndex() return 17 end
+function streamedObject:getSprite() return { getName = function() return "fixtures/window" end } end
+function object:getSprite() return { getName = function() return "fixtures/window" end } end
+function square:getObjects() return list({ streamedObject }) end
+target.objectIndex, target.spriteName = 4, "fixtures/window"
+barricade = nil
+local streamed = assert(barricades.resolveTarget(base, target, character))
+assert(streamed.object == streamedObject, "sprite fingerprint must survive object-index churn")
+function square:getObjects() return list({ object }) end
+
+-- Automatic defense must not board the only usable door and strand every
+-- other base job behind it.
+local door = setmetatable({}, { __index = object })
+function door:getObjectIndex() return 6 end
+function door:isDoor() return true end
+instanceof = function(value, class)
+    return class == "BarricadeAble" or (value == door and class == "IsoThumpable")
+end
+function square:getObjects() return list({ door, object }) end
+local windowOnly = assert(barricades.findTarget(base, character))
+assert(windowOnly.objectIndex == 4, "automatic barricades must leave doors usable")
+instanceof = nil
+function square:getObjects() return list({ object }) end
+
+-- Door classification must remain fail-closed even during an early/modded
+-- load order where the global instanceof helper is temporarily unavailable.
+function square:getObjects() return list({ door, object }) end
+local fallbackWindow = assert(barricades.findTarget(base, character))
+assert(fallbackWindow.objectIndex == 4,
+    "door predicate must exclude doors without instanceof")
+function square:getObjects() return list({ object }) end
+
+print("Base barricades PASS target_discovery=true native_approach=true cached_target=true material_gate=true vanilla_action=true completion=true door-filter=true")
 
 local cupboardItems = items
 items = {}
@@ -110,8 +181,9 @@ KnoxBaseStorage = {
 assert(barricades.canPrepare(character, base), "stored materials enable barricade discovery")
 assert(barricades.findHammer(character, base) == cupboardItems[1])
 local previousAction = queuedAction
-assert(not barricades.queueAction(character, resolved) and queuedAction == previousAction,
-    "barricading cannot execute until real items are delivered")
+local _, queueReason = barricades.queueAction(character, resolved, base)
+assert(queuedAction == previousAction and queueReason == "missing_carried_hammer_or_plank",
+    "execution needs carried items even when storage holds them")
 table.remove(cupboardItems)
 assert(not barricades.canPrepare(character, base), "one nail cannot satisfy the two-nail recipe")
 print("Cupboard barricades PASS discovery=true native_delivery_required=true material_counts=true")
@@ -124,3 +196,20 @@ local nextTarget=assert(barricades.findTarget(base,character,function(candidate)
 assert(nextTarget.objectIndex==5,"busy opening must not hide another barricade target")
 assert(barricades.findTarget(base,character,function() return false end)==nil)
 print("Barricade crew selection PASS alternate_opening=true exclusion=true")
+
+-- A fully barricaded opening must resolve as no-longer-valid (not workable)
+-- so callers take the already-secured path instead of failing the task.
+barricade = { getNumPlanks = function() return 4 end, canAddPlank = function() return false end }
+function square:getObjects() return list({ object }) end
+local completeTarget = { id = "barricade:base-1:10:20:0:4", x = 10, y = 20, z = 0, objectIndex = 4, spriteName = "" }
+assert(barricades.resolveTarget(base, completeTarget, character) == nil,
+    "fully barricaded window must not resolve as workable")
+assert(barricades.isTargetComplete(base, completeTarget, character),
+    "fully barricaded window must satisfy its stale claim")
+barricade = nil
+
+KnoxSettings = { ignoreJobResourceRequirements = function() return true end }
+items, cupboardItems = {}, {}
+assert(barricades.canPrepare(character, base), "free mode discovers work without stocked storage")
+assert(not barricades.canPrepare(character), "native execution still requires carried supplies")
+assert(select(2, barricades.queueAction(character, resolved, base)) == "missing_carried_hammer_or_plank")

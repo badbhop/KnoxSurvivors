@@ -113,6 +113,10 @@ assert(string.find(controllerText,
     and string.find(controllerText, 'source=retrieved_supply', 1, true)
     and string.find(controllerText, 'need_supply_transfer_not_completed', 1, true),
     "retrieved food and water must verify transfer and chain native consumption")
+assert(string.find(controllerText,
+    'local function inspect(container, square, seen)', 1, true)
+    and string.find(controllerText, 'local nestedSupply = inspect(inventory, square, seen)', 1, true),
+    "assigned storage searches must inspect real nested containers")
 local needsFile = assert(io.open(
     root .. "/mod/42/media/lua/client/KS_SurvivorNeeds.lua", "r"
 ))

@@ -1,3 +1,20 @@
+
+local function getAnyLoadedPlayer()
+    if getSpecificPlayer == nil then return nil end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for i = 0, math.max(0, count - 1) do
+        local ok, p = pcall(getSpecificPlayer, i)
+        if ok and p ~= nil and p.getCurrentSquare ~= nil then
+            local okSq, sq = pcall(function() return p:getCurrentSquare() end)
+            if okSq and sq ~= nil then return p end
+        end
+    end
+    return nil
+end
 local TAG = "[KnoxSurvivors][TestLab]"
 local MAX_TEST_TICKS = 1800
 local STATUS_INTERVAL_TICKS = 60
@@ -6,9 +23,15 @@ local ZOMBIE_CLEAR_INTERVAL_TICKS = 15
 local ticks = 0
 local phase = "IDLE"
 local targetZombie = nil
+local lastResult = nil
 local update
 
 local function report(status, reason, evidence)
+    lastResult = {
+        status = tostring(status),
+        reason = tostring(reason),
+        evidence = tostring(evidence or "none"),
+    }
     print(
         TAG
             .. " RESULT scenario=combat status="
@@ -178,7 +201,7 @@ update = function()
     end
 
     local bridge = rawget(_G, "KnoxJavaBridge")
-    local player = getSpecificPlayer(0)
+    local player = getAnyLoadedPlayer()
     if bridge == nil or player == nil or player:getCurrentSquare() == nil or getCell() == nil then
         return
     end
@@ -247,17 +270,23 @@ update = function()
     end
 end
 
-local function onGameStart()
+local function start()
     local config = rawget(_G, "KnoxDevTests")
     if config == nil or config.enabled ~= true or config.activeScenario ~= "combat" then
-        return
+        return false, "disabled"
     end
     print(TAG .. " START auto=true scenario=combat clearsLoadedZombies=false sandboxOverrides=false")
     ticks = 0
     phase = "WAIT_START"
     targetZombie = nil
+    lastResult = nil
     stop()
     Events.OnTick.Add(update)
+    return true, "started"
+end
+
+local function onGameStart()
+    start()
 end
 
 local function onMainMenuEnter()
@@ -274,3 +303,24 @@ end
 
 Events.OnGameStart.Add(onGameStart)
 Events.OnMainMenuEnter.Add(onMainMenuEnter)
+
+local Probe = rawget(_G, "KnoxCombatProbe") or {}
+_G.KnoxCombatProbe = Probe
+function Probe.start()
+    return start()
+end
+function Probe.status()
+    return {
+        phase = phase,
+        finished = phase == "FINISHED",
+        result = lastResult,
+        ticks = ticks,
+    }
+end
+function Probe.cleanup()
+    if targetZombie ~= nil then
+        pcall(function() removeZombie(targetZombie) end)
+        targetZombie = nil
+    end
+    stop()
+end

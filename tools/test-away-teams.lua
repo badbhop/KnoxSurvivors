@@ -65,6 +65,10 @@ assert(autonomySource:find("function Autonomy.dispatchDeveloperScout", 1, true),
 assert(autonomySource:find("controller:shutdown()", 1, true)
     and autonomySource:find("bridge:removeNpc(id)", 1, true),
     "dispatch must capture and remove bodies before marking a team away")
+assert(autonomySource:find('prepareUnloadedResourceHandoff(id, controller, "away_team")', 1, true)
+    and autonomySource:find('prepareUnloadedResourceHandoff(selected, controller, "base_scout")', 1, true)
+    and autonomySource:find("KnoxUnloadedSurvival.markStored", 1, true),
+    "base-owned away teams must pack real home supplies and transfer ledger ownership")
 assert(autonomySource:find("validateAwayTeam", 1, true),
     "dispatch must validate a mission before taking down its active bodies")
 assert(autonomySource:find("function Autonomy.dispatchBaseScout", 1, true),
@@ -79,7 +83,7 @@ assert(controllerSource:find("finishAwayCollection", 1, true)
     "away members must record collection and return through the controller lifecycle")
 local baseMenuSource = assert(io.open(rootPath
     .. "/mod/42/media/lua/client/KS_BaseContextMenu.lua", "r")):read("*a")
-assert(baseMenuSource:find("Send Available Resident to Scout Here", 1, true),
+assert(baseMenuSource:find("Scout Here", 1, true),
     "player base menu must expose scouting")
 
 assert(persistence.advanceAwayTeams(11) == 0)

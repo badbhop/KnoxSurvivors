@@ -31,8 +31,12 @@ assert(not ok and reason == "companion_limit", "existing configured follower lim
 SandboxVars.KnoxSurvivors.DisableSurvivorCaps = true
 assert(service.canRecruit(character, "candidate"), "cap opt-out reaches actual recruitment gate")
 trust = 5
-assert(service.canRecruit(character, "candidate"),
-    "low trust does not block recruitment")
+ok, reason = service.canRecruit(character, "candidate")
+assert(not ok and reason == "low_reputation",
+    "low trust blocks recruitment while reputation is on")
+SandboxVars.KnoxSurvivors.UseReputation = false
+ok, reason = service.canRecruit(character, "candidate")
+assert(ok and reason == "ready", "reputation off restores contact-rule recruiting")
 SandboxVars.KnoxSurvivors.RequireTrustForRecruitment = true
 ok, reason = service.canRecruit(character, "candidate")
 assert(ok and reason == "ready", "legacy trust setting cannot block recruitment")

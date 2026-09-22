@@ -76,6 +76,13 @@ local statusSource = assert(io.open(controllerPath, "rb")):read("*a")
 assert(string.find(statusSource, "destination=", 1, true)
     and string.find(statusSource, "supplyAttempts=", 1, true),
     "developer status includes destination and base supply diagnostics")
+assert(string.find(statusSource, "anchor:isSprinting()", 1, true)
+    and string.find(statusSource, "distance >= 4", 1, true),
+    "a sprinting formation leader requests catch-up before a large gap opens")
+assert(string.find(statusSource, "self:updateFormationMovementPace(anchor)", 1, true),
+    "formation posture refreshes before the companion decides it is already at its slot")
+assert(string.find(statusSource, "signals.play(member, \"yes\")", 1, true),
+    "nearby autonomous followers acknowledge leader movement signals")
 
 for _,context in ipairs({"urgent","directed","return_home","travel","local"}) do
     assert(Controller.travelPaceFor(900,false,context)=="cautious", "routine routes default to a cautious pace")
@@ -84,8 +91,8 @@ local originalPaceSettings=KnoxSettings
 KnoxSettings={cautiousTravel=function() return false end}
 assert(Controller.travelPaceFor(49, false, "urgent") == "walk",
     "short urgent movement remains a walk")
-assert(Controller.travelPaceFor(64, false, "urgent") == "run",
-    "meaningfully distant urgent supply travel may run")
+assert(Controller.travelPaceFor(64, false, "urgent") == "sprint",
+    "meaningfully distant urgent supply travel may sprint; native locomotion still gates on fitness")
 assert(Controller.travelPaceFor(143, false, "directed") == "walk",
     "short directed movement remains a walk")
 assert(Controller.travelPaceFor(144, false, "directed") == "run",
@@ -152,24 +159,23 @@ local fleeController = setmetatable({
 }, Controller)
 zombieCount = 3
 local shouldFlee, assessment = fleeController:assessFlee()
-assert(not shouldFlee and assessment.zombies == 3 and assessment.allies == 1,
-    "three distant zombies do not trigger the removed fixed ratio rule")
+assert(not shouldFlee and assessment.reason == "flee_retired",
+    "flee retired: survivors hold ground")
 local ally = { getCurrentSquare = function() return square(1, 0, 0) end }
 fleeController.groupMembers = { ally }
 zombieCount = 5
 shouldFlee = fleeController:assessFlee()
-assert(not shouldFlee, "nearby allies reduce a group's combat risk")
+assert(not shouldFlee, "flee retired")
 zombieCount = 6
 zombieSquare = square(1, 0, 0)
 shouldFlee, assessment = fleeController:assessFlee()
-assert(shouldFlee and assessment.allies == 2,
-    "contact-range collapse still overwhelms the supported group")
+assert(not shouldFlee, "flee retired")
 zombieCount = 1
 zombieSquare = square(2, 0, 0)
 health = 25
 shouldFlee, assessment = fleeController:assessFlee()
-assert(shouldFlee and assessment.reason == "critical_health",
-    "critical-health survivor flees any nearby zombie")
+assert(not shouldFlee and assessment.reason == "flee_retired",
+    "flee retired even at critical health")
 
 local threat = {}
 local owners = { survivor = true }
@@ -331,14 +337,14 @@ assert(supportController.pendingGroupSupport == nil
 supportPlan = nil
 
 leaderSquare = square(12, 10, 0)
-assert(left:refreshFormationFollow(60), "moving leader refreshes formation path")
+assert(left:refreshFormationFollow(120), "moving leader refreshes formation path")
 assert(captured.left:getX() == 11 and captured.left:getY() == 9,
     "formation destination follows moving leader")
 
 followerSquare = square(11, 9, 0)
 leaderSquare = square(12, 10, 1)
 local cancellationBeforeFloorRefresh = cancelCount or 0
-assert(left:refreshFormationFollow(90),
+assert(left:refreshFormationFollow(165),
     "leader floor change refreshes formation destination")
 assert(captured.left:getX() == 11 and captured.left:getY() == 9
     and captured.left:getZ() == 1,
@@ -358,7 +364,7 @@ bridge.moveNpcWithPace = function()
     return "MOVE_ALREADY_REQUESTED"
 end
 leaderSquare = square(14, 10, 0)
-assert(left:refreshFormationFollow(120),
+assert(left:refreshFormationFollow(240),
     "failed formation refresh is consumed")
 assert(left.state == "GROUP_WAIT", "failed formation enters bounded wait")
 assert(left.nextThink >= 300,
@@ -366,7 +372,7 @@ assert(left.nextThink >= 300,
 assert(left.formationFailureCount == 1 and cancelCount > 0,
     "failed formation cancels stale owner and records retry")
 
-left:finishDecision(120)
+left:finishDecision(240)
 assert(left.nextThink >= 300,
     "group fast refresh cannot overwrite a recorded failure cooldown")
 
@@ -395,7 +401,7 @@ assert(captured["companion:pace"] == "sprint",
     "far companion requests sprint catch-up")
 local movesAfterStart = moveCount
 leader.isSneaking=function() return true end
-assert(not companion:refreshFormationFollow(40) and captured["companion:pace"]=="sneak"
+assert(not companion:refreshFormationFollow(60) and captured["companion:pace"]=="sneak"
     and moveCount==movesAfterStart, "actual leader crouching changes pace without replacing the route")
 leader.isSneaking=function() return false end
 companion.nextFormationRefresh=30
@@ -409,20 +415,20 @@ assert(captured["companion:pace"] == "run" and moveCount == movesAfterStart,
     "moderate separation downgrades to run without repathing")
 
 followerSquare = square(8, 10, 0)
-assert(not companion:refreshFormationFollow(70),
+assert(not companion:refreshFormationFollow(120),
     "close pace refresh keeps the active route")
 assert(captured["companion:pace"] == "normal" and moveCount == movesAfterStart,
     "close companion walks without destination churn")
 
 leaderSquare = square(11, 10, 0)
-assert(not companion:refreshFormationFollow(100),
+assert(not companion:refreshFormationFollow(180),
     "one-tile leader movement does not force a replacement")
 assert(moveCount == movesAfterStart,
     "small leader movement creates no route request")
 
 leaderForwardX = 0
 leaderForwardY = 1
-assert(companion:refreshFormationFollow(130),
+assert(companion:refreshFormationFollow(225),
     "sharp leader direction change refreshes the follow slot")
 assert(moveCount == movesAfterStart + 1,
     "direction change creates one replacement request")
@@ -431,7 +437,7 @@ local arrival = captured.companion
 followerSquare = square(arrival:getX(), arrival:getY(), arrival:getZ())
 companion.movementFailureCount = 3
 companion.formationFailureCount = 2
-assert(companion:refreshFormationFollow(160), "catch-up reaches its trailing slot")
+assert(companion:refreshFormationFollow(300), "catch-up reaches its trailing slot")
 assert(companion.state == "COMPANION_WAIT"
         and companion.movementFailureCount == 0
         and companion.formationFailureCount == 0,
@@ -439,7 +445,7 @@ assert(companion.state == "COMPANION_WAIT"
 
 local movesBeforeHold = moveCount
 companion.companionOrder = "hold"
-assert(not companion:beginCompanionFollow(190),
+assert(not companion:beginCompanionFollow(330),
     "Hold cannot start companion follow")
 assert(moveCount == movesBeforeHold, "Hold creates no movement request")
 
@@ -588,14 +594,27 @@ assert(not ambient:beginBaseMovement(100, false) and ambient.state == "BASE_IDLE
 
 dofile(projectRoot .. "/mod/42/media/lua/client/KS_OrderSignals.lua")
 local originalSignalTimestamp = getTimestampMs
-getTimestampMs=function() return 0 end
-local signals, busy = 0, false
-local commander = setmetatable({ groupMembers = { {}, {} }, character = {
+local signalNow = 0
+getTimestampMs=function() return signalNow end
+local signals, acknowledgements, busy = 0, 0, false
+local commanderCharacter = {
     playEmote = function(_, name) assert(name == "followme"); signals = signals + 1 end,
     getCharacterActions = function() return { isEmpty = function() return not busy end } end,
-}}, Controller)
-assert(commander:signalFollowers("followme", 100))
+    getCurrentSquare = function() return square(0, 0, 0) end,
+}
+local followerAcknowledgement = {
+    playEmote = function(_, name) assert(name == "yes"); acknowledgements = acknowledgements + 1 end,
+    getCharacterActions = function() return { isEmpty = function() return true end } end,
+    getCurrentSquare = function() return square(2, 0, 0) end,
+}
+local commander = setmetatable({ groupMembers = { commanderCharacter, followerAcknowledgement }, character = commanderCharacter }, Controller)
+assert(commander:signalFollowers("followme", 100) and acknowledgements == 1,
+    "leader movement signal receives one nearby follower acknowledgement")
 assert(not commander:signalFollowers("followme", 101) and signals == 1, "signals are rate limited")
+commander.groupMembers = { followerAcknowledgement }
+signalNow = 3000
+assert(commander:signalFollowers("followme", 1000) and acknowledgements == 2,
+    "a two-person group still signals and acknowledges its single follower")
 busy = true
 assert(not commander:signalFollowers("followme", 1100), "signals do not interrupt native work")
 busy = false

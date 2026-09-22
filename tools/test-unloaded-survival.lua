@@ -51,6 +51,9 @@ KnoxPersistence = {
         return { "empty", "survivor", "base", "group-a", "group-b", "away", "returner" }
     end,
     getSurvivorDuty = function(id) return duties[id] or { mode = "autonomous" } end,
+    getBaseResidentIds = function(baseId)
+        return baseId == "base-1" and { "base", "base-donor", "base-hungry" } or {}
+    end,
     getSurvivorLifeIntent = function(id) return lifeIntents[id] end,
     getAwayTeamForSurvivor = function(id)
         if id == "away" then
@@ -105,6 +108,33 @@ InventoryItemFactory = {
 local simulation = require "KS_UnloadedSurvival"
 local sleepEnabled = true
 KnoxSurvivorNeeds = { sleepRequired = function() return sleepEnabled end }
+local provisionCalls = 0
+KnoxBaseManager = { containsSquare = function(base, square)
+    return base ~= nil and square ~= nil and square.inside == true
+end }
+KnoxBaseStorage = { provisionSurvivalSupplies = function(base, character, targets)
+    provisionCalls = provisionCalls + 1
+    assert(base ~= nil and base.territory.minX == 90
+            and targets.food == 4 and targets.water == 3,
+        "unloaded handoff uses the canonical base and bounded reserve")
+    return true, {
+        before = { food = 1, water = 0 }, after = { food = 4, water = 2 },
+        transferred = { food = 3, water = 2 },
+        shortages = { water = "assigned_water_unavailable" },
+    }
+end }
+local baseCharacter = { getCurrentSquare = function() return { inside = true } end }
+local prepared, preparation = simulation.prepareBaseResidentForStorage("base", baseCharacter, 5)
+assert(prepared and provisionCalls == 1 and string.find(preparation, "food=3", 1, true)
+        and states.base.baseProvision.baseId == "base-1"
+        and states.base.baseProvision.waterShortage == "assigned_water_unavailable",
+    "base hibernation handoff persists honest provisioning and shortage evidence")
+assert(simulation.markStored("base", 5) and states.base.status == "hibernated"
+        and states.base.lastHours == 5,
+    "successful body removal must explicitly transfer the ledger to stored ownership")
+assert(not simulation.prepareBaseResidentForStorage("survivor", baseCharacter, 5)
+        and provisionCalls == 1,
+    "non-residents cannot withdraw from base storage during hibernation")
 local itineraryCalls = 0
 KnoxWorldPopulation = { advanceItinerary = function(_, state, startHours, endHours)
     itineraryCalls = itineraryCalls + 1
@@ -127,6 +157,22 @@ assert(states.survivor.activity == "sleeping"
 assert(simulation.advanceHibernated("survivor", 10))
 assert(states.survivor.activity == "seeking_supplies" and states.survivor.virtualX > 100,
     "rested survivor resumes the existing itinerary with its durable purpose")
+
+records["base-donor"] = "record-base-donor"
+records["base-hungry"] = "record-base-hungry"
+summaries["record-base-donor"] = "Base.CannedSoup=1"
+summaries["record-base-hungry"] = ""
+duties["base-donor"] = { mode = "base", baseId = "base-1" }
+duties["base-hungry"] = { mode = "base", baseId = "base-1" }
+states["base-donor"] = { hunger = .1, thirst = .1, fatigue = .1, endurance = .9,
+    health = 100, lastHours = 0, status = "hibernated" }
+states["base-hungry"] = { hunger = .59, thirst = .1, fatigue = .1, endurance = .9,
+    health = 100, lastHours = 0, status = "hibernated" }
+local sharedAdvanced, sharedEvent = simulation.advanceHibernated("base-hungry", 1)
+assert(sharedAdvanced and string.find(sharedEvent, "ate=base:base-donor:", 1, true)
+        and states["base-hungry"].hunger < .59
+        and not string.find(summaries[records["base-donor"]] or "", "Base.CannedSoup", 1, true),
+    "stored residents of one base must share real serialized provisions without duplication")
 
 assert(simulation.advanceHibernated("base", 6), "base resident advances")
 assert(states.base.activity == "base_life"
@@ -161,6 +207,15 @@ assert(states.returner.activity == "base_life" and states.returner.baseReturn ==
 advanced, event = simulation.advanceHibernated("empty", 6)
 assert(advanced and event == "died" and dead.empty,
     "no-resource starvation/dehydration can persist death")
+
+records.threshold = "record-threshold"
+states.threshold = { hunger = .94, thirst = .94, health = 100, fatigue = .1,
+    endurance = .9, lastHours = 0, status = "hibernated" }
+local thresholdAdvanced, thresholdEvent = simulation.advanceHibernated("threshold", 1)
+assert(thresholdAdvanced and string.find(thresholdEvent, "starving", 1, true)
+        and string.find(thresholdEvent, "dehydrated", 1, true)
+        and states.threshold.health < 100 and states.threshold.health > 96.8,
+    "shortage damage must apply only after the need crosses the lethal threshold")
 
 records.unknown = "record-without-needs"
 local unknown, unknownReason = simulation.advanceHibernated("unknown", 100)
@@ -248,6 +303,19 @@ assert(string.find(persistenceText, "function KnoxPersistence.releaseBaseTaskCla
 local unloadedText = assert(io.open(
     projectRoot .. "/mod/42/media/lua/client/KS_UnloadedSurvival.lua", "r"
 )):read("*a")
+local autonomyFile = assert(io.open(
+    projectRoot .. "/mod/42/media/lua/client/KS_SurvivorAutonomy.lua", "r"
+))
+local autonomyText = autonomyFile:read("*a")
+autonomyFile:close()
+local provisionBoundary = assert(string.find(
+    autonomyText, "prepareBaseResidentForStorage", 1, true
+))
+local shutdownBoundary = assert(string.find(
+    autonomyText, "entry.controller:shutdown()", provisionBoundary, true
+))
+assert(provisionBoundary < shutdownBoundary,
+    "real base supplies must enter inventory before the hibernation record is captured")
 assert(string.find(unloadedText, "PHYSICAL_TASK_OFFSCREEN_WAIT_HOURS", 1, true)
     and string.find(unloadedText, "releaseBaseTaskClaim", 1, true),
     "physical off-screen work must have a bounded automatic claim handoff")

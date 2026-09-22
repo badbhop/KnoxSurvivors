@@ -17,6 +17,12 @@ local function list(values)
     return {
         size = function() return #values end,
         get = function(_, index) return values[index + 1] end,
+        contains = function(_, target)
+            for _, value in ipairs(values) do
+                if value == target then return true end
+            end
+            return false
+        end,
     }
 end
 
@@ -27,11 +33,13 @@ local function item(full)
         IsClothing = function() return false end,
         IsInventoryContainer = function() return false end,
         isCanBandage = function() return false end,
+        getContainer = function(self) return self._container end,
     }
 end
 
 local function container(kind, values)
     local result = { values = values or {} }
+    for _, value in ipairs(result.values) do value._container = result end
     function result:getItems() return list(self.values) end
     function result:isExistYet() return true end
     function result:getType() return kind end
@@ -46,6 +54,17 @@ local function container(kind, values)
             if value == target then return true end
         end
         return false
+    end
+    function result:AddItem(value)
+        local previous = value ~= nil and value._container or nil
+        if previous ~= nil and previous.values ~= nil then
+            for index = #previous.values, 1, -1 do
+                if previous.values[index] == value then table.remove(previous.values, index) end
+            end
+        end
+        self.values[#self.values + 1] = value
+        value._container = self
+        return value
     end
     return result
 end
@@ -64,6 +83,11 @@ local foodItem = item("Base.TinnedSoup")
 local misplacedItem = item("Base.HandAxe")
 local depot = container("crate", { depotItem, foodItem })
 local destination = container("crate", {})
+local storedBag = item("Base.Bag")
+local storedBagInventory = container("bag", { item("Base.TinnedSoup") })
+storedBag.IsInventoryContainer = function() return true end
+storedBag.getInventory = function() return storedBagInventory end
+depot.values[#depot.values + 1] = storedBag
 local depotObject = {}
 function depotObject:getObjectIndex() return 1 end
 function depotObject:getContainerByIndex(index) return index == 0 and depot or nil end
@@ -102,12 +126,15 @@ local base = {
 
 local storage = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseStorage.lua")
 local policies = storage.policies(base)
-assert(#policies == 2 and base.toolCupboardKey == "depot")
-assert(base.storage.building ~= nil and #depot.values == 2 and #destination.values == 0,
+assert(#policies == 2 and base.storage.building ~= nil,
+    "typed plus legacy assignments persist without moving real items")
+assert(base.storage.building ~= nil and #depot.values == 3 and #destination.values == 0,
     "categorized assignments persist without moving or deleting real items")
 assert(storage.findTransfer(base) == nil, "central storage has no sorting job")
 local summary = storage.summarize(base)
-assert(summary.loadedPolicies == 2 and summary.totals.building == 1 and summary.totals.food == 1)
+assert(summary.loadedPolicies == 2 and summary.totals.building == 1
+    and summary.totals.food == 2,
+    "assigned storage summaries must include real food inside stored containers")
 local origin = square(11, 20, 0, {})
 function origin:isSomethingTo() return self.blocked == true end
 local worker = { getCurrentSquare = function() return origin end,
@@ -147,6 +174,11 @@ local required = assert(storage.findRequiredTransfer(base, worker, { items = { [
 assert(required.sourcePolicy.key == "depot")
 assert(storage.requirementsAvailable(base, worker, { items = { ["Base.Plank"] = 1 } }))
 assert(not storage.requirementsAvailable(base, worker, { items = { ["Base.Nails"] = 1 } }))
+local nestedFood = storage.findItemType(base, function(candidate)
+    return candidate == storedBagInventory.values[1]
+end, worker)
+assert(nestedFood == "Base.TinnedSoup",
+    "assigned storage item discovery must inspect stored containers")
 local stableKey = "base:container:10:20:0:1:0"
 local stablePolicy = { key = stableKey, x = 10, y = 20, z = 0, objectIndex = 99,
     containerIndex = 0, containerType = "crate" }
@@ -157,9 +189,10 @@ depotObject.getModData = function() return {} end
 stablePolicy.objectIndex = 1
 assert(storage.resolvePolicy(stablePolicy) == nil, "replacement object cannot inherit assignment")
 base.toolCupboardKey = "missing"
-assert(storage.mainPolicy(base) == nil and #storage.policies(base) == 1
+assert(storage.mainPolicy(base) ~= nil and #storage.policies(base) == 2
     and base.storage.building ~= nil,
-    "missing cupboard never silently selects another container")
+    "legacy main retained without silent promotion")
+base.toolCupboardKey = nil
 local coldOnly = { storage = { fridge = { key = "fridge", containerType = "fridge" } } }
 assert(#storage.policies(coldOnly) == 0, "legacy fridge is not silently enlarged into a dry cupboard")
 assert(coldOnly.storage.fridge ~= nil, "migration preserves old physical-container references when no dry storage exists")
@@ -231,7 +264,7 @@ assert(storage.findNearbyDeposit(base,worker,foodItem).policy.key=="pantry")
 assert(storage.findNearbyDeposit(base,worker,waterItem).policy.key=="pantry")
 assert(storage.findNearbyDeposit(base,worker,depotItem).policy.key=="depot", "building supplies stay out of food storage")
 destination.full=true
-assert(storage.findNearbyDeposit(base,worker,foodItem).policy.key=="depot", "full kitchen falls back to main supplies")
+assert(storage.findNearbyDeposit(base,worker,foodItem).policy.key=="depot", "full kitchen falls back to legacy supplies")
 destination.full=false
 summary=storage.summarize(base)
 assert(summary.loadedPolicies==2 and summary.totals.food==1 and summary.totals.water==1
@@ -249,3 +282,96 @@ storage.resolvePolicy(pantry)
 assert(capacityChanges==0, "food storage never reapplies an old cupboard capacity marker")
 KnoxToolCupboard.apply=originalApply
 print("Kitchen storage PASS persistence=true food=true raw_ingredients=true fallback=true capacity=true withdrawal=true")
+
+-- Native hand tools also satisfy IsWeapon, unlike the older lightweight mocks.
+local hammer = item("Base.Hammer")
+hammer.IsWeapon = function() return true end
+assert(storage.classifyItem(hammer) == "tools")
+assert(storage.acceptsDeposit({storageRole="weapons"}, hammer), "explicit weapon storage still accepts tools")
+depot.values = {hammer}
+local toolStore = {key="tools", x=10,y=20,z=0,objectIndex=1,containerIndex=0,
+    containerType="crate",category="tools",storageRole="tools"}
+local stock = storage.summarize({storage={tools=toolStore}})
+assert(stock.loadedPolicies == 1 and stock.totals.tools == 1 and stock.totals.weapons == 0,
+    "real weapon-capable tools are counted once as tools")
+local bat = item("Base.BaseballBat")
+bat.IsWeapon = function() return true end
+assert(storage.classifyItem(bat) == "weapons", "ordinary weapons retain their category")
+
+-- Hibernation provisioning transfers real instances from assigned storage into
+-- the resident inventory once, stops at the bounded reserve, and is idempotent.
+local storedFood = {
+    item("Base.TinnedSoup"), item("Base.TinnedSoup"),
+    item("Base.TinnedSoup"), item("Base.TinnedSoup"),
+}
+local storedWater = {
+    item("Base.WaterBottleFull"), item("Base.WaterBottleFull"),
+    item("Base.WaterBottleFull"),
+}
+local provisionSource = container("crate", {
+    storedFood[1], storedFood[2], storedFood[3], storedFood[4],
+    storedWater[1], storedWater[2], storedWater[3],
+})
+local provisionObject = {}
+function provisionObject:getObjectIndex() return 3 end
+function provisionObject:getContainerByIndex(index)
+    return index == 0 and provisionSource or nil
+end
+squares["30:30:0"] = square(30, 30, 0, provisionObject)
+local provisionBase = { storage = { supplies = {
+    key = "supplies", x = 30, y = 30, z = 0, objectIndex = 3,
+    containerIndex = 0, containerType = "crate", category = "food",
+    storageRole = "food",
+} } }
+local carriedFood = item("Base.TinnedSoup")
+local provisionInventory = container("inventory", { carriedFood })
+local provisionCharacter = {
+    getInventory = function() return provisionInventory end,
+    getCurrentSquare = function() return square(30, 31, 0, {}) end,
+}
+local provisioned, provisionReport = storage.provisionSurvivalSupplies(
+    provisionBase, provisionCharacter, { food = 4, water = 3 }
+)
+assert(provisioned and provisionReport.transferred.food == 3
+        and provisionReport.transferred.water == 3
+        and provisionReport.after.food == 4 and provisionReport.after.water == 3,
+    "base provisioning must fill only the bounded carried reserve from real stock")
+assert(#provisionSource.values == 1 and #provisionInventory.values == 7,
+    "provisioned instances must leave assigned storage and enter personal inventory")
+local sourceAfterFirst = #provisionSource.values
+local _, repeatedReport = storage.provisionSurvivalSupplies(
+    provisionBase, provisionCharacter, { food = 4, water = 3 }
+)
+assert(#provisionSource.values == sourceAfterFirst
+        and repeatedReport.transferred.food == 0 and repeatedReport.transferred.water == 0,
+    "repeated hibernation preparation must not withdraw duplicate reserves")
+squares["30:30:0"] = nil
+local _, unavailableReport = storage.provisionSurvivalSupplies(
+    provisionBase, { getInventory = function() return container("inventory", {}) end,
+        getCurrentSquare = provisionCharacter.getCurrentSquare },
+    { food = 1, water = 1 }
+)
+assert(unavailableReport.shortages.food ~= nil and unavailableReport.shortages.water ~= nil,
+    "unloaded assigned storage must remain an explicit shortage, not fabricated stock")
+local rollbackFood = item("Base.TinnedSoup")
+local rollbackSource = container("crate", { rollbackFood })
+provisionObject.getContainerByIndex = function(_, index)
+    return index == 0 and rollbackSource or nil
+end
+squares["30:30:0"] = square(30, 30, 0, provisionObject)
+local rollbackInventory = container("inventory", {})
+local normalAdd = rollbackInventory.AddItem
+rollbackInventory.AddItem = function(self, value)
+    normalAdd(self, value)
+    return false
+end
+local _, rollbackReport = storage.provisionSurvivalSupplies(
+    provisionBase,
+    { getInventory = function() return rollbackInventory end,
+        getCurrentSquare = provisionCharacter.getCurrentSquare },
+    { food = 1, water = 0 }
+)
+assert(rollbackSource:contains(rollbackFood) and not rollbackInventory:contains(rollbackFood)
+        and rollbackReport.shortages.food ~= nil,
+    "failed provisioning transfer must restore the real item to base storage")
+print("Unloaded base provisioning PASS real=true bounded=true idempotent=true shortage=true rollback=true")

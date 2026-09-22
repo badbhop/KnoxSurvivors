@@ -107,7 +107,9 @@ assert(away.orderLabel == "Looting marked area")
 assert(away.locationLabel == "Away")
 assert(away.vitals.available == false)
 assert(away.vitals.health == nil)
-assert(away.health == 1)
+assert(away.health == nil and away.needs.food == nil
+    and away.weaponName == "Equipment unavailable",
+    "unknown off-screen condition must not render as healthy or unarmed")
 assert(away.traits[1] == "Brave" and away.skills.Woodwork.level == 3)
 assert(away.trust == 61 and away.relationshipMeetings == 4)
 assert(away.lifeIntent ~= nil and away.lifeIntent.label == "Looking for food",
@@ -155,9 +157,12 @@ for activity, label in pairs({ fighting = "Fighting", resting = "Resting", follo
 end
 KnoxSurvivorRuntime.snapshot = originalRuntimeSnapshot
 KnoxSurvivorNeeds.snapshot = function() return {
-    health = 100, bleedingParts = 0, hunger = 0.8, thirst = 0.8, fatigue = 0.9, endurance = 0.1,
+    health = 100, bleedingParts = 0, hunger = 0.96, thirst = 0.96, fatigue = 0.9, endurance = 0.1, pain = 5,
 } end
-assert(viewModel.getSurvivor('survivor-1', 0).needSummary == 'Water, Food, Catch breath, Sleep / rest')
+assert(viewModel.getSurvivor('survivor-1', 0).needSummary == 'Pain, Dehydrated, Starving, Critical exhaustion, Sleep')
+local sleepNeeds = viewModel.getSurvivor('survivor-1', 0).needs
+assert(sleepNeeds.sleep ~= nil and sleepNeeds.sleep == sleepNeeds.rest,
+    'sleepiness bar keeps the legacy rest alias')
 KnoxSurvivorNeeds.snapshot = function() return {
     health = 100, bleedingParts = 0, hunger = 0, thirst = 0, fatigue = 0, endurance = 1,
 } end
@@ -241,6 +246,15 @@ for state, label in pairs({ FLEEING = "Retreating", BASE_TASK_MOVE = "Working at
     controller.state = state
     assert(viewModel.getSurvivor("survivor-1", 0).activity == label, "live state label: " .. state)
 end
+controller.baseTask = { type = "barricade" }
+controller.state = "BASE_TASK_ACTION"
+assert(viewModel.getSurvivor("survivor-1", 0).activity == "Barricading windows",
+    "current base task takes precedence over the generic controller state")
+controller.baseTask = nil
+controller.state, controller.reloadYieldStreak = "COMBAT", 1
+assert(viewModel.getSurvivor("survivor-1", 0).activity == "Reloading",
+    "live reload lease is visible without inventing a second firearm state")
+controller.reloadYieldStreak = 0
 controller.state, controller.activeDecision = "TIMED_ACTION", "eat"
 assert(viewModel.getSurvivor("survivor-1", 0).activity == "Eating", "self-care is explained")
 

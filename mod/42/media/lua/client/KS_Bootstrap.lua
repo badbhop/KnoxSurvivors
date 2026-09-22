@@ -8,3 +8,4 @@ local function onGameStart()
 end
 
 Events.OnGameStart.Add(onGameStart)
+require "KS_AutomatedQA"

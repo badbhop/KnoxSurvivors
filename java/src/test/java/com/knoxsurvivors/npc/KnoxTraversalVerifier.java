@@ -65,6 +65,10 @@ public final class KnoxTraversalVerifier {
         npc.useTraversalInteractionTarget(firstEdge);
         require("OPEN_ATTEMPTED".equals(npc.getTraversalInteractionStage()),
             "same edge retains its native interaction stage");
+        npc.setTraversalInteractionStage("CLIMB_ATTEMPTED");
+        npc.useTraversalInteractionTarget(firstEdge);
+        require("CLIMB_ATTEMPTED".equals(npc.getTraversalInteractionStage()),
+            "same fence edge keeps one pending native climb request");
         npc.useTraversalInteractionTarget(replacementEdge);
         require("NONE".equals(npc.getTraversalInteractionStage()),
             "changed world edge invalidates stale interaction intent");

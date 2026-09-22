@@ -71,10 +71,9 @@ Catalog.tasks = {
     farm_plow = { label = "Prepare Soil" }, chop_tree = { label = "Cut Wood" },
     saw_logs = { label = "Saw Logs" }, guard = { label = "Guard" },
     patrol = { label = "Patrol" }, haul_corpse = { label = "Move Corpses" },
-    animal_care = { label = "Care for Animals" }, animal_water = { label = "Water Animals" },
-    animal_feed = { label = "Feed Animals" }, repair = { label = "Repair" },
-    construct_defense = { label = "Build Defenses" },
-    cook = { label = "Cook Food (Microwave)" },
+    burn_corpse = { label = "Burn Corpses" },
+    repair = { label = "Repair" },
+    cook = { label = "Cook Food (Stove / Microwave)" },
 }
 
 -- Compatibility names that may appear in early Knox saves or manually-created
@@ -93,17 +92,16 @@ Catalog.taskAliases = {
     wood_processing = "saw_logs",
     log_processing = "saw_logs",
     farming = "farm_seed",
-    construction = "construct_defense",
-    defense = "construct_defense",
     maintenance = "repair",
     patrol_area = "patrol",
 }
 
 Catalog.basePreferences = {
     auto = { label = "Automatic" }, guard = { label = "Guard" }, patrol = { label = "Patrol" },
-    cooking = { label = "Cooking", description = "Heat suitable stored food in a powered microwave and return meals to food storage." },
-    farming = { label = "Farming" }, woodwork = { label = "Woodwork & Defense" },
-    hauling = { label = "Move Corpses" }, animal_care = { label = "Animal Care" },
+    cooking = { label = "Cooking", description = "Heat suitable stored food in a stove or powered microwave and return meals to food storage." },
+    farming = { label = "Farming" }, woodwork = { label = "Woodwork", description = "Cut wood, saw logs and barricade." },
+    barricade = { label = "Barricade Windows", description = "Board up windows at the base." },
+    hauling = { label = "Move Corpses" },
     repair = { label = "Repair" }, rest = { label = "Rest / Recover", description = "Stay available at base and recover." },
 }
 
@@ -114,11 +112,13 @@ Catalog.actions = {
     recruit = { label = "Recruit", description = "Ask this survivor to join you." },
     dismiss = { label = "Dismiss", description = "Release this survivor from your group." },
     check_needs = { label = "Check Party Needs", description = "Review current party needs." },
-    enter_vehicle = { label = "Get In My Vehicle", description = "Take an available passenger seat." },
-    drive_ahead = { label = "Drive Ahead (Experimental)", description = "Take the driver seat and travel a short distance." },
-    exit_vehicle = { label = "Get Out of Vehicles", description = "Leave the current vehicle." },
+    enter_vehicle = { label = "Take Passenger Seat", description = "Enter a free passenger seat in your vehicle; the driver seat stays yours." },
+    drive_ahead = { label = "Take Driver Seat & Drive", description = "You must leave the driver seat first. The survivor enters or switches seats, then drives a short distance." },
+    exit_vehicle = { label = "Exit Vehicle", description = "Leave the current vehicle after it stops." },
     allow_climbing = { label = "Allow", description = "Allow vaulting and climbing." },
     disallow_climbing = { label = "Disallow", description = "Do not vault or climb." },
+    allow_doors = { label = "Allow", description = "Open closed doors and windows." },
+    disallow_doors = { label = "Disallow", description = "Do not open doors or windows." },
     open_activity = { label = "Show Activity Feed" },
     open_notebook = { label = "Open Survivor Notebook" },
     open_base = { label = "Open Base Management" },
@@ -127,6 +127,7 @@ Catalog.actions = {
     assign_base_task = { label = "Assign Base Task", description = "Assign a selected queued task to this resident." },
     vehicle_orders = { label = "Vehicle Orders" },
     traversal_orders = { label = "Vaulting and Climbing" },
+    door_orders = { label = "Doors and Windows" },
     combat_stance = { label = "Combat Stance" },
     weapon_preference = { label = "Weapon Preference" },
     loot_orders = { label = "Loot Orders" },
@@ -139,8 +140,8 @@ Catalog.actions = {
 -- Stable presentation order for menus.  Keeping this beside the catalogue
 -- prevents UI files from quietly growing a second, divergent order list.
 Catalog.basePreferenceOrder = {
-    "auto", "guard", "patrol", "farming", "cooking", "woodwork", "hauling",
-    "animal_care", "repair", "rest",
+    "auto", "guard", "patrol", "farming", "cooking", "woodwork", "barricade",
+    "hauling", "repair", "rest",
 }
 
 -- Compatibility vocabulary for familiar survivor commands.  These are aliases
@@ -192,7 +193,6 @@ Catalog.aliases = {
     cancel = "resume_normal_duty",
     chop_wood = "woodwork",
     pile_corpses = "hauling",
-    barricade = "woodwork",
     farming = "farming",
     woodcutting = "woodwork",
     storage_sorting = "hauling",
@@ -210,9 +210,10 @@ Catalog.preferenceTaskGroups = {
     repair = { repair = true },
     cooking = { cook = true },
     farming = { farm_seed = true, farm_water = true, farm_harvest = true, farm_plow = true },
-    woodwork = { chop_tree = true, saw_logs = true, barricade = true, construct_defense = true },
-    hauling = { haul = true, haul_corpse = true },
-    animal_care = { animal_care = true, animal_water = true, animal_feed = true },
+    woodwork = { chop_tree = true, saw_logs = true, barricade = true },
+    barricade = { barricade = true },
+    hauling = { haul = true, haul_corpse = true, burn_corpse = true },
+
 }
 
 -- Resolve a player-facing order once at the catalogue boundary.  Callers still

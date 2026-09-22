@@ -102,7 +102,28 @@ local function companionSnapshot(playerNum, survivorId)
             return snapshot
         end
     end
+    -- Base residents and known survivors are listed by the Notebook but are
+    -- not in the companion roster. Fall back to the full record so View Card
+    -- works for them instead of silently doing nothing.
+    if KnoxSurvivorViewModel.getSurvivor ~= nil then
+        local ok, snapshot = pcall(function()
+            return KnoxSurvivorViewModel.getSurvivor(survivorId, playerNum)
+        end)
+        if ok and snapshot ~= nil then
+            return snapshot
+        end
+    end
     return nil
+end
+
+-- Vanilla (re)creates the appearance buttons in createChildren, which can run
+-- after our first hide. Force them off every render: the card is read-only
+-- and those menus crash for off-slot survivors.
+local function hideAppearanceButtons(view)
+    if view == nil then return end
+    if view.hairButton ~= nil then view.hairButton:setVisible(false) end
+    if view.beardButton ~= nil then view.beardButton:setVisible(false) end
+    if view.literatureButton ~= nil then view.literatureButton:setVisible(false) end
 end
 
 local function screenBounds(playerNum)
@@ -198,6 +219,41 @@ function KnoxPanel:prerender()
     keyValue("Activity", status)
     keyValue("Needs", snapshot.needSummary or "None urgent")
     y = y + 4
+    sectionHeader("Condition")
+    do
+        local vitals = snapshot.vitals or {}
+        local needs = snapshot.needs or {}
+        local function needBar(label, fraction, higherIsWorse)
+            local value = tonumber(fraction)
+            self:drawText(tostring(label), PADDING, y,
+                COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
+            if value == nil then
+                self:drawTextRight("Unknown", PADDING + w, y,
+                    COL_DIM[1], COL_DIM[2], COL_DIM[3], 1, UIFont.Small)
+            else
+                value = math.max(0, math.min(1, value))
+                local bad = higherIsWorse and value or (1 - value)
+                local col = bad >= 0.65 and { 1, 0.3, 0.3 }
+                    or (bad >= 0.35 and { 1, 0.85, 0.3 } or { 0.55, 0.85, 0.45 })
+                local pct = tostring(math.floor(value * 100 + 0.5)) .. "%"
+                self:drawTextRight(pct, PADDING + w, y, col[1], col[2], col[3], 1, UIFont.Small)
+                local barW = math.max(20, w - 170)
+                local bx = PADDING + 100
+                self:drawRect(bx, y + 3, barW, 9, 0.4, 0.02, 0.02, 0.02)
+                self:drawRect(bx, y + 3, math.max(1, barW * value), 9, 0.9,
+                    col[1], col[2], col[3])
+            end
+            y = y + 16
+        end
+        local health = vitals.health
+        if health == nil then health = snapshot.health end
+        needBar("Health", health, false)
+        needBar("Food", needs.food, false)
+        needBar("Water", needs.water, false)
+        needBar("Sleep", needs.sleep ~= nil and needs.sleep or needs.rest, false)
+        needBar("Endurance", needs.endurance, false)
+    end
+    y = y + 4
     sectionHeader("Relationship")
     keyValue("Faction", snapshot.factionName or "None")
     local trustVal = snapshot.trust ~= nil and math.floor(snapshot.trust) or nil
@@ -279,7 +335,11 @@ local function ensureViews(window)
     local survivor = window.snapshot ~= nil and window.snapshot.loaded
         and KnoxSurvivorViewModel.resolveLiveCharacter(window.snapshot.id) or nil
 
-    if window.infoView == nil then
+    -- A persisted survivor can be known to the Notebook while its live shell
+    -- is streamed out. Vanilla character views dereference `char` during
+    -- addView/prerender, so keep the Knox tab available and wait for a real
+    -- IsoPlayer before creating those views.
+    if survivor ~= nil and window.infoView == nil then
         local view = ISCharacterScreen:new(0, 8, window.panel.width, 400, window.playerNum)
         view:initialise()
         view:setScrollChildren(true)
@@ -321,6 +381,7 @@ local function ensureViews(window)
         -- Augment vanilla Info with Knox fields (relationship/faction/base) using restrained style.
         local origRender = view.render
         view.render = function(self)
+            hideAppearanceButtons(self)
             origRender(self)
             local snap = self.knoxWindow and self.knoxWindow.snapshot or nil
             if snap == nil then return end
@@ -362,7 +423,7 @@ local function ensureViews(window)
         window.infoView = view
         window.panel:addView(xpSystemText.info, view)
     end
-    if window.skillsView == nil then
+    if survivor ~= nil and window.skillsView == nil then
         local view = ISCharacterInfo:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
         view:initialise()
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
@@ -451,7 +512,7 @@ local function ensureViews(window)
 
     -- Bind all vanilla views to the selected survivor (never local player)
     if survivor ~= nil then
-        if window.infoView.char ~= survivor then
+        if window.infoView ~= nil and window.infoView.char ~= survivor then
             window.infoView.char = survivor
             window.infoView.playerNum = survivor:getPlayerNum()
             window.infoView.hairMenu = function() end
@@ -466,15 +527,19 @@ local function ensureViews(window)
             if window.infoView.beardButton ~= nil then window.infoView.beardButton:setVisible(false) end
             if window.infoView.literatureButton ~= nil then window.infoView.literatureButton:setVisible(false) end
         end
-        window.infoView.knoxWindow = window
-        if window.skillsView.char ~= survivor then
+        if window.infoView ~= nil then
+            window.infoView.knoxWindow = window
+        end
+        if window.skillsView ~= nil and window.skillsView.char ~= survivor then
             window.skillsView.char = survivor
             window.skillsView.playerNum = window.playerNum
             window.skillsView.perks = ISCharacterInfo.loadPerk(window.skillsView)
             window.skillsView.progressBarLoaded = false
             window.skillsView.reloadSkillBar = true
         end
-        window.skillsView.knoxSnapshot = window.snapshot
+        if window.skillsView ~= nil then
+            window.skillsView.knoxSnapshot = window.snapshot
+        end
         if window.healthView ~= nil and window.healthView ~= false
             and window.healthView.character ~= survivor then
             local localPlayer = getSpecificPlayer(window.playerNum)
@@ -639,6 +704,7 @@ function SurvivorCard.show(playerNum, survivorId)
     end
     local snapshot = companionSnapshot(playerNum, survivorId)
     if snapshot == nil then
+        print("[KnoxSurvivors][Card] no snapshot for survivor=" .. tostring(survivorId))
         return nil
     end
 

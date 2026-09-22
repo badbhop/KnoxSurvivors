@@ -38,12 +38,16 @@ local function forEachSquare(area, callback)
 end
 
 function Highlights.isEnabled(playerNum)
-    return enabled[tonumber(playerNum) or 0] == true
+    local n = tonumber(playerNum)
+    if n == nil then return false end
+    return enabled[n] == true
 end
 
 function Highlights.setEnabled(playerNum, value)
-    enabled[tonumber(playerNum) or 0] = value == true
-    Highlights.refresh(playerNum)
+    local n = tonumber(playerNum)
+    if n == nil then return end
+    enabled[n] = value == true
+    Highlights.refresh(n)
 end
 
 function Highlights.toggle(playerNum)
@@ -52,7 +56,8 @@ function Highlights.toggle(playerNum)
 end
 
 function Highlights.setDraft(playerNum, active, zoneType)
-    playerNum = tonumber(playerNum) or 0
+    playerNum = tonumber(playerNum)
+    if playerNum == nil then return end
     if active then
         draftByPlayer[playerNum] = { active = true, zoneType = zoneType }
     else
@@ -62,7 +67,9 @@ function Highlights.setDraft(playerNum, active, zoneType)
 end
 
 function Highlights.isDraft(playerNum)
-    local entry = draftByPlayer[tonumber(playerNum) or 0]
+    local n = tonumber(playerNum)
+    if n == nil then return false end
+    local entry = draftByPlayer[n]
     return entry ~= nil and entry.active == true
 end
 
@@ -84,32 +91,59 @@ local function drawPlayer(playerNum)
         local zoneAlpha = isDraft and 0.12 or 0.85
         local zoneAlphaGeneral = isDraft and 0.10 or 0.75
         local colorTerritory = { r = 0.25, g = 0.55, b = 0.25, a = territoryAlpha }
+        -- Whole-map palette: every territory, work and storage color is
+        -- visually distinct (no blue/blue, red/red or gray/gray twins), so a
+        -- glance tells repair water apart from water storage and guard posts
+        -- apart from weapon cupboards. Keep it that way when adding types.
         local colorZones = {
-            guard = { r = 0.85, g = 0.2, b = 0.2, a = zoneAlpha },
-            patrol = { r = 0.85, g = 0.55, b = 0.15, a = zoneAlpha },
-            farming = { r = 0.2, g = 0.7, b = 0.2, a = zoneAlpha },
+            guard = { r = 0.88, g = 0.16, b = 0.16, a = zoneAlpha },
+            patrol = { r = 0.92, g = 0.55, b = 0.12, a = zoneAlpha },
+            farming = { r = 0.22, g = 0.75, b = 0.22, a = zoneAlpha },
             woodcutting = { r = 0.55, g = 0.35, b = 0.15, a = zoneAlpha },
-            corpse = { r = 0.5, g = 0.5, b = 0.5, a = zoneAlpha },
-            cooking = { r = 0.75, g = 0.35, b = 0.30, a = zoneAlpha },
-            animal_care = { r = 0.85, g = 0.7, b = 0.1, a = zoneAlpha },
-            repair = { r = 0.2, g = 0.5, b = 0.85, a = zoneAlpha },
-            construction = { r = 0.7, g = 0.4, b = 0.85, a = zoneAlpha },
-            general = { r = 0.4, g = 0.4, b = 0.85, a = zoneAlphaGeneral },
+            log_processing = { r = 0.82, g = 0.68, b = 0.16, a = zoneAlpha },
+            corpse = { r = 0.5, g = 0.5, b = 0.58, a = zoneAlpha },
+            cooking = { r = 0.8, g = 0.3, b = 0.5, a = zoneAlpha },
+            repair = { r = 0.3, g = 0.32, b = 0.88, a = zoneAlpha },
+            general = { r = 0.52, g = 0.52, b = 0.75, a = zoneAlphaGeneral },
+        }
+        local colorStorage = {
+            food = { r = 0.12, g = 0.82, b = 0.62, a = zoneAlpha },
+            water = { r = 0.12, g = 0.32, b = 0.78, a = zoneAlpha },
+            medical = { r = 1.0, g = 0.2, b = 0.4, a = zoneAlpha },
+            weapons = { r = 0.5, g = 0.1, b = 0.1, a = zoneAlpha },
+            ammunition = { r = 0.92, g = 0.92, b = 0.88, a = zoneAlpha },
+            tools = { r = 0.9, g = 0.85, b = 0.2, a = zoneAlpha },
+            building = { r = 0.7, g = 0.6, b = 0.45, a = zoneAlpha },
+            farming = { r = 0.1, g = 0.45, b = 0.15, a = zoneAlpha },
+            clothing = { r = 0.65, g = 0.4, b = 0.85, a = zoneAlpha },
+            junk = { r = 0.3, g = 0.3, b = 0.33, a = zoneAlpha },
         }
         if show then
             forEachSquare(territory, function(sq) setSquareHighlighted(sq, true, colorTerritory) end)
+            -- Work areas render over the base border so farming/woodcutting
+            -- colors win inside the territory. Sort deterministically by
+            -- priority so overlapping fills do not flicker with pairs() order.
+            local ordered = {}
             for _, zone in pairs(base.zones or {}) do
                 if zone ~= nil and zone.enabled ~= false and zone.x1 ~= nil then
-                    local area = { minX = zone.x1, minY = zone.y1, maxX = zone.x2, maxY = zone.y2, z = zone.z or 0 }
-                    local col = colorZones[zone.type] or colorZones.general
-                    forEachSquare(area, function(sq) setSquareHighlighted(sq, true, col) end)
+                    ordered[#ordered + 1] = zone
                 end
+            end
+            table.sort(ordered, function(a, b)
+                local pa = tonumber(a.priority) or 50
+                local pb = tonumber(b.priority) or 50
+                if pa ~= pb then return pa < pb end
+                return tostring(a.id) < tostring(b.id)
+            end)
+            for _, zone in ipairs(ordered) do
+                local area = { minX = zone.x1, minY = zone.y1, maxX = zone.x2, maxY = zone.y2, z = zone.z or 0 }
+                local col = colorZones[zone.type] or colorZones.general
+                forEachSquare(area, function(sq) setSquareHighlighted(sq, true, col) end)
             end
             for _, policy in ipairs(KnoxBaseStorage.policies(base)) do
                 local square = getCell() ~= nil and getCell():getGridSquare(policy.x, policy.y, policy.z) or nil
-                local food = policy.storageRole == "food"
-                setSquareHighlighted(square, true, food and {r=0.2,g=0.9,b=0.8,a=zoneAlpha}
-                    or {r=0.25,g=0.55,b=1,a=zoneAlpha})
+                local col = colorStorage[policy.storageRole] or colorStorage.building
+                setSquareHighlighted(square, true, col)
             end
         end
     end

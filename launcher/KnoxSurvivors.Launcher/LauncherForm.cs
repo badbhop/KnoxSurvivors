@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace KnoxSurvivors.Launcher
@@ -9,15 +11,17 @@ namespace KnoxSurvivors.Launcher
     {
         private readonly Label statusLabel;
         private readonly GradientLaunchButton launchButton;
+        private readonly Panel bottomBar;
         private readonly SteamLocator locator = new SteamLocator();
         private readonly InstallationValidator validator = new InstallationValidator();
         private readonly GameLauncher gameLauncher = new GameLauncher();
+        private readonly Image backgroundImage;
         private LauncherInstallation installation;
 
         public LauncherForm()
         {
             Text = "Knox Survivors";
-            ClientSize = new Size(720, 400);
+            ClientSize = new Size(1280, 720);
             MinimumSize = Size;
             MaximumSize = Size;
             MaximizeBox = false;
@@ -25,54 +29,194 @@ namespace KnoxSurvivors.Launcher
             BackColor = Color.FromArgb(5, 6, 8);
             ForeColor = Color.White;
             Font = new Font("Segoe UI", 10.0f, FontStyle.Regular, GraphicsUnit.Point);
+            AutoScaleMode = AutoScaleMode.Dpi;
+            DoubleBuffered = true;
+            ResizeRedraw = true;
 
-            var title = new Label
+            backgroundImage = TryLoadBackground();
+
+            // Bottom scrim bar keeps status + launch readable over busy art
+            // while leaving the artwork fully visible above. Future buttons
+            // can dock into this same panel.
+            bottomBar = new Panel
             {
-                AutoSize = false,
-                Bounds = new Rectangle(54, 54, 612, 58),
-                Text = "KNOX SURVIVORS",
-                Font = new Font("Segoe UI Semibold", 29.0f, FontStyle.Bold, GraphicsUnit.Point),
-                ForeColor = Color.FromArgb(188, 255, 0),
-                TextAlign = ContentAlignment.MiddleCenter,
-            };
-            var subtitle = new Label
-            {
-                AutoSize = false,
-                Bounds = new Rectangle(54, 112, 612, 32),
-                Text = "PROJECT ZOMBOID 42.20",
-                Font = new Font("Segoe UI", 10.0f, FontStyle.Regular, GraphicsUnit.Point),
-                ForeColor = Color.FromArgb(180, 150, 255),
-                TextAlign = ContentAlignment.MiddleCenter,
+                Dock = DockStyle.Bottom,
+                Height = 168,
+                BackColor = Color.FromArgb(178, 5, 6, 8),
             };
             statusLabel = new Label
             {
                 AutoSize = false,
-                Bounds = new Rectangle(70, 171, 580, 45),
+                Bounds = new Rectangle(140, 14, 1000, 44),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
                 Text = "Checking Steam Workshop...",
                 ForeColor = Color.FromArgb(190, 194, 200),
+                BackColor = Color.Transparent,
                 TextAlign = ContentAlignment.MiddleCenter,
             };
             launchButton = new GradientLaunchButton
             {
-                Bounds = new Rectangle(92, 246, 536, 82),
+                Bounds = new Rectangle(372, 64, 536, 82),
+                Anchor = AnchorStyles.Top,
                 Text = "LAUNCH",
                 Enabled = false,
             };
             launchButton.Click += LaunchButtonOnClick;
 
-            Controls.Add(title);
-            Controls.Add(subtitle);
-            Controls.Add(statusLabel);
-            Controls.Add(launchButton);
+            bottomBar.Controls.Add(statusLabel);
+            bottomBar.Controls.Add(launchButton);
+            Controls.Add(bottomBar);
             Shown += (sender, arguments) => RefreshInstallation();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && backgroundImage != null)
+            {
+                backgroundImage.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        private static Image TryLoadBackground()
+        {
+            // 1) Sidecar next to the exe (lets players/art swap without rebuild).
+            // 2) Dev-time Assets folder.
+            // 3) Embedded resource (offline single-exe builds).
+            try
+            {
+                string baseDirectory = null;
+                try { baseDirectory = AppDomain.CurrentDomain.BaseDirectory; } catch { }
+                string[] candidates = baseDirectory != null
+                    ? new[]
+                    {
+                        Path.Combine(baseDirectory, "background.png"),
+                        Path.Combine(baseDirectory, "background.jpg"),
+                        Path.Combine(baseDirectory, "background.jpeg"),
+                        Path.Combine(baseDirectory, "Assets", "background.png"),
+                        Path.Combine(baseDirectory, "Assets", "background.jpg"),
+                    }
+                    : new string[0];
+                foreach (string path in candidates)
+                {
+                    try
+                    {
+                        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                        {
+                            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                            using (var loaded = Image.FromStream(stream))
+                            {
+                                return new Bitmap(loaded);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                string assemblyLocation = null;
+                try { assemblyLocation = Assembly.GetExecutingAssembly().Location; } catch { }
+                if (!string.IsNullOrEmpty(assemblyLocation))
+                {
+                    string assemblyDirectory = Path.GetDirectoryName(assemblyLocation);
+                    if (!string.IsNullOrEmpty(assemblyDirectory))
+                    {
+                        string[] devCandidates =
+                        {
+                            Path.Combine(assemblyDirectory, "Assets", "background.png"),
+                            Path.Combine(assemblyDirectory, "Assets", "background.jpg"),
+                        };
+                        foreach (string path in devCandidates)
+                        {
+                            try
+                            {
+                                if (File.Exists(path))
+                                {
+                                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                                    using (var loaded = Image.FromStream(stream))
+                                    {
+                                        return new Bitmap(loaded);
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
+                var assembly = Assembly.GetExecutingAssembly();
+                string[] resourceNames = { "background.png", "background.jpg", "background.jpeg", "Assets.background.png" };
+                foreach (string resourceName in assembly.GetManifestResourceNames())
+                {
+                    foreach (string wanted in resourceNames)
+                    {
+                        if (resourceName.EndsWith(wanted, StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                using (var stream = assembly.GetManifestResourceStream(resourceName))
+                                {
+                                    if (stream != null)
+                                    {
+                                        using (var loaded = Image.FromStream(stream))
+                                        {
+                                            return new Bitmap(loaded);
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return null;
         }
 
         protected override void OnPaint(PaintEventArgs arguments)
         {
+            var graphics = arguments.Graphics;
+            graphics.SmoothingMode = SmoothingMode.HighQuality;
+            graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.CompositingQuality = CompositingQuality.HighQuality;
+
+            if (backgroundImage != null)
+            {
+                // Cover-fit: fill the window, center-crop overflow, never stretch.
+                // This is what keeps the art sharp and undistorted at 1280x720.
+                Rectangle client = ClientRectangle;
+                float scale = Math.Max(
+                    (float)client.Width / backgroundImage.Width,
+                    (float)client.Height / backgroundImage.Height);
+                int drawWidth = (int)Math.Ceiling(backgroundImage.Width * scale);
+                int drawHeight = (int)Math.Ceiling(backgroundImage.Height * scale);
+                int drawX = client.X + (client.Width - drawWidth) / 2;
+                int drawY = client.Y + (client.Height - drawHeight) / 2;
+                graphics.DrawImage(backgroundImage, new Rectangle(drawX, drawY, drawWidth, drawHeight));
+
+                // Gentle top vignette so the window frame blends into dark art.
+                using (var vignette = new LinearGradientBrush(
+                    new Rectangle(0, 0, client.Width, 90),
+                    Color.FromArgb(140, 0, 0, 0),
+                    Color.FromArgb(0, 0, 0, 0),
+                    LinearGradientMode.Vertical))
+                {
+                    graphics.FillRectangle(vignette, 0, 0, client.Width, 90);
+                }
+            }
+            else
+            {
+                using (var fill = new SolidBrush(Color.FromArgb(5, 6, 8)))
+                {
+                    graphics.FillRectangle(fill, ClientRectangle);
+                }
+            }
+
             base.OnPaint(arguments);
             using (var border = new Pen(Color.FromArgb(90, 188, 255, 0), 1.0f))
             {
-                arguments.Graphics.DrawRectangle(border, 16, 16, ClientSize.Width - 33, ClientSize.Height - 33);
+                graphics.DrawRectangle(border, 16, 16, ClientSize.Width - 33, ClientSize.Height - 33);
             }
         }
 

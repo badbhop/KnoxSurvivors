@@ -100,28 +100,30 @@ assertEqual(planner.chooseAvailableShortage({
 }, "worker-c"), nil, "fully claimed shortages must not duplicate workers")
 
 local workers = {
-    { id = "recent", ready = true, lastSupplyRunAtHours = 20 },
-    { id = "old", ready = true, lastSupplyRunAtHours = 5 },
-    { id = "busy", ready = true, hasTask = true, lastSupplyRunAtHours = 0 },
-    { id = "resting", ready = true, resting = true, lastSupplyRunAtHours = 0 },
-    { id = "ordered", ready = true, explicitOrder = true, lastSupplyRunAtHours = 0 },
+    { id = "recent", ready = true, willing = true, lastSupplyRunAtHours = 20 },
+    { id = "old", ready = true, willing = true, lastSupplyRunAtHours = 5 },
+    { id = "busy", ready = true, willing = true, hasTask = true, lastSupplyRunAtHours = 0 },
+    { id = "resting", ready = true, willing = true, resting = true, lastSupplyRunAtHours = 0 },
+    { id = "ordered", ready = true, willing = true, explicitOrder = true, lastSupplyRunAtHours = 0 },
+    { id = "homebody", ready = true, willing = false, lastSupplyRunAtHours = 0 },
 }
 assertEqual(planner.chooseWorker(workers, "find_food"), "old",
     "oldest eligible supply worker should receive the next automatic run")
 assertEqual(planner.chooseWorker({
-    { id = "repeat", ready = true, lastSupplyRunAtHours = 10,
+    { id = "repeat", ready = true, willing = true, lastSupplyRunAtHours = 10,
         lastSupplyKind = "find_food" },
-    { id = "different", ready = true, lastSupplyRunAtHours = 10,
+    { id = "different", ready = true, willing = true, lastSupplyRunAtHours = 10,
         lastSupplyKind = "find_water" },
 }, "find_food"), "different",
     "equal-age rotation should avoid repeating the same shortage kind")
 assertEqual(planner.chooseWorker({
-    { id = "b", ready = true },
-    { id = "a", ready = true },
+    { id = "b", ready = true, willing = true },
+    { id = "a", ready = true, willing = true },
 }, "find_food"), "a", "fresh workers should use a stable id tie-break")
 assertEqual(planner.chooseWorker({
-    { id = "busy", ready = true, hasTask = true },
-    { id = "away", ready = false },
+    { id = "busy", ready = true, willing = true, hasTask = true },
+    { id = "away", ready = false, willing = true },
+    { id = "homebody", ready = true, willing = false },
 }, "find_food"), nil, "no eligible worker should produce no claim")
 
 print("base supply planner tests passed")

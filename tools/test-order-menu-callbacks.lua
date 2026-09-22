@@ -47,13 +47,33 @@ assert(context.populate(menu, 0, "resident"))
 assert(menu.options.Follow ~= nil and menu.options.Recruit == nil,
     "owned base residents must offer Follow, never first-time Recruit")
 local work = menu.options.Orders.sub.options["Base Work Orders"].sub
-local barricade = work.options["Woodwork / Barricade Windows"]
+local woodwork = work.options["Woodwork"]
+assert(woodwork and woodwork.callback)
+woodwork.callback(woodwork.target, unpack(woodwork.args))
+assert(calls[#calls] == "woodwork", "resident menu must dispatch the correct player, survivor and order")
+local barricade = work.options["Barricade Windows"]
 assert(barricade and barricade.callback)
 barricade.callback(barricade.target, unpack(barricade.args))
-assert(calls[#calls] == "woodwork", "resident menu must dispatch the correct player, survivor and order")
+assert(calls[#calls] == "barricade", "barricade duty must be orderable")
+assert(work.options["Build Defenses"] == nil, "construction retired from resident menu")
 local corpses = work.options["Move Corpses"]
 corpses.callback(corpses.target, unpack(corpses.args))
 assert(calls[#calls] == "hauling")
+
+local lootRuns = menu.options.Orders.sub.options["Loot Runs"].sub
+assert(lootRuns.options["Allow Loot Runs"] and lootRuns.options["Stay Home"],
+    "resident loot runs must be an explicit per-resident order")
+KnoxCompanionService.setResidentLootRuns = function(player, id, allowed)
+    assert(player == actor and id == "resident")
+    calls[#calls + 1] = allowed and "loot_runs_allowed" or "loot_runs_stay_home"
+    return true
+end
+local allow = lootRuns.options["Allow Loot Runs"]
+allow.callback(allow.target, unpack(allow.args))
+assert(calls[#calls] == "loot_runs_allowed", "allowing loot runs must dispatch")
+local stay = lootRuns.options["Stay Home"]
+stay.callback(stay.target, unpack(stay.args))
+assert(calls[#calls] == "loot_runs_stay_home", "staying home must dispatch")
 
 local party = dofile(root .. "/mod/42/media/lua/client/KS_PartyCommands.lua")
 local formationCall
@@ -80,16 +100,15 @@ assert(formationCall.shape == "paired" and formationCall.spacing == 2,
     "party menu routes formation and spacing to each owned companion")
 menu = party.openMenu(0, 0, 0, nil)
 local vehicle = menu.options["Vehicle Orders"].sub
-assert(vehicle.options["Get In My Vehicle"].notAvailable,
+assert(vehicle.options["Take Passenger Seat"].notAvailable,
     "boarding needs the leader's vehicle")
-local exit = vehicle.options["Get Out of Vehicles"]
+local exit = vehicle.options["Exit Vehicle"]
 assert(exit and not exit.notAvailable, "party exit must remain usable after leader leaves car")
 exit.callback(exit.target, unpack(exit.args))
 assert(calls[#calls] == "exit_vehicle")
 
 local selection, saved
-local cell = { setDrag = function(_, cursor) selection = cursor.selection end }
-getCell = function() return cell end
+local cell = { setDrag = function(_, cursor) selection = cursor.selection end }getCell = function() return cell end
 ISSelectCursor = { new = function(_, player, receiver, callback)
     assert(player == actor); return { selection = receiver, callback = callback }
 end }
@@ -105,4 +124,12 @@ selection:onSquareSelected(actor)
 assert(saved and saved.x1 == 10 and saved.x2 == 10 and saved.y1 == 10 and saved.y2 == 10,
     "one click must save exactly one tile without a second corner or modal")
 assert(selection.firstSquare == nil and not selection.pendingConfirm)
-print("Order menu callbacks PASS resident_dispatch=true exit_after_leader=true one_click_guard=true")
+
+local partyFed = {}
+KnoxActivityFeed = { event = function(message) partyFed[#partyFed + 1] = message end }
+KnoxCompanionService.issueOrderAll = function() return false, 0 end
+party.directiveAll(nil, 0, { kind = "loot_area" })
+assert(partyFed[#partyFed] ~= nil
+    and string.find(partyFed[#partyFed], "no companion could take it", 1, true) ~= nil,
+    "a party order nobody takes must say so")
+print("Order menu callbacks PASS resident_dispatch=true exit_after_leader=true one_click_guard=true party_feedback=true")

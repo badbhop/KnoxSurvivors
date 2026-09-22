@@ -29,6 +29,11 @@ local REST_ENDURANCE = 0.30
 local RESUME_ENDURANCE = 0.80
 local SLEEP_FATIGUE = 0.72
 local WAKE_FATIGUE = 0.35
+-- A bounded carried reserve bridges loaded base storage into the existing
+-- serialized-inventory simulation. These are item counts, not generated need
+-- relief; weak foods and small water containers still provide only native value.
+local BASE_HIBERNATION_FOOD_ITEMS = 4
+local BASE_HIBERNATION_WATER_ITEMS = 3
 
 local function canonicalTaskType(taskType)
     if KnoxOrderCatalog ~= nil and KnoxOrderCatalog.normalizeTaskType ~= nil then
@@ -39,6 +44,15 @@ end
 
 local function clamp(value, low, high)
     return math.max(low, math.min(high, tonumber(value) or low))
+end
+
+local function hoursAboveThreshold(before, rate, elapsed, threshold)
+    before = tonumber(before) or 0
+    elapsed = math.max(0, tonumber(elapsed) or 0)
+    if before >= threshold then return elapsed end
+    if rate <= 0 then return 0 end
+    local crossing = (threshold - before) / rate
+    return math.max(0, elapsed - crossing)
 end
 
 -- Territory stores inclusive min/max bounds; legacy home areas store spans.
@@ -98,6 +112,39 @@ local function consumeStoredSupply(id, kind, amount)
     return true, itemType, hunger, thirst
 end
 
+local function consumeAvailableSupply(id, kind, amount)
+    local consumed, evidence, hunger, thirst = consumeStoredSupply(id, kind, amount)
+    if consumed then return true, evidence, hunger, thirst end
+    local persistence = rawget(_G, "KnoxPersistence")
+    local duty = persistence ~= nil and persistence.getSurvivorDuty ~= nil
+        and persistence.getSurvivorDuty(id) or nil
+    if duty == nil or duty.mode ~= "base" or duty.baseId == nil
+        or persistence.getBaseResidentIds == nil then
+        return false, evidence
+    end
+    -- Stored residents at one base share only supplies that already exist in a
+    -- serialized member inventory. Loaded bodies and world containers retain
+    -- their own owners and are never mutated through stale records.
+    for _, donorId in ipairs(persistence.getBaseResidentIds(duty.baseId) or {}) do
+        if donorId ~= id and survivorPresent(persistence, donorId) then
+            local donorDuty = persistence.getSurvivorDuty(donorId) or {}
+            local donorState = persistence.getUnloadedSurvivalState ~= nil
+                and persistence.getUnloadedSurvivalState(donorId) or nil
+            if donorDuty.mode == "base" and donorDuty.baseId == duty.baseId
+                and donorState ~= nil and donorState.status == "hibernated"
+                and donorState.pendingMaterialization ~= true then
+                local shared, itemType, sharedHunger, sharedThirst =
+                    consumeStoredSupply(donorId, kind, amount)
+                if shared then
+                    return true, "base:" .. tostring(donorId) .. ":" .. tostring(itemType),
+                        sharedHunger, sharedThirst
+                end
+            end
+        end
+    end
+    return false, evidence
+end
+
 local function ensureState(id, snapshot, hours)
     local persistence = rawget(_G, "KnoxPersistence")
     local existing = persistence ~= nil and persistence.getUnloadedSurvivalState(id) or nil
@@ -144,6 +191,62 @@ local function setActivity(state, activity, hours)
         state.activity = activity
         state.activitySinceHours = hours
     end
+end
+
+function Simulation.prepareBaseResidentForStorage(id, character, hours)
+    local persistence = rawget(_G, "KnoxPersistence")
+    if persistence == nil or character == nil then
+        return false, "persistence_or_character_unavailable"
+    end
+    local duty = persistence.getSurvivorDuty ~= nil
+        and persistence.getSurvivorDuty(id) or nil
+    if duty == nil or duty.mode ~= "base" or duty.baseId == nil then
+        return false, "not_base_resident"
+    end
+    local base = persistence.getBase ~= nil and persistence.getBase(duty.baseId) or nil
+    local square = character.getCurrentSquare ~= nil and character:getCurrentSquare() or nil
+    local baseManager = rawget(_G, "KnoxBaseManager")
+    if base == nil or square == nil or baseManager == nil
+        or baseManager.containsSquare == nil
+        or not baseManager.containsSquare(base, square) then
+        return false, "resident_not_at_loaded_base"
+    end
+    local baseStorage = rawget(_G, "KnoxBaseStorage")
+    if baseStorage == nil or baseStorage.provisionSurvivalSupplies == nil then
+        return false, "base_storage_provisioning_unavailable"
+    end
+    local prepared, report = baseStorage.provisionSurvivalSupplies(
+        base,
+        character,
+        {
+            food = BASE_HIBERNATION_FOOD_ITEMS,
+            water = BASE_HIBERNATION_WATER_ITEMS,
+        }
+    )
+    if not prepared or type(report) ~= "table" then
+        return false, tostring(report or "provision_failed")
+    end
+    local state = persistence.getUnloadedSurvivalState ~= nil
+        and persistence.getUnloadedSurvivalState(id) or nil
+    if state ~= nil then
+        state.baseProvision = {
+            baseId = tostring(duty.baseId),
+            atHours = tonumber(hours) or nowHours(),
+            foodBefore = tonumber(report.before and report.before.food) or 0,
+            foodAfter = tonumber(report.after and report.after.food) or 0,
+            waterBefore = tonumber(report.before and report.before.water) or 0,
+            waterAfter = tonumber(report.after and report.after.water) or 0,
+            foodShortage = report.shortages and report.shortages.food or nil,
+            waterShortage = report.shortages and report.shortages.water or nil,
+        }
+        persistence.setUnloadedSurvivalState(id, state)
+    end
+    local transferred = report.transferred or {}
+    return true, "base=" .. tostring(duty.baseId)
+        .. " food=" .. tostring(tonumber(transferred.food) or 0)
+        .. " water=" .. tostring(tonumber(transferred.water) or 0)
+        .. " foodShortage=" .. tostring(report.shortages and report.shortages.food or "none")
+        .. " waterShortage=" .. tostring(report.shortages and report.shortages.water or "none")
 end
 
 local function advanceWorldActivity(id, state, elapsed, hours)
@@ -374,6 +477,7 @@ function Simulation.captureLoaded(id, snapshot, hours)
     state.endurance = clamp(snapshot.endurance, 0, 1)
     state.health = clamp(snapshot.health, 0, 100)
     state.bleedingParts = math.max(0, math.floor(tonumber(snapshot.bleedingParts) or 0))
+    state.pain = tonumber(snapshot.pain)
     state.lastHours = tonumber(hours) or nowHours()
     state.status = "loaded"
     state.pendingMaterialization = nil
@@ -387,6 +491,18 @@ function Simulation.captureLoaded(id, snapshot, hours)
     state.virtualX, state.virtualY, state.virtualZ = x, y, z
     state.virtualAtHours = state.lastHours
     return persistence.setUnloadedSurvivalState(id, state)
+end
+
+function Simulation.markStored(id, hours)
+    local persistence = rawget(_G, "KnoxPersistence")
+    local state = persistence ~= nil and persistence.getUnloadedSurvivalState ~= nil
+        and persistence.getUnloadedSurvivalState(id) or nil
+    if state == nil or state.pendingMaterialization == true then
+        return false, "real_survival_snapshot_required"
+    end
+    state.status = "hibernated"
+    state.lastHours = tonumber(hours) or state.lastHours or nowHours()
+    return persistence.setUnloadedSurvivalState(id, state), "stored"
 end
 
 -- Starts a durable off-screen trip to an existing base. The caller is
@@ -433,14 +549,16 @@ local function advanceOne(id, state, hours, activityAdvanced)
     if elapsed <= 0 then
         return state, nil
     end
-    state.hunger = clamp(state.hunger + HUNGER_PER_HOUR * elapsed, 0, 1)
-    state.thirst = clamp(state.thirst + THIRST_PER_HOUR * elapsed, 0, 1)
+    local hungerBefore = clamp(state.hunger, 0, 1)
+    local thirstBefore = clamp(state.thirst, 0, 1)
+    state.hunger = clamp(hungerBefore + HUNGER_PER_HOUR * elapsed, 0, 1)
+    state.thirst = clamp(thirstBefore + THIRST_PER_HOUR * elapsed, 0, 1)
     if not activityAdvanced then advanceRestAndTravel(id, state, elapsed, hours) end
     local events = {}
     if state.thirst >= WATER_TRIGGER then
         for _ = 1, 4 do
             if state.thirst <= WATER_AFTER_DRINK + 0.00001 then break end
-            local consumed, evidence, hunger, thirst = consumeStoredSupply(id, "water", state.thirst - WATER_AFTER_DRINK)
+            local consumed, evidence, hunger, thirst = consumeAvailableSupply(id, "water", state.thirst - WATER_AFTER_DRINK)
             if not consumed then break end
             state.hunger = clamp(state.hunger - hunger, 0, 1)
             state.thirst = clamp(state.thirst - thirst, 0, 1)
@@ -451,7 +569,7 @@ local function advanceOne(id, state, hours, activityAdvanced)
     if state.hunger >= FOOD_TRIGGER then
         for _ = 1, 4 do
             if state.hunger <= FOOD_AFTER_MEAL + 0.00001 then break end
-            local consumed, evidence, hunger, thirst = consumeStoredSupply(id, "food", state.hunger - FOOD_AFTER_MEAL)
+            local consumed, evidence, hunger, thirst = consumeAvailableSupply(id, "food", state.hunger - FOOD_AFTER_MEAL)
             if not consumed then break end
             state.hunger = clamp(state.hunger - hunger, 0, 1)
             state.thirst = clamp(state.thirst - thirst, 0, 1)
@@ -460,11 +578,17 @@ local function advanceOne(id, state, hours, activityAdvanced)
         end
     end
     if state.hunger >= 0.95 then
-        state.health = clamp(state.health - STARVATION_DAMAGE_PER_HOUR * elapsed, 0, 100)
+        local exposed = hoursAboveThreshold(
+            hungerBefore, HUNGER_PER_HOUR, elapsed, 0.95
+        )
+        state.health = clamp(state.health - STARVATION_DAMAGE_PER_HOUR * exposed, 0, 100)
         events[#events + 1] = "starving"
     end
     if state.thirst >= 0.95 then
-        state.health = clamp(state.health - DEHYDRATION_DAMAGE_PER_HOUR * elapsed, 0, 100)
+        local exposed = hoursAboveThreshold(
+            thirstBefore, THIRST_PER_HOUR, elapsed, 0.95
+        )
+        state.health = clamp(state.health - DEHYDRATION_DAMAGE_PER_HOUR * exposed, 0, 100)
         events[#events + 1] = "dehydrated"
     end
     state.lastHours = hours
@@ -671,6 +795,23 @@ local function advanceStoredGroup(group, active, hours)
                 and (objective.phase == "seeking" or objective.phase == "traveling")
                 and finite(objective.targetX) and finite(objective.targetY)
                 and finite(objective.targetZ) and objective.targetZ == shared.virtualZ
+            local hourOfDay = atHours - math.floor(atHours / 24) * 24
+            local nightShelter = objective ~= nil and objective.kind == "night_shelter"
+            local night = hourOfDay < 7 or hourOfDay >= 20
+            if nightShelter and not night then
+                -- A temporary refuge expires at dawn. It is only a group
+                -- travel/rest objective, never a hidden camp or base claim.
+                persistence.clearTravelGroupObjective(group.id, anchor.id)
+                persistence.clearSurvivorLifeIntent(anchor.id)
+                objective = nil
+                objectiveOwnsTravel = false
+            elseif nightShelter and objective.phase == "arrived" then
+                for _, member in ipairs(members) do
+                    member.state.restMode = "sleep"
+                end
+                setActivity(shared, "sheltering", atHours)
+                return 0
+            end
             if objectiveOwnsTravel then
                 if shared.objectiveRevision ~= objective.revision then
                     -- A new leader purpose supersedes a stale random itinerary.
@@ -694,7 +835,7 @@ local function advanceStoredGroup(group, active, hours)
                     shared.virtualX = objective.targetX
                     shared.virtualY = objective.targetY
                     shared.virtualZ = objective.targetZ
-                    objective.phase = "reassess"
+                    objective.phase = nightShelter and "arrived" or "reassess"
                     objective.targetKey = nil
                     objective.targetX, objective.targetY, objective.targetZ = nil, nil, nil
                     objective.startedAtHours = objective.startedAtHours or atHours
@@ -945,7 +1086,9 @@ function Simulation.applyToLoaded(id, character)
     end)
     if ok then
         state.status = "loaded"
-        state.lastHours = nowHours()
+        -- A stale/rolled-back clock must never make the next hibernation pass
+        -- replay elapsed off-screen time after materialization.
+        state.lastHours = math.max(tonumber(state.lastHours) or 0, nowHours())
         persistence.setUnloadedSurvivalState(id, state)
         return true, "applied"
     end

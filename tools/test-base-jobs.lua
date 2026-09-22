@@ -67,14 +67,6 @@ KnoxBaseRepairs = {
             repairTarget ~= nil and "found" or "no_repair_ready"
     end,
 }
-local constructionTarget = nil
-KnoxBaseConstruction = {
-    findTask = function() return constructionTarget end,
-    requirements = function(target) return target ~= nil and {
-        items = { ["Base.Hammer"] = 1, ["Base.Plank"] = 2, ["Base.Nails"] = 2 },
-        skills = { Woodwork = 2 },
-    } or nil end,
-}
 
 local now = 10
 local persistedTasks = nil
@@ -227,6 +219,30 @@ assert(staleCoverage.activeGuard == 0 and staleCoverage.activePatrol == 1
     "stale security claimants must not count as staffed coverage")
 KnoxPersistence.getBaseResidentIds = originalResidentIds
 
+-- A resident can remain listed in the base roster while an away/event duty
+-- handoff is being persisted. That claimant must not make the security view
+-- report a post as staffed during the handoff.
+local savedResidentIdsForHandoff = KnoxPersistence.getBaseResidentIds
+local savedDutyForHandoff = KnoxPersistence.getSurvivorDuty
+local savedPresentForHandoff = KnoxPersistence.isSurvivorPresent
+KnoxPersistence.getBaseResidentIds = function() return { "away", "home" } end
+KnoxPersistence.getSurvivorDuty = function(id)
+    return id == "away"
+        and { mode = "base", baseId = "security-base", eventId = "away-event" }
+        or { mode = "base", baseId = "security-base" }
+end
+KnoxPersistence.isSurvivorPresent = function(id) return id ~= "away" end
+local handoffCoverage = jobs.securityCoverage({
+    id = "security-base",
+    zones = { { type = "guard", enabled = true } },
+    tasks = { { id = "away-watch", type = "guard", state = "claimed", claimedBy = "away" } },
+})
+assert(handoffCoverage.activeGuard == 0 and handoffCoverage.understaffed == 1,
+    "away/event residents must not count as active security coverage")
+KnoxPersistence.getBaseResidentIds = savedResidentIdsForHandoff
+KnoxPersistence.getSurvivorDuty = savedDutyForHandoff
+KnoxPersistence.isSurvivorPresent = savedPresentForHandoff
+
 -- Workforce projection is read-only and must classify persisted claims without
 -- creating a second scheduler or treating resting residents as available work.
 local workforceBase = {
@@ -261,6 +277,40 @@ assert(workforce.claimedBy["former-resident"] == nil and workforce.manual == 1,
     "stale non-resident claims must not inflate workforce ownership counts")
 assert(workforce.taskTypes.guard == 1 and workforce.taskTypes.farm_water == 1,
     "workforce summary should expose canonical claimed task types")
+
+-- The read-only notebook view must use the same live-resident boundary as the
+-- scheduler. A departed/away resident can remain in the roster and retain a
+-- stale claimed task until persistence reconciliation runs.
+local savedAliveForWorkforce = KnoxPersistence.isSurvivorAlive
+local savedPresentForWorkforce = KnoxPersistence.isSurvivorPresent
+local savedAwayForWorkforce = KnoxPersistence.getAwayTeamForSurvivor
+local savedResidentsForWorkforce = KnoxPersistence.getBaseResidentIds
+KnoxPersistence.getBaseResidentIds = function() return { "away-worker", "home-worker" } end
+KnoxPersistence.isSurvivorAlive = function() return true end
+KnoxPersistence.isSurvivorPresent = function(id) return id == "home-worker" end
+KnoxPersistence.getAwayTeamForSurvivor = function(id)
+    return id == "away-worker" and { id = "away-1" } or nil
+end
+KnoxPersistence.getSurvivorDuty = function(id)
+    return { mode = "base", baseId = "workforce-base", eventId = nil,
+        jobPreference = "auto" }
+end
+local handoffWorkforce = jobs.workforceSummary({
+    id = "workforce-base",
+    tasks = {
+        { id = "away-task", type = "repair", state = "claimed", claimedBy = "away-worker" },
+        { id = "home-task", type = "guard", state = "claimed", claimedBy = "home-worker" },
+    },
+})
+assert(handoffWorkforce.claimed == 1 and handoffWorkforce.working == 1
+    and handoffWorkforce.claimedBy["away-worker"] == nil
+    and handoffWorkforce.claimedBy["home-worker"] ~= nil,
+    "workforce summary must ignore away residents with stale task claims")
+KnoxPersistence.isSurvivorAlive = savedAliveForWorkforce
+KnoxPersistence.isSurvivorPresent = savedPresentForWorkforce
+KnoxPersistence.getAwayTeamForSurvivor = savedAwayForWorkforce
+KnoxPersistence.getBaseResidentIds = savedResidentsForWorkforce
+
 storageSummary = {
     totals = { food = 2, water = 8, medical = 1, weapons = 0, tools = 1 },
     loadedPolicies = 2, unavailablePolicies = 1, misplacedItems = 0,
@@ -285,8 +335,8 @@ KnoxPersistence.getSurvivorDuty = savedDuty
 -- the task-board boundary. This catches a real executor being added without
 -- admitting its persisted task type to automatic resident duty.
 for _, taskType in ipairs({
-    "chop_tree", "saw_logs", "haul_corpse", "animal_care", "animal_water",
-    "animal_feed", "repair", "construct_defense",
+    "chop_tree", "saw_logs", "haul_corpse",
+    "repair",
 }) do
     assert(jobs.AUTOMATIC_TYPES[taskType] == true,
         "supported task type must be admitted to automatic duty: " .. taskType)
@@ -306,8 +356,10 @@ assert(jobs.effectivePreference({ jobPreference = "auto" }, {
 assert(jobs.effectivePreference({ jobPreference = "auto" }, {
     professionId = "base:unemployed",
 }) == "auto", "unmatched profession should remain auto")
-assert(jobs.effectivePreference({ jobPreference = "barricade" }, {}) == "woodwork",
-    "legacy barricade preference should normalize to woodwork")
+assert(jobs.effectivePreference({ jobPreference = "barricade" }, {}) == "barricade",
+    "barricade duty stays focused")
+assert(jobs.effectivePreference({ jobPreference = "construction" }, {}) == "auto",
+    "retired construction preference falls back to automatic")
 local preferredSecurity = jobs.selectEligibleTask({
     { id = "task-aim", type = "guard", state = "queued", priority = 50 },
     { id = "task-other", type = "repair", state = "queued", priority = 50 },
@@ -513,36 +565,8 @@ base.tasks = {}
 base.nextTaskId = 1
 depotTransfer = nil
 corpseTarget = nil
-animalTarget = {
-    id = "animal-care:base-1:pasture:animal_water:30:40:0:2",
-    action = "animal_water",
-    zoneType = "animal_care",
-    zoneId = "pasture",
-    x = 30, y = 40, z = 0,
-    objectIndex = 2,
-    itemType = "Base.WaterBottleFull",
-    itemId = "123",
-}
-local animalTask, animalResult = jobs.ensureAutomaticTask(base)
-assert(animalTask ~= nil and animalTask.type == "animal_water"
-    and animalTask.priority == 89 and animalResult == "ready")
-assert(animalTask.requirements.items["Base.WaterBottleFull"] == 1,
-    "animal task should require the exact carried supply type")
-
--- An Animal Care zone is only a discovery area for the concrete trough
--- executors above.  It must never be emitted as an unsupported generic task.
-base.tasks = {}
-base.nextTaskId = 1
 animalTarget = nil
-base.zones = {
-    animal = {
-        id = "base-1-zone-animal", type = "animal_care", label = "Trough",
-        x1 = 30, y1 = 40, x2 = 34, y2 = 44, z = 0, priority = 86, enabled = true,
-    },
-}
-local noGenericAnimalTask = jobs.ensureAutomaticTask(base)
-assert(noGenericAnimalTask == nil,
-    "animal care zone must not create an unsupported generic task")
+-- Animal care retired (vanilla zones later): no animal tasks queued.
 
 -- A migrated patrol-area zone should still feed the recurring patrol executor
 -- without rewriting the saved zone label or creating a second work area.
@@ -584,17 +608,40 @@ assert(repairTask.requirements.items["Base.Plank"] == 2,
 base.tasks = {}
 base.nextTaskId = 1
 repairTarget = nil
-constructionTarget = {
-    id = "construct:base-1:wall_frame:10:10:0:N",
-    action = "construct_defense", kind = "wall_frame", entityName = "WoodenWallFrame",
-    x = 10, y = 10, z = 0, north = true,
+-- Construction retired: no defense tasks queue.
+
+-- Refreshing an existing barricade target must preserve its high defensive
+-- priority. This catches the old undefined local that silently wrote nil when
+-- a queued or reopened task was rediscovered.
+base.tasks = {
+    existingBarricade = {
+        id = "existing-barricade", type = "barricade", state = "queued",
+        priority = 12, auto = true, baseId = "base-1",
+        target = { id = "barricade:base-1:10:20:0:4", objectIndex = 4,
+            x = 10, y = 20, z = 0 },
+    },
 }
-local constructionTask, constructionResult = jobs.ensureAutomaticTask(base)
-assert(constructionTask ~= nil and constructionTask.type == "construct_defense"
-    and constructionTask.priority == 96 and constructionResult == "ready",
-    "available defense construction should be queued ahead of routine work")
-assert(constructionTask.requirements.skills.Woodwork == 2,
-    "construction task preserves entity recipe skill requirements")
+base.nextTaskId = 2
+constructionTarget, repairTarget, animalTarget, corpseTarget = nil, nil, nil, nil
+KnoxBaseBarricades.canPrepare = function() return true end
+KnoxBaseBarricades.findTarget = function()
+    return {
+        id = "barricade:base-1:10:20:0:4", action = "barricade",
+        zoneType = "barricade", x = 10, y = 20, z = 0, objectIndex = 4,
+    }, "found"
+end
+KnoxBaseBarricades.findHammer = function()
+    return { getFullType = function() return "Base.Hammer" end }
+end
+local refreshedBarricade = jobs.ensureAutomaticTask(base, {})
+assert(refreshedBarricade ~= nil and refreshedBarricade.type == "barricade"
+    and refreshedBarricade.priority == 95,
+    "refreshed barricade tasks must retain defensive priority")
+base.tasks = {}
+base.nextTaskId = 1
+KnoxBaseBarricades.canPrepare = function() return false end
+KnoxBaseBarricades.findTarget = nil
+KnoxBaseBarricades.findHammer = nil
 
 -- Log Processing is an existing player-facing work-area type and must use the
 -- same real log/saw executor as a Woodcutting area.
@@ -793,37 +840,7 @@ assert(cookTask.state=="queued" and cookTask.target==cookingTarget,"completed co
 assert(KnoxBaseNeeds.priorityBonus(cookTask,{totals={food=0}},2)==20)
 print("Cooking task lifecycle PASS recurring=true claim_owner=true food_priority=true")
 
-KnoxBaseAnimalCare.findTask=function() return {
-    id="trough-water",action="animal_water",itemType="Base.Bottle",itemId="41",
-} end
-jobs.prepareWorkforce(base,nil,210)
-local animalTask
-for _,task in pairs(base.tasks) do if task.target.id=="trough-water" then animalTask=task end end
-assert(animalTask and animalTask.requirements.itemRules["Base.Bottle"].animalWater,
-    "animal jobs require actual water, not just a container of the same type")
-KnoxBaseAnimalCare.findTask=function() return {
-    id="trough-water",action="animal_water",itemType="Base.Bucket",itemId="42",
-} end
-jobs.prepareWorkforce(base,nil,211)
-assert(animalTask.requirements.items["Base.Bucket"]==1
-    and animalTask.requirements.items["Base.Bottle"]==nil,
-    "unclaimed jobs refresh supply choices when the cupboard changes")
-animalTask.state,animalTask.claimedBy="claimed","worker"
-KnoxBaseAnimalCare.findTask=function() return {
-    id="trough-water",action="animal_water",itemType="Base.Bottle",itemId="41",
-} end
-jobs.prepareWorkforce(base,nil,212)
-assert(animalTask.target.itemId=="42","discovery cannot redirect an active worker")
-KnoxBaseAnimalCare.findTask=function() return {
-    id="trough-feed",action="animal_feed",itemType="Base.AnimalFeedBag",
-} end
-jobs.prepareWorkforce(base,nil,213)
-for _,task in pairs(base.tasks) do
-    if task.target.id=="trough-feed" then
-        assert(task.requirements.itemRules["Base.AnimalFeedBag"].animalFeed)
-    end
-end
-print("Animal task lifecycle PASS usable_supplies=true refresh_unclaimed=true preserve_claim=true")
+-- Animal care retired (vanilla zones later): no animal task lifecycle.
 
 -- Occupied/retrying targets must not hide all other work in a task family.
 base.tasks.filterClaim={id="filterClaim",type="farm_water",state="claimed",
@@ -836,21 +853,16 @@ base.tasks.filterCancel={id="filterCancel",type="farm_plow",state="cancelled",
     target={id="cancelled-crop",x=94,y=20,z=0}}
 base.tasks.oldSeed={id="oldSeed",type="farm_seed",state="queued",auto=true,priority=95,target={}}
 base.tasks.manualSeed={id="manualSeed",type="farm_seed",state="queued",auto=true,manual=true,priority=110,target={}}
-base.tasks.animalClaim={id="animalClaim",type="animal_water",state="claimed",
-    target={id="busy-trough",x=95,y=20,z=0}}
-local farmFilter,animalFilter
+local farmFilter
 KnoxBaseFarming.findTask=function(_,_,eligible) farmFilter=eligible;return nil end
-KnoxBaseAnimalCare.findTask=function(_,_,eligible) animalFilter=eligible;return nil end
 jobs.prepareWorkforce(base,nil,220)
-assert(type(farmFilter)=="function" and type(animalFilter)=="function")
+assert(type(farmFilter)=="function")
 assert(not farmFilter({id="busy-crop",x=91,y=20,z=0}))
 assert(not farmFilter({id="different-action-same-crop",x=91,y=20,z=0}),
     "two workers cannot act on the same occupied crop under different actions")
 assert(not farmFilter({id="retry-crop"}) and not farmFilter({id="done-crop"})
     and not farmFilter({id="cancelled-crop"}))
 assert(farmFilter({id="other-crop",x=96,y=20,z=0}))
-assert(not animalFilter({id="feeding-same-trough",x=95,y=20,z=0}))
-assert(animalFilter({id="other-trough",x=96,y=20,z=0}))
 assert(base.tasks.oldSeed.priority==85 and base.tasks.manualSeed.priority==110,
     "automatic old-save planting priority migrates without overwriting a manual priority")
 jobs.prepareWorkforce(base,nil,301)
@@ -875,21 +887,20 @@ assert(not woodFilter({id="tree-a",x=7,y=8,z=0}) and not woodFilter({id="saw-a",
 assert(woodFilter({id="tree-b",x=8,y=8,z=0}))
 print("Physical work claims PASS corpse_identity=true stacked_bodies=true tree=true processing=true")
 
-base.tasks.structureClaim={id="structureClaim",type="construct_defense",state="claimed",
+base.tasks.structureClaim={id="structureClaim",type="repair",state="claimed",
     target={id="building-frame",x=40,y=40,z=0}}
 local structureFilters={}
 KnoxBaseBarricades.canPrepare=function() return true end
 KnoxBaseBarricades.findTarget=function(_,_,eligible) structureFilters.barricade=eligible end
 KnoxBaseRepairs.findTask=function(_,_,eligible) structureFilters.repair=eligible end
-KnoxBaseConstruction.findTask=function(_,_,eligible) structureFilters.construction=eligible end
 jobs.prepareWorkforce(base,{},330)
-for _,name in ipairs({"barricade","repair","construction"}) do
+for _,name in ipairs({"barricade","repair"}) do
     local filter=assert(structureFilters[name])
     assert(not filter({id="another-action-on-structure",x=40,y=40,z=0}),
         name.." must respect another structural job on the same tile")
     assert(filter({id="other-structure",x=41,y=40,z=0}))
 end
-print("Structural work claims PASS repair=true barricade=true construction=true shared_site=true")
+print("Structural work claims PASS repair=true barricade=true shared_site=true")
 
 KnoxBaseRepairs.findTask=function() return {id="supplied-repair",action="repair",
     requiredItems={["Base.BlowTorch"]=1},requiredItemRules={["Base.BlowTorch"]={usable=true,minUsesFloat=0.1}}} end

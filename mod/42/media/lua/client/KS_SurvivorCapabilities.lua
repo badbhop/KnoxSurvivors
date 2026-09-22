@@ -351,6 +351,7 @@ function Capabilities.capture(id, character)
     if profile == nil or character == nil then
         return false
     end
+    local previous = profile.skills
     local skills = {}
     for index = 1, Perks.getMaxIndex() do
         local perk = PerkFactory.getPerk(Perks.fromIndex(index - 1))
@@ -369,7 +370,59 @@ function Capabilities.capture(id, character)
     profile.capturedAtHours = getGameTime() ~= nil
         and getGameTime():getWorldAgeHours()
         or 0
-    return KnoxPersistence.setSurvivorCapabilities(id, profile)
+    local saved = KnoxPersistence.setSurvivorCapabilities(id, profile)
+    -- Survivors level exactly like the player: native actions award XP to
+    -- the performing body, capture persists it, restore re-applies it. The
+    -- only missing piece was visibility, so announce level-ups here where
+    -- the before/after evidence is in hand.
+    if saved and type(previous) == "table" then
+        local ups = {}
+        for perkId, savedSkill in pairs(skills) do
+            if type(savedSkill) == "table" then
+                local before = previous[perkId]
+                local beforeLevel = type(before) == "table"
+                    and (tonumber(before.level) or 0) or 0
+                local afterLevel = tonumber(savedSkill.level) or 0
+                if afterLevel > beforeLevel then
+                    ups[#ups + 1] = tostring(perkId) .. " " .. tostring(afterLevel)
+                end
+            end
+        end
+        if #ups > 0 then
+            table.sort(ups)
+            local name = tostring(id)
+            pcall(function()
+                local persistence = rawget(_G, "KnoxPersistence")
+                local identity = persistence ~= nil
+                    and persistence.getSurvivorIdentity ~= nil
+                    and persistence.getSurvivorIdentity(id) or nil
+                if type(identity) == "table" and identity.name ~= nil then
+                    name = tostring(identity.name)
+                elseif type(identity) == "table" and identity.firstName ~= nil then
+                    name = tostring(identity.firstName)
+                end
+            end)
+            local shown = {}
+            for index = 1, math.min(3, #ups) do shown[#shown + 1] = ups[index] end
+            local text = name .. " reached " .. table.concat(shown, ", ")
+            if #ups > 3 then
+                text = text .. " (+" .. tostring(#ups - 3) .. " more)"
+            end
+            pcall(function()
+                local feed = rawget(_G, "KnoxActivityFeed")
+                if feed ~= nil and feed.event ~= nil then
+                    feed.event(text .. ".")
+                end
+            end)
+            pcall(function()
+                local log = rawget(_G, "KnoxDebugLog")
+                if log ~= nil and log.log ~= nil then
+                    log.log("skills", id, "level_up", { gains = table.concat(ups, ",") })
+                end
+            end)
+        end
+    end
+    return saved
 end
 
 function Capabilities.professionLabel(profile)

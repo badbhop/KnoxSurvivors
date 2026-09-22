@@ -103,8 +103,8 @@ assert(string.find(survivorContext, "residentInventoryLabel", 1, true),
 local baseManager = read(rootPath .. "/mod/42/media/lua/client/KS_BaseManager.lua")
 assert(string.find(baseManager, 'KnoxSurvivorRuntime.notifyDutyChanged', 1, true),
     "faction base creation must notify active residents of the duty handoff")
-assert(string.find(baseManager, 'ensureFactionZone(base, "construction"', 1, true),
-    "automatic base defaults must expose a defense-construction work area")
+assert(not string.find(baseManager, 'ensureFactionZone(base, "construction"', 1, true),
+    "construction areas retired: no defense-construction work area generated")
 local establishPlayer = baseManager:match(
     "function BaseManager%.establishPlayerBase.-function BaseManager%.movePlayerBase"
 )
@@ -117,13 +117,13 @@ assert(establishPlayer ~= nil and not establishPlayer:find("ensureFactionZones",
 assert(not notebook:find('label = "Repair Area"', 1, true)
     and not notebook:find('label = "General Work Area"', 1, true),
     "redundant repair/general overlays must not be offered as player work areas")
-assert(string.find(baseManager, 'findAnimalCareSquare', 1, true)
-    and string.find(baseManager, 'IsoFeedingTrough', 1, true),
-    "automatic base defaults must detect real vanilla feeding troughs")
+assert(not string.find(baseManager, 'findAnimalCareSquare', 1, true)
+    and not string.find(baseManager, 'IsoFeedingTrough', 1, true),
+    "animal care retired (vanilla zones later)")
 assert(string.find(baseManager, 'discarded-stale-faction-base', 1, true),
     "faction base restoration must reject a stale record owned by another domain")
-assert(string.find(baseManager, "KnoxToolCupboard.designate", 1, true),
-    "NPC bases designate one central cupboard")
+assert(not string.find(baseManager, "KnoxToolCupboard.designate", 1, true),
+    "NPC bases no longer designate a central cupboard (typed storages only)")
 assert(not string.find(baseManager, "local function nextMissing()", 1, true),
     "category storage discovery is retired")
 assert(string.find(baseManager, 'ensureFactionZone(base, "log_processing"', 1, true),

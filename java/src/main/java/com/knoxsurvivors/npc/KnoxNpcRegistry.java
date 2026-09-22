@@ -105,6 +105,15 @@ public final class KnoxNpcRegistry {
         return true;
     }
 
+    public synchronized boolean setDoorWindowOpeningAllowed(String id, boolean allowed) {
+        KnoxNpc npc = npc(id);
+        if (npc == null) {
+            return false;
+        }
+        npc.setDoorWindowOpeningAllowed(allowed);
+        return true;
+    }
+
     public synchronized boolean setProtectedArea(
         String id,
         int minX,
@@ -539,6 +548,25 @@ public final class KnoxNpcRegistry {
         }
     }
 
+    public synchronized String equipOwnedWeaponById(String id, String fullType, long itemId) {
+        KnoxNpcRuntime runtime = activeNpcs.get(id);
+        if (runtime == null) {
+            return "EQUIP_FAILED NONE_ACTIVE";
+        }
+        try {
+            String equipped = KnoxEquipmentController.equipOwnedWeapon(
+                runtime.npc().getBody(), fullType, itemId
+            );
+            if (equipped.startsWith("EQUIPPED_WEAPON")) {
+                runtime.setLastRecord(captureRecord(runtime.npc()));
+            }
+            logEquipmentResult(id, equipped);
+            return equipped;
+        } catch (Throwable throwable) {
+            return failure("EQUIP_FAILED", throwable);
+        }
+    }
+
     /** Wears one existing carried item chosen by the Lua equipment policy. */
     public synchronized String wearOwnedItem(String id, String fullType) {
         KnoxNpcRuntime runtime = activeNpcs.get(id);
@@ -577,7 +605,10 @@ public final class KnoxNpcRegistry {
                     .invoke(inventory, "Base.Bullets9mm");
             }
             runtime.setLastRecord(captureRecord(runtime.npc()));
-            String result = "FIREARM_KIT_ADDED pistol=true magazine=true rounds=24";
+            // Newly created Build 42 magazines start empty.  Keep the pistol,
+            // empty magazine and loose rounds separate so the QA duel must use
+            // the native reload/chamber path before either survivor can fire.
+            String result = "FIREARM_KIT_ADDED pistol=true unloadedMagazine=true looseRounds=24";
             logEquipmentResult(id, result);
             return result;
         } catch (Throwable throwable) {
@@ -671,7 +702,11 @@ public final class KnoxNpcRegistry {
                 before.physiology.restore(replacement.getBody());
             }
             KnoxSurvivorRecord after = captureRecord(replacement);
-            boolean matches = before.encode().equals(after.encode());
+            // Native recreation can normalize serialized bytes while preserving
+            // the gameplay state. Compare stable identity, equipment, health,
+            // physiology, and position instead of requiring byte-for-byte engine
+            // serialization equality.
+            boolean matches = before.equivalentAfterRestore(after);
             runtime.setLastRecord(after);
             String result = "RECREATED matches=" + matches
                 + " id=" + after.id

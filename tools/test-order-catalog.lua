@@ -33,7 +33,7 @@ assert(KnoxOrderCatalog.normalizeBasePreference("patrol_area") == "patrol",
 assert(KnoxOrderCatalog.normalize("cancel") == "resume_normal_duty")
 assert(KnoxOrderCatalog.label("explore") == KnoxOrderCatalog.label("loot_area"))
 assert(KnoxOrderCatalog.normalize("stop") == "resume_normal_duty")
-assert(KnoxOrderCatalog.normalize("barricade") == "woodwork")
+assert(KnoxOrderCatalog.normalize("barricade") == "barricade")
 assert(KnoxOrderCatalog.normalizeTaskType("haul") == "haul_corpse",
     "legacy haul tasks must converge on the existing depot executor")
 assert(KnoxOrderCatalog.normalizeTaskType("patrol_area") == "patrol",
@@ -65,7 +65,8 @@ local aliasDirective = assert(KnoxOrderCatalog.makeDirective("go_find_food", { m
 assert(aliasDirective.kind == "find_food")
 assert(KnoxOrderCatalog.label("resume_normal_duty") == "Resume Normal Duty")
 assert(KnoxOrderCatalog.label("farm_water") == "Water Crops")
-assert(KnoxOrderCatalog.label("construct_defense") == "Build Defenses")
+assert(KnoxOrderCatalog.label("construct_defense", "Fallback") == "Fallback",
+    "retired construction has no label")
 assert(KnoxOrderCatalog.label("unknown_task", "Fallback") == "Fallback")
 assert(KnoxOrderCatalog.isDirective("patrol_area"))
 assert(not KnoxOrderCatalog.isDirective("patrol"),
@@ -78,6 +79,9 @@ assert(#KnoxOrderCatalog.basePreferenceOrder == 10
     and KnoxOrderCatalog.basePreferenceOrder[1] == "auto"
     and KnoxOrderCatalog.basePreferenceOrder[10] == "rest",
     "base preference menu order must remain canonical")
+assert(KnoxOrderCatalog.isBasePreference("barricade")
+    and not KnoxOrderCatalog.isBasePreference("construction"),
+    "barricade stays orderable, construction retired")
 assert(KnoxOrderCatalog.isKnown("find_food"))
 assert(not KnoxOrderCatalog.isKnown("not_a_knox_order"))
 assert(KnoxOrderCatalog.get(nil) == nil and KnoxOrderCatalog.get({}) == nil,
@@ -91,12 +95,16 @@ local patrolDirective = assert(KnoxOrderCatalog.makeDirective("patrol", { minX =
 assert(patrolDirective.kind == "patrol_area",
     "payload-bearing patrol shorthand must build the companion patrol directive")
 assert(KnoxOrderCatalog.preferenceMatchesTask("farming", "farm_water"))
-assert(KnoxOrderCatalog.preferenceMatchesTask("woodwork", "construct_defense"))
+assert(not KnoxOrderCatalog.preferenceMatchesTask("woodwork", "construct_defense"),
+    "retired construction matches no preference")
 assert(KnoxOrderCatalog.preferenceMatchesTask("hauling", "haul_corpse"))
-assert(KnoxOrderCatalog.label("barricade") == "Barricade",
-    "exact task labels must win over broad legacy aliases")
+assert(KnoxOrderCatalog.label("barricade") == "Barricade Windows",
+    "barricade duty must be orderable")
+assert(KnoxOrderCatalog.tasks["barricade"].label == "Barricade",
+    "exact task labels remain")
 assert(not KnoxOrderCatalog.preferenceMatchesTask("guard", "farm_seed"))
-assert(KnoxOrderCatalog.preferenceForTask("animal_feed") == "animal_care")
+assert(KnoxOrderCatalog.preferenceForTask("animal_feed") == nil,
+    "retired animal tasks have no preference owner")
 assert(KnoxOrderCatalog.preferenceForTask("farm_seed") == "farming")
 assert(KnoxOrderCatalog.preferenceForTask("storage_sorting") == nil,
     "legacy task labels must map through the catalogue itself")
@@ -123,4 +131,9 @@ print("Order catalogue PASS labels=true routing=true preferences=true unknown-sa
 
 assert(KnoxOrderCatalog.preferenceMatchesTask("cooking","cook"))
 assert(KnoxOrderCatalog.preferenceForTask("cook")=="cooking")
-assert(KnoxOrderCatalog.normalize("Cook Food (Microwave)")=="cook")
+assert(KnoxOrderCatalog.normalize("Cook Food (Stove / Microwave)")=="cook")
+
+assert(KnoxOrderCatalog.isKnown("allow_doors") and KnoxOrderCatalog.isKnown("disallow_doors"),
+    "door/window permission must be first-class order vocabulary")
+assert(KnoxOrderCatalog.label("door_orders") == "Doors and Windows",
+    "door orders need their own menu group, separate from climbing")

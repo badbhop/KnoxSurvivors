@@ -184,6 +184,31 @@ function Woodcutting.findAxe(character)
     return findAxe(character)
 end
 
+function Woodcutting.findSaw(character)
+    return sawItem(character)
+end
+
+function Woodcutting.findLog(character)
+    return logItem(character)
+end
+
+-- Explicit inventory orders use the same native handcraft action as an
+-- automatic base task. The owner is deliberately passed through unchanged:
+-- an off-slot IsoPlayer survivor, not the local player, performs the recipe.
+function Woodcutting.queueSawLogs(character)
+    local log, saw = logItem(character), sawItem(character)
+    local recipe, containers, reason = canSaw(character, log, saw)
+    if recipe == nil then return nil, reason end
+    return Woodcutting.queueAction(character, {
+        action = "saw_logs",
+        character = character,
+        log = log,
+        saw = saw,
+        recipe = recipe,
+        containers = containers,
+    })
+end
+
 function Woodcutting.findTask(base, character, eligible)
     local cell = getCell ~= nil and getCell() or nil
     local axe = findAxe(character)
@@ -217,6 +242,56 @@ function Woodcutting.findTask(base, character, eligible)
                                 x = x, y = y, z = z, logType = logType, sawType = sawType }
                             if eligible == nil or eligible(target) then return target, "found" end
                         end
+                    end
+                end
+            end
+        end
+        -- Storage-based auto processing: building storage doubles as the saw
+        -- site so logs become planks when needed without a log_processing zone.
+        -- Tries every building store closest-first so multiple locations work.
+        local storage = rawget(_G, "KnoxBaseStorage")
+        if storage ~= nil and storage.policies ~= nil and storage.resolvePolicy ~= nil then
+            local candidates = {}
+            for _, policy in ipairs(storage.policies(base)) do
+                if policy.storageRole == "building" then
+                    candidates[#candidates + 1] = policy
+                end
+            end
+            local origin = character ~= nil and character.getCurrentSquare ~= nil
+                and character:getCurrentSquare() or nil
+            if origin ~= nil then
+                table.sort(candidates, function(a, b)
+                    local da = ((tonumber(a.x) or 0) - origin:getX()) ^ 2
+                        + ((tonumber(a.y) or 0) - origin:getY()) ^ 2
+                    local db = ((tonumber(b.x) or 0) - origin:getX()) ^ 2
+                        + ((tonumber(b.y) or 0) - origin:getY()) ^ 2
+                    return da < db
+                end)
+            end
+            for _, policy in ipairs(candidates) do
+                local resolved = storage.resolvePolicy(policy)
+                local square = resolved ~= nil and resolved.square or nil
+                if square ~= nil then
+                    local targetId = "saw:" .. tostring(base.id) .. ":storage:" .. tostring(policy.key)
+                    local workSquare = square
+                    if safeCall(square, "canStand") ~= true then
+                        -- Use an adjacent standable tile; the log comes from storage.
+                        local Adjacent = rawget(_G, "AdjacentFreeTileFinder")
+                        if Adjacent ~= nil and Adjacent.Find ~= nil then
+                            local ok, adjacent = pcall(function()
+                                return Adjacent.Find(square, character)
+                            end)
+                            if ok and adjacent ~= nil then workSquare = adjacent end
+                        end
+                    end
+                    if workSquare ~= nil and safeCall(workSquare, "canStand") == true then
+                        local target = { id = targetId,
+                            action = "saw_logs", zoneType = "saw_logs",
+                            zoneId = "storage:" .. tostring(policy.key), auto = true,
+                            x = workSquare:getX(), y = workSquare:getY(), z = workSquare:getZ(),
+                            logType = logType, sawType = sawType,
+                            storageKey = policy.key }
+                        if eligible == nil or eligible(target) then return target, "found_storage" end
                     end
                 end
             end
@@ -292,8 +367,13 @@ function Woodcutting.queueAction(character, target)
     if target ~= nil and target.recipe ~= nil then
         local recipe, containers, reason = canSaw(character, target.log, target.saw)
         if recipe == nil then return nil, reason end
+        -- Build 42 converts manualInputs through convertToPZNetTable during
+        -- construction. Passing nil throws before the action reaches the
+        -- queue, which made saw-log jobs emit an error every time the worker
+        -- recovered and retried. An empty table means no manual selections
+        -- while preserving the recipe's normal container resolution.
         local action = ISHandcraftAction:new(character, recipe, containers,
-            nil, nil, nil, nil, nil, 1)
+            nil, nil, {}, nil, nil, 1)
         target.action = action
         ISTimedActionQueue.add(action)
         return action, "queued_saw"

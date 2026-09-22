@@ -3,6 +3,17 @@ require "KS_FactionBaseScouting"
 require "KS_FactionSafehouse"
 require "KS_ActivityFeed"
 require "KS_Settings"
+pcall(function() require "KS_DebugLog" end)
+
+-- Group-vs-group and faction-vs-faction conflict telemetry. Encounters are
+-- frequent; only hostile turns, ally call-ups and faction consequences log,
+-- throttled per pair inside KnoxDebugLog.
+local function diagConflict(pairId, event, details)
+    local log = rawget(_G, "KnoxDebugLog")
+    if log ~= nil and log.log ~= nil then
+        pcall(function() log.log("faction", pairId, event, details) end)
+    end
+end
 
 local Relationships = rawget(_G, "KnoxSurvivorRelationships") or {}
 _G.KnoxSurvivorRelationships = Relationships
@@ -19,6 +30,7 @@ local CAUTIOUS_APPROACH_RADIUS = 20
 local NEUTRAL_AVOID_COOLDOWN_HOURS = 1.5
 local GREETING_COOLDOWN_HOURS = 6
 local ABORT_COOLDOWN_HOURS = 0.5
+local GROUP_DEFENSE_RADIUS = 12
 local pairStates = {}
 local pendingMeetings = {}
 local lastGroupAssignmentTick = -60
@@ -271,6 +283,45 @@ end
 local function aggressionFor(id)
     local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
     return tonumber(identity.aggression) or 35
+end
+
+-- A nearby ally may defend a threatened member for this loaded encounter.
+-- This is a short runtime combat permission rather than a permanent
+-- group-wide hostility rewrite. Persistence separately records direct and,
+-- when appropriate, faction-level hostility.
+local function activateLocalAllyDefense(controllers, aggressor, victim, ticks)
+    local function squareFor(controller)
+        return controller ~= nil and controller.character ~= nil
+            and controller.character:getCurrentSquare() or nil
+    end
+    local aggressorSquare, victimSquare = squareFor(aggressor), squareFor(victim)
+    if aggressorSquare == nil or victimSquare == nil
+        or aggressorSquare:getZ() ~= victimSquare:getZ() then return end
+    local expiresAt = (tonumber(ticks) or 0) + 900
+    local forAggressor, forVictim = 0, 0
+    for id, controller in pairs(controllers or {}) do
+        local square = squareFor(controller)
+        if controller ~= nil and square ~= nil and not controller.character:isDead()
+            and square:getZ() == aggressorSquare:getZ() then
+            if KnoxPersistence.areSurvivorsAllied(id, aggressor.id)
+                and distanceSquared(square, aggressorSquare)
+                    <= GROUP_DEFENSE_RADIUS * GROUP_DEFENSE_RADIUS then
+                controller:registerAllyDefenseThreat(victim.id, expiresAt)
+                forAggressor = forAggressor + 1
+            elseif KnoxPersistence.areSurvivorsAllied(id, victim.id)
+                and distanceSquared(square, victimSquare)
+                    <= GROUP_DEFENSE_RADIUS * GROUP_DEFENSE_RADIUS then
+                controller:registerAllyDefenseThreat(aggressor.id, expiresAt)
+                forVictim = forVictim + 1
+            end
+        end
+    end
+    if forAggressor > 0 or forVictim > 0 then
+        diagConflict(tostring(aggressor.id) .. ">" .. tostring(victim.id),
+            "ally_defense_called_up", {
+                forAggressor = forAggressor, forVictim = forVictim,
+            })
+    end
 end
 
 local function coordinateFactionBaseScouting(controllers, orderedIds, ticks)
@@ -594,7 +645,12 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
     for _, id in ipairs(orderedIds) do
         local controller = controllers[id]
         if controller ~= nil then
-            if not availableForNpcSocial(id, controller) then
+            local scavenging = rawget(_G, "KnoxGroupScavenge")
+            if scavenging ~= nil and scavenging.ownsController ~= nil
+                and scavenging.ownsController(id, controller, controllers) then
+                -- Temporary settlement expeditions own formation until their
+                -- lease ends. They are not persistent social travel groups.
+            elseif not availableForNpcSocial(id, controller) then
                 controller:clearGroupLeader()
                 controller:setGroupMembers({})
             else
@@ -784,14 +840,23 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                 if meeting.outcome == "hostile" or meeting.outcome == "lure" then
                     local aggressor = meeting.aggressorId == first.id and first or second
                     local victim = meeting.aggressorId == first.id and second or first
-                    KnoxPersistence.setRelationshipDisposition(
-                        first.id,
-                        second.id,
-                        "hostile",
-                        worldAge + 24
+                    local _, scope = KnoxPersistence.escalateSurvivorConflict(
+                        first.id, second.id, worldAge,
+                        "encounter_" .. meeting.outcome
                     )
-                    victim:holdForRobbery(ticks)
-                    if not aggressor:beginRobbery(victim.character, ticks) then
+                    diagConflict(tostring(aggressor.id) .. ">" .. tostring(victim.id),
+                        "hostile_" .. tostring(meeting.outcome), {
+                            scope = tostring(scope or "failed"),
+                        })
+                    activateLocalAllyDefense(controllers, aggressor, victim, ticks)
+                    local signals = rawget(_G, "KnoxOrderSignals")
+                    if signals ~= nil and signals.play ~= nil then
+                        pcall(function() signals.play(aggressor.character, "insult") end)
+                        pcall(function() signals.play(victim.character, "surrender") end)
+                    end
+                    victim:holdForRobbery(aggressor, ticks)
+                    if not aggressor:beginRobbery(victim, ticks) then
+                        victim:releaseRobberyHold(aggressor.character, ticks, "no_transfer")
                         aggressor:resumeAfterGreeting(ticks)
                     end
                     pendingMeetings[key] = nil
@@ -822,6 +887,11 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         worldAge,
                         GREETING_COOLDOWN_HOURS
                     )
+                    local greetSignals = rawget(_G, "KnoxOrderSignals")
+                    if greetSignals ~= nil and greetSignals.play ~= nil then
+                        pcall(function() greetSignals.play(first.character, "wavehi") end)
+                        pcall(function() greetSignals.play(second.character, "wavehi") end)
+                    end
                     first:resumeAfterGreeting(ticks)
                     second:resumeAfterGreeting(ticks)
                     pendingMeetings[key] = nil

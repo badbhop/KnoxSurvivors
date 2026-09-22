@@ -15,9 +15,16 @@ function LifecyclePolicy.detachedDecision(
     if finiteDistanceSquared > activeDistanceSquared then
         return true, "hibernate-far"
     end
-    local shouldHibernate = grace >= graceLimit
-    return shouldHibernate,
-        shouldHibernate and "hibernate-grace-expired" or "preserve-grace"
+    -- Native traversal can temporarily detach an IsoPlayer shell from its
+    -- current square while it opens a window, crosses it, or streams a cell.
+    -- A near survivor with valid coordinates is still live and must never be
+    -- captured solely because that transient state lasted longer than a few
+    -- hibernation checks. Distance (or the absence of finite coordinates) is
+    -- the only unload authority here.
+    if grace >= graceLimit then
+        return false, "preserve-near-detached"
+    end
+    return false, "preserve-grace"
 end
 
 function LifecyclePolicy.distanceEligible(

@@ -107,6 +107,7 @@ KnoxSettings = { enabled = function() return true end, companionLimit = function
     requireTrustForRecruitment = function() return false end }
 local hostileMenu = menu()
 individual.populate(hostileMenu, 0, "a")
-assert(hostileMenu.options["Talk (hostile)"].notAvailable and hostileMenu.options["Recruit (hostile)"].notAvailable,
+assert(hostileMenu.options["Talk"].child.options["Talk (hostile)"].notAvailable
+    and hostileMenu.options["Recruit (hostile)"].notAvailable,
     "hostile social choices explain why they are unavailable")
 print("Weapon preferences PASS persistence=true ownership=true command=true service=true menus=true mixed_party=true")

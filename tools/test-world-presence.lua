@@ -246,4 +246,25 @@ simulation.captureLoaded(id, { hunger = .1, thirst = .1, health = 100,
 local fresh = persistence.getUnloadedSurvivalState(id)
 assert(fresh.restMode == nil and fresh.travelPhase == nil and fresh.travelTarget == nil,
     "real capture releases stale virtual rest and travel intent")
+
+-- The same authoritative ledger is restored into the newly materialized body.
+-- A lower/stale clock cannot roll lastHours backward and cause the next stored
+-- update to replay hunger, thirst or damage.
+CharacterStat = { HUNGER = "hunger", THIRST = "thirst", FATIGUE = "fatigue", ENDURANCE = "endurance" }
+local restoredStats, restoredHealth = {}, nil
+local restoredCharacter = {
+    getStats = function() return { set = function(_, key, value) restoredStats[key] = value end } end,
+    getBodyDamage = function() return { setOverallBodyHealth = function(_, value) restoredHealth = value end } end,
+}
+fresh.hunger, fresh.thirst, fresh.fatigue, fresh.endurance, fresh.health = .31, .42, .53, .64, 72
+fresh.lastHours = 37
+persistence.setUnloadedSurvivalState(id, fresh)
+local materialized, materializedReason = simulation.applyToLoaded(id, restoredCharacter)
+assert(materialized and materializedReason == "applied"
+    and restoredStats.hunger == .31 and restoredStats.thirst == .42
+    and restoredStats.fatigue == .53 and restoredStats.endurance == .64 and restoredHealth == 72,
+    "materialization restores the ledger values into native state exactly once")
+local postMaterialization = persistence.getUnloadedSurvivalState(id)
+assert(postMaterialization.status == "loaded" and postMaterialization.lastHours == 37,
+    "materialization never rolls ledger time backward or reopens off-screen progress")
 print("World presence PASS metadata=true persisted_travel=true bounded=true native_handoff=true hidden_spawn=true")

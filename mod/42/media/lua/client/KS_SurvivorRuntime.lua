@@ -8,6 +8,7 @@ local ACTIVITY_BY_STATE = {
     FLEEING = "retreating",
     BASE_AMBIENT_REST = "resting",
     BASE_RECREATION = "reading",
+    BASE_HYGIENE = "washing",
     BASE_SECURITY_WAIT = "waiting_for_route", COMPANION_DUTY_WAIT = "waiting_for_route",
     BASE_TASK_MOVE = "working_at_base",
     BASE_TASK_WORK = "working_at_base",
@@ -61,6 +62,19 @@ local ACTIVITY_BY_STATE = {
     PLAYER_CONVERSATION = "meeting",
 }
 
+local TASK_ACTIVITY = {
+    barricade = "barricading",
+    haul_corpse = "hauling_corpse",
+    farm_seed = "farming", farm_water = "farming", farm_harvest = "farming",
+    chop_tree = "woodcutting", saw_logs = "sawing_logs", cook = "cooking",
+    repair = "repairing", guard = "guarding", patrol = "patrolling",
+}
+
+local DECISION_ACTIVITY = {
+    eat = "eating", drink = "drinking", rest = "resting", sleep = "sleeping",
+    bandage = "treating_wounds", improvise_medical = "preparing_bandages",
+}
+
 local function validId(id)
     return type(id) == "string" and id ~= ""
 end
@@ -68,6 +82,16 @@ end
 function Runtime.register(id, controller)
     if not validId(id) or type(controller) ~= "table" then
         return false
+    end
+    local old = entries[id]
+    if old ~= nil and old.controller ~= controller then
+        -- Re-registration (respawn/restore/test reset) must not leak the old
+        -- controller: shut it down before replacing so no duplicate shells run.
+        pcall(function()
+            if old.controller ~= nil and old.controller.shutdown ~= nil then
+                old.controller:shutdown()
+            end
+        end)
     end
     entries[id] = {
         id = id,
@@ -96,6 +120,18 @@ function Runtime.getCharacter(id)
     local entry = getEntry(id)
     if entry == nil then
         return nil
+    end
+    -- Validate against the live bridge so stale destroyed shells are not
+    -- returned as live survivors after removeNpc/retire.
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge ~= nil and bridge.getNpcCharacter ~= nil then
+        local ok, live = pcall(bridge.getNpcCharacter, bridge, id)
+        if ok then
+            if live == nil then return nil end
+            entry.character = live
+            if entry.controller ~= nil then entry.controller.character = live end
+            return live
+        end
     end
     local controller = entry.controller
     local character = controller ~= nil and controller.character or entry.character
@@ -143,17 +179,25 @@ function Runtime.snapshot(id)
     local task = controller ~= nil and controller.baseTask or nil
     local dutyActivity
     if task ~= nil and (state == "BASE_TASK_MOVE" or state == "BASE_TASK_WORK"
-        or state == "BASE_TASK_PATROL_WAIT") then
-        if task.type == "guard" then dutyActivity = "guarding"
-        elseif task.type == "patrol" then dutyActivity = "patrolling" end
+        or state == "BASE_TASK_ACTION" or state == "BASE_TASK_PATROL_WAIT") then
+        dutyActivity = TASK_ACTIVITY[tostring(task.type or "")]
     end
+    local decision = controller ~= nil and controller.activeDecision or nil
+    local reloading = state == "COMBAT" and tonumber(controller ~= nil and controller.reloadYieldStreak) ~= nil
+        and tonumber(controller.reloadYieldStreak) > 0
+    -- A decision is a meaningful live activity only while its controller state
+    -- owns that action.  An interrupted eat/rest decision must not hide a
+    -- higher-priority flee/combat/pathing state that has already taken over.
+    local decisionActivity = (state == "TIMED_ACTION" or state == "SLEEPING_RECOVERY"
+        or state == "WAITING_TO_RECOVER") and DECISION_ACTIVITY[tostring(decision or "")] or nil
     return {
         id = id,
         loaded = square ~= nil,
         state = state,
-        activity = vehicleActivity or dutyActivity
-            or ((state == "BASE_RECREATION" or state == "BASE_COOKING") and controller.activeDecision) or ACTIVITY_BY_STATE[state] or "busy",
-        decision = controller ~= nil and controller.activeDecision or nil,
+        activity = vehicleActivity or (reloading and "reloading") or dutyActivity or decisionActivity
+            or ((state == "BASE_RECREATION" or state == "BASE_COOKING") and decision)
+            or ACTIVITY_BY_STATE[state] or "busy",
+        decision = decision,
         driving = character ~= nil and vehicles ~= nil and vehicles.driverStatus ~= nil
             and vehicles.driverStatus(character) or nil,
         x = square ~= nil and square:getX() or nil,

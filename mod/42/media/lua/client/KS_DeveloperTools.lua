@@ -6,6 +6,7 @@ require "KS_ActivityFeed"
 require "KS_CombatTestScenarios"
 require "KS_KnoxEvents"
 require "KS_JobTestSupplies"
+require "KS_JobTestScenarios"
 
 local DeveloperTools = rawget(_G, "KnoxDeveloperTools") or {}
 _G.KnoxDeveloperTools = DeveloperTools
@@ -151,6 +152,67 @@ function DeveloperTools.stockJobTests(playerNum)
     KnoxActivityFeed.event("Job test supplies: " .. tostring(result) .. " (" .. tostring(added) .. " items added).")
 end
 
+function DeveloperTools.runJobTest(playerNum, key, worldObjects)
+    local scenarios = rawget(_G, "KnoxJobTestScenarios")
+    if scenarios == nil or scenarios.run == nil then
+        KnoxActivityFeed.event("Job test scenarios unavailable.")
+        return
+    end
+    scenarios.run(playerNum, key, worldObjects)
+end
+
+-- Calm test scene: clears zombies around the player for undisturbed job
+-- testing. Sandbox populations cannot change at runtime, so pair this with
+-- a zero-population sandbox preset for a fully quiet world; this handles
+-- the zombies already on the map.
+function DeveloperTools.calmTestScene(playerNum)
+    local player = getSpecificPlayer(playerNum)
+    local origin = player ~= nil and player:getCurrentSquare() or nil
+    local cell = getCell ~= nil and getCell() or nil
+    local removed = 0
+    if origin ~= nil and cell ~= nil then
+        local radius = 40
+        local zone = origin:getZ()
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                local square = cell:getGridSquare(
+                    origin:getX() + dx, origin:getY() + dy, zone)
+                if square ~= nil and square.getMovingObjects ~= nil then
+                    local ok, moving = pcall(function()
+                        return square:getMovingObjects()
+                    end)
+                    if ok and moving ~= nil then
+                        for index = moving:size() - 1, 0, -1 do
+                            local object = moving:get(index)
+                            local isZombie = false
+                            pcall(function()
+                                if instanceof ~= nil then
+                                    isZombie = instanceof(object, "IsoZombie") == true
+                                elseif object.isZombie ~= nil then
+                                    isZombie = object:isZombie() == true
+                                end
+                            end)
+                            if isZombie then
+                                pcall(function()
+                                    object:setTarget(nil)
+                                    object:setUseless(true)
+                                    object:setCanWalk(false)
+                                    object:removeFromWorld()
+                                    object:removeFromSquare()
+                                end)
+                                removed = removed + 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    KnoxActivityFeed.event("Calm test scene: cleared " .. tostring(removed)
+        .. " zombies within 40 tiles. Enable Ignore Job Resource Requirements for job runs.")
+    print("[KnoxSurvivors][DeveloperTools] calm-scene removed=" .. tostring(removed))
+end
+
 local function onFill(playerNum, context, worldObjects, test)
     if not KnoxSettings.developerToolsEnabled() then
         return
@@ -174,9 +236,17 @@ local function onFill(playerNum, context, worldObjects, test)
     local jobsOption = menu:addOption("Base & Job Tests", nil, nil)
     local jobsMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(jobsOption, jobsMenu)
-    local stock = jobsMenu:addOption("Stock Central Cupboard for Job Tests", playerNum, DeveloperTools.stockJobTests)
-    stock.notAvailable = not KnoxSettings.developerJobSuppliesEnabled()
+    local stock = jobsMenu:addOption("Stock Assigned Storage for Job Tests", playerNum, DeveloperTools.stockJobTests)
+    stock.notAvailable = not KnoxSettings.ignoreJobResourceRequirements()
     jobsMenu:addOption("Write Job and Survivor Status to Log", nil, DeveloperTools.printStatus)
+    jobsMenu:addOption("Calm Test Scene (Clear Zombies Nearby)", playerNum, DeveloperTools.calmTestScene)
+    local scenarios = rawget(_G, "KnoxJobTestScenarios")
+    if scenarios ~= nil and scenarios.list ~= nil then
+        for _, definition in ipairs(scenarios.list()) do
+            jobsMenu:addOption(definition.label, playerNum, DeveloperTools.runJobTest,
+                definition.key, worldObjects)
+        end
+    end
 
     local combatOption = menu:addOption("Combat Tests", nil, nil)
     local combatMenu = ISContextMenu:getNew(menu)

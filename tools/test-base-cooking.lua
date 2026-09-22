@@ -93,7 +93,7 @@ food.replacements=list({"Base.Pot"});assert(not c.canCook(food));food.replacemen
 food.callback="RecipeCode.onCooked";assert(not c.canCook(food));food.callback=nil
 local target=assert(c.findTask(base,actor))
 assert(c.resolveTaskSquare(base,target,actor):getX()==3)
-microwave.microwave=false;assert(c.findTask(base,actor)==nil,"ovens lack automatic timer shutoff");microwave.microwave=true
+microwave.broken=true;assert(c.findTask(base,actor)==nil,"broken appliances unavailable");microwave.broken=false
 heated.powered=false;assert(c.findTask(base,actor)==nil);heated.powered=true
 microwave.on=true;assert(c.findTask(base,actor)==nil,"player cooking is not commandeered");microwave.on=false
 local plan=assert(c.begin(base,target,actor,"cook"))
@@ -123,7 +123,8 @@ end
 untilPhase("heat")
 assert(heated:contains(food) and not food.cooked and not carried:contains(food),"real ingredient moves; no fabricated cooking")
 step();if queue.current~=nil then finishAction() end
-assert(microwave.on and microwave.timer==120 and microwave.temperature==100)
+assert(microwave.on and microwave.timer==600 and microwave.temperature==100,
+    "microwave cooks get a full ten-minute run instead of two-minute re-activation loops")
 -- A full native timer cycle can end without a cooked meal; it is not success.
 microwave.on=false;step();finishAction();assert(microwave.on and not food.cooked)
 food.cooked=true
@@ -141,7 +142,7 @@ target=assert(c.findTask(base,actor));plan=assert(c.begin(base,target,actor,"rep
 assert(plan.recovered and plan.item==food)
 step();finishAction();current=square(30)
 c.cancel(plan,actor)
-assert(microwave.on and microwave.timer==120,"a displaced actor never toggles a remote appliance; native timer remains armed")
+assert(microwave.on and microwave.timer==1,"a displaced actor never toggles a remote appliance; the running microwave winds down instead")
 microwave.on=false;current=square(3)
 plan=assert(c.begin(base,target,actor,"cook"));step();finishAction()
 heated.values[#heated.values+1]={metal=1}

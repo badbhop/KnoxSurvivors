@@ -54,6 +54,25 @@ local BANKS = {
     base_work = {
         "I'll get this handled.", "I've got work to do.", "I'll take care of it.",
     },
+    base_idle = {
+        "Quiet for now. I should check on everyone.",
+        "We have a roof. Next we make this place livable.",
+        "I keep thinking about what we still need.",
+        "Anyone need a hand before I settle down?",
+        "I might walk the yard and clear my head.",
+    },
+    base_social = {
+        "Good to see a living face. How are you holding up?",
+        "We made it another day. That counts for something.",
+        "Sit with me a minute. Tell me what you have seen out there.",
+        "This place is starting to feel like ours, do you not think?",
+        "When the work is done we should eat together, all of us.",
+    },
+    base_snack = {
+        "I am having a bite. There is enough if you want some.",
+        "A quick drink and back to it.",
+        "Nothing fancy, but it keeps me going.",
+    },
     camp = {
         "I'm staying close for a while.", "This place will do for now.",
     },

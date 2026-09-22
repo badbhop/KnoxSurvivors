@@ -110,7 +110,7 @@ tasks.register("prepareWorkshopUpload") {
         val description = file("workshop/description.bbcode").readLines(Charsets.UTF_8)
         val metadata = listOf(
             "version=1", "id=3749727604",
-            "title=[42.20.3] Knox Survivors - Early Rebuild (Launcher Required)"
+            "title=[42.20.4] Knox Survivors - Early Rebuild (Launcher Required)"
         ) + description.map { "description=$it" } + listOf("tags=Build 42", "visibility=public")
         root.resolve("workshop.txt").writeText(metadata.joinToString("\n", postfix = "\n"), Charsets.UTF_8)
         file("mod/poster.png").copyTo(root.resolve("preview.png"), overwrite = true)

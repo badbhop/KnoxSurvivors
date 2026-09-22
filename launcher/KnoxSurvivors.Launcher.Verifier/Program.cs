@@ -57,27 +57,30 @@ namespace KnoxSurvivors.Launcher.Verifier
 
         private static void VerifyInstallationAndLaunchPlan(string root)
         {
-            string game = Path.Combine(root, "ProjectZomboid");
-            string workshop = Path.Combine(root, "3749727604");
-            string mod = Path.Combine(workshop, "Contents", "mods", "KnoxSurvivors");
-            string jar = Path.Combine(workshop, "java", "build", "libs", "knox-agent-test.jar");
+            string steam = Path.Combine(root, "Locator Steam");
+            string game = Path.Combine(steam, "steamapps", "common", "PZ Custom");
+            string workshop = Path.Combine(steam, "steamapps", "workshop", "content", "108600", "3749727604");
+            string mod = Path.Combine(workshop, "mods", "KnoxSurvivors");
+            string jar = Path.Combine(mod, "java", "knox-agent-test.jar");
+            Directory.CreateDirectory(Path.Combine(steam, "steamapps"));
             Directory.CreateDirectory(Path.Combine(game, "jre64", "bin"));
             Directory.CreateDirectory(Path.Combine(mod, "42"));
             Directory.CreateDirectory(Path.GetDirectoryName(jar));
+            File.WriteAllText(
+                Path.Combine(steam, "steamapps", "appmanifest_108600.acf"),
+                "\"AppState\"\n{\n  \"installdir\"  \"PZ Custom\"\n}"
+            );
             File.WriteAllText(Path.Combine(game, "ProjectZomboid64.bat"), "@echo off");
+            File.WriteAllText(Path.Combine(game, "projectzomboid.jar"), "test");
+            File.WriteAllText(Path.Combine(game, "jre64", "bin", "java.exe"), "test");
             File.WriteAllText(Path.Combine(mod, "mod.info"), "name=Knox Survivors\nid=KnoxSurvivors\n");
             File.WriteAllText(Path.Combine(mod, "42", "mod.info"), "name=Knox Survivors\nid=KnoxSurvivors\n");
             CreateAgentJar(jar);
             WriteChecksum(jar);
 
-            var installation = new LauncherInstallation
-            {
-                GameDirectory = game,
-                WorkshopItemDirectory = workshop,
-                ModDirectory = mod,
-                AgentJarPath = jar,
-                GameBatchPath = Path.Combine(game, "ProjectZomboid64.bat"),
-            };
+            var installation = new SteamLocator().LocateFromSteamDirectory(steam);
+            Require(SamePath(installation.GameDirectory, game), "App manifest install directory ignored");
+            Require(SamePath(installation.ModDirectory, mod), "Published Workshop mod layout ignored");
             new InstallationValidator().Validate(installation);
             string previousJavaToolOptions = Environment.GetEnvironmentVariable("JAVA_TOOL_OPTIONS");
             Environment.SetEnvironmentVariable("JAVA_TOOL_OPTIONS", "-agentlib:zbNative -Xmx2G");
