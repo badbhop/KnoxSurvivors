@@ -35,8 +35,16 @@ val writeAgentChecksum by tasks.registering {
     val checksumFile = project(":java").layout.buildDirectory.file(
         "libs/knox-agent-${project.version}.jar.sha256"
     )
+    // The Workshop copy uses a version-stable filename so Steam launch
+    // options (and the launcher) can reference one permanent agent path
+    // across mod updates. The exact build stays identified by the
+    // Implementation-Version manifest entry the launcher validates.
+    val stableChecksumFile = project(":java").layout.buildDirectory.file(
+        "libs/knox-agent.jar.sha256"
+    )
     inputs.file(agentJar)
     outputs.file(checksumFile)
+    outputs.file(stableChecksumFile)
 
     doLast {
         val jarFile = agentJar.get().asFile
@@ -51,6 +59,7 @@ val writeAgentChecksum by tasks.registering {
         }
         val hash = digest.digest().joinToString("") { byte -> "%02x".format(byte) }
         checksumFile.get().asFile.writeText("$hash  ${jarFile.name}\n")
+        stableChecksumFile.get().asFile.writeText("$hash  knox-agent.jar\n")
     }
 }
 
@@ -89,8 +98,13 @@ tasks.register<Sync>("stageWorkshop") {
     })
     from(layout.projectDirectory.dir("mod"))
     from(project(":java").layout.buildDirectory.dir("libs")) {
-        include("knox-agent-${project.version}.jar", "knox-agent-${project.version}.jar.sha256")
+        include("knox-agent-${project.version}.jar")
+        rename("knox-agent-${project.version}.jar", "knox-agent.jar")
         // Steam uploads Contents, not its parent Workshop staging folder.
+        into("java")
+    }
+    from(project(":java").layout.buildDirectory.dir("libs")) {
+        include("knox-agent.jar.sha256")
         into("java")
     }
 }

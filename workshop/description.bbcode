@@ -5,7 +5,7 @@ Rare survivors, companions, and people trying to make it through the apocalypse 
 
 [h2]âš ï¸ Before you play[/h2]
 [list]
-[*][b]The Knox Survivors Launcher is required.[/b] Starting through Steam's normal Play button does not load the required Knox Java systems.
+[*][b]One extra setup step loads the Knox Java systems.[/b] Pick either method below; without one of them survivors cannot spawn.
 [*]Use a fresh test save and back up any saves you care about. Old Knox survivor data is not guaranteed to carry over to this rebuild.
 [*]Built and checked against Project Zomboid [b]42.20.4[/b]. Single-player is the focus; full multiplayer NPC support is not available.
 [/list]
@@ -22,14 +22,17 @@ Pathing, combat, equipment choices, base work, and save/load still need real pla
 
 [h2]â–¶ï¸ Install and play[/h2]
 1. Subscribe here and let Steam finish downloading.
-2. [url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.2-preview.1]Download the current launcher ZIP for your system.[/url] Choose the named Windows/Linux/macOS ZIP, not the Source code download.
-3. Extract the whole ZIP before opening it.
-4. Windows: open [b]Launch Knox Survivors.cmd[/b]. macOS: open [b]Launch Knox Survivors.command[/b]. Linux: run [b]sh scripts/launch-knox-survivors.sh[/b] from the extracted folder.
-5. Press [b]PLAY KNOX SURVIVORS[/b]. In the game, enable [b]Knox Survivors[/b] in Mods and for your new save.
+2. [b]Method A (recommended, nothing to download):[/b] in Steam, right-click Project Zomboid > Properties > General > Launch Options, and paste exactly this one line:
+[b]cmd /c "set JAVA_TOOL_OPTIONS=-javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game && %command%"[/b]
+If Steam lives somewhere else, keep the whole line identical but swap the [b]C:\Program Files (x86)\Steam[/b] part for your own Steam folder. Then just press Play in Steam.
+3. [b]Method B:[/b] [url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.2-preview.1]download the Knox Survivors launcher[/url] (Windows/Linux/macOS ZIP, not Source code), extract it, and press [b]PLAY KNOX SURVIVORS[/b] each time instead of using a launch option. Do not use both methods at once.
+4. In the game, enable [b]Knox Survivors[/b] in Mods and for your new save.
 
-Use the Knox launcher each time you play this rebuild. Steam supplies the mod and Java files together; the launcher uses the game's bundled Java. No separate Java installation is needed.
+How to confirm it worked: after reaching the main menu, open [b]Documents\Zomboid\KnoxIsoPlayer.log[/b] and check it mentions [b]agent start[/b]. If survivors never appear and the activity feed warns the Java systems are not loaded, the launch option has a typo or Steam updated the mod mid-line: re-paste it and restart.
 
-Windows is the primary test platform. Linux/macOS launcher builds pass automated checks, but real game launches on those systems still need tester reports. If the launcher says the Workshop build is old or incomplete, let Steam finish updating before trying again.
+Steam supplies the mod and Java files together and keeps them updated; the launcher and the launch option both use the game's bundled Java. No separate Java installation is needed.
+
+Windows is the primary test platform. Linux/macOS launcher builds pass automated checks, but real game launches on those systems still need tester reports. If the game reports the Java systems are missing, let Steam finish updating before trying again.
 
 [h2]ðŸ’¬ Feedback[/h2]
 [url=https://discord.gg/cTfd2WWD4s]Join the Discord[/url] for test reports and updates. Tell me what happened, your game version, and whether you used a fresh save. Check logs for personal information before sharing them.

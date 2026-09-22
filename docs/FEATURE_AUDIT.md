@@ -7769,3 +7769,9 @@ classify native weapon-capable hand tools correctly. Behavioral regressions and
 the full offline verifier pass (237 checks). Full lifecycle/reconstruction,
 firearm acceptance, base movement, and the remaining mechanic audit are open.
 No new user playtest is requested at this checkpoint.
+
+# Launcher-free Workshop path — 2026-09-22
+
+Implemented, partially verified. The staged agent now ships under the version-stable java/knox-agent.jar name (manifest Implementation-Version stays authoritative), so one Steam launch-options line loads it with no external program: cmd /c "set JAVA_TOOL_OPTIONS=-javaagent:"<workshop>\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game && %command%". Proven against the installed game runtime: Picked up JAVA_TOOL_OPTIONS plus gent start arguments=pz-game in KnoxIsoPlayer.log from a bare java -version probe. The Workshop description documents both methods; mod.info no longer claims the launcher is required; bridge failure now names the setup fix in-game. Offline verifier passes (252 checks).
+
+Pending live verification: one subscribed-install boot through the launch-options line (main-menu gent start in KnoxIsoPlayer.log), and a staging re-sync to drop the retired versioned jar filename once no game session holds it open. See docs/WORKSHOP_RELEASE.md.

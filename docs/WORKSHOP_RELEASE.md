@@ -18,6 +18,7 @@ of the launcher alone does not confirm that Steam has delivered the rebuild.
 3. Confirm the staged package contains:
    - `Contents/mods/KnoxSurvivors/42/knox-runtime.properties`
    - exactly one `Contents/mods/KnoxSurvivors/java/knox-agent-*.jar`
+     (version-stable `knox-agent.jar`, so Steam launch options survive updates)
    - its matching `.sha256` file in that same folder
 4. Run one Windows smoke test from that exact staged package.
 
@@ -62,7 +63,8 @@ removed Lua files and old runtime versions are not accidentally shipped; it leav
 5. Choose **Update** and wait for the upload to finish.
 6. Open the public Workshop page and confirm its updated time and description.
 7. Let Steam download the published build to a normal subscribed installation.
-8. Run the launcher against that downloaded copy. Do not rely only on the local staging folder.
+8. Run the launcher against that downloaded copy, or boot once through the
+   documented Steam launch option. Do not rely only on the local staging folder.
 
 ## 4. Publish the matching launcher preview
 
