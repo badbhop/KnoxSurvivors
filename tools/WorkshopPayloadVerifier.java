@@ -34,9 +34,13 @@ public final class WorkshopPayloadVerifier {
         }
         try (var files = Files.walk(uploaded)) {
             var jars = files.filter(Files::isRegularFile)
-                .filter(path -> path.getFileName().toString().matches("knox-agent-.*\\.jar")).toList();
+                .filter(path -> path.getFileName().toString().matches("knox-agent(?:-.*)?\\.jar")).toList();
             if (jars.size() != 1) throw new IllegalStateException("Expected exactly one uploaded agent, got " + jars.size());
             Path jar = jars.get(0);
+            Path expected = uploaded.resolve("mods/KnoxSurvivors/java/knox-agent.jar");
+            if (!jar.equals(expected)) {
+                throw new IllegalStateException("Steam launch options require the stable agent path: " + expected);
+            }
             String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest(Files.readAllBytes(jar)));
             String sidecar = Files.readString(jar.resolveSibling(jar.getFileName() + ".sha256")).trim();
@@ -61,8 +65,9 @@ public final class WorkshopPayloadVerifier {
                 throw new IllegalStateException("Native uploader did not read existing item ID");
             }
             String description = (String) type.getMethod("getDescription").invoke(item);
-            if (!description.contains("\uD83E\uDDDF") || !description.contains("KnoxSurvivorsLauncher/releases")) {
-                throw new IllegalStateException("Native description decoding lost artwork heading or launcher link");
+            if (!description.contains("Knox Survivors") || !description.contains("-javaagent:")
+                || !description.contains("KnoxSurvivorsLauncher/releases")) {
+                throw new IllegalStateException("Native description decoding lost the title or supported launch methods");
             }
             Object error = type.getMethod("validateContents").invoke(item);
             if (error != null) throw new IllegalStateException("Native upload validation: " + error);

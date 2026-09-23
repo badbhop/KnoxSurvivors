@@ -7772,6 +7772,33 @@ No new user playtest is requested at this checkpoint.
 
 # Launcher-free Workshop path — 2026-09-22
 
-Implemented, partially verified. The staged agent now ships under the version-stable java/knox-agent.jar name (manifest Implementation-Version stays authoritative), so one Steam launch-options line loads it with no external program: cmd /c "set JAVA_TOOL_OPTIONS=-javaagent:"<workshop>\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game && %command%". Proven against the installed game runtime: Picked up JAVA_TOOL_OPTIONS plus gent start arguments=pz-game in KnoxIsoPlayer.log from a bare java -version probe. The Workshop description documents both methods; mod.info no longer claims the launcher is required; bridge failure now names the setup fix in-game. Offline verifier passes (252 checks).
+Implemented, partially verified. The staged agent uses the version-stable
+`java/knox-agent.jar` filename; its manifest Implementation-Version remains authoritative.
+The current Windows recipe passes `-javaagent:"<actual subscribed path>\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --`
+directly through normal Steam launch options, as documented in README.md. The previous
+`cmd /c set JAVA_TOOL_OPTIONS=...` recipe is retired because it could replace inherited
+options. Preserve existing JVM options before the single `--` and game arguments after it.
+No game JSON/BAT, permanent environment, save or sandbox edits are part of this route.
 
-Pending live verification: one subscribed-install boot through the launch-options line (main-menu gent start in KnoxIsoPlayer.log), and a staging re-sync to drop the retired versioned jar filename once no game session holds it open. See docs/WORKSHOP_RELEASE.md.
+Earlier evidence proved agent startup using a bare `java -version` probe and reported
+252 offline checks. That does not verify Steam launch-option parsing or gameplay.
+The launcher remains optional; a Workshop dependency alone does not bootstrap this agent.
+
+Pending live verification: a normal Steam boot from the actual subscribed install,
+fresh agent/transformer/bridge evidence, settings and performance comparison, and
+spawn/combat/save-reload acceptance. Confirm staging has no retired versioned agent
+before release. See the Steam launch-option checklist in docs/WORKSHOP_RELEASE.md.
+
+The optional read-only `tools/get-steam-launch-options.ps1` now discovers the subscribed
+stable runtime across Steam libraries, verifies its checksum and premain manifest, and
+prints a merged option preserving other agents and game arguments. Focused checks passed
+for installed discovery, paths with spaces, quoted `--` text, preserved options, and
+rejection of duplicate Knox agents, ambiguous options and bad checksums. No Steam or
+game settings were written. `WorkshopPayloadVerifier` now enforces the stable agent path
+and rejects retired duplicate agents. Isolated `prepareWorkshopUpload` and the installed
+game's native payload/preview/metadata validator passed; an injected retired JAR was
+correctly rejected. Nothing was published.
+
+A native-EXE JVM argument probe could not start because Windows returned elevation
+required (error 740). No elevation was attempted. This is not evidence of failed Steam
+startup; the normal Steam boot and gameplay acceptance listed above remain unverified.

@@ -2,21 +2,27 @@
 
 ## Goal
 
+This document describes the long-term **zero-setup** target. The immediate Windows
+route is the one-time Steam Java-agent option documented in `README.md`, which keeps
+the current Java runtime and makes the external launcher optional. That route does
+not require this native-backend migration. Do not treat the migration below as an
+approved rewrite or as proof of parity on the currently installed game build.
+
 A player subscribes to Knox Survivors in Steam Workshop, enables the mod in the
 normal Project Zomboid menu, and starts the game through Steam. No separate
 launcher, JVM argument, copied JAR, edited game JSON, or manual installation is
 required.
 
-The existing launcher remains a development compatibility path until the native
-runtime passes the acceptance gates below. It must not be removed from a release
-while the Workshop-only runtime is incomplete.
+The existing Java runtime remains the compatibility path through the Steam launch
+option or optional launcher until the native runtime passes the acceptance gates
+below. Do not retire that runtime while the Workshop-only backend is incomplete.
 
 ## Confirmed boundary
 
 The current release architecture cannot meet this goal through packaging alone.
 The game starts with only `projectzomboid.jar` on its configured classpath and
-does not add the Knox Workshop JAR as a Java agent. The current launcher supplies
-the required `-javaagent` argument before the game JVM starts.
+does not add the Knox Workshop JAR as a Java agent. The Steam launch option or
+launcher supplies the required `-javaagent` argument before the game JVM starts.
 
 Workshop `javaJarFile` and `javaPkgName` metadata do not start a Java agent. Other
 installed Workshop projects that declare those fields still require users to copy

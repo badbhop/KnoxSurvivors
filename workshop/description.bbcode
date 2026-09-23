@@ -39,9 +39,15 @@ Open Steam > Project Zomboid > Properties > General > Launch Options and paste t
 
 [b]-javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --[/b]
 
-If Steam is installed elsewhere, change only the [b]C:\Program Files (x86)\Steam[/b] part. Then launch Project Zomboid normally from Steam. This keeps the normal Steam/PZ launch path and passes the Knox agent directly to Project Zomboid. No terminal window is required.
+Replace the example path with the actual subscribed [b]knox-agent.jar[/b] path and keep the quotes. The Workshop download can be in a different Steam library from the game. Then use Steam's normal Project Zomboid launch mode. This passes the Knox agent directly to Project Zomboid; no terminal window is required. Alternate BAT launch modes need separate setup.
 
 If you previously saved custom game arguments inside the Knox launcher (for example a custom -cachedir), those launcher-only arguments are not automatically transferred to Steam. Add the same arguments after the final [b]--[/b] if you still need them. Normal Project Zomboid saves, sandbox settings, mod settings and memory configuration stay in their normal locations.
+
+Keep existing Steam options: JVM options and other agents go before the single [b]--[/b], game arguments after it. Add Knox only once. Do not combine this with the old cmd/JAVA_TOOL_OPTIONS workaround or the Knox launcher. Custom command wrappers need separate validation.
+
+This is a one-time setup, not subscription-only loading. Steam keeps the JAR filename stable through updates. Update the path after moving its library. [b]Before unsubscribing or deleting the JAR, remove only the Knox -javaagent option from Steam[/b]; a missing agent can prevent game startup. Keep the separator if other JVM options need it.
+
+If Windows shows [b]Entry Point Not Found[/b] and names another Java installation's [b]java.dll[/b], use the bundled-runtime isolation setup described in the project README/support instructions. It generates a Steam options line that gives the game's own Java DLLs priority for that process without changing global Windows settings or clearing other agent options. Keep your original options for rollback; a command window may appear in this mode. Compatibility with other mods still needs testing with their actual installed versions.
 
 [b]Method B - optional Knox Survivors Launcher:[/b]
 [url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases]Download the latest Knox Survivors Launcher release[/url], extract the complete ZIP for your system and press [b]PLAY KNOX SURVIVORS[/b]. The launcher verifies the Workshop files/checksum and starts the normal game executable. It does not change Project Zomboid's configured memory or set permanent system options.
@@ -49,7 +55,7 @@ If you previously saved custom game arguments inside the Knox launcher (for exam
 Steam provides the mod and Knox runtime together. No separate Java installation is required.
 
 [h2]Confirm it loaded[/h2]
-After reaching the main menu, open [b]Documents\Zomboid\KnoxIsoPlayer.log[/b] and look for [b]agent start[/b]. If the mod says the Java systems are unavailable, check the Steam launch option or use the launcher, then restart Project Zomboid.
+After reaching the main menu, open [b]Documents\Zomboid\KnoxIsoPlayer.log[/b] and look for a new timestamped [b]agent start arguments=pz-game[/b] entry from this launch. If the mod says the Java systems are unavailable, check the Steam launch option or remove it before switching to the launcher, then restart Project Zomboid.
 
 [h2]Feedback[/h2]
 [url=https://discord.gg/cTfd2WWD4s]Join the Discord[/url] for bug reports and updates. Include your Project Zomboid version, whether the save was fresh, what the survivor was doing, and relevant logs after checking them for personal information.

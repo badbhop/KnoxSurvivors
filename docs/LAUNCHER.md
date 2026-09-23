@@ -1,14 +1,18 @@
 # Launcher
 
-> The public Workshop item still contains the older IsoZombie release. Do not publish the
-> rebuild launcher package until the Workshop runtime has been replaced with a tested
-> IsoPlayer build and matching Java checksum.
+> Release prerequisite: verify the downloaded Workshop item contains the tested IsoPlayer
+> build and matching Java checksum before advertising either launch method. Local staging
+> alone does not establish the current public payload.
 
 The cross-platform player launcher is deliberately limited to one job: verify the subscribed Knox
 Survivors files and start Project Zomboid with the required Java runtime enabled for that
 one game process.
 
-## Player setup
+Windows players can instead use the one-time Steam launch option in [README.md](../README.md#launching-knox-survivors).
+The launcher remains an optional install-verification and discovery path. Remove the
+Steam Knox agent option before switching to the launcher, so it is loaded only once.
+
+## Optional launcher setup
 
 1. Install Project Zomboid through Steam.
 2. Subscribe to Workshop item `3749727604` and wait for Steam to finish downloading it.
@@ -19,7 +23,7 @@ one game process.
 5. Enable Knox Survivors on the intended save the first time that save is used.
 
 After that, Steam updates the Lua mod and Java-agent file together through the Workshop.
-The launcher discovers Steam libraries automatically and needs no settings screen.
+The launcher discovers Steam libraries automatically.
 
 The launcher does not subscribe to Workshop items or alter save-specific mod selections.
 Those are explicit Steam and Project Zomboid user choices.
