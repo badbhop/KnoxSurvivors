@@ -76,6 +76,7 @@ tasks.register<Copy>("deployLocal") {
 
     into(localModsRoot.map { file(it).resolve("KnoxSurvivors") })
     from(layout.projectDirectory.dir("mod"))
+    from(layout.projectDirectory.file("tools/get-steam-launch-options.ps1"))
 }
 
 tasks.register<Sync>("stageWorkshop") {
@@ -97,6 +98,8 @@ tasks.register<Sync>("stageWorkshop") {
         file(root).resolve(folder).resolve("Contents/mods/KnoxSurvivors")
     })
     from(layout.projectDirectory.dir("mod"))
+    // Ship the read-only one-time Steam option generator with the Workshop item.
+    from(layout.projectDirectory.file("tools/get-steam-launch-options.ps1"))
     from(project(":java").layout.buildDirectory.dir("libs")) {
         include("knox-agent-${project.version}.jar")
         rename("knox-agent-${project.version}.jar", "knox-agent.jar")
