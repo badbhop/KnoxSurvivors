@@ -36,7 +36,7 @@ for _, token in ipairs({
     "knox-steam-launch.cmd",
     "%command%",
     "ExistingOptions",
-    "JAVA_TOOL_OPTIONS",
+    "knox-agent.jar",
 }) do
     assert(helper:find(token, 1, true),
         "Steam helper must preserve/generate launch integration: " .. token)
