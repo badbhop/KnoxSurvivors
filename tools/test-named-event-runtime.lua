@@ -164,6 +164,7 @@ for _, id in ipairs(storedEvent.memberIds) do
     bodies[id] = nil
 end
 local simulation = require "KS_UnloadedSurvival"
+_G.KnoxOffscreenStoriesDisabled = true
 local leader = storedEvent.memberIds[1]
 local beforeX = P.getUnloadedSurvivalState(leader).virtualX
 simulation.advanceAll({}, hours + 1)

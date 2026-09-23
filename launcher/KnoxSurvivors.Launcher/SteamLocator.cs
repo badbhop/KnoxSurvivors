@@ -70,9 +70,12 @@ namespace KnoxSurvivors.Launcher
             }
 
             string agentDirectory = Path.Combine(modDirectory, "java");
-            string[] agentJars = Directory.Exists(agentDirectory)
-                ? Directory.GetFiles(agentDirectory, "knox-agent-*.jar", SearchOption.TopDirectoryOnly)
-                : Array.Empty<string>();
+            string stableAgentJar = Path.Combine(agentDirectory, "knox-agent.jar");
+            string[] agentJars = File.Exists(stableAgentJar)
+                ? new[] { stableAgentJar }
+                : (Directory.Exists(agentDirectory)
+                    ? Directory.GetFiles(agentDirectory, "knox-agent-*.jar", SearchOption.TopDirectoryOnly)
+                    : Array.Empty<string>());
             if (agentJars.Length != 1)
             {
                 throw new LauncherException(

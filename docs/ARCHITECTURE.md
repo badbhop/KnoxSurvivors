@@ -14,6 +14,24 @@ Knox Survivors owns:
 
 Project Zomboid owns the active `IsoPlayer` representation and normal world mechanics wherever those mechanics can be reused safely.
 
+### Persistent survivor memory
+
+`KS_OffscreenStories` adds sparse, deterministic storylets to the existing
+hibernated-survivor ledger. One persisted attempt marker is consumed per
+six-hour phase whether or not a story resolves. A survivor pair shares one
+canonical pair/phase token, while each survivor retains its own bounded history
+and scar list. UI consumers use the normalized newest-first recent-history API;
+they never receive the raw nested ledger.
+
+The design is an original implementation informed by The Indie Stone's public
+descriptions of future NPC storylets and metaworld simulation. Those historical
+plans are design reference, not current vanilla behavior or an engine contract.
+Storylets may adjust bounded Knox-owned state and relationship intent, but never
+create supplies or mutate world geometry. Real robbery transfers, vehicles,
+combat, corpses, blood, barricades, and other visible scenes remain loaded-world
+engine work. Virtual vehicle ownership always ends before scar reconciliation
+when a body materializes.
+
 ## Runtime layers
 
 Automatic follower self-care excursions share the existing movement owner and a
@@ -79,9 +97,10 @@ body, movement request, traversal route, combat controller, and latest record. S
 captures all active runtimes rather than whichever NPC happened to act last. This key
 remains separate from legacy IsoZombie-era Knox data.
 
-The Lua domain has its own schema number. Schema 16 includes canonical profession and trait
+The Lua domain has its own schema number. Schema 18 includes canonical profession and trait
 IDs, perk levels and XP, player relationships, affiliation and duty, player factions,
-stable bases, work zones, storage policies, task records, and validated autonomous life intent.
+stable bases, work zones, storage policies, task records, validated autonomous life intent,
+and bounded immutable origin context metadata.
 Java record versions and Lua domain versions are never advanced together by assumption. Migrations normalize
 partial development saves in place and never erase an encoded person record.
 
@@ -125,6 +144,24 @@ when they leave the player band and restore at their saved square when that area
 relevant again. Developer scenarios remain available as a separate bounded test harness for
 social, faction, base, and companion behavior.
 
+Spawn-region coordinates retain a bounded, sorted set of the canonical professions that
+vanilla associates with that exact point. Duplicate coordinates merge this evidence instead
+of multiplying origins. Native building candidates retain only a building ID and one
+high-confidence context classified from exact normalized `RoomDef.getName()` aliases or narrow
+semantic prefixes: law enforcement, medical, military, fire service, automotive, agriculture,
+food service, or private security. Within a 100-tile thinning cell a semantic building outranks
+a generic building; the two-player-starts-to-one-building source policy, regional balancing,
+origin uniqueness and activation safety gates are unchanged. Unknown or modded room names are
+generic. Room-name lists themselves are catalog-only and are not saved.
+
+Schema 18 persists only the selected origin's bounded context, profession-candidate list and
+building ID. The origin has no public mutation path and persistence returns defensive copies.
+Schema-17 survivors keep their exact origin and capability profile and receive no inferred
+metadata or profession reroll; malformed metadata collapses to generic. Ordinary new identities
+attempt contextual native profession candidates before the generic deterministic profession
+roll. Existing profiles always win, while authored event professions remain strict and do not
+fall back. Context grants no gear, items, faction membership, hostility, or fabricated supplies.
+
 The optional `DisableSurvivorCaps` setting preserves those configured values but bypasses the
 active-body and recruitment count checks. WorldPopulation remains a finite starting count; later
 arrivals can exceed it, one identity per refill interval, from unused origins only. No numeric
@@ -149,6 +186,12 @@ resource generation. Routes stay on the same floor, within 600 tiles of the last
 48 hours of catch-up; older excess time does not trigger unbounded world scans. These constants
 are implementation policy awaiting live density/pacing evidence, not claims of full offscreen
 human simulation. Saved body records remain authoritative once they exist.
+
+When an already-valid travel candidate is a classified native building matching the survivor's
+persisted profession, that bounded facility set is preferred before the existing deterministic
+hash selection. Floor, radius, minimum movement, previous-target, duty and group ownership gates
+remain authoritative, and an absent or unknown match uses the original generic candidate pool.
+This affects destination choice only; it neither predicts nor creates the building's loot.
 
 Captured independent survivors reuse that nearby-catalog itinerary through UnloadedSurvival;
 they no longer drift 1.25 tiles/hour on an arbitrary heading. An unavailable catalog leaves them

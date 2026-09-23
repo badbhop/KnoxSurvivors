@@ -164,6 +164,13 @@ local PERSONALITY_BANKS = {
             "This road belongs to whoever can hold it." },
         combat = { "No witnesses.", "Finish it.", "Do not let them run." },
     },
+    gunner = {
+        player_talk = { "Nice weapon. Do not reach for it.",
+            "I have got a bead on this whole street.",
+            "Plenty of ammo. Hoping I do not need it." },
+        combat = { "Told you.", "Should have walked.", "Cover! Reloading!" },
+        camp = { "I sleep light. Do not test it.", "Perimeter stays watched." },
+    },
 }
 
 local function stableIndex(id, event, ticks, count)
@@ -179,6 +186,156 @@ end
 local function enabled()
     return KnoxSettings == nil or KnoxSettings.showSurvivorSpeech == nil
         or KnoxSettings.showSurvivorSpeech()
+end
+
+local PLACE_WORDS = {
+    "the ridge road", "empty houses", "the treeline", "a burned-out stop",
+    "the river bend", "quiet streets", "a stripped farmhouse", "the rail line",
+}
+
+local function hashText(text)
+    local hash = 23
+    text = tostring(text or "")
+    for index = 1, #text do
+        hash = (hash * 37 + string.byte(text, index)) % 2147483647
+    end
+    return hash
+end
+
+local function placeWord(id, timestamp)
+    return PLACE_WORDS[(hashText(tostring(id) .. ":" .. tostring(timestamp)) % #PLACE_WORDS) + 1]
+end
+
+--- How `viewerId` refers to `subjectId` inCampfire-style speech. Disposition
+--- and shared affiliation decide the noun; no kinship is invented because the
+--- ledger tracks none. Deterministic and side-effect free.
+function Dialogue.relationNoun(viewerId, subjectId)
+    if viewerId == nil or subjectId == nil then return "a traveler" end
+    if tostring(viewerId) == tostring(subjectId) then return "myself" end
+    local persistence = rawget(_G, "KnoxPersistence")
+    if persistence == nil then return "a traveler" end
+    local disposition = nil
+    if persistence.getRelationship ~= nil then
+        local ok, record = pcall(persistence.getRelationship, viewerId, subjectId)
+        if ok and type(record) == "table" then disposition = record.disposition end
+    end
+    if disposition == "hostile" then return "that hostile soul" end
+    if disposition == "declined" then return "that one" end
+    local viewerGroup, subjectGroup = nil, nil
+    if persistence.getTravelGroupFor ~= nil then
+        local ok, group = pcall(persistence.getTravelGroupFor, viewerId)
+        if ok and type(group) == "table" then viewerGroup = group end
+        ok, group = pcall(persistence.getTravelGroupFor, subjectId)
+        if ok and type(group) == "table" then subjectGroup = group end
+    end
+    if viewerGroup ~= nil and subjectGroup ~= nil
+        and tostring(viewerGroup.id) == tostring(subjectGroup.id) then
+        return "my groupmate"
+    end
+    local viewerFaction, subjectFaction = nil, nil
+    if persistence.getFactionForSurvivor ~= nil then
+        local ok, faction = pcall(persistence.getFactionForSurvivor, viewerId)
+        if ok then viewerFaction = faction end
+        ok, faction = pcall(persistence.getFactionForSurvivor, subjectId)
+        if ok then subjectFaction = faction end
+    end
+    local viewerFactionId = type(viewerFaction) == "table" and viewerFaction.id or viewerFaction
+    local subjectFactionId = type(subjectFaction) == "table" and subjectFaction.id or subjectFaction
+    if viewerFactionId ~= nil and subjectFactionId ~= nil
+        and tostring(viewerFactionId) == tostring(subjectFactionId) then
+        return "one of ours"
+    end
+    if disposition == "allied" then return "my friend" end
+    local meetings = 0
+    if persistence.getRelationship ~= nil then
+        local ok, record = pcall(persistence.getRelationship, viewerId, subjectId)
+        if ok and type(record) == "table" then meetings = tonumber(record.meetings) or 0 end
+    end
+    if meetings >= 2 then return "someone I have crossed before" end
+    return "a traveler"
+end
+
+local function forenameOf(id)
+    local persistence = rawget(_G, "KnoxPersistence")
+    if persistence ~= nil and persistence.getSurvivorIdentity ~= nil then
+        local ok, identity = pcall(persistence.getSurvivorIdentity, id)
+        if ok and type(identity) == "table" then
+            local forename = identity.forename or identity.firstName
+            if type(forename) == "string" and forename ~= "" then return forename end
+        end
+    end
+    return nil
+end
+
+--- Build campfire recount lines from ledger history (newest first, max 3).
+-- Names render relation-aware: repeat meetings speak of relations, first
+-- meetings speak the recorded forename when one exists. Returns {} when the
+-- survivor has no history worth retelling.
+function Dialogue.recountLines(survivorId)
+    local stories = rawget(_G, "KnoxOffscreenStories")
+    if stories == nil or stories.historyFor == nil then return {} end
+    local ok, history = pcall(stories.historyFor, survivorId)
+    if not ok or type(history) ~= "table" or #history == 0 then return {} end
+    local lines = {}
+    for index = #history, math.max(1, #history - 2), -1 do
+        local entry = history[index]
+        if type(entry) == "table" then
+            local line = Dialogue.recountEntry(survivorId, entry)
+            if line ~= nil then lines[#lines + 1] = line end
+            if #lines >= 3 then break end
+        end
+    end
+    return lines
+end
+
+function Dialogue.recountEntry(survivorId, entry)
+    local kind = tostring(entry.kind or "")
+    local place = placeWord(survivorId, entry.t)
+    local subject = nil
+    if entry.with ~= nil then
+        subject = Dialogue.relationNoun(survivorId, entry.with)
+        if subject == "a traveler" or subject == "someone I have crossed before" then
+            local name = forenameOf(entry.with)
+            if name ~= nil then subject = name end
+        end
+    end
+    if kind == "meet" and subject ~= nil then
+        if entry.outcome == "hostile" then
+            return "Crossed " .. subject .. " out past " .. place .. ". Weapons came out. I walked away."
+        end
+        return "Ran into " .. subject .. " out past " .. place .. ". We talked and walked on."
+    end
+    if kind == "close_call" then
+        if entry.outcome == "hurt" then
+            return "Got torn up out near " .. place .. ". Still bled when I found cover."
+        end
+        return "Something stalked me near " .. place .. ". Went still until it passed."
+    end
+    if kind == "rest" then
+        return "Found a quiet moment out past " .. place .. ". Caught my breath."
+    end
+    if kind == "haunt" then
+        return "Walked ground that felt known, out past " .. place .. ". Steadied me."
+    end
+    if kind == "weather" then
+        return "Pushed through bad weather past " .. place .. ". Still moving."
+    end
+    if kind == "cache" then
+        return "Marked a spot out past " .. place .. " in my head. Might matter later."
+    end
+    if kind == "ride" then
+        if entry.outcome == "arrived" then
+            return "Caught wheels out past " .. place .. ". Rode all the way."
+        end
+        return "Caught a ride out past " .. place .. ". Saved my legs."
+    end
+    if kind == "scar" then
+        if subject ~= nil then
+            return "Came back to where " .. subject .. " and I drew weapons. Still standing."
+        end
+        return "Came back to where I bled out past " .. place .. ". It looks different in daylight."
+    end
+    return nil
 end
 
 function Dialogue.sayLines(character, survivorId, event, lines, ticks, cooldown)
@@ -208,6 +365,17 @@ function Dialogue.say(character, survivorId, event, ticks, cooldown)
         local overrides = personality ~= nil and PERSONALITY_BANKS[personality.personality] or nil
         if overrides ~= nil and type(overrides[event]) == "table" then
             lines = overrides[event]
+        end
+    end
+    if event == "base_social" then
+        -- Campfire moments retell ledger history (TIS recount rule) about a
+        -- third of the time; otherwise the normal lifestyle bank speaks.
+        local window = math.floor((tonumber(ticks) or 0) / 1800)
+        if hashText(tostring(survivorId) .. ":recount:" .. tostring(window)) % 100 < 35 then
+            local recount = Dialogue.recountLines(survivorId)
+            if #recount > 0 then
+                return Dialogue.sayLines(character, survivorId, "recount", recount, ticks, cooldown)
+            end
         end
     end
     return Dialogue.sayLines(character, survivorId, event, lines, ticks, cooldown)

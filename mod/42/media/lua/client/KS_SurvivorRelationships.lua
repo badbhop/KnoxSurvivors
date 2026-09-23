@@ -218,7 +218,8 @@ local function decideEncounterOutcome(firstId, secondId, record)
     local aggression = ((firstIdentity.aggression or 35)
         + (secondIdentity.aggression or 35)) / 2
     local hostileChance = clamp(7 + (aggression - 45) * 0.35, 4, 22)
-    if firstPersonality == "predatory" or secondPersonality == "predatory" then
+    if firstPersonality == "predatory" or secondPersonality == "predatory"
+        or firstPersonality == "gunner" or secondPersonality == "gunner" then
         hostileChance = clamp(hostileChance + 8, 8, 30)
     end
     local cautiousGreetingChance = clamp(42 + (sociability - 50) * 0.30, 25, 58)
@@ -283,6 +284,58 @@ end
 local function aggressionFor(id)
     local identity = KnoxPersistence.getSurvivorIdentity(id) or {}
     return tonumber(identity.aggression) or 35
+end
+
+Relationships.PENDING_MEET_FRESH_HOURS = 72
+
+local function readPendingMeet(id)
+    if KnoxPersistence.getUnloadedSurvivalState == nil then return nil end
+    local ok, state = pcall(KnoxPersistence.getUnloadedSurvivalState, id)
+    if not ok or type(state) ~= "table" or type(state.pendingMeet) ~= "table" then
+        return nil
+    end
+    return state.pendingMeet
+end
+
+local function clearPendingMeet(id)
+    if KnoxPersistence.getUnloadedSurvivalState == nil
+        or KnoxPersistence.setUnloadedSurvivalState == nil then
+        return
+    end
+    local ok, state = pcall(KnoxPersistence.getUnloadedSurvivalState, id)
+    if ok and type(state) == "table" and state.pendingMeet ~= nil then
+        state.pendingMeet = nil
+        pcall(KnoxPersistence.setUnloadedSurvivalState, id, state)
+    end
+end
+
+--- Map a fresh offscreen meet intent to a loaded encounter outcome.
+-- Returns the forced outcome (rob->hostile runs the robbery path with real
+-- transfers, tail->lure runs the ambush path, befriend/greet->greet) or nil
+-- when no fresh mutual intent exists. Never consumes: consumption happens
+-- once the loaded engine accepts the encounter below.
+function Relationships.pendingMeetOutcome(firstId, secondId, worldAge)
+    if firstId == nil or secondId == nil then return nil end
+    local now = tonumber(worldAge) or 0
+    local first = readPendingMeet(firstId)
+    local second = readPendingMeet(secondId)
+    local intent = nil
+    if first ~= nil and tostring(first.with) == tostring(secondId) then intent = first end
+    if intent == nil and second ~= nil and tostring(second.with) == tostring(firstId) then
+        intent = second
+    end
+    if intent == nil then return nil end
+    local age = now - (tonumber(intent.atHours) or 0)
+    if age < 0 or age > Relationships.PENDING_MEET_FRESH_HOURS then return nil end
+    if intent.kind == "rob" then return "hostile" end
+    if intent.kind == "tail" then return "lure" end
+    if intent.kind == "befriend" or intent.kind == "greet" then return "greet" end
+    return nil
+end
+
+function Relationships.consumePendingMeet(firstId, secondId)
+    clearPendingMeet(firstId)
+    clearPendingMeet(secondId)
 end
 
 -- A nearby ally may defend a threatened member for this loaded encounter.
@@ -495,7 +548,16 @@ local function observePair(first, second, worldAge, ticks, participants)
         local record = KnoxPersistence.getRelationship(first.id, second.id)
         local cooldownComplete = Relationships.isEncounterCooldownComplete(record, worldAge)
         if canMeet and cooldownComplete then
-            local outcome = decideEncounterOutcome(first.id, second.id, record)
+            -- Offscreen history takes priority: a pair that met out there
+            -- resolves that intent first when both load near each other.
+            local pendingOverride = Relationships.pendingMeetOutcome(first.id, second.id, worldAge)
+            local outcome = pendingOverride
+                or decideEncounterOutcome(first.id, second.id, record)
+            if pendingOverride ~= nil then
+                Relationships.consumePendingMeet(first.id, second.id)
+                print(TAG .. " pending-meet-override=" .. first.id .. "," .. second.id
+                    .. " outcome=" .. tostring(pendingOverride))
+            end
             if firstGroup ~= nil and secondGroup ~= nil and outcome == "join" then
                 -- Joining is defined for a loner joining an existing group.
                 -- Keep two established groups as a bounded greeting here so

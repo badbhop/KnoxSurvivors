@@ -5,9 +5,31 @@ require "KS_SurvivorNeeds"
 require "KS_SurvivorRuntime"
 require "KS_OrderCatalog"
 local SurvivorNames = require "KS_SurvivorNames"
+local OffscreenStories = require "KS_OffscreenStories"
 
 local ViewModel = rawget(_G, "KnoxSurvivorViewModel") or {}
 _G.KnoxSurvivorViewModel = ViewModel
+
+local MEMORY_LABELS = {
+    meet = "Met another survivor",
+    close_call = "Survived a close call",
+    rest = "Found a quiet moment",
+    haunt = "Returned to familiar ground",
+    weather = "Endured bad weather",
+    cache = "Remembered a possible cache",
+    ride = "Caught a ride",
+    scar = "Returned to a remembered place",
+}
+
+local function recentHistoryFor(id)
+    if OffscreenStories == nil or OffscreenStories.recentHistoryFor == nil then return {} end
+    local ok, history = pcall(OffscreenStories.recentHistoryFor, id, 3)
+    if not ok or type(history) ~= "table" then return {} end
+    for _, entry in ipairs(history) do
+        entry.label = MEMORY_LABELS[tostring(entry.kind or "")] or "Survived offscreen"
+    end
+    return history
+end
 
 local ACTIVITY_LABELS = {
     reading = "Reading",
@@ -486,6 +508,7 @@ function ViewModel.getSurvivor(id, playerNum)
     local role = roleFor(affiliation, duty)
     local alive = KnoxPersistence.isSurvivorAlive == nil
         or KnoxPersistence.isSurvivorAlive(id) ~= false
+    local recentHistory = recentHistoryFor(id)
     if character ~= nil then
         local success, dead = pcall(function()
             return character:isDead()
@@ -508,6 +531,8 @@ function ViewModel.getSurvivor(id, playerNum)
         skills = capabilities.skills or {},
         trust = relationship ~= nil and tonumber(relationship.trust) or nil,
         relationshipMeetings = relationship ~= nil and tonumber(relationship.meetings) or nil,
+        recentHistory = recentHistory,
+        latestMemory = recentHistory[1] ~= nil and recentHistory[1].label or nil,
         isSpouse = type(spouseStart) == "table" and spouseStart.id == id,
         factionName = faction ~= nil and tostring(faction.name or faction.id or "") or nil,
         ageYears = ageYears ~= nil and math.floor(ageYears) or nil,

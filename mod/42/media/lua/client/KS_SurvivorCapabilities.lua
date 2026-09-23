@@ -1,4 +1,5 @@
 require "KS_Persistence"
+require "KS_SurvivorOrigins"
 
 local Capabilities = rawget(_G, "KnoxSurvivorCapabilities") or {}
 _G.KnoxSurvivorCapabilities = Capabilities
@@ -344,6 +345,44 @@ function Capabilities.ensure(id, character, initializeNew, preferredProfessionId
         appliedCharacters[character] = true
     end
     return profile, result
+end
+
+-- Capability precedence is centralized here so population allocation and
+-- first materialization cannot disagree. Authored event professions are
+-- strict. Contextual spawn/building evidence is advisory and may fall through
+-- to another candidate or the ordinary deterministic vanilla roll.
+function Capabilities.ensureForOrigin(
+    id,
+    character,
+    initializeNew,
+    eventProfessionId,
+    origin
+)
+    local existing = KnoxPersistence.getSurvivorCapabilities(id)
+    if existing ~= nil then
+        return Capabilities.ensure(id, character, initializeNew)
+    end
+    if eventProfessionId ~= nil then
+        return Capabilities.ensure(id, character, initializeNew, eventProfessionId)
+    end
+    local lastReason = nil
+    local candidates = KnoxSurvivorOrigins.professionCandidates(origin, id)
+    for _, professionId in ipairs(candidates) do
+        local profile, reason = Capabilities.ensure(
+            id,
+            character,
+            initializeNew,
+            professionId
+        )
+        if profile ~= nil then return profile, "contextual:" .. tostring(reason) end
+        lastReason = reason
+    end
+    local profile, reason = Capabilities.ensure(id, character, initializeNew)
+    if profile ~= nil then
+        return profile, #candidates > 0 and "context_fallback:" .. tostring(reason)
+            or reason
+    end
+    return nil, reason or lastReason
 end
 
 function Capabilities.capture(id, character)

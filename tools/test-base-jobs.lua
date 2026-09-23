@@ -354,6 +354,21 @@ assert(jobs.effectivePreference({ jobPreference = "auto" }, {
     professionId = "base:farmer",
 }) == "farming", "auto farmer should receive a farming hint")
 assert(jobs.effectivePreference({ jobPreference = "auto" }, {
+    professionId = "base:mechanics",
+}) == "repair", "auto mechanic should prefer the real repair executor")
+assert(jobs.effectivePreference({ jobPreference = "auto" }, {
+    professionId = "base:chef",
+}) == "cooking", "auto chef should prefer the real cooking executor")
+assert(jobs.effectivePreference({ jobPreference = "auto" }, {
+    professionId = "base:rancher",
+}) == "farming", "auto rancher should prefer existing farm work")
+assert(jobs.effectivePreference({ jobPreference = "auto" }, {
+    professionId = "base:securityguard",
+}) == "guard", "auto security guard should prefer guard work")
+assert(jobs.effectivePreference({ jobPreference = "auto" }, {
+    professionId = "base:doctor",
+}) == "auto", "doctor remains automatic until a real medical job exists")
+assert(jobs.effectivePreference({ jobPreference = "auto" }, {
     professionId = "base:unemployed",
 }) == "auto", "unmatched profession should remain auto")
 assert(jobs.effectivePreference({ jobPreference = "barricade" }, {}) == "barricade",

@@ -38,6 +38,9 @@ for _, row in ipairs({ '"Health"', '"Food"', '"Water"', '"Sleep"', '"Endurance"'
 end
 assert(string.find(source, 'snapshot.vitals', 1, true),
     "condition bars must read the live vitals snapshot, not static text")
+assert(string.find(source, 'snapshot.latestMemory', 1, true)
+    and string.find(source, 'snapshot.recentHistory', 1, true),
+    "Knox history panel must expose the bounded persistent-memory summary")
 assert(string.find(source, 'KnoxSurvivorViewModel.getSurvivor(survivorId, playerNum)', 1, true),
     "view card must fall back to the full survivor record for base residents outside the companion roster")
 assert(string.find(source, 'hideAppearanceButtons(self)', 1, true),

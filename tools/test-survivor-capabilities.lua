@@ -99,4 +99,50 @@ local existing = assert(Capabilities.ensure("ks-police-3", nil, true, "base:miss
 assert(existing.professionId == "base:policeofficer",
     "first materialization policy cannot rewrite an existing capability profile")
 
+local precedence = assert(Capabilities.ensureForOrigin(
+    "ks-police-3",
+    nil,
+    true,
+    "base:doctor",
+    { context = "medical", professionCandidates = { "base:doctor" } }
+))
+assert(precedence.professionId == "base:policeofficer",
+    "persisted capability profile outranks event and contextual evidence")
+
+local strictEvent, strictReason = Capabilities.ensureForOrigin(
+    "ks-strict-event",
+    nil,
+    true,
+    "base:missing",
+    { context = "medical", professionCandidates = { "base:doctor" } }
+)
+assert(strictEvent == nil and string.find(strictReason, "preferred_profession_missing", 1, true),
+    "authored event profession failure never falls through to contextual or generic rolls")
+
+CharacterProfessionDefinition.getProfessions = function() return list({ doctor }) end
+CharacterTraitDefinition.getTraits = function() return empty end
+local contextual, contextualReason = Capabilities.ensureForOrigin(
+    "ks-context-doctor",
+    nil,
+    true,
+    nil,
+    { context = "medical", professionCandidates = { "base:missing", "base:doctor" } }
+)
+assert(contextual ~= nil and contextual.professionId == "base:doctor"
+    and string.find(contextualReason, "contextual:", 1, true) == 1,
+    "context candidates are attempted deterministically and fail soft profile="
+        .. tostring(contextual ~= nil and contextual.professionId or "nil")
+        .. " reason=" .. tostring(contextualReason))
+
+local fallback, fallbackReason = Capabilities.ensureForOrigin(
+    "ks-context-fallback",
+    nil,
+    true,
+    nil,
+    { context = "automotive" }
+)
+assert(fallback ~= nil and fallback.professionId == "base:doctor"
+    and string.find(fallbackReason, "context_fallback:", 1, true) == 1,
+    "missing contextual profession falls back to the ordinary deterministic profile")
+
 print("survivor capability tests passed")

@@ -15,6 +15,7 @@ require "KS_Persistence"
 require "KS_WorldPopulation"
 require "KS_EventFactions"
 require "KS_UnloadedSurvival"
+_G.KnoxOffscreenStoriesDisabled = true
 local P, W, F, S = KnoxPersistence, KnoxWorldPopulation, KnoxEventFactions, KnoxUnloadedSurvival
 
 local playerSquare = { getX = function() return 200 end, getY = function() return 100 end,

@@ -2,6 +2,7 @@ require "KS_GroupCohesion"
 local Simulation = rawget(_G, "KnoxUnloadedSurvival") or {}
 _G.KnoxUnloadedSurvival = Simulation
 require "KS_BaseDutySimulation"
+require "KS_OffscreenStories"
 require "KS_OrderCatalog"
 
 -- Hibernated survivors are not hidden active characters.  This module advances a
@@ -21,6 +22,7 @@ local ENDURANCE_RECOVERY_PER_HOUR = 0.090
 local STARVATION_DAMAGE_PER_HOUR = 1.20
 local DEHYDRATION_DAMAGE_PER_HOUR = 2.00
 local RETURN_TILES_PER_HOUR = 40
+local VEHICLE_TILES_PER_HOUR = 300
 local GROUP_REGROUP_DISTANCE = 20
 local GROUP_REJOIN_DISTANCE = 6
 local AWAKE_FATIGUE_PER_HOUR = 0.020
@@ -280,6 +282,49 @@ local function advanceWorldActivity(id, state, elapsed, hours)
         setActivity(state, "away_mission", hours)
         return 0
     end
+    local stories = rawget(_G, "KnoxOffscreenStories")
+    if stories ~= nil and type(state.vehicleTrip) == "table" then
+        -- A caught ride moves at vehicle pace and costs no walking endurance:
+        -- riders recover while riding. The trip is virtual (no vehicle entity
+        -- is claimed) and dissolves on arrival, after 24 hours, or on load.
+        local trip = state.vehicleTrip
+        local tx, ty, tz = tonumber(trip.targetX), tonumber(trip.targetY),
+            tonumber(trip.targetZ)
+        local x0, y0, z0 = tonumber(state.virtualX), tonumber(state.virtualY),
+            tonumber(state.virtualZ)
+        local valid = tx ~= nil and ty ~= nil and x0 ~= nil and y0 ~= nil
+            and (tz == nil or z0 == nil or tz == z0)
+        if not valid or hours - (tonumber(trip.atHours) or hours) >= 24 then
+            if stories.endVehicleTrip ~= nil then
+                stories.endVehicleTrip(state, hours,
+                    valid and "timed_out" or "invalid",
+                    valid and "the ride ended short of the goal" or "the ride plan fell through")
+            else
+                state.vehicleTrip = nil
+            end
+        else
+            local dx, dy = tx - x0, ty - y0
+            local distance = math.sqrt(dx * dx + dy * dy)
+            local travel = math.max(0, elapsed) * VEHICLE_TILES_PER_HOUR
+            if distance <= math.max(0.01, travel) then
+                state.virtualX, state.virtualY = tx, ty
+                if tz ~= nil then state.virtualZ = tz end
+                state.virtualAtHours = hours
+                if stories.endVehicleTrip ~= nil then
+                    stories.endVehicleTrip(state, hours, "arrived", "rode all the way there")
+                else
+                    state.vehicleTrip = nil
+                end
+                setActivity(state, "exploring", hours)
+            else
+                state.virtualX = x0 + dx / distance * travel
+                state.virtualY = y0 + dy / distance * travel
+                state.virtualAtHours = hours
+                setActivity(state, "riding", hours)
+            end
+            return 0
+        end
+    end
     local x, y, z = tonumber(state.virtualX), tonumber(state.virtualY), tonumber(state.virtualZ)
     if x == nil or y == nil or z == nil then
         x, y, z = recordLocation(id)
@@ -532,6 +577,8 @@ function Simulation.beginBaseReturn(id, base, hours)
     local width, height = areaDimensions(area)
     state.virtualX, state.virtualY, state.virtualZ = x, y, tonumber(z) or 0
     state.virtualAtHours = now
+    -- A foot route home supersedes any vehicle leg: trips never reroute trips.
+    state.vehicleTrip = nil
     state.baseReturn = {
         baseId = tostring(base.id or ""),
         targetX = math.floor(tonumber(area.minX)) + math.floor((width - 1) / 2),
@@ -591,6 +638,14 @@ local function advanceOne(id, state, hours, activityAdvanced)
         state.health = clamp(state.health - DEHYDRATION_DAMAGE_PER_HOUR * exposed, 0, 100)
         events[#events + 1] = "dehydrated"
     end
+    local stories = rawget(_G, "KnoxOffscreenStories")
+    if stories ~= nil and stories.resolveFor ~= nil and state.status == "hibernated"
+        and (tonumber(state.health) or 0) > 0 then
+        local storyOk, storyEvent = pcall(stories.resolveFor, id, state, hours, elapsed)
+        if storyOk and storyEvent ~= nil then
+            events[#events + 1] = "story:" .. tostring(storyEvent)
+        end
+    end
     state.lastHours = hours
     state.status = state.health <= 0 and "dead" or "hibernated"
     return state, #events > 0 and table.concat(events, ",") or nil
@@ -632,6 +687,26 @@ end
 local function finite(value)
     value = tonumber(value)
     return value ~= nil and value == value and value > -math.huge and value < math.huge
+end
+
+local function pendingMeetOrder(intent)
+    if type(intent) ~= "table" then return -math.huge, "" end
+    return tonumber(intent.atHours) or -math.huge, tostring(intent.pairPhase or "")
+end
+
+local function mergeConcurrentStoryFields(state, latest)
+    if type(state) ~= "table" or type(latest) ~= "table" then return state end
+    local stateHours, stateToken = pendingMeetOrder(state.pendingMeet)
+    local latestHours, latestToken = pendingMeetOrder(latest.pendingMeet)
+    if latestHours > stateHours or (latestHours == stateHours and latestToken > stateToken) then
+        state.pendingMeet = latest.pendingMeet
+        state.lastOffscreenMeetToken = latest.lastOffscreenMeetToken
+    elseif state.pendingMeet == nil and latest.lastOffscreenMeetToken ~= nil then
+        -- A pair token can remain after loaded code consumed the intent. Keep
+        -- it for same-phase idempotency without resurrecting the intent.
+        state.lastOffscreenMeetToken = latest.lastOffscreenMeetToken
+    end
+    return state
 end
 
 local function advanceStoredGroup(group, active, hours)
@@ -740,6 +815,7 @@ local function advanceStoredGroup(group, active, hours)
         local x, y = shared.virtualX, shared.virtualY
         local population = rawget(_G, "KnoxWorldPopulation")
         local movingHours = 0
+        local rode = false
         if event then
             local destination = eventRuntime.destination(group, anchor.id)
             if destination ~= nil and (group.phase == "approaching" or group.phase == "withdrawing") then
@@ -753,6 +829,45 @@ local function advanceStoredGroup(group, active, hours)
                 movingHours = travel / RETURN_TILES_PER_HOUR
             end
         else
+            -- Vehicle radar: a leader holding a fresh trip moves the whole
+            -- cohort at vehicle pace with no walking drain (riders recover).
+            -- Trips never teleport, never leave the group, and dissolve on
+            -- arrival, timeout, or load; real boarding stays loaded-only.
+            rode = false
+            do
+                local trip = anchor.state.vehicleTrip
+                local stories = rawget(_G, "KnoxOffscreenStories")
+                if type(trip) == "table" and stories ~= nil then
+                    local tx, ty, tz = tonumber(trip.targetX), tonumber(trip.targetY), tonumber(trip.targetZ)
+                    local tripAge = atHours - (tonumber(trip.atHours) or atHours)
+                    if tx ~= nil and ty ~= nil and (tz == nil or tz == shared.virtualZ)
+                        and tripAge >= 0 and tripAge < 24 then
+                        local dx, dy = tx - shared.virtualX, ty - shared.virtualY
+                        local distance = math.sqrt(dx * dx + dy * dy)
+                        local travel = math.min(distance, VEHICLE_TILES_PER_HOUR * span)
+                        if distance > 0 then
+                            shared.virtualX = shared.virtualX + dx / distance * travel
+                            shared.virtualY = shared.virtualY + dy / distance * travel
+                        end
+                        movingHours = 0
+                        if travel >= distance then
+                            if stories.endVehicleTrip ~= nil then
+                                stories.endVehicleTrip(anchor.state, atHours, "arrived", "rode all the way there")
+                            else
+                                anchor.state.vehicleTrip = nil
+                            end
+                        end
+                        rode = true
+                    elseif tripAge >= 24 or tx == nil then
+                        if stories.endVehicleTrip ~= nil then
+                            stories.endVehicleTrip(anchor.state, atHours, "timed_out", "the ride ended short of the goal")
+                        else
+                            anchor.state.vehicleTrip = nil
+                        end
+                    end
+                end
+            end
+            if not rode then
             local objective = persistence.getTravelGroupObjective ~= nil
                 and persistence.getTravelGroupObjective(group.id) or nil
             local faction = group.factionId ~= nil and persistence.getFaction ~= nil
@@ -861,6 +976,7 @@ local function advanceStoredGroup(group, active, hours)
                 )
                 if advanced then movingHours = clamp(travelHours, 0, span) end
             end
+            end
         end
         local dx, dy = shared.virtualX - x, shared.virtualY - y
         for _, member in ipairs(members) do
@@ -872,10 +988,10 @@ local function advanceStoredGroup(group, active, hours)
         local objective = not event and persistence.getTravelGroupObjective ~= nil
             and persistence.getTravelGroupObjective(group.id) or nil
         setActivity(shared, event and (movingHours > 0 and "event_travel" or "event_waiting")
-            or (movingHours > 0 and objective ~= nil
+            or (rode and "riding" or (movingHours > 0 and objective ~= nil
                     and (objective.phase == "seeking" or objective.phase == "traveling")
                 and "group_objective"
-                or (movingHours > 0 and "group_travel" or "sheltering")), atHours)
+                or (movingHours > 0 and "group_travel" or "sheltering"))), atHours)
         return movingHours
     end
     cohort.apply = function(span, restMode, sleepEnabled, activity, atHours)
@@ -903,6 +1019,13 @@ local function advanceStoredGroup(group, active, hours)
         local died = false
         for _, member in ipairs(members) do
             local state, event = advanceOne(member.id, member.state, step, true)
+            -- Another member's storylet may have written a symmetric pending
+            -- intent into this ledger after the cohort snapshots were loaded.
+            -- Merge only the concurrent story-owned pair fields; the current
+            -- member still owns physiology, position, history, and activity.
+            local latest = persistence.getUnloadedSurvivalState(member.id)
+            state = mergeConcurrentStoryFields(state, latest)
+            member.state = state
             persistence.setUnloadedSurvivalState(member.id, state)
             if state.status == "dead" then
                 persistence.markSurvivorDead(member.id, step, "unloaded_survival")
@@ -1089,7 +1212,22 @@ function Simulation.applyToLoaded(id, character)
         -- A stale/rolled-back clock must never make the next hibernation pass
         -- replay elapsed off-screen time after materialization.
         state.lastHours = math.max(tonumber(state.lastHours) or 0, nowHours())
+        local stories = rawget(_G, "KnoxOffscreenStories")
+        -- End the virtual leg on the caller-owned ledger before scar
+        -- resolution fetches and saves it. Resolving scars first and then
+        -- saving this older table used to restore consumed scars/history.
+        if state.vehicleTrip ~= nil then
+            if stories ~= nil and stories.endVehicleTrip ~= nil then
+                pcall(stories.endVehicleTrip, state, nowHours(), "materialized",
+                    "the ride ended as the survivor came into view")
+            else
+                state.vehicleTrip = nil
+            end
+        end
         persistence.setUnloadedSurvivalState(id, state)
+        if stories ~= nil and stories.resolveScars ~= nil then
+            pcall(stories.resolveScars, id, character, nowHours())
+        end
         return true, "applied"
     end
     return false, tostring(evidence)

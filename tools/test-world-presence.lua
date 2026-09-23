@@ -37,6 +37,7 @@ require "KS_Persistence"
 local persistence = KnoxPersistence
 local population = require "KS_WorldPopulation"
 local simulation = require "KS_UnloadedSurvival"
+_G.KnoxOffscreenStoriesDisabled = true
 local catalog = assert(population.spawnCatalog())
 assert(catalog.buildingOrigins == 3, "one native ground-floor building per spatial bucket")
 assert(catalog.byKey["405,104,0"] and not catalog.byKey["415,114,0"], "uses actual room rectangle")

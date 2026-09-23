@@ -186,6 +186,7 @@ assert(ca:beginEventTravel(retry) and ca.state == "EVENT_TRAVEL", "cooled-down t
 -- Exercise the SAME stored-cohort scheduler used by normal groups. No event
 -- timer can move a loaded body or grant a free inventory replacement.
 local simulation = load("KS_UnloadedSurvival")
+_G.KnoxOffscreenStoriesDisabled = true
 KnoxSurvivorNeeds.sleepRequired = function() return true end
 KnoxJavaBridge = { consumeNpcRecordSupply = function() return nil end }
 for index, id in ipairs({ "a", "b" }) do

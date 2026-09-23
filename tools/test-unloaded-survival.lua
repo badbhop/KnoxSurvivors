@@ -106,6 +106,9 @@ InventoryItemFactory = {
 }
 
 local simulation = require "KS_UnloadedSurvival"
+-- Legacy suite pins exact pre-storylet simulation numbers; storylet behavior
+-- is covered separately with the engine enabled (test-offscreen-stories).
+_G.KnoxOffscreenStoriesDisabled = true
 local sleepEnabled = true
 KnoxSurvivorNeeds = { sleepRequired = function() return sleepEnabled end }
 local provisionCalls = 0

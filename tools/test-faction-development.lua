@@ -17,6 +17,7 @@ local p=KnoxPersistence
 local population=require "KS_WorldPopulation"
 local cohesion=require "KS_GroupCohesion"
 local simulation=require "KS_UnloadedSurvival"
+_G.KnoxOffscreenStoriesDisabled = true
 local player={getCurrentSquare=function() return {getX=function() return 100 end,
     getY=function() return 100 end,getZ=function() return 0 end} end}
 local outcome=population.maintain(0,{players={player},initialAllocationBudget=48})

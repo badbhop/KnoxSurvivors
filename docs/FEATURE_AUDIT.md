@@ -1,5 +1,36 @@
 # Feature-completion audit
 
+### Persistent survivor memory and offscreen story stabilization - 2026-09-23
+
+**Implemented; disposable-save live run pending.** Hibernated survivors now
+attempt at most one deterministic storylet per persisted six-hour phase, so a
+repeated scheduler call or save/reload cannot reroll the same window. Offscreen
+meetings use one canonical pair/phase token, update the active working ledger
+without re-fetching it, and save a freshly read partner ledger before the caller
+persists its own state. This prevents double meetings and one-sided intent loss.
+Stored-cohort persistence re-fetches and merges those concurrent pair fields
+before each member save. Candidate selection uses the canonical persisted
+disposition classifier, excludes self/allied/shared-cohort pairs, and preserves
+known hostility instead of generating a friendly override. Gunner personalities
+receive the same elevated hostile weighting offscreen as loaded encounters.
+
+Materialization now ends a virtual vehicle leg before resolving location scars;
+the two persistence writes can no longer restore a consumed scar or discard the
+ride handoff memory. The normalized recent-history API returns at most five
+newest-first scalar records with bounded text, and the Survivor Card shows a
+small read-only memory summary. Dialogue reads production `identity.forename`
+and compares faction IDs rather than table identities.
+Only the canonical travel-group leader can start a virtual vehicle leg; the
+existing cohort simulation then moves followers with that group-owned trip.
+
+This work is an original, bounded interpretation of The Indie Stone's published
+NPC storylet/metaworld design, not copied game code and not a claim about current
+vanilla human-NPC behavior. It does not fabricate loot, corpses, blood, vehicles,
+buildings, or other world geometry; loaded native systems remain authoritative.
+Live acceptance must still cover a save/reload inside one story phase, two stored
+survivors materializing with one symmetric intent, a concurrent scar/ride
+handoff, and the card/history refresh after materialization.
+
 ### Foolproof unattended QA: observer protection and full-mechanic boundary checks - 2026-09-21
 
 **Implemented; disposable-save live run pending.** The opt-in QA coordinator now

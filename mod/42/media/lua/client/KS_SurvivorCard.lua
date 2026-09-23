@@ -199,6 +199,9 @@ function KnoxPanel:prerender()
     keyValue("Time Alive", dayLabel(snapshot.daysSurvived))
     keyValue("Known", dayLabel(snapshot.daysKnown))
     keyValue("Personality", snapshot.personalityLabel or "Unknown")
+    local memoryCount = type(snapshot.recentHistory) == "table" and #snapshot.recentHistory or 0
+    keyValue("Recent Memory", snapshot.latestMemory or "None recorded")
+    if memoryCount > 1 then keyValue("Memories Kept", tostring(memoryCount)) end
     y = y + 4
     sectionHeader("Current Job")
     local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil

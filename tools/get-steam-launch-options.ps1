@@ -104,10 +104,35 @@ foreach ($relative in @('ProjectZomboid64.exe', 'ProjectZomboid64.json', 'jre64\
         throw "Missing bundled runtime/game file: $relative. Verify Project Zomboid through Steam."
     }
 }
+# Some Java-mod installers copy runtime DLLs beside the EXE. That directory
+# wins over PATH, so a stale copy cannot be repaired by this wrapper. Never
+# replace another mod's files automatically.
+foreach ($name in @('java.dll', 'jli.dll', 'instrument.dll', 'jvm.dll')) {
+    $rootDll = Join-Path $GameDirectory $name
+    if (Test-Path -LiteralPath $rootDll -PathType Leaf) {
+        $relative = if ($name -eq 'jvm.dll') { 'jre64\bin\server\jvm.dll' } else { 'jre64\bin\' + $name }
+        $bundledDll = Join-Path $GameDirectory $relative
+        $hashAlgorithm = [Security.Cryptography.SHA256]::Create()
+        try {
+            $rootHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([IO.File]::ReadAllBytes($rootDll)))
+            $bundledHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([IO.File]::ReadAllBytes($bundledDll)))
+        } finally { $hashAlgorithm.Dispose() }
+        if ($rootHash -ne $bundledHash) {
+            throw "Game-root $name differs from the bundled runtime and takes precedence over PATH. Review the installer that owns that copy; no files were changed."
+        }
+    }
+}
 # Shell metacharacters in existing arguments cannot safely be forwarded through
 # cmd without reinterpreting their quoting. Decline those cases rather than edit them.
 if (($GameDirectory + $options) -match '[&|<>^%!\r\n\x00]' -or $GameDirectory.Contains('"')) {
     throw 'Runtime-isolation options contain shell metacharacters requiring a manual setup. No settings were changed.'
+}
+$insideQuotes = $false
+foreach ($character in $options.ToCharArray()) {
+    if ($character -eq '"') { $insideQuotes = -not $insideQuotes }
+    elseif (-not $insideQuotes -and ($character -eq '(' -or $character -eq ')')) {
+        throw 'Quote argument paths containing parentheses before generating runtime-isolation options.'
+    }
 }
 'cmd /d /v:off /s /c "set "PATH=' + $GameDirectory + '\jre64\bin;' +
     $GameDirectory + '\jre64\bin\server;%PATH%" && %command% ' + $options + '"'

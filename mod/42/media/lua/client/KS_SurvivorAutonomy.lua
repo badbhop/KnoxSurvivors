@@ -192,11 +192,12 @@ local function createSurvivorAt(bridge, id, square, developerKit)
     local eventPolicy = KnoxEventFactions ~= nil
         and KnoxEventFactions.materializationPolicy(id)
         or nil
-    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(
+    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensureForOrigin(
         id,
         character,
         true,
-        eventPolicy ~= nil and eventPolicy.professionId or nil
+        eventPolicy ~= nil and eventPolicy.professionId or nil,
+        KnoxPersistence.getSurvivorOrigin(id)
     )
     if capabilities == nil then
         bridge:removeNpc(id)
@@ -286,9 +287,12 @@ local function registerController(bridge, id, character, result)
     if controllers[id] ~= nil then
         return true, "ALREADY_ACTIVE"
     end
-    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensure(
+    local capabilities, capabilityResult = KnoxSurvivorCapabilities.ensureForOrigin(
         id,
-        character
+        character,
+        false,
+        nil,
+        KnoxPersistence.getSurvivorOrigin(id)
     )
     if capabilities == nil then
         bridge:removeNpc(id)

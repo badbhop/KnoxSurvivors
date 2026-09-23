@@ -2,6 +2,8 @@ require "SpawnRegions"
 require "KS_Persistence"
 require "KS_Settings"
 require "KS_GroupCohesion"
+require "KS_SurvivorOrigins"
+require "KS_SurvivorCapabilities"
 
 local WorldPopulation = rawget(_G, "KnoxWorldPopulation") or {}
 _G.KnoxWorldPopulation = WorldPopulation
@@ -71,48 +73,74 @@ end
 local function addBuildingOrigins(catalog)
     local ok, buildings = pcall(function() return getWorld():getMetaGrid():getBuildings() end)
     if not ok or buildings == nil then return end
-    local occupiedBuckets = {}
+    local bucketCandidates = {}
     local countOk, count = pcall(function() return buildings:size() end)
     if not countOk then return end
     for index = 0, count - 1 do
-        local valid, x, y = pcall(function()
-            local rooms = buildings:get(index):getRooms()
+        local valid, x, y, roomNames, buildingId = pcall(function()
+            local building = buildings:get(index)
+            local rooms = building:getRooms()
+            local names = {}
+            local chosenX, chosenY = nil, nil
             for roomIndex = 0, rooms:size() - 1 do
                 local room = rooms:get(roomIndex)
+                local nameOk, name = pcall(function() return room:getName() end)
+                if nameOk and type(name) == "string" and name ~= "" then
+                    names[#names + 1] = name
+                end
                 if room:getZ() == 0 then
                     local rects = room:getRects()
                     for rectIndex = 0, rects:size() - 1 do
                         local rect = rects:get(rectIndex)
-                        if rect:getW() >= 2 and rect:getH() >= 2 then
-                            return rect:getX() + math.floor(rect:getW() / 2),
-                                rect:getY() + math.floor(rect:getH() / 2)
+                        if chosenX == nil and rect:getW() >= 2 and rect:getH() >= 2 then
+                            chosenX = rect:getX() + math.floor(rect:getW() / 2)
+                            chosenY = rect:getY() + math.floor(rect:getH() / 2)
                         end
                     end
                 end
             end
+            local idOk, id = pcall(function() return building:getID() end)
+            return chosenX, chosenY, names, idOk and tostring(id) or nil
         end)
         if valid and finite(x) and finite(y) then
             x, y = math.floor(x), math.floor(y)
             local bucket = math.floor(x / 100) .. ":" .. math.floor(y / 100)
             local key = coordinateKey(x, y, 0)
-            if not occupiedBuckets[bucket] and not catalog.byKey[key] then
-                local nearest, nearestDistance = nil, math.huge
-                -- Regions have fixed anchors from player starts, so adding metadata
-                -- never pulls the next region's allocation toward earlier additions.
-                for _, region in ipairs(catalog.regions) do
-                    local distance = (x - region.anchorX)^2 + (y - region.anchorY)^2
-                    if distance < nearestDistance then nearest, nearestDistance = region, distance end
-                end
-                if nearest ~= nil then
-                    local origin = { x = x, y = y, z = 0, key = key,
-                        region = nearest.name, regionKey = nearest.key, source = "world_building" }
-                    nearest.origins[#nearest.origins + 1] = origin
-                    catalog.origins[#catalog.origins + 1] = origin
-                    catalog.byKey[key] = origin
-                    occupiedBuckets[bucket] = true
-                    catalog.buildingOrigins = catalog.buildingOrigins + 1
+            if not catalog.byKey[key] then
+                table.sort(roomNames)
+                local candidate = {
+                    x = x, y = y, z = 0, key = key,
+                    source = "world_building",
+                    context = KnoxSurvivorOrigins.classifyRooms(roomNames),
+                    roomNames = roomNames,
+                    buildingId = buildingId,
+                }
+                local existing = bucketCandidates[bucket]
+                local candidatePriority = KnoxSurvivorOrigins.contextPriority(candidate.context)
+                local existingPriority = existing ~= nil
+                    and KnoxSurvivorOrigins.contextPriority(existing.context) or -1
+                if existing == nil or candidatePriority > existingPriority
+                    or (candidatePriority == existingPriority and candidate.key < existing.key) then
+                    bucketCandidates[bucket] = candidate
                 end
             end
+        end
+    end
+    for _, bucket in ipairs(sortedKeys(bucketCandidates)) do
+        local origin = bucketCandidates[bucket]
+        local nearest, nearestDistance = nil, math.huge
+        -- Regions have fixed anchors from player starts, so adding metadata
+        -- never pulls the next region's allocation toward earlier additions.
+        for _, region in ipairs(catalog.regions) do
+            local distance = (origin.x - region.anchorX)^2 + (origin.y - region.anchorY)^2
+            if distance < nearestDistance then nearest, nearestDistance = region, distance end
+        end
+        if nearest ~= nil then
+            origin.region, origin.regionKey = nearest.name, nearest.key
+            nearest.origins[#nearest.origins + 1] = origin
+            catalog.origins[#catalog.origins + 1] = origin
+            catalog.byKey[origin.key] = origin
+            catalog.buildingOrigins = catalog.buildingOrigins + 1
         end
     end
 end
@@ -176,8 +204,13 @@ local function buildSpawnCatalog()
                         local y = math.floor(tonumber(point.posY))
                         local z = math.floor(tonumber(point.posZ) or 0)
                         local key = coordinateKey(x, y, z)
-                        if not regionSeen[key] and catalog.byKey[key] == nil then
-                            regionSeen[key] = true
+                        local existing = regionSeen[key] or catalog.byKey[key]
+                        if existing ~= nil then
+                            existing.professionCandidates = KnoxSurvivorOrigins.mergeProfessionCandidate(
+                                existing.professionCandidates,
+                                profession
+                            )
+                        elseif catalog.byKey[key] == nil then
                             local origin = {
                                 x = x,
                                 y = y,
@@ -186,7 +219,12 @@ local function buildSpawnCatalog()
                                 region = rawRegion.name,
                                 regionKey = regionKey,
                                 source = "player_spawn",
+                                professionCandidates = KnoxSurvivorOrigins.mergeProfessionCandidate(
+                                    nil,
+                                    profession
+                                ),
                             }
+                            regionSeen[key] = origin
                             region.origins[#region.origins + 1] = origin
                             catalog.origins[#catalog.origins + 1] = origin
                             catalog.byKey[key] = origin
@@ -204,6 +242,9 @@ local function buildSpawnCatalog()
             region.anchorX, region.anchorY = x / #region.origins, y / #region.origins
             catalog.regions[#catalog.regions + 1] = region
         end
+    end
+    for _, origin in ipairs(catalog.origins) do
+        KnoxSurvivorOrigins.finalizeCatalogOrigin(origin)
     end
     addBuildingOrigins(catalog)
     for _, region in ipairs(catalog.regions) do
@@ -331,13 +372,19 @@ local function firstUnusedOrigin(region, used, cursor)
     local start = (stableHash(region.key) + cursor * 37) % count
     local preferredSource = cursor % 3 == 2 and "world_building" or "player_spawn"
     for pass = 1, 2 do
+        local generic = nil
         for offset = 0, count - 1 do
             local index = ((start + offset) % count) + 1
             local origin = region.origins[index]
             if not used[origin.key] and (pass == 2 or origin.source == preferredSource) then
-                return origin
+                if origin.source == "world_building"
+                    and origin.context ~= nil and origin.context ~= "generic" then
+                    return origin
+                end
+                if generic == nil then generic = origin end
             end
         end
+        if generic ~= nil then return generic end
     end
     return nil
 end
@@ -362,7 +409,18 @@ local function chooseTravelOrigin(catalog, id, state)
     end
     if #choices == 0 then return nil end
     table.sort(choices, function(a, b) return a.key < b.key end)
-    return choices[(stableHash(id .. ":" .. tostring(state.travelSequence or 0)) % #choices) + 1]
+    local profile = KnoxPersistence.getSurvivorCapabilities ~= nil
+        and KnoxPersistence.getSurvivorCapabilities(id) or nil
+    local professionId = type(profile) == "table" and profile.professionId or nil
+    local preferred = {}
+    for _, origin in ipairs(choices) do
+        if origin.source == "world_building"
+            and KnoxSurvivorOrigins.facilityAffinity(professionId, origin.context) > 0 then
+            preferred[#preferred + 1] = origin
+        end
+    end
+    local pool = #preferred > 0 and preferred or choices
+    return pool[(stableHash(id .. ":" .. tostring(state.travelSequence or 0)) % #pool) + 1]
 end
 
 -- Faction scouting uses the same real origin catalogue as ordinary unloaded
@@ -624,6 +682,25 @@ local function initialRegionCohortSize(target, regionCount)
     )
 end
 
+local function ensureOriginCapabilities(id, origin)
+    -- Allocation remains durable even if definitions are unavailable during a
+    -- transient load phase. First materialization runs the same precedence
+    -- helper again, so contextual evidence fails soft without rerolling an
+    -- already-persisted profile.
+    local ok, profile, reason = pcall(
+        KnoxSurvivorCapabilities.ensureForOrigin,
+        id,
+        nil,
+        true,
+        nil,
+        origin
+    )
+    if ok and profile ~= nil then return true, reason end
+    print("[KnoxSurvivors][WorldPopulation] capability deferral id="
+        .. tostring(id) .. " reason=" .. tostring(ok and reason or profile))
+    return false, ok and reason or profile
+end
+
 local function allocateFromRegion(region, worldAgeHours, state, used, counts)
     if region == nil then return nil, "starting_region_unavailable" end
     local cursor = math.max(0, math.floor(tonumber(state.allocationCursor) or 0))
@@ -631,6 +708,7 @@ local function allocateFromRegion(region, worldAgeHours, state, used, counts)
     if origin == nil then return nil, "starting_region_origins_exhausted" end
     local id, result = KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
     if id == nil then return nil, result end
+    ensureOriginCapabilities(id, origin)
     used[origin.key] = true
     counts[region.key] = (counts[region.key] or 0) + 1
     state.allocationCursor = cursor + 1
@@ -780,6 +858,7 @@ local function allocateOne(catalog, worldAgeHours, state, used, counts)
     if id == nil then
         return nil, result
     end
+    ensureOriginCapabilities(id, origin)
     used[origin.key] = true
     counts[regionKey] = (counts[regionKey] or 0) + 1
     state.allocationCursor = cursor + 1

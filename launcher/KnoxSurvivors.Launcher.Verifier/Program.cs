@@ -99,6 +99,16 @@ namespace KnoxSurvivors.Launcher.Verifier
                 "Knox agent option was duplicated"
             );
 
+            string stableJar = Path.Combine(mod, "java", "knox-agent.jar");
+            CreateAgentJar(stableJar);
+            WriteChecksum(stableJar);
+            var stableInstallation = new SteamLocator().LocateFromSteamDirectory(steam);
+            Require(
+                stableInstallation.AgentJarPath.EndsWith("knox-agent.jar", StringComparison.OrdinalIgnoreCase),
+                "Stable agent filename was not preferred"
+            );
+            new InstallationValidator().Validate(stableInstallation);
+
             string marker = Path.Combine(root, "launch-environment.txt");
             File.WriteAllText(
                 installation.GameBatchPath,

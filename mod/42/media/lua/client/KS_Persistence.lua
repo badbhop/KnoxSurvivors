@@ -1,9 +1,11 @@
+require "KS_SurvivorOrigins"
+
 local KnoxPersistence = rawget(_G, "KnoxPersistence") or {}
 _G.KnoxPersistence = KnoxPersistence
 
 -- Kept separate from the legacy IsoZombie mod data that may exist in reused saves.
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
-local SCHEMA_VERSION = 17
+local SCHEMA_VERSION = 18
 local TEST_SURVIVOR_ID = "ks-test-1"
 
 -- root() is used by nearly every persistence accessor, including hot autonomy
@@ -531,6 +533,15 @@ local function root()
     end
     for _, survivor in pairs(data.survivors) do
         if type(survivor) == "table" then
+            if type(survivor.origin) == "table" then
+                local metadata = KnoxSurvivorOrigins.sanitizeMetadata(
+                    survivor.origin,
+                    true
+                )
+                survivor.origin.context = metadata.context
+                survivor.origin.professionCandidates = metadata.professionCandidates
+                survivor.origin.buildingId = metadata.buildingId
+            end
             survivor.duty = type(survivor.duty) == "table" and survivor.duty or {
                 mode = "autonomous", order = "survive", revision = 0,
             }
@@ -1080,6 +1091,8 @@ local PERSONALITY_PROFILES = {
         sociability = 42, aggression = 58, courage = 48, deception = 38 },
     opportunist = { label = "Opportunistic", playerResponse = "lure",
         sociability = 48, aggression = 46, courage = 54, deception = 76 },
+    gunner = { label = "Volatile gunner", playerResponse = "warn_then_attack",
+        sociability = 12, aggression = 88, courage = 70, deception = 20 },
     predatory = { label = "Predatory", playerResponse = "attack_on_sight",
         sociability = 22, aggression = 82, courage = 72, deception = 58 },
 }
@@ -1092,9 +1105,20 @@ local function defaultPersonality(id)
     elseif roll <= 56 then return "loner"
     elseif roll <= 70 then return "sociable"
     elseif roll <= 81 then return "unstable"
-    elseif roll <= 93 then return "opportunist"
+    elseif roll <= 88 then return "opportunist"
+    elseif roll <= 93 then return "gunner"
     end
     return "predatory"
+end
+
+--- Read-only copy of a personality profile for authored overrides
+-- (legacy survivors, event policies). Returns nil for unknown archetypes.
+function KnoxPersistence.getPersonalityProfile(archetype)
+    local profile = type(archetype) == "string" and PERSONALITY_PROFILES[archetype] or nil
+    if profile == nil then return nil end
+    local copy = {}
+    for key, value in pairs(profile) do copy[key] = value end
+    return copy
 end
 
 local function initializePersonality(identity, id)
@@ -1141,6 +1165,7 @@ function KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
     local x = math.floor(tonumber(origin.x))
     local y = math.floor(tonumber(origin.y))
     local z = math.floor(tonumber(origin.z) or 0)
+    local metadata = KnoxSurvivorOrigins.sanitizeMetadata(origin, false)
     local originKey = tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
     for _, existing in pairs(data.survivors) do
         local existingOrigin = type(existing) == "table" and existing.origin or nil
@@ -1174,6 +1199,9 @@ function KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
         region = tostring(origin.region or "Unknown"),
         regionKey = tostring(origin.regionKey or origin.region or "Unknown"),
         source = tostring(origin.source or "player_spawn"),
+        context = metadata.context,
+        professionCandidates = metadata.professionCandidates,
+        buildingId = metadata.buildingId,
     }
     survivor.createdAtHours = tonumber(worldAgeHours) or 0
     survivor.unloadedSurvival = {
@@ -1183,7 +1211,7 @@ function KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
         currentTravelKey = originKey,
         departAtHours = survivor.createdAtHours + 1 + value % 4,
     }
-    return id, copyFlat(survivor.origin)
+    return id, copySerializable(survivor.origin, 0)
 end
 
 function KnoxPersistence.getPopulationState()
@@ -1217,7 +1245,7 @@ end
 function KnoxPersistence.getSurvivorOrigin(id)
     local survivor = type(id) == "string" and root().survivors[id] or nil
     return survivor ~= nil and type(survivor.origin) == "table"
-        and copyFlat(survivor.origin)
+        and copySerializable(survivor.origin, 0)
         or nil
 end
 
@@ -2982,7 +3010,8 @@ function KnoxPersistence.getPlayerSocialDisposition(playerId, survivorId)
         local response = identity.playerResponse
         if response ~= "join" and response ~= "warm_up"
             and response ~= "independent" and response ~= "volatile"
-            and response ~= "lure" and response ~= "attack_on_sight" then
+            and response ~= "lure" and response ~= "attack_on_sight"
+            and response ~= "warn_then_attack" then
             response = "join"
         end
         relation.socialDisposition = response

@@ -148,8 +148,8 @@ even when its parent was loaded using a full path; see Microsoft's
 
 For a runtime-selection fix, require these additional checks:
 
-- Reproduce the affected environment with external Java on PATH, then verify `java.dll`
-  and `jvm.dll` come from the same bundled runtime after the fix. An unrelated system
+- Reproduce the affected environment with external Java on PATH, then verify `java.dll`,
+  `jli.dll`, `instrument.dll` and `jvm.dll` come from the same bundled runtime after the fix. An unrelated system
   `java -version` result does not prove which DLLs the game EXE loaded.
 - Keep the normal game EXE, working directory, launch configuration and heap selection.
   Confine any environment adjustment to the game process; preserve other PATH entries
@@ -161,6 +161,11 @@ For a runtime-selection fix, require these additional checks:
   and operation both with and without an external Java installation. Any one-time
   integration must have a clear removal path and must not leave stale absolute paths
   after moving or unsubscribing from the Workshop item.
+- Round-trip the generated wrapper through Windows `cmd`, comparing the exact child
+  arguments, working directory, exit code, inherited agent variables and remaining PATH.
+  Cover quoted spaces/parentheses and reject unsupported shell syntax rather than
+  silently changing it. Verify parent-process and user/machine environment values stay
+  unchanged. Simulating `%command%` is a parser test, not an actual Steam launch.
 - Distinguish command preservation from gameplay compatibility. Require a real run
   with the installed ZombieBuddy/Project REM versions, fresh loading evidence, and
   representative gameplay before claiming that combination is supported. Arbitrary

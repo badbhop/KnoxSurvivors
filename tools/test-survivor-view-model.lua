@@ -62,6 +62,15 @@ KnoxPersistence = {
         return { kind = "find_food", phase = "traveling" }
     end,
     getBase = function() return nil end,
+    getUnloadedSurvivalState = function()
+        return {
+            pendingMaterialization = true,
+            history = {
+                { t = 8, kind = "weather", detail = "rain" },
+                { t = 9, kind = "meet", with = "traveler", outcome = "friendly" },
+            },
+        }
+    end,
 }
 KnoxCompanionService = {
     getCompanionIds = function() return { "survivor-1" } end,
@@ -114,6 +123,9 @@ assert(away.traits[1] == "Brave" and away.skills.Woodwork.level == 3)
 assert(away.trust == 61 and away.relationshipMeetings == 4)
 assert(away.lifeIntent ~= nil and away.lifeIntent.label == "Looking for food",
     "stored autonomous purpose is readable in the survivor card model")
+assert(#away.recentHistory == 2 and away.recentHistory[1].kind == "meet"
+    and away.latestMemory == "Met another survivor",
+    "survivor model exposes bounded newest-first persistent memory")
 
 liveCharacter = {
     getCurrentSquare = function() return {} end,

@@ -15,6 +15,9 @@ require "KS_Persistence"
 local persistence = KnoxPersistence
 local population = require "KS_WorldPopulation"
 local simulation = require "KS_UnloadedSurvival"
+-- Legacy suite pins exact pre-storylet simulation numbers (flag survives the
+-- re-require below); storylets are covered in test-offscreen-stories.
+_G.KnoxOffscreenStoriesDisabled = true
 local populationSource = assert(io.open(
     projectRoot .. "/mod/42/media/lua/client/KS_UnloadedSurvival.lua", "r"
 ))
@@ -45,6 +48,34 @@ local function edit(id, values)
     persistence.setUnloadedSurvivalState(id, current)
 end
 local group = reset()
+-- Storylets may write a mirrored intent into another preloaded cohort member.
+-- The later member persist must merge that concurrent story-owned state rather
+-- than overwrite it with the stale cohort snapshot.
+_G.KnoxOffscreenStoriesDisabled = nil
+local stories = assert(rawget(_G, "KnoxOffscreenStories"))
+local originalResolveFor = stories.resolveFor
+stories.resolveFor = function(id, ledger, hours)
+    if id ~= "a" then return nil end
+    local token = "a::b@" .. tostring(math.floor(hours / 6))
+    ledger.pendingMeet = { with = "b", kind = "greet", atHours = hours, pairPhase = token }
+    ledger.lastOffscreenMeetToken = token
+    local mirror = persistence.getUnloadedSurvivalState("b")
+    mirror.pendingMeet = { with = "a", kind = "greet", atHours = hours, pairPhase = token }
+    mirror.lastOffscreenMeetToken = token
+    persistence.setUnloadedSurvivalState("b", mirror)
+    return "met_friendly"
+end
+simulation.advanceAll({}, 1)
+local firstIntent, secondIntent = state("a").pendingMeet, state("b").pendingMeet
+assert(firstIntent ~= nil and secondIntent ~= nil
+    and firstIntent.pairPhase == secondIntent.pairPhase
+    and firstIntent.with == "b" and secondIntent.with == "a",
+    "cohort advancement preserves both mirrored story intents")
+stories.resolveFor = originalResolveFor
+_G.KnoxOffscreenStoriesDisabled = true
+print("Unloaded group story merge PASS")
+
+group = reset()
 local rootData = data["KnoxSurvivors_IsoPlayer"]
 rootData.factions["faction-scout"] = {
     id = "faction-scout", kind = "npc", leaderId = "a",

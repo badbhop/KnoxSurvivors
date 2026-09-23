@@ -15,6 +15,7 @@ require "KS_BaseSupplyPlanner"
 require "KS_CompanionPatrol"
 require "KS_JobTestSupplies"
 require "KS_NightShelter"
+require "KS_SurvivorOrigins"
 
 local BaseJobs = rawget(_G, "KnoxBaseJobs") or {}
 _G.KnoxBaseJobs = BaseJobs
@@ -841,24 +842,9 @@ function BaseJobs.effectivePreference(duty, profile)
     -- Retired preferences fall back to automatic instead of matching nothing.
     if selected == "construction" then return "auto" end
     if selected ~= nil and selected ~= "" and selected ~= "auto" then return selected end
-    local profession = string.lower(tostring(profile ~= nil and profile.professionId or ""))
-    if string.find(profession, "police", 1, true)
-        or string.find(profession, "veteran", 1, true)
-        or string.find(profession, "security", 1, true)
-        or string.find(profession, "soldier", 1, true) then
-        return "guard"
-    end
-    if string.find(profession, "carpenter", 1, true)
-        or string.find(profession, "construction", 1, true)
-        or string.find(profession, "lumber", 1, true)
-        or string.find(profession, "mechanic", 1, true) then
-        return "woodwork"
-    end
-    if string.find(profession, "farmer", 1, true)
-        or string.find(profession, "gardener", 1, true) then
-        return "farming"
-    end
-    return "auto"
+    return KnoxSurvivorOrigins.jobPreference(
+        profile ~= nil and profile.professionId or nil
+    ) or "auto"
 end
 
 -- Pick one task for a resident without letting a recurring task monopolize the

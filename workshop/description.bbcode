@@ -34,10 +34,11 @@ Full multiplayer NPC support, autonomous survivor driving, raids/large faction e
 2. Pick [b]one[/b] launch method below.
 3. In Project Zomboid, enable [b]Knox Survivors[/b] for your fresh save.
 
-[b]Method A - Steam-only on Windows (no separate launcher download):[/b]
-Open Steam > Project Zomboid > Properties > General > Launch Options and paste this line:
+[b]Method A - Steam launch line (recommended):[/b]
+Open Steam > Project Zomboid > Properties > General > Launch Options and paste the line for your Steam location (C: or D: — if Steam lives elsewhere, swap only the front part and keep the rest identical). Then launch normally through Steam:
 
 [b]-javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --[/b]
+[b]-javaagent:"D:\SteamLibrary\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --[/b]
 
 Replace the example path with the actual subscribed [b]knox-agent.jar[/b] path and keep the quotes. The Workshop download can be in a different Steam library from the game. Then use Steam's normal Project Zomboid launch mode. This passes the Knox agent directly to Project Zomboid; no terminal window is required. Alternate BAT launch modes need separate setup.
 
@@ -47,10 +48,14 @@ Keep existing Steam options: JVM options and other agents go before the single [
 
 This is a one-time setup, not subscription-only loading. Steam keeps the JAR filename stable through updates. Update the path after moving its library. [b]Before unsubscribing or deleting the JAR, remove only the Knox -javaagent option from Steam[/b]; a missing agent can prevent game startup. Keep the separator if other JVM options need it.
 
-If Windows shows [b]Entry Point Not Found[/b] and names another Java installation's [b]java.dll[/b], use the bundled-runtime isolation setup described in the project README/support instructions. It generates a Steam options line that gives the game's own Java DLLs priority for that process without changing global Windows settings or clearing other agent options. Keep your original options for rollback; a command window may appear in this mode. Compatibility with other mods still needs testing with their actual installed versions.
+If Windows shows [b]Entry Point Not Found[/b] naming another Java installation's [b]java.dll[/b] (you have a separate Java/JDK installed), paste this longer line instead of the one above. It gives the game's own Java priority for that launch only, without changing global Windows settings. Change the folders if Steam is installed elsewhere:
 
-[b]Method B - optional Knox Survivors Launcher:[/b]
-[url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases]Download the latest Knox Survivors Launcher release[/url], extract the complete ZIP for your system and press [b]PLAY KNOX SURVIVORS[/b]. The launcher verifies the Workshop files/checksum and starts the normal game executable. It does not change Project Zomboid's configured memory or set permanent system options.
+[b]cmd /d /v:off /s /c "set "PATH=C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid\jre64\bin;C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid\jre64\bin\server;%PATH%" && %command% -javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --"[/b]
+
+A command window may appear in this mode. Keep your original options for rollback. Compatibility with other mods still needs testing with their actual installed versions.
+
+[b]Method B - Knox Survivors Launcher (alternative):[/b]
+Having trouble with the launch line? [url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases]Download the latest Knox Survivors Launcher release[/url], extract the complete ZIP for your system and press [b]PLAY KNOX SURVIVORS[/b]. It finds your install automatically — no lines to paste. Do not use it at the same time as the Steam line above.
 
 Steam provides the mod and Knox runtime together. No separate Java installation is required.
 

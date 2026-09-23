@@ -20,7 +20,7 @@ assert(runDev:find("java\\knox-agent.jar", 1, true),
     "dev runs must launch against the stable staged agent path")
 
 local description = read(root .. "/workshop/description.bbcode")
-for _, token in ipairs({ "cmd /c", "JAVA_TOOL_OPTIONS", "knox-agent.jar", "%command%",
+for _, token in ipairs({ "cmd /d /v:off /s /c", "JAVA_TOOL_OPTIONS", "knox-agent.jar", "%command%",
     "KnoxSurvivorsLauncher/releases", "KnoxIsoPlayer.log" }) do
     assert(description:find(token, 1, true),
         "workshop description must document " .. token)

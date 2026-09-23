@@ -280,6 +280,20 @@ function CompanionService.talk(player, survivorId)
             end
             return false, "hostile"
         end
+    elseif social == "warn_then_attack" then
+        -- Gunners warn once, then shoot. The first talk is the warning;
+        -- coming back starts a fight. They never lure or rob: the gun IS
+        -- the conversation.
+        if previousRelation ~= nil and previousRelation.warnIssued == true then
+            KnoxPersistence.setSurvivorHostileToPlayer(survivorId, playerId, true)
+            socialSpeech(character, survivorId, "player_attack_warning", "I warned you.")
+            KnoxActivityFeed.event("A gunner opened fire after warning you off.")
+            KnoxSurvivorRuntime.endPlayerConversation(survivorId, player)
+            return false, "hostile"
+        end
+        if previousRelation ~= nil then previousRelation.warnIssued = true end
+        socialSpeech(character, survivorId, "player_attack_warning",
+            "Back off. Next time I do not talk first.")
     elseif social == "volatile" then
         -- Volatile survivors can hold a conversation, then decide that the
         -- meeting itself was a threat. Hostility is persisted before the
