@@ -1,0 +1,44 @@
+KNOX SURVIVORS 0.3.0-rc1 - STARTUP SETUP
+
+The current human NPC rebuild needs the Knox Java runtime loaded when Project Zomboid starts.
+Use ONE method only.
+
+WINDOWS / STEAM-ONLY
+1. Subscribe to Knox Survivors and let Steam finish the Workshop download.
+2. Steam > Project Zomboid > Properties > General > Launch Options
+3. For the default Steam library, paste:
+
+"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\knox-steam-launch.cmd" %command%
+
+If the Workshop item is in another Steam library, change only the path to knox-steam-launch.cmd.
+
+The wrapper uses Project Zomboid's bundled Java DLLs for the game process, preserves existing
+JAVA_TOOL_OPTIONS, appends Knox, and forwards the original Steam command/options unchanged.
+It does not edit Windows PATH, ProjectZomboid64.json, the BAT launcher, saves, sandbox settings,
+or the enabled mod list.
+
+KEEP OTHER MOD LAUNCH OPTIONS
+Do not delete launch options required by other mods.
+
+Example with ZombieBuddy:
+"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\knox-steam-launch.cmd" %command% -agentlib:zbNative --
+
+If your existing Steam line already contains one %command%, keep that line intact and put the
+quoted Knox wrapper path in front of it. Do not add a second %command%.
+
+Remove any older Knox -javaagent:...knox-agent.jar entry first so Knox is not loaded twice.
+
+OPTIONAL HELPER
+The subscribed mod also includes get-steam-launch-options.ps1. It can discover/verify the
+Knox runtime and print a merged Steam line while preserving existing options.
+
+OPTIONAL LAUNCHER
+https://github.com/exe-create/KnoxSurvivorsLauncher/releases
+Extract the full platform ZIP and use PLAY KNOX SURVIVORS. Do not also use the Steam wrapper.
+
+CHECK
+After the main menu loads, Documents\Zomboid\KnoxIsoPlayer.log should contain a fresh:
+agent start arguments=pz-game
+
+Target game: Project Zomboid 42.20.4
+Single-player focus. Use a fresh save and back up saves you care about.

@@ -95,56 +95,62 @@ local copies with the same Mod ID can shadow the subscribed files.
 
 ## Steam launch-option acceptance
 
-The direct Windows recipe is `-javaagent:"<actual subscribed path>\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --`.
-Use the normal Steam EXE launch mode. Preserve existing JVM options before the single
-`--` and existing game arguments after it. Do not replace inherited `JAVA_TOOL_OPTIONS`
-or use the retired `cmd /c set JAVA_TOOL_OPTIONS=...` recipe.
+The supported Windows Steam route uses the Workshop-shipped
+`knox-steam-launch.cmd` bootstrap:
 
-For support/development, `tools/get-steam-launch-options.ps1` discovers the subscribed
-agent and prints the option after validating its checksum and manifest. It does not
-edit Steam or game settings and is not required each time the player launches. Pass
-`-ExistingOptions` to preserve an existing ordinary options line; ambiguous wrappers
-or duplicate Knox options are rejected for manual review. `-SteamRoot` and `-AgentJar`
-provide explicit discovery overrides. A generated line is not live launch evidence.
-For a Windows Java DLL collision, `-IsolateBundledRuntime -GameDirectory <installed game>`
-generates a Steam command wrapper that prepends the bundled runtime directories to the
-child process PATH. Retain the generated `%command%` placeholder and pass existing
-ordinary options through `-ExistingOptions`; do not paste an existing wrapper into it.
-Keep the original Steam line for rollback. This mode preserves the rest of PATH and
-does not clear `JAVA_TOOL_OPTIONS`, change global environment values or rewrite game
-configuration. A command window may appear; this mode is not the direct EXE-only recipe.
+`"<actual subscribed path>\mods\KnoxSurvivors\knox-steam-launch.cmd" %command%`
+
+The bootstrap keeps the normal Steam command, prepends the game's own
+`jre64\bin` and `jre64\bin\server` to PATH for that process tree only,
+preserves inherited `JAVA_TOOL_OPTIONS`, appends the Knox agent, and forwards all
+existing Steam arguments. It does not edit global environment values, game JSON/BAT
+files, saves or mod settings.
+
+For support/development, the staged/subscribed
+`get-steam-launch-options.ps1` discovers the subscribed agent, validates its checksum
+and premain manifest, checks the bootstrap is present, and prints a merged Steam line.
+Pass `-ExistingOptions` with the player's current Steam line. Plain launch arguments
+are kept after an explicit `%command%`; a line that already contains exactly one
+`%command%` is preserved behind the Knox bootstrap. Duplicate Knox entries and
+multiple `%command%` placeholders are rejected.
+
+Common Java mod options must survive unchanged. In particular, a Windows ZombieBuddy
+line such as `-agentlib:zbNative --` becomes:
+
+`"<actual subscribed path>\mods\KnoxSurvivors\knox-steam-launch.cmd" %command% -agentlib:zbNative --`
 
 Before calling this route live-verified:
 
-1. Confirm the subscribed JAR and checksum match the intended release; exclude local
-   mods shadowing the subscription and any second Knox agent injection.
-2. Record the game JSON/BAT hashes, effective JVM options/heap, existing agents, game
-   arguments and launch mode. Start with the existing settings, without editing game files.
-3. Launch from Steam using the actual subscribed path, including a path with spaces.
-   Require fresh agent and transformer success logs and the Lua bridge in a loaded world.
-   A `java -version` probe or direct EXE boot does not prove the Steam/subscription route.
-4. Check survivor spawn, movement, melee, zombie damage, firearms/reload and save/reload.
-   Confirm one body per persisted identity and no player/camera/input ownership change.
-5. Compare the same save, agent, settings and survivor count with the existing launch
-   path: startup time, frame-time spikes, memory/GC and NPC update cost. Startup packaging
-   is not evidence of a gameplay performance improvement.
-6. Confirm JSON/BAT hashes and effective settings are unchanged. Test an additional
-   game argument and compatible agent without duplicate injection or lost options.
-7. Remove the Knox launch option and confirm normal game startup. Restore it for Knox
-   testing. Document removal before unsubscribing and path repair after moving libraries.
+1. Confirm the subscribed package contains `knox-steam-launch.cmd`,
+   `get-steam-launch-options.ps1`, the stable `java/knox-agent.jar`, and its matching
+   checksum. Exclude local mods shadowing the subscription and remove any older Knox
+   `-javaagent` Steam option.
+2. Record the game JSON/BAT hashes, effective heap/options, other agents, game arguments
+   and launch mode. Do not edit those files for this test.
+3. Launch the normal Steam EXE from the actual subscribed copy. On a machine with an
+   external Java (for example Zulu) on PATH, verify the game reaches the main menu and
+   fresh Knox logs show `agent start arguments=pz-game`, transformer success and Lua
+   bridge availability.
+4. Verify loaded `java.dll`/JVM components come from Project Zomboid's bundled
+   `jre64`, not the external Java installation.
+5. Test one existing direct agent option (ZombieBuddy is the primary compatibility
+   case) and one existing `%command%` wrapper. Confirm their original arguments remain
+   present and Knox loads only once.
+6. Check survivor spawn, movement, melee, firearms/reload and save/reload. Confirm one
+   body per persisted identity and no player/camera/input ownership change.
+7. Confirm JSON/BAT hashes, saves and global environment values are unchanged. Remove
+   only the Knox bootstrap prefix and confirm the previous Steam line still launches.
 
-Keep the Steam/subscribed-install and gameplay gates open until those exact runs are
-recorded. Offline command parsing, payload validation and agent startup checks are
-separate evidence. Linux/macOS and alternate BAT startup need their own validation.
+Keep Steam/subscribed-install and gameplay gates open until those exact runs are
+recorded. Offline payload checks are separate evidence. Linux/macOS and alternate BAT
+startup need their own validation.
 
 ## Windows runtime isolation and other Java mods
 
 An entry-point error naming an external Java installation (for example Zulu 17's
-`java.dll`) is evidence of a native runtime loading failure, not proof that a Knox
-class or another mod is incompatible. Diagnose the selected JVM and loaded DLL paths
-before changing Java agents. Windows can resolve a dependent DLL by its module name
-even when its parent was loaded using a full path; see Microsoft's
-[DLL search-order documentation](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order).
+`java.dll`) is a native runtime selection problem. The Workshop bootstrap addresses
+that by changing PATH only in the Project Zomboid process tree before the JVM loads;
+it does not uninstall system Java or change the user's global PATH.
 
 For a runtime-selection fix, require these additional checks:
 
