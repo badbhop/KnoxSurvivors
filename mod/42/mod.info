@@ -8,3 +8,5 @@ icon=icon.png
 versionMin=42.20
 versionMax=42.20
 incompatible=
+javaJarFile=../java/knox-agent.jar
+javaPkgName=com.knoxsurvivors

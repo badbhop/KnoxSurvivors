@@ -22,9 +22,7 @@ The current build includes working implementations of the following systems. The
 - Companion HUD, survivor information/cards, inventory interaction, activity messages and the current Survivors Notebook work.
 - Save/load support plus hibernation/off-screen survivor simulation so every survivor does not need to stay physically loaded at all times.
 
-Knox Survivors is intentionally a living-world mod. Independent survivors are expected to survive for themselves, meet other survivors, form groups, settle somewhere and sometimes die. Recruited survivors can travel with you or live and work at a base.
-
-## What is **not** being promised yet
+## What is not being promised yet
 
 This release candidate is not advertising unfinished systems as complete. In particular:
 
@@ -37,75 +35,37 @@ This release candidate is not advertising unfinished systems as complete. In par
 
 Use a fresh save for this rebuild and back up saves you care about. Migration from old Knox Survivors NPC data is not guaranteed.
 
-## Launching Knox Survivors
+## Java runtime options
 
-The Java runtime used by the current human NPC rebuild must be loaded when Project Zomboid starts. There are two supported ways to do that. **Use one method, not both.**
+Knox Survivors needs its Java runtime, but **ZombieBuddy is optional**. Players can use either supported startup path:
 
-### Option A - launch normally from Steam on Windows
+- **Recommended: ZombieBuddy.** ZombieBuddy loads Knox's `java/knox-agent.jar` automatically. Knox does not need its old `-javaagent` line or Knox Launcher on this path.
+- **Alternative: Knox Launcher.** Players who do not want ZombieBuddy can keep using the Knox Launcher / legacy Knox Java-agent startup path.
 
-Subscribe to the Workshop item, let Steam finish downloading it, then open:
+Do not use both startup methods intentionally at the same time. Knox contains duplicate-start protection, but one runtime path per launch is the clean setup.
 
-`Steam > Project Zomboid > Properties > General > Launch Options`
+### Option A - ZombieBuddy (recommended)
 
-For the default Steam library, use:
+1. Install/configure ZombieBuddy using its supported instructions.
+2. Enable Knox Survivors. Enabling the ZombieBuddy mod is recommended when using its runtime.
+3. Remove old Knox-only launch options such as `-javaagent:...knox-agent.jar=pz-game` and do not use `knox-steam-launch.cmd` for this path.
+4. Launch Project Zomboid normally through the ZombieBuddy-configured game launch.
+5. If ZombieBuddy asks whether Knox Survivors' Java JAR may load, approve it only if you trust the build.
 
-```text
-"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\knox-steam-launch.cmd" %command%
-```
+Successful log entry:
 
-If the Workshop item is in another Steam library, change only the path to
-`knox-steam-launch.cmd`. The wrapper ships inside Knox Survivors and is updated by
-Steam with the mod.
+`runtime start PASS source=zombie-buddy`
 
-The wrapper does three things only for the Project Zomboid process it starts:
+### Option B - Knox Launcher (no ZombieBuddy)
 
-- puts Project Zomboid's bundled `jre64\bin` and `jre64\bin\server` first on that
-  process PATH, preventing an unrelated system Java such as Zulu from supplying
-  incompatible DLLs;
-- preserves existing `JAVA_TOOL_OPTIONS` and appends the Knox agent;
-- forwards the original Steam command and its launch options unchanged.
+1. Enable Knox Survivors.
+2. Do not use ZombieBuddy for this launch.
+3. Start Project Zomboid through the Knox Launcher / existing Knox legacy Java-agent setup.
+4. The launcher loads the same Knox `java/knox-agent.jar` through Knox's retained `premain` entry.
 
-It does **not** edit Windows environment variables, `ProjectZomboid64.json`, the BAT
-launcher, saves, sandbox settings or the enabled mod list.
+Successful log entry:
 
-#### Keep other Steam launch options
-
-Do not delete launch options required by other mods.
-
-If your existing options do **not** contain `%command%`, keep them after the game
-placeholder. For example ZombieBuddy's Windows option becomes:
-
-```text
-"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\knox-steam-launch.cmd" %command% -agentlib:zbNative --
-```
-
-If your existing options already contain one `%command%` wrapper, keep that existing
-line intact and place the Knox wrapper path in front of it. Do not add a second
-`%command%`.
-
-The helper `tools/get-steam-launch-options.ps1` can discover the subscribed Workshop
-path, verify the Knox JAR/checksum, and print the merged Steam line when
-`-ExistingOptions` is supplied. It does not write Steam settings.
-
-Remove any older Knox `-javaagent:...knox-agent.jar` launch entry before using this
-wrapper so Knox is not loaded twice. Other compatible `-javaagent`, `-agentlib`,
-`-agentpath` and game arguments are left in place.
-
-Use Steam's normal Project Zomboid launch mode. The alternate BAT launch path is
-separate and is not changed by this setup. A command window may be visible while the
-game is running because the bootstrap is a Windows CMD file.
-
-Preserving another mod's launch arguments does not guarantee that two mods patching
-the same game code are gameplay-compatible; that still requires testing the actual
-mod combination.
-
-### Option B - Knox Survivors Launcher
-
-The optional Knox Survivors Launcher verifies the Workshop install and runtime checksum, then starts the normal Project Zomboid executable with the Knox runtime enabled only for that game process. It does not patch the game, change your Project Zomboid memory setting, require admin access, or set permanent environment variables.
-
-Launcher releases: https://github.com/exe-create/KnoxSurvivorsLauncher/releases
-
-The launcher is useful if you do not want to maintain the Steam launch-option line, use multiple Steam libraries, want the install verifier, or need its custom launch-option/debug controls.
+`runtime start PASS source=legacy-javaagent`
 
 ## Confirming the runtime loaded
 
@@ -113,16 +73,19 @@ After reaching the Project Zomboid main menu, check:
 
 `Documents\Zomboid\KnoxIsoPlayer.log`
 
-A successful startup should contain a new, timestamped `agent start arguments=pz-game`
-entry for this launch. An older entry is not confirmation. If the activity feed says
-the Java systems are unavailable, re-check the launch option or remove it before using
-the launcher, then restart the game.
+Look for a fresh runtime PASS line matching the startup method you chose. The combat callback and zombie visibility transformers also log their patch results when their target classes load or are retransformed.
+
+If Java systems are unavailable, make sure you actually launched through one of the two supported Java-runtime paths. If using ZombieBuddy, also check whether it denied the Knox JAR and restart Project Zomboid after changing approval.
+
+## Migration / rollback note
+
+The ZombieBuddy integration changes the runtime bootstrap, not Knox's save schema or survivor record format. The legacy Knox `premain` entry remains in the JAR so the Knox Launcher remains a supported alternative for players who do not want ZombieBuddy.
+
+The most version-sensitive code remains Knox's narrow bytecode edits in `CombatManager`, `SwipeStatePlayer`, and `IsoZombie`. A Project Zomboid update or another Java mod patching the same exact methods still requires live compatibility testing.
 
 ## Support and testing
 
-Windows is the primary test platform. Linux and macOS launcher packages have automated checks, but real game behavior on those platforms can still differ.
-
-For a useful bug report, include what the survivor was doing, your Project Zomboid version, whether the save was fresh, and the relevant `console.txt` / `KnoxIsoPlayer.log` files after checking them for personal information.
+Windows is the primary test platform. For a useful bug report, include what the survivor was doing, your Project Zomboid version, whether the save was fresh, and the relevant `console.txt` / `KnoxIsoPlayer.log` files after checking them for personal information.
 
 Discord: https://discord.gg/cTfd2WWD4s
 
@@ -134,4 +97,4 @@ The repository also contains internal development, audit and testing documents u
 
 Knox Survivors' original code and project framework were built from the ground up and are owned by **.exe**. Superb Survivors is an inspiration for the survivor-mod concept, not a source-code dependency of this rebuild. Project Zomboid and its base-game assets belong to The Indie Stone.
 
-This repository is not open source. No permission is granted to copy, modify, redistribute, repackage, publish or reuse Knox Survivors code without written permission from .exe. See [LICENSE.md](LICENSE.md).
+This repository is not open source. No permission is granted to copy, modify, redistribute, repackage, publish or reuse Knox Survivors code without written permission from .exe. See `LICENSE.md`.

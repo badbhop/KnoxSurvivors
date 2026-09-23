@@ -1,43 +1,30 @@
-KNOX SURVIVORS 0.3.0-rc1 - STARTUP SETUP
+KNOX SURVIVORS 0.3.0-rc1 - INSTALLATION HELP
 
-The current human NPC rebuild needs the Knox Java runtime loaded when Project Zomboid starts.
-Use ONE method only.
+Knox Survivors supports TWO Java runtime options. ZombieBuddy is recommended, but it is not required.
 
-WINDOWS / STEAM-ONLY
-1. Steam > Project Zomboid > Properties > General > Launch Options
-2. Paste the line below that matches your Steam location.
-   C: drive Steam (most people):
+OPTION A - ZOMBIEBUDDY (RECOMMENDED)
+1. Install/configure ZombieBuddy using its official instructions.
+   Steam Workshop item: 3619862853
+2. Enable Knox Survivors. Enable ZombieBuddy when using this path.
+3. Remove OLD Knox-only startup options such as:
+   - -javaagent:...knox-agent.jar=pz-game
+   - knox-steam-launch.cmd
+4. Launch Project Zomboid normally through the ZombieBuddy-configured launch.
+5. If ZombieBuddy asks to load Knox's Java JAR, approve it only if you trust the build.
 
--javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --
+Expected log:
+  runtime start PASS source=zombie-buddy
 
-   D: drive library:
+OPTION B - KNOX LAUNCHER (NO ZOMBIEBUDDY)
+1. Enable Knox Survivors.
+2. Do not use ZombieBuddy for this launch.
+3. Start Project Zomboid using the Knox Launcher / existing Knox legacy Java-agent setup.
 
--javaagent:"D:\SteamLibrary\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --
-
-   Steam somewhere else? Keep the line identical and swap only the front part
-   for your Steam folder. (Steam > Project Zomboid > Manage > Browse local
-   files shows your folders.)
-3. Start the game through Steam, enable Knox Survivors, and play.
-This passes the Knox Java agent directly to Project Zomboid through Steam. No terminal window is required.
-
-If Windows shows Entry Point Not Found naming another Java installation's java.dll
-(you have a separate Java/JDK installed), paste this longer line instead. It gives
-the game's own Java priority for that launch only, without changing global settings.
-Change both folders if Steam is installed elsewhere:
-
-cmd /d /v:off /s /c "set "PATH=C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid\jre64\bin;C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid\jre64\bin\server;%PATH%" && %command% -javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --"
-
-A command window may appear in this mode. Keep your original options for rollback.
-
-If you used Custom Launch Options inside the optional Knox launcher, copy those game arguments
-after the final -- in Steam. Launcher-only preferences cannot migrate into Steam automatically.
-
-OPTIONAL LAUNCHER
-https://github.com/exe-create/KnoxSurvivorsLauncher/releases
-Extract the full platform ZIP and use PLAY KNOX SURVIVORS. Do not also use the Steam line above.
+Expected log:
+  runtime start PASS source=legacy-javaagent
 
 CHECK
-After the main menu loads, Documents\Zomboid\KnoxIsoPlayer.log should contain: agent start
+Open Documents\Zomboid\KnoxIsoPlayer.log after reaching the menu.
+If no runtime PASS line appears, Knox's Java runtime did not start.
 
 Target game: Project Zomboid 42.20.4
-Single-player focus. Use a fresh save and back up saves you care about.

@@ -1,0 +1,31 @@
+KNOX SURVIVORS - ZOMBIEBUDDY AUTHOR / TRUST SETUP
+
+IMPORTANT
+The normal Project Zomboid mod metadata already identifies the author as:
+  author=.exe
+
+ZombieBuddy's approval/trust UI is different. It does NOT use the mod.info author= field as cryptographic author identity.
+To replace "Unknown Author" with a verifiable ZombieBuddy author identity, sign the FINAL Knox JAR using ZombieBuddy's ZBS signing system.
+
+What a signed release contains:
+  knox-agent.jar
+  knox-agent.jar.zbs
+
+The .zbs file is generated from YOUR private Ed25519 key and YOUR SteamID64.
+Do not share or commit the private key. Regenerate the .zbs sidecar every time the JAR changes.
+
+Official ZombieBuddy signing flow:
+1. Generate an Ed25519 private key on your own PC.
+2. Configure your SteamID64 and private-key path in your local Gradle properties / ZombieBuddy signing setup.
+3. Sign the final Knox JAR.
+4. Put knox-agent.jar.zbs next to knox-agent.jar in the released mod.
+5. Publish the generated public key on your Steam profile as:
+     JavaModZBS:<public-key>
+   OR request that ZombieBuddy add your SteamID64, display name (.exe), and public key to its authors.json.
+6. Rebuild/re-sign every changed Knox JAR before release.
+
+Why this ZIP does not include knox-agent.jar.zbs:
+A valid signature must be created with your private key and SteamID64. Packaging a fake/generic signature would defeat the trust system.
+
+Reference:
+https://github.com/zed-0xff/ZombieBuddy/blob/master/doc/ModSigning.md

@@ -59,16 +59,13 @@ retryTick = function()
     state.attempts = state.attempts + 1
     if state.attempts >= MAX_ATTEMPTS then
         print(TAG .. " FAILED bridge was not available before retry limit")
-        -- The Java agent was not loaded: survivors cannot spawn without it.
-        -- This is a setup problem, not a mod bug. Point at the one-line
-        -- Steam launch-options fix (or the launcher) instead of failing
-        -- silently into an empty world.
         pcall(function()
             local feed = rawget(_G, "KnoxActivityFeed")
             if feed ~= nil and feed.event ~= nil then
                 feed.event("Knox Survivors Java systems are not loaded. "
-                    .. "Set the Steam launch option from the Workshop page, "
-                    .. "or play through the Knox launcher, then reload.")
+                    .. "Start Knox with either ZombieBuddy or the Knox Launcher. "
+                    .. "If using ZombieBuddy, approve the Knox Java mod when prompted. "
+                    .. "Restart Project Zomboid after changing runtime or Java-mod approval.")
             end
         end)
         stopRetrying()

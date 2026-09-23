@@ -1,0 +1,14 @@
+PLAYER MIGRATION NOTICE
+
+Knox Survivors now supports two Java runtime paths:
+- ZombieBuddy (recommended): no Knox-specific launch line/launcher needed.
+- Knox Launcher / legacy Java-agent path: supported for players who do not want ZombieBuddy.
+
+ZombieBuddy must NOT be listed as a hard Required Item for Knox Survivors if you want both paths to remain available.
+
+For existing players:
+- ZombieBuddy users should remove the old Knox-only -javaagent line/wrapper.
+- Knox Launcher users can keep using the launcher without installing ZombieBuddy.
+- Use one startup method per game launch.
+
+The legacy Knox launcher/verifier files remain intentionally available as the fallback path.
