@@ -35,19 +35,27 @@ Full multiplayer NPC support, autonomous survivor driving, raids/large faction e
 3. In Project Zomboid, enable [b]Knox Survivors[/b] for your fresh save.
 
 [b]Method A - Steam-only on Windows (no separate launcher download):[/b]
-Open Steam > Project Zomboid > Properties > General > Launch Options and paste this line:
+Open Steam > Project Zomboid > Properties > General > Launch Options.
 
-[b]-javaagent:"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --[/b]
+For the default Steam library, paste:
 
-Replace the example path with the actual subscribed [b]knox-agent.jar[/b] path and keep the quotes. The Workshop download can be in a different Steam library from the game. Then use Steam's normal Project Zomboid launch mode. This passes the Knox agent directly to Project Zomboid; no terminal window is required. Alternate BAT launch modes need separate setup.
+[b]"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\knox-steam-launch.cmd" %command%[/b]
 
-If you previously saved custom game arguments inside the Knox launcher (for example a custom -cachedir), those launcher-only arguments are not automatically transferred to Steam. Add the same arguments after the final [b]--[/b] if you still need them. Normal Project Zomboid saves, sandbox settings, mod settings and memory configuration stay in their normal locations.
+If the Workshop item is in another Steam library, change only the path to [b]knox-steam-launch.cmd[/b].
 
-Keep existing Steam options: JVM options and other agents go before the single [b]--[/b], game arguments after it. Add Knox only once. Do not combine this with the old cmd/JAVA_TOOL_OPTIONS workaround or the Knox launcher. Custom command wrappers need separate validation.
+This small wrapper ships inside Knox Survivors. It gives Project Zomboid's bundled Java DLLs priority for that game process, preserves existing JAVA_TOOL_OPTIONS, appends Knox, and forwards the original Steam command/options unchanged. It does not edit Windows PATH, ProjectZomboid64.json, the BAT launcher, saves, sandbox settings, or your enabled mod list.
 
-This is a one-time setup, not subscription-only loading. Steam keeps the JAR filename stable through updates. Update the path after moving its library. [b]Before unsubscribing or deleting the JAR, remove only the Knox -javaagent option from Steam[/b]; a missing agent can prevent game startup. Keep the separator if other JVM options need it.
+[b]Keep launch options required by other mods.[/b] For example, ZombieBuddy can remain:
 
-If Windows shows [b]Entry Point Not Found[/b] and names another Java installation's [b]java.dll[/b], use the bundled-runtime isolation setup described in the project README/support instructions. It generates a Steam options line that gives the game's own Java DLLs priority for that process without changing global Windows settings or clearing other agent options. Keep your original options for rollback; a command window may appear in this mode. Compatibility with other mods still needs testing with their actual installed versions.
+[b]"C:\Program Files (x86)\Steam\steamapps\workshop\content\108600\3749727604\mods\KnoxSurvivors\knox-steam-launch.cmd" %command% -agentlib:zbNative --[/b]
+
+If your existing Steam line already contains one [b]%command%[/b], keep that existing line intact and put the quoted Knox wrapper path in front of it. Do not add a second %command%.
+
+Remove any older Knox [b]-javaagent:...knox-agent.jar[/b] entry first so Knox is not loaded twice. Other compatible -javaagent, -agentlib, -agentpath and normal game arguments can remain.
+
+The subscribed mod also includes [b]get-steam-launch-options.ps1[/b], a read-only helper that can discover/verify the Knox runtime and print a merged Steam line while preserving existing options.
+
+Use Steam's normal Project Zomboid launch mode. Alternate BAT launch is separate. A command window may be visible while the game is running because the bootstrap is a Windows CMD file.
 
 [b]Method B - optional Knox Survivors Launcher:[/b]
 [url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases]Download the latest Knox Survivors Launcher release[/url], extract the complete ZIP for your system and press [b]PLAY KNOX SURVIVORS[/b]. The launcher verifies the Workshop files/checksum and starts the normal game executable. It does not change Project Zomboid's configured memory or set permanent system options.
