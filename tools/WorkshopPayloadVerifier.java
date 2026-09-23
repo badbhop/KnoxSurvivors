@@ -32,6 +32,16 @@ public final class WorkshopPayloadVerifier {
             Object error = method.invoke(item, name.equals("validateModsFolder") ? uploaded.resolve("mods") : uploaded);
             if (error != null) throw new IllegalStateException(name + ": " + error);
         }
+        Path modRoot = uploaded.resolve("mods/KnoxSurvivors");
+        Path steamBootstrap = modRoot.resolve("knox-steam-launch.cmd");
+        Path steamHelper = modRoot.resolve("get-steam-launch-options.ps1");
+        if (!Files.isRegularFile(steamBootstrap)) {
+            throw new IllegalStateException("Steam bootstrap missing: " + steamBootstrap);
+        }
+        if (!Files.isRegularFile(steamHelper)) {
+            throw new IllegalStateException("Steam launch-options helper missing: " + steamHelper);
+        }
+
         try (var files = Files.walk(uploaded)) {
             var jars = files.filter(Files::isRegularFile)
                 .filter(path -> path.getFileName().toString().matches("knox-agent(?:-.*)?\\.jar")).toList();
@@ -54,7 +64,7 @@ public final class WorkshopPayloadVerifier {
                 }
             }
         }
-        System.out.println("Native Workshop payload validation passed (Contents root, mod layout, file types, one agent, checksum and premain).");
+        System.out.println("Native Workshop payload validation passed (Contents root, mod layout, Steam bootstrap/helper, one agent, checksum and premain).");
         if (Files.exists(root.resolve("workshop.txt"))) {
             String metadata = Files.readString(root.resolve("workshop.txt"));
             if (!metadata.lines().anyMatch("id=3749727604"::equals)) {
@@ -65,7 +75,9 @@ public final class WorkshopPayloadVerifier {
                 throw new IllegalStateException("Native uploader did not read existing item ID");
             }
             String description = (String) type.getMethod("getDescription").invoke(item);
-            if (!description.contains("Knox Survivors") || !description.contains("-javaagent:")
+            if (!description.contains("Knox Survivors")
+                || !description.contains("knox-steam-launch.cmd")
+                || !description.contains("%command%")
                 || !description.contains("KnoxSurvivorsLauncher/releases")) {
                 throw new IllegalStateException("Native description decoding lost the title or supported launch methods");
             }
