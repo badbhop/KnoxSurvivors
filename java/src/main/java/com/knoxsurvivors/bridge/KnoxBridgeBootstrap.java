@@ -13,17 +13,27 @@ public final class KnoxBridgeBootstrap {
     private static final int REQUIRED_STABLE_POLLS = 4;
     private static final KnoxBridge BRIDGE = new KnoxBridge();
 
-    private KnoxBridgeBootstrap() {
+    private KnoxBridgeBootstrap() { }
+
+    /** Legacy agent path: use Instrumentation to observe already-loaded game classes. */
+    public static void start(Instrumentation instrumentation) {
+        startWatchdog(instrumentation);
     }
 
-    public static void start(Instrumentation instrumentation) {
+    /** ZombieBuddy path: no raw Instrumentation access is required. */
+    public static void startWithoutInstrumentation() {
+        startWatchdog(null);
+    }
+
+    private static void startWatchdog(Instrumentation instrumentation) {
         Thread watchdog = new Thread(
             () -> exposeWhenReady(instrumentation),
             "KnoxSurvivors-LuaBridge"
         );
         watchdog.setDaemon(true);
         watchdog.start();
-        KnoxAgent.writeLog("Lua bridge watchdog started");
+        KnoxAgent.writeLog("Lua bridge watchdog started source="
+            + (instrumentation == null ? "classloader" : "instrumentation"));
     }
 
     private static void exposeWhenReady(Instrumentation instrumentation) {
@@ -55,9 +65,8 @@ public final class KnoxBridgeBootstrap {
                 int loadedCount = loaded instanceof Collection<?>
                     ? ((Collection<?>) loaded).size()
                     : 0;
-                if (environment == null
-                    || exposer == null
-                    || loadedCount == 0) {
+
+                if (environment == null || exposer == null || loadedCount == 0) {
                     previousEnvironment = null;
                     previousExposer = null;
                     previousLoadedCount = -1;
@@ -98,9 +107,6 @@ public final class KnoxBridgeBootstrap {
                     BRIDGE.abandonForEnvironmentChange();
                 }
 
-                // The main thread can replace LuaManager.env while changing
-                // worlds. Recheck immediately before asking the exposer to use
-                // that static environment.
                 if (luaManagerClass.getField("env").get(null) != environment) {
                     previousEnvironment = null;
                     previousExposer = null;
@@ -138,16 +144,11 @@ public final class KnoxBridgeBootstrap {
                 }
                 long now = System.currentTimeMillis();
                 if (now - lastFailureLogMillis >= 5_000L) {
-                    KnoxAgent.writeLog(
-                        "Lua bridge exposure attempt failed: "
-                            + cause.getClass().getName()
-                            + ": "
-                            + cause.getMessage()
-                    );
+                    KnoxAgent.writeLog("Lua bridge exposure attempt failed: "
+                        + cause.getClass().getName() + ": " + cause.getMessage());
                     lastFailureLogMillis = now;
                 }
             }
-
             sleep();
         }
     }
@@ -183,10 +184,21 @@ public final class KnoxBridgeBootstrap {
     }
 
     private static Class<?> findLuaManagerClass(Instrumentation instrumentation) {
-        for (Class<?> loadedClass : instrumentation.getAllLoadedClasses()) {
-            if (LUA_MANAGER_CLASS.equals(loadedClass.getName())) {
-                return loadedClass;
+        if (instrumentation != null) {
+            for (Class<?> loadedClass : instrumentation.getAllLoadedClasses()) {
+                if (LUA_MANAGER_CLASS.equals(loadedClass.getName())) return loadedClass;
             }
+            return null;
+        }
+
+        // ZombieBuddy v2 does not expose its Instrumentation handle. A non-initializing class
+        // lookup is sufficient here; all Lua fields are still polled until PZ has made them stable.
+        ClassLoader context = Thread.currentThread().getContextClassLoader();
+        for (ClassLoader loader : new ClassLoader[]{context, ClassLoader.getSystemClassLoader()}) {
+            if (loader == null) continue;
+            try {
+                return Class.forName(LUA_MANAGER_CLASS, false, loader);
+            } catch (ClassNotFoundException ignored) { }
         }
         return null;
     }

@@ -13,7 +13,7 @@ OPTION A - ZOMBIEBUDDY (RECOMMENDED)
 5. If ZombieBuddy asks to load Knox's Java JAR, approve it only if you trust the build.
 
 Expected log:
-  runtime start PASS source=zombie-buddy
+  runtime start PASS source=zombie-buddy-patch-api
 
 OPTION B - KNOX LAUNCHER (NO ZOMBIEBUDDY)
 1. Enable Knox Survivors.

@@ -63,8 +63,8 @@ retryTick = function()
             local feed = rawget(_G, "KnoxActivityFeed")
             if feed ~= nil and feed.event ~= nil then
                 feed.event("Knox Survivors Java systems are not loaded. "
-                    .. "Start Knox with either ZombieBuddy or the Knox Launcher. "
-                    .. "If using ZombieBuddy, approve the Knox Java mod when prompted. "
+                    .. "Start Knox with ZombieBuddy 2.3.2+ or the Knox Launcher. "
+                    .. "If using ZombieBuddy, approve the Knox Java mod when prompted; do not use the Knox Launcher at the same time. "
                     .. "Restart Project Zomboid after changing runtime or Java-mod approval.")
             end
         end)

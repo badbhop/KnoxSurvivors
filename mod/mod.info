@@ -10,3 +10,5 @@ versionMax=42.20
 incompatible=
 javaJarFile=java/knox-agent.jar
 javaPkgName=com.knoxsurvivors
+ZBVersionMin=2.3.2
+ZBVersionMax=2.99.99

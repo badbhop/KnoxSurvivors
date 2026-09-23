@@ -54,7 +54,7 @@ Do not use both startup methods intentionally at the same time. Knox contains du
 
 Successful log entry:
 
-`runtime start PASS source=zombie-buddy`
+`runtime start PASS source=zombie-buddy-patch-api`
 
 ### Option B - Knox Launcher (no ZombieBuddy)
 

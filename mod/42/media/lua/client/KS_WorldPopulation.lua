@@ -687,6 +687,10 @@ local function ensureOriginCapabilities(id, origin)
     -- transient load phase. First materialization runs the same precedence
     -- helper again, so contextual evidence fails soft without rerolling an
     -- already-persisted profile.
+    if CharacterProfessionDefinition == nil
+        or CharacterProfessionDefinition.getProfessions == nil then
+        return false, "profession_definitions_unavailable"
+    end
     local ok, profile, reason = pcall(
         KnoxSurvivorCapabilities.ensureForOrigin,
         id,

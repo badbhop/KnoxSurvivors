@@ -10,7 +10,7 @@ METHOD A - ZOMBIEBUDDY (RECOMMENDED)
 - Approve the Knox Java JAR if ZombieBuddy prompts you and you trust this build.
 
 Expected KnoxIsoPlayer.log line:
-  runtime start PASS source=zombie-buddy
+  runtime start PASS source=zombie-buddy-patch-api
 
 METHOD B - KNOX LAUNCHER (NO ZOMBIEBUDDY)
 - Enable Knox Survivors.

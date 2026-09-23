@@ -7833,3 +7833,34 @@ correctly rejected. Nothing was published.
 A native-EXE JVM argument probe could not start because Windows returned elevation
 required (error 740). No elevation was attempted. This is not evidence of failed Steam
 startup; the normal Steam boot and gameplay acceptance listed above remain unverified.
+
+### Contextual origins and vocations - 2026-09-23
+
+**Implemented; native fresh-save and travel observation pending.** New ordinary survivors
+now retain bounded evidence already authored by Build 42: canonical profession buckets on
+exact SpawnRegion coordinates and high-confidence facility context from native BuildingDef
+room names. Duplicate coordinates merge candidates deterministically. In each existing
+100-tile building-origin bucket, a semantic facility outranks a generic building without
+changing the two-player-starts-to-one-building allocation policy, regional balancing,
+uniqueness, visibility, standability, distance, duty, or group-ownership gates.
+
+Lua schema 18 persists only the chosen origin's context, bounded profession candidates and
+building ID. Schema-17 survivors keep their exact origin and capability profile with no
+retroactive classification or reroll. Invalid metadata sanitizes to generic and origin reads
+return defensive copies. Capability precedence is explicit: an existing profile wins;
+authored event professions are strict; contextual candidates fail soft; the ordinary native
+definition roll is the final fallback. Context creates no equipment, faction, hostility,
+loot, or supplies.
+
+Profession-aware off-screen travel only narrows the already-valid candidate pool when a
+native building context matches the persisted profession. Automatic base-role hints now use
+exact canonical profession IDs: mechanics prefer repair, chefs and burger flippers cooking,
+farmers and ranchers farming, police/security/veterans guard, and established construction
+professions woodwork. Explicit player preference and normal task eligibility remain
+authoritative. Doctors and fire officers receive no invented base job.
+
+Focused policy, migration, catalog, capability-precedence, travel-gate and base-job tests are
+covered by `test-survivor-origins.lua`, `test-contextual-origins.lua`,
+`test-survivor-capabilities.lua`, and `test-base-jobs.lua`. Live confirmation remains required
+for native definition availability during fresh-world batching, real-map room-name coverage,
+safe materialization after a facility-biased leg, and ordinary container-only looting.

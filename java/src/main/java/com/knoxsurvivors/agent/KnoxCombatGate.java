@@ -1,21 +1,25 @@
 package com.knoxsurvivors.agent;
 
-/** Runtime predicate used only by the narrowly patched player melee callbacks. */
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/** Runtime predicates used by Knox's narrowly-scoped combat patches. */
 public final class KnoxCombatGate {
     private static final String SHELL_CLASS = "com.knoxsurvivors.engine.KnoxIsoPlayerShell";
     private static final ThreadLocal<Object> targetVisibilityCandidate = new ThreadLocal<>();
+    private static final AtomicBoolean ZB_READY_LOGGED = new AtomicBoolean(false);
     private static volatile boolean patchReady;
     private static volatile int patchedCallCount;
     private static volatile boolean visibilityPatchReady;
     private static volatile int visibilityPatchedCallCount;
 
-    private KnoxCombatGate() {
+    private KnoxCombatGate() { }
+
+    public static boolean isKnoxShell(Object character) {
+        return character != null && SHELL_CLASS.equals(character.getClass().getName());
     }
 
     public static boolean allowLocalCombatHook(Object character) {
-        if (character == null) {
-            return false;
-        }
+        if (character == null) return false;
         try {
             if ((Boolean) character.getClass().getMethod("isLocalPlayer").invoke(character)) {
                 return true;
@@ -23,14 +27,10 @@ public final class KnoxCombatGate {
         } catch (ReflectiveOperationException ignored) {
             return false;
         }
-        return SHELL_CLASS.equals(character.getClass().getName());
+        return isKnoxShell(character);
     }
 
-    /**
-     * Captures the target immediately before Build 42's {@code IsoZombie.isTargetVisible()}
-     * asks a grid square for that target's player-lighting slot. Knox shells intentionally do
-     * not own a local-player lighting slot, so that vanilla query cannot represent them.
-     */
+    /** Legacy transformer helper. */
     public static int captureTargetVisibilityIndex(Object target) {
         targetVisibilityCandidate.set(target);
         try {
@@ -41,18 +41,17 @@ public final class KnoxCombatGate {
         }
     }
 
-    /**
-     * Preserves normal square lighting for real players. A contained Knox shell is visible here
-     * only after the regular Knox zombie-awareness controller has selected it as the zombie's
-     * live target; native pathing, collision, attack state, hit rolls, and BodyDamage remain
-     * untouched.
-     */
+    /** ZombieBuddy Patch API helper: capture the already-computed native index without recursion. */
+    public static void captureTargetVisibilityIndexResult(Object target, int nativeIndex) {
+        if (isKnoxShell(target)) targetVisibilityCandidate.set(target);
+        else targetVisibilityCandidate.remove();
+    }
+
+    /** Legacy transformer helper. */
     public static boolean allowTargetVisibility(Object square, int playerIndex) {
         Object target = targetVisibilityCandidate.get();
         targetVisibilityCandidate.remove();
-        if (target != null && SHELL_CLASS.equals(target.getClass().getName())) {
-            return true;
-        }
+        if (isKnoxShell(target)) return true;
         try {
             return square != null && (Boolean) square.getClass()
                 .getMethod("isCouldSee", int.class)
@@ -60,6 +59,17 @@ public final class KnoxCombatGate {
         } catch (ReflectiveOperationException exception) {
             return false;
         }
+    }
+
+    /** ZombieBuddy Patch API helper: preserve native result unless the pending target is a Knox shell. */
+    public static boolean finishTargetVisibility(Object square, int playerIndex, boolean nativeResult) {
+        Object target = targetVisibilityCandidate.get();
+        targetVisibilityCandidate.remove();
+        return isKnoxShell(target) || nativeResult;
+    }
+
+    public static void clearTargetVisibilityCandidate() {
+        targetVisibilityCandidate.remove();
     }
 
     static void markPatchReady(int calls) {
@@ -70,6 +80,23 @@ public final class KnoxCombatGate {
     static void markVisibilityPatchReady(int calls) {
         visibilityPatchedCallCount = calls;
         visibilityPatchReady = calls == KnoxZombieVisibilityTransformer.EXPECTED_PATCH_COUNT;
+    }
+
+    /**
+     * ZombieBuddy applies Knox's supported @Patch hooks before GameLoadingState exits.
+     * The marker patch calls this after the patch pipeline is live, satisfying the same
+     * fail-closed readiness gates used by the legacy transformer path.
+     */
+    public static void markZombieBuddyPatchesReady() {
+        if (!KnoxAgent.isZombieBuddyPatchRuntime()) return;
+        patchedCallCount = KnoxSwipeStateTransformer.EXPECTED_PATCH_COUNT;
+        visibilityPatchedCallCount = KnoxZombieVisibilityTransformer.EXPECTED_PATCH_COUNT;
+        patchReady = true;
+        visibilityPatchReady = true;
+        if (ZB_READY_LOGGED.compareAndSet(false, true)) {
+            KnoxAgent.writeLog("ZombieBuddy patch readiness PASS callbacks="
+                + patchedCallCount + " visibility=" + visibilityPatchedCallCount);
+        }
     }
 
     public static boolean isPatchReady() {

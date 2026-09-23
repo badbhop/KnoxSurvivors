@@ -33,6 +33,7 @@ local replacements = 0
 local MAX_REPLACEMENTS = 5
 local stashedPrimary, stashedSecondary = nil, nil
 local update
+local pacifySurvivor, releasePacified
 
 local function report(status, reason, evidence)
     lastResult = {
@@ -142,8 +143,6 @@ end
 -- fights back with her baseball bat and kills it first. Disarm her for the
 -- probe so she stands there and the zombie gets its chance. Hands are
 -- restored on every exit path below.
-local stashedPrimary, stashedSecondary = nil, nil
-
 local function disarmNpc()
     if npc == nil then return end
     pcall(function() stashedPrimary = npc:getPrimaryHandItem() end)
@@ -237,7 +236,7 @@ end
 -- probe ticks; every exit path releases her back to normal duty.
 local pacifiedController = nil
 
-local function pacifySurvivor()
+pacifySurvivor = function()
     if npc == nil then return end
     if pacifiedController == nil then
         local autonomy = rawget(_G, "KnoxSurvivorAutonomy")
@@ -276,7 +275,7 @@ local function pacifySurvivor()
     end
 end
 
-local function releasePacified()
+releasePacified = function()
     if pacifiedController ~= nil then
         pcall(function() pacifiedController.nextThink = ticks end)
         pcall(function() pacifiedController.nextThreatScan = ticks end)

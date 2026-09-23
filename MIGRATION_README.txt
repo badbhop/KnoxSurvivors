@@ -4,9 +4,9 @@ KNOX SURVIVORS -> ZOMBIEBUDDY MIGRATION
 WHAT THIS DOES
 - Knox Survivors can be loaded by ZombieBuddy as a normal Java mod, or by the retained legacy Knox Java-agent/launcher path.
 - ZombieBuddy users no longer need Knox's Steam -javaagent line or Knox launch wrapper; legacy launcher users may continue using that path.
-- Existing Knox combat/visibility transformers and KnoxJavaBridge are retained.
-- If target game classes loaded before Knox, Knox asks ZombieBuddy's Instrumentation
-  handle to retransform them.
+- Existing Knox combat/visibility behavior and KnoxJavaBridge are retained.
+- ZombieBuddy uses its supported Patch API; Knox does not access ZombieBuddy's private
+  Instrumentation state.
 - Legacy Knox premain remains temporarily for rollback/developer compatibility only.
 
 FILES
@@ -38,8 +38,8 @@ FIRST TEST
    Launch Options box can remain empty.
 7. Launch using exactly one runtime path. If ZombieBuddy asks whether Knox's Java JAR may load, approve it if you trust the build.
 8. Check Documents/Zomboid/KnoxIsoPlayer.log for a fresh:
-     runtime start PASS source=zombie-buddy
-   The combat/visibility transformers should also log PASS when their target classes load.
+     runtime start PASS source=zombie-buddy-patch-api
+   The ZombieBuddy patch readiness check and Lua bridge should also log PASS.
 9. Test spawn, movement, zombie targeting, melee, human-vs-human combat and save/reload.
 
 IMPORTANT

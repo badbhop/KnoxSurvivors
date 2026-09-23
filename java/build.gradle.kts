@@ -15,6 +15,14 @@ val localProperties = Properties().apply {
 }
 val pzHome = providers.gradleProperty("pzHome")
     .orElse(localProperties.getProperty("pzHome") ?: "")
+val zombieBuddyJar = providers.gradleProperty("zombieBuddyJar")
+    .orElse(localProperties.getProperty("zombieBuddyJar") ?: "")
+
+fun resolvedZombieBuddyJar(): File {
+    val configured = zombieBuddyJar.get().trim()
+    if (configured.isNotEmpty()) return file(configured)
+    return file(pzHome.get()).resolve("ZombieBuddy.jar")
+}
 
 java {
     toolchain {
@@ -24,6 +32,9 @@ java {
 
 dependencies {
     compileOnly(files(pzHome.map { file(it).resolve("projectzomboid.jar") }))
+    // ZombieBuddy's released v2.3.2 Patch API is compile-only. At runtime the user-provided
+    // ZombieBuddy installation owns this class; Knox does not bundle or replace ZombieBuddy.
+    compileOnly(files(providers.provider { resolvedZombieBuddyJar() }))
 }
 
 tasks.register("verifyGameJar") {
@@ -41,8 +52,20 @@ tasks.register("verifyGameJar") {
     }
 }
 
+tasks.register("verifyZombieBuddyApi") {
+    group = "verification"
+    description = "Checks that ZombieBuddy.jar is available for compile-only Patch API types."
+
+    doLast {
+        val jar = resolvedZombieBuddyJar()
+        require(jar.isFile) {
+            "ZombieBuddy.jar not found at ${jar.absolutePath}. Install ZombieBuddy next to Project Zomboid or set zombieBuddyJar in local.properties."
+        }
+    }
+}
+
 tasks.compileJava {
-    dependsOn("verifyGameJar")
+    dependsOn("verifyGameJar", "verifyZombieBuddyApi")
     options.encoding = "UTF-8"
     options.release = 17
 }
