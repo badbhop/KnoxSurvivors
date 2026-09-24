@@ -1,4 +1,9 @@
-require "KS_SurvivorOrigins"
+-- Normal game loading resolves the pure origin policy through require. A few
+-- persistence-only offline harnesses execute this file directly without a Lua
+-- module path; fail closed there and let missing legacy metadata remain absent.
+if rawget(_G, "KnoxSurvivorOrigins") == nil then
+    pcall(require, "KS_SurvivorOrigins")
+end
 
 local KnoxPersistence = rawget(_G, "KnoxPersistence") or {}
 _G.KnoxPersistence = KnoxPersistence
@@ -7,6 +12,17 @@ _G.KnoxPersistence = KnoxPersistence
 local MOD_DATA_KEY = "KnoxSurvivors_IsoPlayer"
 local SCHEMA_VERSION = 18
 local TEST_SURVIVOR_ID = "ks-test-1"
+
+local function sanitizeOriginMetadata(origin, preserveMissing)
+    local policy = rawget(_G, "KnoxSurvivorOrigins")
+    if policy ~= nil and policy.sanitizeMetadata ~= nil then
+        return policy.sanitizeMetadata(origin, preserveMissing)
+    end
+    local hasMetadata = type(origin) == "table" and (origin.context ~= nil
+        or origin.professionCandidates ~= nil or origin.buildingId ~= nil)
+    if preserveMissing and not hasMetadata then return {} end
+    return { context = "generic" }
+end
 
 -- root() is used by nearly every persistence accessor, including hot autonomy
 -- and combat decisions. Normalizing every survivor/base/task on every read
@@ -258,6 +274,29 @@ end
 local copySerializable
 local backupOnce
 
+-- Recovery snapshots must retain nested history/directives and every domain.
+-- The bounded public DTO copier below is deliberately unsuitable for backups.
+-- Skip cycles and engine objects; only primitive-keyed serializable trees belong
+-- in ModData. Track ancestors rather than all seen tables to retain aliases.
+local function copyRecoveryTree(source, ancestors)
+    local kind = type(source)
+    if kind ~= "table" then
+        if kind == "string" or kind == "number" or kind == "boolean" then return source end
+        return nil
+    end
+    ancestors = ancestors or {}
+    if ancestors[source] then return nil end
+    ancestors[source] = true
+    local result = {}
+    for key, value in pairs(source) do
+        if type(key) == "string" or type(key) == "number" then
+            result[key] = copyRecoveryTree(value, ancestors)
+        end
+    end
+    ancestors[source] = nil
+    return result
+end
+
 local function root()
     local data = ModData.getOrCreate(MOD_DATA_KEY)
     if rootCacheMatches(data) then return data end
@@ -265,14 +304,12 @@ local function root()
     -- Backup once before any migration mutates old save data, so a failed or
     -- lossy migration never destroys the original tables.
     if previousVersion < SCHEMA_VERSION and data.preMigrationBackup == nil then
+        local snapshot = copyRecoveryTree(data)
         data.preMigrationBackup = {
             fromSchema = previousVersion,
             toSchema = SCHEMA_VERSION,
-            survivors = copySerializable(data.survivors, 0),
-            factions = copySerializable(data.factions, 0),
-            travelGroups = copySerializable(data.travelGroups, 0),
-            bases = copySerializable(data.bases, 0),
-            players = copySerializable(data.players, 0),
+            snapshot = snapshot,
+            version = 2,
         }
     end
     if type(data.survivors) ~= "table" then
@@ -534,7 +571,7 @@ local function root()
     for _, survivor in pairs(data.survivors) do
         if type(survivor) == "table" then
             if type(survivor.origin) == "table" then
-                local metadata = KnoxSurvivorOrigins.sanitizeMetadata(
+                local metadata = sanitizeOriginMetadata(
                     survivor.origin,
                     true
                 )
@@ -810,11 +847,21 @@ function KnoxPersistence.restorePreMigrationBackup()
     local data = ModData.getOrCreate(MOD_DATA_KEY)
     local backup = data.preMigrationBackup
     if type(backup) ~= "table" then return false, "no_backup" end
+    if backup.version == 2 and type(backup.snapshot) == "table" then
+        local restored = copyRecoveryTree(backup.snapshot)
+        for key in pairs(data) do
+            if key ~= "preMigrationBackup" then data[key] = nil end
+        end
+        for key, value in pairs(restored) do data[key] = value end
+        invalidateNormalizedRoot()
+        return true, "restored"
+    end
     if backup.survivors ~= nil then data.survivors = copySerializable(backup.survivors, 0) end
     if backup.factions ~= nil then data.factions = copySerializable(backup.factions, 0) end
     if backup.travelGroups ~= nil then data.travelGroups = copySerializable(backup.travelGroups, 0) end
     if backup.bases ~= nil then data.bases = copySerializable(backup.bases, 0) end
     if backup.players ~= nil then data.players = copySerializable(backup.players, 0) end
+    invalidateNormalizedRoot()
     return true, "restored"
 end
 
@@ -1165,7 +1212,7 @@ function KnoxPersistence.allocateWorldSurvivor(origin, worldAgeHours)
     local x = math.floor(tonumber(origin.x))
     local y = math.floor(tonumber(origin.y))
     local z = math.floor(tonumber(origin.z) or 0)
-    local metadata = KnoxSurvivorOrigins.sanitizeMetadata(origin, false)
+    local metadata = sanitizeOriginMetadata(origin, false)
     local originKey = tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
     for _, existing in pairs(data.survivors) do
         local existingOrigin = type(existing) == "table" and existing.origin or nil
@@ -1310,11 +1357,44 @@ function KnoxPersistence.getUsedWorldOriginKeys()
     return used
 end
 
-function KnoxPersistence.markSurvivorDead(id, worldAgeHours, reason)
+local function deathEvidenceFor(survivor, worldAgeHours, reason, supplied)
+    supplied = type(supplied) == "table" and supplied or {}
+    local state = type(survivor.unloadedSurvival) == "table" and survivor.unloadedSurvival or nil
+    local x, y, z = tonumber(supplied.x), tonumber(supplied.y), tonumber(supplied.z)
+    local source = supplied.locationSource
+    if not (finiteCoordinate(x) and finiteCoordinate(y) and finiteCoordinate(z)) and state ~= nil then
+        x, y, z = tonumber(state.virtualX), tonumber(state.virtualY), tonumber(state.virtualZ)
+        source = "logical"
+    end
+    if not (finiteCoordinate(x) and finiteCoordinate(y) and finiteCoordinate(z)) then
+        x, y, z, source = nil, nil, nil, nil
+    end
+    local affiliation = type(survivor.affiliation) == "table" and survivor.affiliation or {}
+    local duty = type(survivor.duty) == "table" and survivor.duty or {}
+    local corpseState = supplied.corpseState == "native_pending" and "native_pending"
+        or "logical_only"
+    return {
+        version = 1, atHours = tonumber(worldAgeHours) or 0,
+        reason = tostring(reason or "died"), x = x, y = y, z = z,
+        locationSource = source,
+        ownerKind = affiliation.kind, ownerId = affiliation.ownerId, factionId = affiliation.factionId,
+        dutyMode = duty.mode, baseId = duty.baseId,
+        inventorySummary = tostring(survivor.inventorySummary or ""),
+        inventorySummaryAtHours = tonumber(survivor.inventorySummaryAtHours),
+        health = state ~= nil and tonumber(state.health) or nil,
+        bleedingParts = state ~= nil and tonumber(state.bleedingParts) or nil,
+        pain = state ~= nil and tonumber(state.pain) or nil,
+        corpseState = corpseState,
+    }
+end
+
+function KnoxPersistence.markSurvivorDead(id, worldAgeHours, reason, evidence)
     local survivor = ensureSurvivorState(id)
     if survivor == nil then
         return false
     end
+    if survivor.alive == false then return true end
+    survivor.deathEvidence = deathEvidenceFor(survivor, worldAgeHours, reason, evidence)
     survivor.alive = false
     -- Death wins over a same-tick event withdrawal. The corpse lifecycle must
     -- remain authoritative and a dead entrant must never be recorded as having
@@ -3029,6 +3109,20 @@ function KnoxPersistence.recordPlayerSocialEvent(playerId, survivorId, event, wo
     elseif event == "lure_attempt" then
         relation.lureAttempts = (tonumber(relation.lureAttempts) or 0) + 1
     end
+    return true
+end
+
+function KnoxPersistence.getSurvivorDeathEvidence(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    return survivor ~= nil and type(survivor.deathEvidence) == "table"
+        and copySerializable(survivor.deathEvidence) or nil
+end
+
+function KnoxPersistence.markSurvivorCorpseCreated(id)
+    local survivor = type(id) == "string" and root().survivors[id] or nil
+    local evidence = survivor ~= nil and survivor.deathEvidence or nil
+    if type(evidence) ~= "table" or evidence.corpseState ~= "native_pending" then return false end
+    evidence.corpseState = "native_created"
     return true
 end
 
@@ -5781,7 +5875,7 @@ function KnoxPersistence.captureActiveSurvivor(id)
                         snapshot,
                         survivor.lastKnownNeedsAtHours
                     )
-                    if not unloadedOk then
+                    if not unloadedOk or unloadedFailure ~= true then
                         postFailures[#postFailures + 1] = "unloaded="
                             .. tostring(unloadedFailure)
                     end

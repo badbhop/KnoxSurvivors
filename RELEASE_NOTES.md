@@ -1,5 +1,11 @@
 # Knox Survivors 0.3.0-rc1
 
+## Maintenance update — 2026-09-23
+
+- Fixed runtime detection that left the bridge disconnected or reported the wrong ZombieBuddy version after launch; Knox Launcher/Steam startup still works.
+- Fixed a health-probe scope error that caused repeated log errors.
+- Removed automatic god/ghost/invisibility protection from the QA player; old QA flags are cleared on exit.
+
 This release candidate is the public-facing checkpoint for the current human survivor rebuild. It does not turn experimental systems into promises; it packages and documents the systems that are actually present in the project today.
 
 ## Release focus
@@ -10,7 +16,8 @@ This release candidate is the public-facing checkpoint for the current human sur
 - Recruitment, companion orders, groups/factions, camps and settlements.
 - Base storage/work areas and the implemented base-job set, including corpse hauling.
 - Current combat, UI, hibernation and off-screen survival systems.
-- Steam-only Windows startup path using the stable `knox-agent.jar` Workshop filename.
+- Stable `knox-agent.jar` Workshop filename and an optional direct Steam launch
+  option generator; the direct route still needs live startup acceptance.
 - Optional cross-platform Knox launcher remains supported.
 
 ## Still experimental / incomplete

@@ -3,6 +3,10 @@
 -- the installed game's action/hook boundaries without inventing ammunition.
 local rootPath = arg[1] or "."
 
+package.preload["KS_SafeCall"] = function()
+    return dofile(rootPath .. "/mod/42/media/lua/shared/KS_SafeCall.lua")
+end
+
 local reloadAttempts = 0
 local nextItemId = 0
 ISTimedActionQueue = { queues = {} }

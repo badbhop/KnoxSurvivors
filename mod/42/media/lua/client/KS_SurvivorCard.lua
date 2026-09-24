@@ -9,6 +9,7 @@ require "XpSystem/ISUI/ISCharacterProtection"
 require "XpSystem/ISUI/ISClothingInsPanel"
 require "KS_SurvivorViewModel"
 local CompanionInventory = require "KS_CompanionInventory"
+local UILayout = require "KS_SurvivorUILayout"
 -- Keep the card usable when the module was loaded earlier by another UI.
 -- Lua's `require` returns the canonical table, while the global is only an
 -- implementation detail of the inventory module.
@@ -173,15 +174,16 @@ function KnoxPanel:prerender()
     local w = self.width - PADDING * 2
 
     local function sectionHeader(title)
-        self:drawRect(PADDING, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
+        self:drawRect(PADDING, y, w, smallH + 4, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
         self:drawText(title:upper(), PADDING + 6, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
-        y = y + 20
+        y = y + smallH + 8
     end
     local function keyValue(label, value, col)
         local c = col or COL_VALUE
         self:drawText(tostring(label), PADDING, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
-        self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), w - 70), PADDING + w, y, c[1], c[2], c[3], 1, UIFont.Small)
-        y = y + 16
+        local labelWidth = getTextManager():MeasureStringX(UIFont.Small, tostring(label)) + PADDING
+        self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), math.max(1, w - labelWidth)), PADDING + w, y, c[1], c[2], c[3], 1, UIFont.Small)
+        y = y + smallH + 4
     end
 
     self:drawText(trimText(UIFont.Medium, snapshot.displayName, w), PADDING, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Medium)
@@ -246,7 +248,7 @@ function KnoxPanel:prerender()
                 self:drawRect(bx, y + 3, math.max(1, barW * value), 9, 0.9,
                     col[1], col[2], col[3])
             end
-            y = y + 16
+            y = y + smallH + 4
         end
         local health = vitals.health
         if health == nil then health = snapshot.health end
@@ -265,6 +267,10 @@ function KnoxPanel:prerender()
     keyValue("Trust", trustLabel, trustCol)
     if snapshot.isSpouse then keyValue("Relationship", "Spouse", COL_ACCENT) end
     keyValue("Group", snapshot.affiliation and snapshot.affiliation.kind or "independent")
+    local buttonH = smallH + 10
+    self.inventoryButton:setY(y + SECTION_GAP)
+    self.medicalButton:setY(y + SECTION_GAP)
+    self:setScrollHeight(y + SECTION_GAP + buttonH + PADDING)
 end
 
 function KnoxPanel:onInventoryButton()
@@ -290,12 +296,10 @@ function KnoxPanel:createChildren()
     self.inventoryButton = ISButton:new(PADDING, self.height - buttonH - PADDING, 122, buttonH,
         "Inventory", self, KnoxPanel.onInventoryButton)
     self.inventoryButton:initialise()
-    self.inventoryButton:setAnchorBottom(true)
     self:addChild(self.inventoryButton)
     self.medicalButton = ISButton:new(PADDING + 130, self.height - buttonH - PADDING, 122, buttonH,
         "Medical Check", self, KnoxPanel.onMedicalButton)
     self.medicalButton:initialise()
-    self.medicalButton:setAnchorBottom(true)
     self:addChild(self.medicalButton)
 end
 
@@ -337,6 +341,21 @@ local function ensureViews(window)
     if window.panel == nil then return end
     local survivor = window.snapshot ~= nil and window.snapshot.loaded
         and KnoxSurvivorViewModel.resolveLiveCharacter(window.snapshot.id) or nil
+
+    -- Native body/portrait children retain the original character. Recreate on
+    -- selection or shell changes, including unload, rather than showing stale data.
+    local activeName = window.panel.activeView and window.panel.activeView.name
+    if window.boundSurvivor ~= survivor then
+        for _, field in ipairs({"infoView", "skillsView", "healthView", "protectionView", "clothingView"}) do
+            local view = window[field]
+            if view ~= nil then
+                view:setVisible(false)
+                window.panel:removeView(view)
+                window[field] = nil
+            end
+        end
+        window.boundSurvivor = survivor
+    end
 
     -- A persisted survivor can be known to the Notebook while its live shell
     -- is streamed out. Vanilla character views dereference `char` during
@@ -388,7 +407,7 @@ local function ensureViews(window)
             origRender(self)
             local snap = self.knoxWindow and self.knoxWindow.snapshot or nil
             if snap == nil then return end
-            local y = self:getHeight() + 10
+            local y = (self.knoxContentHeight or self:getHeight()) + 10
             local w = math.max(20, self.width - 20)
             self:drawRect(10, y, w, 1, 0.5, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
             y = y + 8
@@ -418,13 +437,11 @@ local function ensureViews(window)
             if snap.distanceTiles ~= nil then act = act .. " (" .. tostring(math.floor(snap.distanceTiles+0.5)) .. " tiles)" end
             kv("Activity", act)
             local nh = y + 6
-            if nh > self:getHeight() then
-                self:setHeight(nh)
-                self:setScrollHeight(nh)
-            end
+            self:setScrollHeight(math.max(nh, self:getHeight()))
         end
         window.infoView = view
         window.panel:addView(xpSystemText.info, view)
+        UILayout.bindView(view)
     end
     if survivor ~= nil and window.skillsView == nil then
         local view = ISCharacterInfo:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
@@ -458,6 +475,7 @@ local function ensureViews(window)
         end
         window.skillsView = view
         window.panel:addView(xpSystemText.skills, view)
+        UILayout.bindView(view)
     end
     if window.healthView == nil and survivor ~= nil then
         local localPlayer = getSpecificPlayer(window.playerNum)
@@ -466,7 +484,6 @@ local function ensureViews(window)
         view.setWidthAndParentWidth = function(self, w) self:setWidth(w) end
         view.setHeightAndParentHeight = function(self, h) self:setHeight(h); self:setScrollHeight(h) end
         if localPlayer ~= nil then
-            view.otherPlayer = localPlayer
             view.character = survivor
             view.playerNum = localPlayer:getPlayerNum()
             view.doctorLevel = localPlayer:getPerkLevel(Perks.Doctor)
@@ -475,6 +492,30 @@ local function ensureViews(window)
         -- addView/addChild instantiates the panel and calls createChildren once.
         -- Calling it manually here duplicated both vanilla body presentations.
         window.panel:addView(xpSystemText.health, view)
+        -- This embedded tab is inspection only; actual treatment uses the
+        -- existing Medical Check action and its native doctor/patient window.
+        view.doBodyPartContextMenu = function() end
+        if view.listbox ~= nil then view.listbox.onRightMouseUp = function() end end
+        if view.bodyPartPanel ~= nil then view.bodyPartPanel.onRightMouseUp = function() end end
+        local healthRender = view.render
+        view.render = function(self)
+            healthRender(self)
+            self.fitness:setVisible(false)
+        end
+        view.onJoypadDown = function(self, button, joypadData)
+            window:onJoypadDown(button, joypadData)
+        end
+        -- Vanilla's self-health focus selects Fitness when otherPlayer is nil.
+        -- Fitness is hidden in this inspection tab, so retain panel focus only.
+        view.onGainJoypadFocus = function(self, joypadData)
+            ISPanel.onGainJoypadFocus(self, joypadData)
+            self.parent.drawJoypadFocus = true
+        end
+        view.onLoseJoypadFocus = function(self, joypadData)
+            ISPanel.onLoseJoypadFocus(self, joypadData)
+            self.parent.drawJoypadFocus = false
+        end
+        UILayout.bindView(view)
     end
     if window.protectionView == nil and survivor ~= nil then
         local view = ISCharacterProtection:new(0, 8, window.panel.width, window.panel.height - 8, window.playerNum)
@@ -491,6 +532,7 @@ local function ensureViews(window)
         pcall(function() view:create() end)
         window.protectionView = view
         window.panel:addView(xpSystemText.protection, view)
+        UILayout.bindView(view)
     end
     if window.clothingView == nil and survivor ~= nil then
         local view = ISClothingInsPanel:new(survivor, 0, 8, window.panel.width, window.panel.height - 8)
@@ -504,6 +546,7 @@ local function ensureViews(window)
         view.char = survivor
         window.clothingView = view
         window.panel:addView(xpSystemText.clothingIns, view)
+        UILayout.bindView(view)
     end
     if window.knoxView == nil then
         local view = KnoxPanel:new(0, 8, window.panel.width, window.panel.height - 8)
@@ -511,6 +554,7 @@ local function ensureViews(window)
         view.window = window
         window.knoxView = view
         window.panel:addView("Knox", view)
+        UILayout.bindView(view)
     end
 
     -- Bind all vanilla views to the selected survivor (never local player)
@@ -574,6 +618,8 @@ local function ensureViews(window)
     if window.knoxView ~= nil then
         window.knoxView.snapshot = window.snapshot
     end
+    if activeName ~= nil then window.panel:activateView(activeName) end
+    if survivor == nil then window.panel:activateView("Knox") end
 end
 
 function Window:refreshSnapshot()
@@ -588,9 +634,6 @@ function Window:refreshSnapshot()
     if self.infoView ~= nil and self.infoView.char ~= nil then
         self.infoView.refreshNeeded = true
     end
-    if self.skillsView ~= nil then
-        self.skillsView.reloadSkillBar = false
-    end
     return true
 end
 
@@ -601,6 +644,8 @@ end
 
 function Window:clampToViewport()
     local left, top, width, height = screenBounds(self.playerNum)
+    self:setWidth(math.min(self:getWidth(), math.max(1, width - 20)))
+    self:setHeight(math.min(self:getHeight(), math.max(1, height - 20)))
     self:setX(clamp(self:getX(), left, left + math.max(0, width - self:getWidth())))
     self:setY(clamp(self:getY(), top, top + math.max(0, height - self:getHeight())))
     self:stayOnSplitScreen(self.playerNum)
@@ -673,8 +718,9 @@ end
 
 function Window:new(playerNum)
     local _, _, screenWidth, screenHeight = screenBounds(playerNum)
-    local width = math.min(WINDOW_WIDTH, math.max(1, screenWidth - 20))
-    local height = math.min(WINDOW_HEIGHT, math.max(1, screenHeight - 20))
+    local scale = math.max(1, getTextManager():getFontHeight(UIFont.Small) / 14)
+    local width = math.min(math.floor(WINDOW_WIDTH * scale), math.max(1, screenWidth - 20))
+    local height = math.min(math.floor(WINDOW_HEIGHT * scale), math.max(1, screenHeight - 20))
     local window = ISCollapsableWindowJoypad:new(0, 0, width, height)
     setmetatable(window, self)
     self.__index = self
@@ -682,7 +728,9 @@ function Window:new(playerNum)
     window.survivorId = nil
     window.snapshot = nil
     window.previousJoypadFocus = nil
-    window.resizable = false
+    window.resizable = true
+    window.minimumWidth = math.min(360, width)
+    window.minimumHeight = math.min(260, height)
     window.pin = true
     window.backgroundColor = { r = COL_BG[1], g = COL_BG[2], b = COL_BG[3], a = 0.94 }
     window.borderColor = { r = COL_BORDER[1], g = COL_BORDER[2], b = COL_BORDER[3], a = 0.95 }
@@ -788,8 +836,7 @@ local function onResolutionChange()
             window.panel:setHeight(nh - th - rh)
             for _, v in ipairs(window.panel.viewList or {}) do
                 if v.view ~= nil then
-                    v.view:setWidth(window.panel.width)
-                    -- Height stays content-driven; panel clips and scrolls.
+                    UILayout.fitView(v.view)
                 end
             end
         end

@@ -32,6 +32,15 @@ end
 local first, second = window(), window()
 inside1.getWindowTo = function(_, s) return s == grid['2:0'] and first or nil end
 inside2.getWindowTo = function(_, s) return s == grid['4:0'] and second or nil end
+-- A forceable locked door on this same edge must not make the NPC smash it
+-- before trying the available window.
+local lockedDoor = {
+    IsOpen = function() return false end,
+    isLocked = function() return true end,
+    isLockedByKey = function() return false end,
+    isBarricaded = function() return false end,
+}
+inside1.getDoorTo = function(_, s) return s == grid['2:0'] and lockedDoor or nil end
 local origin, leaderSquare = grid['0:0'], grid['0:0']
 local queued, busy, crossed, canceled = {}, false, 0, 0
 ISSmashWindow = {new = function(_, actor, w) return {actor = actor, window = w} end}
@@ -57,7 +66,9 @@ assert(c:retryWindowDetour(2, 'FAILED_LOCKED_OR_UNUSABLE_WINDOW'))
 assert(c.entryDetour.object == second and not c.entryDetour.force, 'try another window before force')
 origin = c.entryDetour.outside
 assert(c:retryWindowDetour(3, 'FAILED_LOCKED_OR_UNUSABLE_WINDOW'))
-assert(c.entryDetour.force and c.entryDetour.object == second, 'nearest previously tried closed window is last resort')
+assert(c.entryDetour.force and c.entryDetour.object == second
+    and c.entryDetour.object ~= lockedDoor,
+    'a forced window still outranks an equally forceable locked door')
 assert(c:crossWindowDetour(4) and c.state == 'OPENING_ENTRY_WINDOW')
 assert(#queued == 1 and crossed == 0, 'native action owns smash, not movement')
 c:updateEntryWindow(5)

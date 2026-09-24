@@ -2724,18 +2724,25 @@ local function findAlternateEntry(self, supply, ticks)
                     end
                     local forceWindow = attempts[window] == "closed" and allowForcedEntry
                         and not windowOpen and not windowSmashed and windowScore ~= nil
-                    if candidate == nil and windowScore ~= nil
+                    if windowScore ~= nil
                         and ((not isFailedEdge and attempts[window] == nil) or forceWindow) then
                         -- After a failed entrance, try usable windows first;
                         -- smashing remains after every non-destructive option.
-                        score = forceWindow and 4 or (windowScore < 4 and windowScore - 4 or windowScore)
-                        candidate = {
-                            outside = outside,
-                            inside = inside,
-                            object = window,
-                            kind = "window",
-                            force = forceWindow,
-                        }
+                        -- Do not let a forceable locked door mask an open or
+                        -- unlockable window on the same room edge.
+                        -- Keep forced windows after every quiet option (0-3),
+                        -- but ahead of forcing a locked door (4).
+                        local windowCandidateScore = forceWindow and 3.5 or windowScore
+                        if candidate == nil or windowCandidateScore < score then
+                            score = windowCandidateScore
+                            candidate = {
+                                outside = outside,
+                                inside = inside,
+                                object = window,
+                                kind = "window",
+                                force = forceWindow,
+                            }
+                        end
                     end
 
                     if candidate ~= nil and self:allowNeedDetour(outside, ticks or 0) then
@@ -3380,6 +3387,7 @@ function Controller:interruptForDirective()
         or self.state == "BASE_TASK_SUPPLY_MOVE"
         or self.state == "BASE_TASK_SUPPLY_TRANSFER"
         or self.state == "WAITING_TO_RECOVER"
+        or self.state == "MOVING_TO_REST"
         or self.state == "SLEEPING_RECOVERY"
         or self.state == "NIGHT_SHELTER_MOVE"
         or self.state == "AID_MOVE" or self.state == "AID_ACTION"
@@ -3391,17 +3399,30 @@ function Controller:interruptForDirective()
     end
     self.playerConversation = nil
     self:releaseBaseRecreation()
-    if self.state == "INVENTORY_CLEANUP" then
-        ISTimedActionQueue.clear(self.character)
-        self.pendingCleanup = nil
+    -- These states own native/Lua actions independently of a base-task claim.
+    -- Stop them before releasing their pointers or issuing replacement movement.
+    if self.state == "INVENTORY_CLEANUP" or self.state == "AID_ACTION"
+        or self.state == "WAITING_TO_RECOVER" or self.state == "SLEEPING_RECOVERY"
+        or self.state == "COMPANION_RELAX" or self.state == "BASE_AMBIENT_REST"
+        or self.state == "CAMP_AMBIENT_REST" then
+        if hasPendingTimedActions(self.character) then
+            ISTimedActionQueue.clear(self.character)
+        end
     end
+    self.pendingCleanup = nil
     self.bridge:cancelNpcMove(self.id)
+    self.travelFinalSquare = nil
+    self.travelFinalContext = nil
+    roadFinalById[self.id] = nil
+    self:releaseAmbientMovement()
+    self:releaseCampPosition()
     self.pendingDepositTrip = nil
     self:abandonBaseTask("directive_changed")
     self:releaseSupply()
     self:releaseRestSpot()
     self:releaseAid()
     self:leaveRecoveryPosture()
+    self.ambientRest = nil
     self.selfCareInterrupted = self.selfCareIntent ~= nil
         and self.activeDecision or self.selfCareInterrupted
     self.selfCareIntent = nil
@@ -3418,7 +3439,9 @@ function Controller:setCompanionOrder(ownerId, player, order, formationSlot)
     local changed = self.companionOwnerId ~= ownerId
         or self.companionTarget ~= player
         or self.companionOrder ~= normalized
-        or self.companionFormationSlot ~= normalizedSlot
+    -- Party membership can reindex slots while this survivor is eating,
+    -- fetching supplies or working. Only an actual order/owner change may
+    -- interrupt that activity; formation refresh already reads the new slot.
     self.companionOwnerId = ownerId
     self.companionTarget = player
     self.companionOrder = normalized

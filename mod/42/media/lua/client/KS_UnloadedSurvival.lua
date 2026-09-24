@@ -44,6 +44,28 @@ local function canonicalTaskType(taskType)
     return taskType
 end
 
+local function finite(value)
+    value = tonumber(value)
+    return value ~= nil and value == value and value > -math.huge and value < math.huge
+end
+
+local function validNeeds(snapshot)
+    if type(snapshot) ~= "table" then return false end
+    for _, key in ipairs({ "hunger", "thirst", "fatigue", "endurance", "health" }) do
+        if not finite(snapshot[key]) then return false end
+    end
+    return true
+end
+
+-- A prepared ledger does not prove that native removal succeeded. Never spend
+-- serialized inventory while its live body still owns those same items.
+local function nativeBodyAbsent(id)
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil or bridge.getNpcCharacter == nil then return true end
+    local ok, body = pcall(bridge.getNpcCharacter, bridge, id)
+    return ok and body == nil
+end
+
 local function clamp(value, low, high)
     return math.max(low, math.min(high, tonumber(value) or low))
 end
@@ -134,7 +156,7 @@ local function consumeAvailableSupply(id, kind, amount)
                 and persistence.getUnloadedSurvivalState(donorId) or nil
             if donorDuty.mode == "base" and donorDuty.baseId == duty.baseId
                 and donorState ~= nil and donorState.status == "hibernated"
-                and donorState.pendingMaterialization ~= true then
+                and donorState.pendingMaterialization ~= true and nativeBodyAbsent(donorId) then
                 local shared, itemType, sharedHunger, sharedThirst =
                     consumeStoredSupply(donorId, kind, amount)
                 if shared then
@@ -512,7 +534,7 @@ end
 
 function Simulation.captureLoaded(id, snapshot, hours)
     local persistence = rawget(_G, "KnoxPersistence")
-    if persistence == nil or type(id) ~= "string" or snapshot == nil then
+    if persistence == nil or type(id) ~= "string" or not validNeeds(snapshot) then
         return false
     end
     local state = ensureState(id, snapshot, tonumber(hours) or nowHours())
@@ -547,7 +569,10 @@ function Simulation.markStored(id, hours)
     end
     state.status = "hibernated"
     state.lastHours = tonumber(hours) or state.lastHours or nowHours()
-    return persistence.setUnloadedSurvivalState(id, state), "stored"
+    if persistence.setUnloadedSurvivalState(id, state) ~= true then
+        return false, "storage_persistence_failed"
+    end
+    return true, "stored"
 end
 
 -- Starts a durable off-screen trip to an existing base. The caller is
@@ -587,8 +612,32 @@ function Simulation.beginBaseReturn(id, base, hours)
         startedAtHours = now,
     }
     setActivity(state, "returning_to_base", now)
-    persistence.setUnloadedSurvivalState(id, state)
+    if persistence.setUnloadedSurvivalState(id, state) ~= true then
+        return false, "base_return_persistence_failed"
+    end
     return true, "base_return_started"
+end
+
+-- A virtual return is prepared while its live shell still exists.  If native
+-- removal then fails, retain the captured body state but return ledger
+-- ownership to that live shell; no body is recreated or relocated here.
+function Simulation.rollbackBaseReturn(id, hours)
+    local persistence = rawget(_G, "KnoxPersistence")
+    local state = persistence ~= nil and persistence.getUnloadedSurvivalState ~= nil
+        and persistence.getUnloadedSurvivalState(id) or nil
+    if state == nil or state.pendingMaterialization == true then
+        return false, "real_survival_snapshot_required"
+    end
+    local now = tonumber(hours) or nowHours()
+    state.baseReturn = nil
+    state.status = "loaded"
+    state.activity = "loaded"
+    state.activitySinceHours = now
+    state.lastHours = now
+    if persistence.setUnloadedSurvivalState(id, state) ~= true then
+        return false, "base_return_rollback_persistence_failed"
+    end
+    return true, "base_return_rolled_back"
 end
 
 local function advanceOne(id, state, hours, activityAdvanced)
@@ -656,10 +705,14 @@ function Simulation.advanceHibernated(id, hours)
     if persistence == nil or not survivorPresent(persistence, id) or persistence.getRecord(id) == nil then
         return false, "not_hibernated"
     end
+    if not nativeBodyAbsent(id) then return false, "native_body_not_absent" end
     local targetHours = tonumber(hours) or nowHours()
     local state = persistence.getUnloadedSurvivalState(id)
     if state == nil or state.pendingMaterialization == true then
         return false, "real_survival_snapshot_required"
+    end
+    if not validNeeds(state) or not finite(state.lastHours) or not finite(targetHours) then
+        return false, "invalid_survival_state"
     end
     local events = {}
     while (tonumber(state.lastHours) or targetHours) < targetHours do
@@ -678,15 +731,12 @@ function Simulation.advanceHibernated(id, hours)
     end
     persistence.setUnloadedSurvivalState(id, state)
     if state.status == "dead" then
-        persistence.markSurvivorDead(id, targetHours, "unloaded_survival")
+        persistence.markSurvivorDead(id, targetHours, "unloaded_survival", {
+            locationSource = "logical", corpseState = "logical_only",
+        })
         return true, "died"
     end
     return true, #events > 0 and table.concat(events, ",") or "advanced"
-end
-
-local function finite(value)
-    value = tonumber(value)
-    return value ~= nil and value == value and value > -math.huge and value < math.huge
 end
 
 local function pendingMeetOrder(intent)
@@ -728,9 +778,10 @@ local function advanceStoredGroup(group, active, hours)
                 local canonical = persistence.getTravelGroupFor(id)
                 local ownsTravel = duty ~= nil and (event and duty.eventId == group.id
                     or (not event and duty.mode == "autonomous" and canonical ~= nil and canonical.id == group.id))
-                if active[id] or not ownsTravel
+                if active[id] or not ownsTravel or not nativeBodyAbsent(id)
                     or persistence.getRecord(id) == nil or state == nil
-                    or state.pendingMaterialization or not finite(state.lastHours) then return nil end
+                    or state.pendingMaterialization or not finite(state.lastHours)
+                    or not validNeeds(state) then return nil end
                 if state.virtualX == nil then
                     state.virtualX, state.virtualY, state.virtualZ = recordLocation(id)
                 end
@@ -1057,6 +1108,7 @@ function Simulation.advanceAll(activeIds, hours)
         return 0, 0
     end
     local targetHours = tonumber(hours) or nowHours()
+    if not finite(targetHours) then return 0, 0 end
     local advanced, notable = 0, 0
     local ids = persistence.getActivatableSurvivorIds()
     local groups, groupIds, handled = {}, {}, {}
@@ -1194,6 +1246,7 @@ function Simulation.applyToLoaded(id, character)
     if state.pendingMaterialization == true then
         return false, "no_real_survival_snapshot"
     end
+    if not validNeeds(state) then return false, "invalid_survival_state" end
     local ok, evidence = pcall(function()
         local stats = character:getStats()
         stats:set(CharacterStat.HUNGER, clamp(state.hunger, 0, 1))

@@ -33,11 +33,7 @@ public final class WorkshopPayloadVerifier {
             if (error != null) throw new IllegalStateException(name + ": " + error);
         }
         Path modRoot = uploaded.resolve("mods/KnoxSurvivors");
-        Path steamBootstrap = modRoot.resolve("knox-steam-launch.cmd");
         Path steamHelper = modRoot.resolve("get-steam-launch-options.ps1");
-        if (!Files.isRegularFile(steamBootstrap)) {
-            throw new IllegalStateException("Steam bootstrap missing: " + steamBootstrap);
-        }
         if (!Files.isRegularFile(steamHelper)) {
             throw new IllegalStateException("Steam launch-options helper missing: " + steamHelper);
         }
@@ -76,8 +72,8 @@ public final class WorkshopPayloadVerifier {
             }
             String description = (String) type.getMethod("getDescription").invoke(item);
             if (!description.contains("Knox Survivors")
-                || !description.contains("knox-steam-launch.cmd")
-                || !description.contains("%command%")
+                || !description.contains("ZombieBuddy")
+                || !description.contains("Knox Launcher")
                 || !description.contains("KnoxSurvivorsLauncher/releases")) {
                 throw new IllegalStateException("Native description decoding lost the title or supported launch methods");
             }

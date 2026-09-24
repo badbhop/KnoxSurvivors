@@ -943,12 +943,16 @@ the hostile firearm QA fixture.
 
 ## Foolproof QA pass — 2026-09-21
 
+Superseded on 2026-09-23: automated QA no longer enables god, ghost, or
+invisibility on the player. It only clears those flags at suite start/end and
+menu exit to clean up state left by an older interrupted run.
+
 Test-harness changes only. No gameplay, architecture, save-schema, or
 numeric-balance changes.
 
-1. **Observer protection:** the coordinator applies god, ghost and invisible
-   mode to the player on start and every tick, and releases it on main-menu
-   return. All native calls are pcall-guarded.
+1. **Historical observer protection:** this checkpoint applied god, ghost and
+   invisible mode to the player. The current suite no longer enables those
+   modes and only clears flags left by an older interrupted run.
 2. **Global run timeout:** a stuck suite fails its active scenario instead of
    hanging; per-step retries (3 attempts) are unchanged.
 3. **Five new boundary checks** (all synchronous, honest `BLOCKED` when the
@@ -958,9 +962,9 @@ numeric-balance changes.
    `night_shelter` (real indoor search with the territory filter), and
    `persistence_roundtrip` (real save-capture pass with living-roster
    comparison).
-4. **Docs/tooltip:** the `Run Automated Knox QA` tooltip and
-   `docs/DEVELOPMENT_TESTING.md` describe the invincible/invisible observer
-   and the new stages. `docs/FEATURE_AUDIT.md` carries the dated entry.
+4. **Historical docs/tooltip:** the checkpoint documented the protected
+   observer and new stages. Current instructions are maintained in
+   `docs/DEVELOPMENT_TESTING.md`; `docs/FEATURE_AUDIT.md` retains dated history.
 
 ### Verification
 

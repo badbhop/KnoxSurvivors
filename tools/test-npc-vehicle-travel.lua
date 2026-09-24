@@ -49,7 +49,7 @@ local travel = dofile(root .. "/mod/42/media/lua/client/KS_NpcVehicleTravel.lua"
 local controller = { id = "leader", character = leader, groupMembers = { leader, passenger } }
 assert(travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 100),
     "leader may use an eligible distant running vehicle")
-assert(boarded == 1 and drives == 1, "nearby group passengers board before native driver travel starts")
+assert(boarded == 1 and drives == 1, "nearby group passengers board after driver request is accepted")
 controller.id = "member"
 assert(not travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 1000),
     "a non-leader cannot take group vehicle control")
@@ -57,4 +57,10 @@ controller.id, passenger.vehicle = "leader", nil
 player.vehicle = vehicle
 assert(not travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 2000),
     "an occupied player vehicle is never eligible for autonomous travel")
+player.vehicle=nil
+local before=boarded
+KnoxCompanionVehicles.driveTo=function() return false, "drive_route_unavailable" end
+assert(not travel.tryBegin(controller, {x=100,y=0,z=0},3000))
+assert(boarded==before and passenger.vehicle==nil,
+    "rejected driver request must not board or interrupt passengers")
 print("NPC vehicle travel PASS leader=true passengers=true player_vehicle_safe=true")

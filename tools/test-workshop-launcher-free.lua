@@ -17,30 +17,18 @@ assert(gradle:find('tools/get-steam-launch-options.ps1', 1, true),
 assert(not gradle:find('include("knox-agent-${project.version}.jar", "knox-agent-${project.version}.jar.sha256")', 1, true),
     "staging must not ship versioned agent names (launch options would rot)")
 
-local bootstrap = read(root .. "/mod/knox-steam-launch.cmd")
-for _, token in ipairs({
-    "jre64\\bin",
-    "jre64\\bin\\server",
-    "JAVA_TOOL_OPTIONS=%JAVA_TOOL_OPTIONS%",
-    "%*",
-    "knox-agent.jar",
-}) do
-    assert(bootstrap:find(token, 1, true),
-        "Steam bootstrap must preserve runtime/options behavior: " .. token)
-end
-assert(not bootstrap:find("setx ", 1, true),
-    "Steam bootstrap must not persist Windows environment changes")
-
 local helper = read(root .. "/tools/get-steam-launch-options.ps1")
 for _, token in ipairs({
-    "knox-steam-launch.cmd",
-    "%command%",
+    "-javaagent:",
     "ExistingOptions",
     "knox-agent.jar",
+    " --",
 }) do
     assert(helper:find(token, 1, true),
         "Steam helper must preserve/generate launch integration: " .. token)
 end
+assert(not helper:find("$bootstrap", 1, true),
+    "Steam helper must not depend on the retired command bootstrap")
 
 local runDev = read(root .. "/tools/run-dev.ps1")
 assert(runDev:find("java\\knox-agent.jar", 1, true),
@@ -48,13 +36,9 @@ assert(runDev:find("java\\knox-agent.jar", 1, true),
 
 local description = read(root .. "/workshop/description.bbcode")
 for _, token in ipairs({
-    "cmd /d /v:off /s /c",
-    "JAVA_TOOL_OPTIONS",
     "knox-agent.jar",
-    "knox-steam-launch.cmd",
-    "%command%",
-    "-agentlib:zbNative",
-    "get-steam-launch-options.ps1",
+    "ZombieBuddy",
+    "Knox Launcher",
     "KnoxSurvivorsLauncher/releases",
     "KnoxIsoPlayer.log",
 }) do
@@ -72,4 +56,4 @@ for _, info in ipairs({ "/mod/mod.info", "/mod/42/mod.info" }) do
         info .. " must not claim the launcher is required")
 end
 
-print("Workshop launcher-free PASS stable_agent=true bootstrap=true option_preservation=true docs=true")
+print("Workshop launcher-free PASS stable_agent=true direct_option=true docs=true")

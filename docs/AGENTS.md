@@ -46,7 +46,9 @@ Only wait for live testing when proceeding would risk save corruption, survivor 
 
 ## Engine work
 
-For engine-level behavior use the exact locally installed Project Zomboid Build 42.20.3 classes/JARs as authoritative.
+For engine-level behavior use the exact Project Zomboid installation configured by
+`local.properties` and record its build before drawing conclusions. The current
+release candidate targets Build 42.20.4.
 
 Do not guess engine behavior.
 

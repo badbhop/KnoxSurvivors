@@ -1,5 +1,24 @@
 # Feature-completion audit
 
+### Integrated stabilization pass - 2026-09-24
+
+**Offline verified; live gameplay and UI acceptance pending.** The current
+worktree passes 107 Lua syntax checks, 164 Lua regression scripts, and the Java
+build (272 checks total, zero failures). Workshop staging and the separate
+launcher build/verifiers also pass. These checks cover order handoff, movement
+lease cleanup, firearm nil handling, persistence recovery, virtual base return,
+vehicle ownership, and payload validation. The Survivor Card now uses the
+vanilla character panels with a resizable viewport and retained Skills scroll
+extent; its layout has only syntax and source-level verification so far.
+
+Before release, inspect the Skills, health, inventory and medical views at
+small and large UI scales in a live 42.20.4 save. Exercise competing orders,
+base-job interruption, save/reload, unloading and rematerialization, native
+combat, and vehicle handoff in a disposable save. The optional direct Steam
+`-javaagent` route has passed option generation and package checks, but still
+requires an actual Steam startup test. No live acceptance is implied by the
+offline count.
+
 ### Persistent survivor memory and offscreen story stabilization - 2026-09-23
 
 **Implemented; disposable-save live run pending.** Hibernated survivors now
@@ -33,11 +52,16 @@ handoff, and the card/history refresh after materialization.
 
 ### Foolproof unattended QA: observer protection and full-mechanic boundary checks - 2026-09-21
 
-**Implemented; disposable-save live run pending.** The opt-in QA coordinator now
-keeps the player invincible and invisible to zombies for the whole run (god,
-ghost and invisible mode, reapplied every tick, released on main-menu return),
-so the observer cannot die or drag zombies into a fixture mid-suite. A global
-run timeout fails the active scenario instead of hanging the suite forever.
+Superseded on 2026-09-23: the QA suite no longer enables player god, ghost, or
+invisibility modes. Current behavior and test instructions are in
+`docs/DEVELOPMENT_TESTING.md`.
+
+**Historical checkpoint; disposable-save live run pending.** At this checkpoint,
+the opt-in QA coordinator protected the observer with god, ghost, and invisible
+modes. That protection was removed on 2026-09-23; the current suite leaves the
+player vulnerable and only clears flags left by an older interrupted run. The
+global run timeout still fails the active scenario instead of hanging the suite
+forever.
 
 Five synchronous boundary checks run after faction admission: a hostile
 survivor-pair relationship record, raid planning eligibility through the real
@@ -2514,7 +2538,7 @@ remains pending; no launcher or Java change was required.
 | 2. Survivor autonomy | **Partial / loaded roaming implemented, live pass pending** | Independent loaded survivors keep one bounded goal, prefer useful supplies then nearby buildings/areas, avoid obvious zombie concentrations, use expiring destination/container memory, yield to danger or self-care, and reselect after completion/failure without permanent world knowledge. Existing ranked looting, equipment, needs, melee, rest, medicine, traversal, fleeing, and firearms remain integrated; roaming, ranged, retreat, and self-care live acceptance remain pending. |
 | 3. Priority/action ownership | **Implemented, unverified** | One Lua controller owns high-level state and Java owns exactly one movement request. Identical destinations are suppressed, changed destinations replace the prior request, and success/failure/cancel/interruption paths release engine and Java ownership. Focused lifecycle checks pass; the narrow live acceptance remains pending. |
 | 4. Navigation/human movement | **Partial / multi-floor and companion locomotion implemented, unverified** | Normal travel walks. Companion follow uses distinct trailing slots, bounded meaningful destination refresh, pace-only ownership-safe updates, and distance/condition-aware walk-run-sprint downgrade. XYZ requests, arrival, captured native route nodes, route distance, and floor-changing destination replacement are Z-aware. Native Build 42 path nodes and ordinary character movement remain responsible for stairs and locomotion; no Knox code mutates coordinates or speed. Stairs and visible off-slot sprint transitions still need their narrow live passes. Other routing quality and flee behavior remain separate. |
-| 5. Full combat | **Partial / melee and firearm slices implemented, live passes pending** | Native melee attack integration, moving-target refresh, zombie awareness, real BodyDamage, endurance, condition, injury capture, death, and terminal ownership cleanup exist. Loaded melee decisions use bounded priority scoring, target hysteresis, group defense, role leashes, reservation spreading, coherent retreat, and durable-order resumption. Fleeing now retries checked lanes quickly and gives passive/noncombat survivors a short sprint panic target when no safe lane exists and combat is unavailable; the normal adjacent-combat handoff remains in place. Firearms now delegate readiness, rack/reload, `DoAttack`, ballistics, ammo/chamber changes, condition, sound, and world noise to Build 42.20.3 while Knox owns bounded target range and cleanup. Standing/crawler parity, melee intelligence, and firearm acceptance still require their requested live scenarios. Survivor PvP and advanced tactical firearm behavior remain absent. |
+| 5. Full combat | **Partial / melee and firearm slices implemented, live passes pending** | Native melee attack integration, moving-target refresh, zombie awareness, real BodyDamage, endurance, condition, injury capture, death, and terminal ownership cleanup exist. Loaded melee decisions use bounded priority scoring, target hysteresis, group defense, role leashes, reservation spreading, coherent retreat, and durable-order resumption. Fleeing now retries checked lanes quickly and gives passive/noncombat survivors a short sprint panic target when no safe lane exists and combat is unavailable; the normal adjacent-combat handoff remains in place. Firearms delegate readiness, rack/reload, `DoAttack`, ballistics, ammo/chamber changes, condition, sound, and world noise to native Build 42 systems while Knox owns bounded target range and cleanup. Standing/crawler parity, melee intelligence, and firearm acceptance still require their requested live scenarios. Survivor PvP and advanced tactical firearm behavior remain absent. |
 | 6. Needs, health, medical, inventory | **Partial / loaded self-maintenance implemented, live pass pending** | Loaded survivors prioritize danger, bleeding, critical thirst/hunger, endurance rest, and fatigue sleep; use real carried food, water, and bandages through native actions; verify authoritative stat/BodyDamage changes; apply bounded retry; and resume durable orders after interruption. Fatigue now uses the off-slot-safe native sleeping event rather than a parallel stat. The player inventory and medical-management surfaces remain available. Live self-care, off-slot treatment, nested transfer, and sleep/wake acceptance remain incomplete. |
 | 7. Skills, traits, occupations | **Implemented, unverified** | Deterministic Build 42 profession/trait generation, perk levels, XP capture/restore, and job requirement checks exist and pass standalone persistence checks. Long save/unload/reconstruction progression still needs a live pass. |
 | 8. Social system | **Partial / relationship and encounter coherence implemented, live pass pending** | Persistent IDs provide one deterministic self/allied/neutral/hostile classification across pair history, player ownership, groups, factions, and symmetric faction disposition. Loaded ally assistance derives from that authority; neutral contact is cautious rather than forced, greetings are single-owner and cooldown-bound, joining requires familiarity/shared activity, and interruptions resume durable behavior. Survivor PvP and deeper faction favors remain absent. |

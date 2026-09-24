@@ -124,22 +124,7 @@ local function result(scenario, status, reason, evidence)
     end
 end
 
--- While the disposable QA run owns the save, the player is a camera, not a
--- test subject. God mode, ghost mode and invisibility keep zombies, hostile
--- survivors and exposure from killing the observer mid-suite. Every native
--- call is pcall-guarded so a missing API on some Build 42 revision can never
--- fail the run; the worst case is an honest BLOCKED from a later step.
-local function ensurePlayerProtection(player)
-    if player == nil then return end
-    pcall(function() player:setGodMod(true) end)
-    pcall(function() player:setGhostMode(true) end)
-    pcall(function() player:setInvisible(true) end)
-    if state ~= nil and not state.protectionLogged then
-        state.protectionLogged = true
-        print(TAG .. " player_protection god=true ghost=true invisible=true")
-    end
-end
-
+-- Clear protection that may have been left active by an older QA run.
 local function releasePlayerProtection()
     local player = playerFor(0)
     if player == nil then return end
@@ -228,7 +213,6 @@ local function finish()
         .. " ticks=" .. tostring(state.ticks))
     print(TAG .. " COMPLETE manual_review=visual_feel_only"
         .. " pending=live_raid_combat,native_driving,long_faction_lifecycle,player_death_succession"
-        .. " player_protection=retained_for_disposable_save"
         .. " report=DebugLog_lines_parse_with_tools/parse-live-qa.ps1")
     local feed = rawget(_G, "KnoxActivityFeed")
     if feed ~= nil and feed.event ~= nil then
@@ -243,6 +227,7 @@ local function finish()
     end
     state.phase = "FINISHED"
     stop()
+    releasePlayerProtection()
 end
 
 local function failCurrent(reason, evidence)
@@ -1476,9 +1461,6 @@ end
 update = function()
     if state == nil or state.phase == "FINISHED" then return end
     state.ticks = state.ticks + 1
-    -- The observer must survive the whole disposable run, including faction
-    -- raids, hostile encounters and wandering zombies between steps.
-    ensurePlayerProtection(playerFor(state.playerNum))
     if state.ticks >= GLOBAL_TIMEOUT_TICKS then
         result(state.currentStep ~= nil and state.currentStep.name or "suite",
             "FAIL", "suite_timeout", "ticks=" .. tostring(state.ticks))
@@ -1544,7 +1526,7 @@ function QA.start(playerNum)
     print(TAG .. " START save_is_disposable=true player=" .. tostring(state.playerNum)
         .. " maxPasses=" .. tostring(MAX_PASSES)
         .. " scenarios=" .. table.concat(scenarioNames, ","))
-    ensurePlayerProtection(playerFor(state.playerNum))
+    releasePlayerProtection()
     stop()
     Events.OnTick.Add(update)
     return true, "started"

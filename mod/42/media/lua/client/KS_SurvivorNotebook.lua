@@ -20,6 +20,7 @@ require "KS_CompanionService"
 require "KS_SurvivorCard"
 require "KS_ActivityFeed"
 require "KS_OrderCatalog"
+local UILayout = require "KS_SurvivorUILayout"
 
 local Notebook = rawget(_G, "KnoxSurvivorNotebook") or {}
 _G.KnoxSurvivorNotebook = Notebook
@@ -278,7 +279,8 @@ function ResidentsView:createChildren()
     self.list=ISScrollingListBox:new(UI_BORDER_SPACING,UI_BORDER_SPACING,self.width-UI_BORDER_SPACING*2,self.height-UI_BORDER_SPACING*2-BUTTON_HGT-UI_BORDER_SPACING)
     self.list:initialise(); self.list:instantiate(); self.list.itemheight=BUTTON_HGT; self.list.font=UIFont.NewSmall; self.list.doDrawItem=self.drawEntry; self.list.drawBorder=true; self.list.joypadParent=self; self:addChild(self.list)
     self.viewBtn=ISButton:new(UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,110,BUTTON_HGT,"View Card",self,ResidentsView.onView); self.viewBtn:initialise(); self.viewBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.viewBtn)
-    self.sendHomeBtn=ISButton:new(self.viewBtn:getRight()+UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,120,BUTTON_HGT,"Send Party Home",self,ResidentsView.onSendHome); self.sendHomeBtn:initialise(); self.sendHomeBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.sendHomeBtn)
+    self.joinPartyBtn=ISButton:new(self.viewBtn:getRight()+UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,95,BUTTON_HGT,"Join Party",self,ResidentsView.onJoinParty); self.joinPartyBtn:initialise(); self.joinPartyBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.joinPartyBtn)
+    self.sendHomeBtn=ISButton:new(self.joinPartyBtn:getRight()+UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,120,BUTTON_HGT,"Send Party Home",self,ResidentsView.onSendHome); self.sendHomeBtn:initialise(); self.sendHomeBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.sendHomeBtn)
     self.jobPicker=ISComboBox:new(self.sendHomeBtn:getRight()+UI_BORDER_SPACING,self.list:getBottom()+UI_BORDER_SPACING,125,BUTTON_HGT,self,nil); self.jobPicker:initialise(); for _,choice in ipairs(BASE_JOB_CHOICES) do self.jobPicker:addOption(choice.label) end; self.jobPicker.selected=1; self:addChild(self.jobPicker)
     self.setJobBtn=ISButton:new(self.jobPicker:getRight()+6,self.list:getBottom()+UI_BORDER_SPACING,95,BUTTON_HGT,"Set Job",self,ResidentsView.onSetJob); self.setJobBtn:initialise(); self.setJobBtn.borderColor={r=0.7,g=0.7,b=0.7,a=0.5}; self:addChild(self.setJobBtn)
 end
@@ -299,6 +301,7 @@ function ResidentsView:populate(playerNum)
             local work=workStatusFor(base, id)
             local taskLabel=work ~= nil and work.taskType ~= nil
                 and KnoxOrderCatalog.label(work.taskType, work.taskType) or "Idle"
+            local taskDetail = nil
             if work ~= nil and work.state == "claimed" and work.offscreen == true then
                 taskLabel = taskLabel .. " (off-screen)"
             elseif work ~= nil and (work.state == "supply_order"
@@ -307,14 +310,24 @@ function ResidentsView:populate(playerNum)
             elseif work ~= nil and work.state == "resting" then
                 taskLabel = "Resting"
             elseif work ~= nil and work.state == "idle" and work.taskType ~= nil then
-                taskLabel = "Idle after " .. taskLabel
+                taskDetail = "Last task: " .. taskLabel
+            end
+            local snapshot = KnoxSurvivorViewModel.getSurvivor ~= nil
+                and KnoxSurvivorViewModel.getSurvivor(id, playerNum) or nil
+            local currentStatus = snapshot ~= nil and snapshot.activity or taskLabel
+            local currentLocation = snapshot ~= nil and snapshot.locationLabel or nil
+            if taskDetail == nil and work ~= nil and work.taskType ~= nil
+                and snapshot ~= nil and currentStatus ~= taskLabel then
+                taskDetail = "Task: " .. taskLabel
             end
             local jobPreference = KnoxOrderCatalog.normalizeBasePreference ~= nil
                 and KnoxOrderCatalog.normalizeBasePreference(duty.jobPreference)
                 or duty.jobPreference
             addRow(self.list,id, name .. "  |  Base  |  Job: "
                 .. KnoxOrderCatalog.label(jobPreference or "auto", "Automatic") .. "  |  " .. profLabel
-                .. "  |  Now: " .. tostring(taskLabel))
+                .. "  |  Now: " .. tostring(currentStatus)
+                .. (currentLocation ~= nil and "  |  " .. tostring(currentLocation) or "")
+                .. (taskDetail ~= nil and "  |  " .. taskDetail or ""))
             self.ids[#self.ids+1]=id
         end
     end end
@@ -326,6 +339,16 @@ function ResidentsView:onSendHome()
     if not p then return end
     for _, s in ipairs(KnoxSurvivorViewModel.getForPlayer(self.playerNum) or {}) do
         KnoxCompanionService.issueOrder(p, s.id, "return_to_base")
+    end
+end
+function ResidentsView:onJoinParty()
+    local id=self.ids[self.list.selected or 0]; local player=getSpecificPlayer(self.playerNum)
+    if id == nil or player == nil then return end
+    local changed, reason = KnoxCompanionService.recallToParty(player, id)
+    if changed then
+        self:populate(self.playerNum)
+    elseif KnoxActivityFeed ~= nil then
+        KnoxActivityFeed.event("Could not join party: " .. tostring(readableReason(reason) or "unavailable") .. ".")
     end
 end
 function ResidentsView:onSetJob()
@@ -349,11 +372,26 @@ function ResidentsView:onSetJob()
     end
 end
 function ResidentsView:prerender()
+    if self.parent ~= nil then
+        self:setWidth(self.parent.width)
+        self:setHeight(math.max(1, self.parent.height - self.parent.tabHeight))
+    end
+    UILayout.residentFooter(self, UI_BORDER_SPACING, getTextManager():getFontHeight(UIFont.Small) + 10)
     ISPanelJoypad.prerender(self); local id=self.ids and self.ids[self.list.selected or 0] or nil; local duty=id and KnoxPersistence.getSurvivorDuty(id) or nil
-    self.viewBtn:setEnable(id~=nil); local resident=duty ~= nil and duty.mode == "base"; self.jobPicker:setEnabled(resident); self.setJobBtn:setEnable(resident)
+    self.viewBtn:setEnable(id~=nil); local resident=duty ~= nil and duty.mode == "base"; self.joinPartyBtn:setEnable(resident); self.jobPicker:setEnabled(resident); self.setJobBtn:setEnable(resident)
 end
 function ResidentsView:onJoypadDown(b,jd) if b==Joypad.AButton and self.list.selected>0 then self:onView() end; ISPanelJoypad.onJoypadDown(self,b,jd) end
-function ResidentsView:new(x,y,w,h) local o=ISPanelJoypad.new(self,x,y,w,h); o:noBackground(); return o end
+function ResidentsView:onMouseWheel(delta)
+    self:setYScroll(self:getYScroll() - delta * 30)
+    return true
+end
+function ResidentsView:new(x,y,w,h)
+    local o=ISPanelJoypad.new(self,x,y,w,h)
+    o:noBackground()
+    o:setScrollChildren(true)
+    o:addScrollBars()
+    return o
+end
 
 -- Work panel: tasks + storage
 local WorkView = ISPanelJoypad:derive("KnoxNotebookWorkView")

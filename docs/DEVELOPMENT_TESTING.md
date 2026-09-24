@@ -4,10 +4,8 @@
 
 Use a disposable save for this suite. In Sandbox settings enable **Enable
 Developer Tools** and **Run Automated Knox QA**. Leave the automatic developer
-scenario set to **None**, load the save, and leave the game running. While the
-suite runs, the player is kept invincible and invisible to zombies (god, ghost
-and invisible mode, reapplied every tick), so the observer cannot die or drag
-zombies into a fixture mid-run. Knox starts the coordinator after the world is
+scenario set to **None**, load the save, and leave the game running. The player
+is not protected while the suite runs and can be injured or killed. Knox starts the coordinator after the world is
 ready and runs native traversal, base storage/task admission, needs, and
 firearm combat checks without requiring manual orders. It discovers a nearby
 building and ordinary container when the loaded cell provides one, so you do

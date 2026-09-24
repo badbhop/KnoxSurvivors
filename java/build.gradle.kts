@@ -21,7 +21,18 @@ val zombieBuddyJar = providers.gradleProperty("zombieBuddyJar")
 fun resolvedZombieBuddyJar(): File {
     val configured = zombieBuddyJar.get().trim()
     if (configured.isNotEmpty()) return file(configured)
-    return file(pzHome.get()).resolve("ZombieBuddy.jar")
+    val gameDirectory = file(pzHome.get())
+    val directJar = gameDirectory.resolve("ZombieBuddy.jar")
+    if (directJar.isFile) return directJar
+
+    // ZombieBuddy is normally installed as a Workshop mod, not beside the game jar.
+    val steamRoot = gameDirectory.parentFile?.parentFile?.parentFile
+    val workshopItems = steamRoot?.resolve("steamapps/workshop/content/108600")
+    return workshopItems?.listFiles()
+        ?.sortedBy { it.name }
+        ?.map { it.resolve("mods/ZombieBuddy/libs/ZombieBuddy.jar") }
+        ?.firstOrNull { it.isFile }
+        ?: directJar
 }
 
 java {
@@ -32,8 +43,8 @@ java {
 
 dependencies {
     compileOnly(files(pzHome.map { file(it).resolve("projectzomboid.jar") }))
-    // ZombieBuddy's released v2.3.2 Patch API is compile-only. At runtime the user-provided
-    // ZombieBuddy installation owns this class; Knox does not bundle or replace ZombieBuddy.
+    // Compile-only: the Steam package includes Knox's adapter but never bundles
+    // ZombieBuddy itself. The Knox Launcher/legacy agent path does not load it.
     compileOnly(files(providers.provider { resolvedZombieBuddyJar() }))
 }
 
@@ -54,13 +65,14 @@ tasks.register("verifyGameJar") {
 
 tasks.register("verifyZombieBuddyApi") {
     group = "verification"
-    description = "Checks that ZombieBuddy.jar is available for compile-only Patch API types."
+    description = "Checks for the optional compile-only ZombieBuddy Patch API used by the dual-runtime package."
 
     doLast {
         val jar = resolvedZombieBuddyJar()
         require(jar.isFile) {
-            "ZombieBuddy.jar not found at ${jar.absolutePath}. Install ZombieBuddy next to Project Zomboid or set zombieBuddyJar in local.properties."
+            "ZombieBuddy.jar not found at ${jar.absolutePath}. Subscribe to ZombieBuddy or set zombieBuddyJar in local.properties to build the dual-runtime Workshop package."
         }
+        logger.lifecycle("ZombieBuddy Patch API found; hooks are compile-only and are not bundled.")
     }
 }
 

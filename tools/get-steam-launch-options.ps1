@@ -81,57 +81,29 @@ try {
 }
 finally { $archive.Dispose() }
 
-$modRoot = Split-Path (Split-Path $AgentJar -Parent) -Parent
-$bootstrap = Join-Path $modRoot 'knox-steam-launch.cmd'
-if (-not (Test-Path -LiteralPath $bootstrap -PathType Leaf)) {
-    throw 'Knox Steam bootstrap is missing. Let Steam update or verify the Workshop item.'
-}
-$bootstrap = (Get-Item -LiteralPath $bootstrap).FullName
-if ($bootstrap -match '["\r\n%]') {
-    throw 'The Workshop path contains characters that cannot be represented safely by the Steam bootstrap.'
-}
-
 $commandMatches = [regex]::Matches($ExistingOptions, '(?i)%command%')
-if ($commandMatches.Count -gt 1) {
-    throw 'Existing Steam options contain more than one %command% placeholder. Merge that custom wrapper manually.'
+if ($commandMatches.Count -gt 0) {
+    throw 'Existing Steam options use a %command% wrapper. The direct Knox agent option cannot merge that wrapper automatically.'
 }
 
 $existing = $ExistingOptions.Trim()
-$prefix = '"' + $bootstrap + '"'
-if ($commandMatches.Count -eq 1) {
-    # Preserve an existing wrapper exactly, but run it inside Knox's process-local
-    # bundled-Java environment so its own options/mods are not discarded.
-    $prefix + ' ' + $existing
+$separatorMatches = [regex]::Matches($existing, '(?<!\S)--(?!\S)')
+if ($separatorMatches.Count -gt 1) {
+    throw 'Existing Steam options contain more than one standalone -- separator. Merge those options manually.'
 }
-# Some Java-mod installers copy runtime DLLs beside the EXE. That directory
-# wins over PATH, so a stale copy cannot be repaired by this wrapper. Never
-# replace another mod's files automatically.
-foreach ($name in @('java.dll', 'jli.dll', 'instrument.dll', 'jvm.dll')) {
-    $rootDll = Join-Path $GameDirectory $name
-    if (Test-Path -LiteralPath $rootDll -PathType Leaf) {
-        $relative = if ($name -eq 'jvm.dll') { 'jre64\bin\server\jvm.dll' } else { 'jre64\bin\' + $name }
-        $bundledDll = Join-Path $GameDirectory $relative
-        $hashAlgorithm = [Security.Cryptography.SHA256]::Create()
-        try {
-            $rootHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([IO.File]::ReadAllBytes($rootDll)))
-            $bundledHash = [BitConverter]::ToString($hashAlgorithm.ComputeHash([IO.File]::ReadAllBytes($bundledDll)))
-        } finally { $hashAlgorithm.Dispose() }
-        if ($rootHash -ne $bundledHash) {
-            throw "Game-root $name differs from the bundled runtime and takes precedence over PATH. Review the installer that owns that copy; no files were changed."
-        }
-    }
+
+$agentOption = '-javaagent:"' + $AgentJar + '"=pz-game'
+if ($separatorMatches.Count -eq 1) {
+    $separator = $separatorMatches[0]
+    $jvmOptions = $existing.Substring(0, $separator.Index).Trim()
+    $gameOptions = $existing.Substring($separator.Index + $separator.Length).Trim()
+    $parts = @($jvmOptions, $agentOption, '--', $gameOptions) |
+        Where-Object { $_ }
+    [string]::Join(' ', [string[]]$parts)
+} elseif ($existing) {
+    # Without an existing separator, preserve the supplied text as game arguments.
+    # JVM options must be supplied with an explicit trailing `--`.
+    "$agentOption -- $existing"
+} else {
+    "$agentOption --"
 }
-# Shell metacharacters in existing arguments cannot safely be forwarded through
-# cmd without reinterpreting their quoting. Decline those cases rather than edit them.
-if (($GameDirectory + $options) -match '[&|<>^%!\r\n\x00]' -or $GameDirectory.Contains('"')) {
-    throw 'Runtime-isolation options contain shell metacharacters requiring a manual setup. No settings were changed.'
-}
-$insideQuotes = $false
-foreach ($character in $options.ToCharArray()) {
-    if ($character -eq '"') { $insideQuotes = -not $insideQuotes }
-    elseif (-not $insideQuotes -and ($character -eq '(' -or $character -eq ')')) {
-        throw 'Quote argument paths containing parentheses before generating runtime-isolation options.'
-    }
-}
-'cmd /d /v:off /s /c "set "PATH=' + $GameDirectory + '\jre64\bin;' +
-    $GameDirectory + '\jre64\bin\server;%PATH%" && %command% ' + $options + '"'

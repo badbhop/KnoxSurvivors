@@ -29,6 +29,33 @@ local INITIAL_REGION_COHORT_MIN = 4
 local INITIAL_REGION_COHORT_MAX = 12
 local INITIAL_GROUP_MAX_SEPARATION = 64
 
+-- These ledger activities retain a concrete logical position.  They may safely
+-- become a hidden engine shell once their square streams in.  Event ownership,
+-- origin staging, and transitional runtime states deliberately stay out of
+-- this set: their dedicated paths decide when they may materialize.
+local VIRTUAL_LOCATION_ACTIVITIES = {
+    surviving = true,
+    seeking_supplies = true,
+    exploring = true,
+    riding = true,
+    waiting_for_leader = true,
+    group_travel = true,
+    group_waiting = true,
+    group_regrouping = true,
+    group_objective = true,
+    base_life = true,
+    base_working = true,
+    sleeping = true,
+    resting = true,
+    sheltering = true,
+    returning_to_base = true,
+    away_mission = true,
+}
+
+local function hasMaterializableVirtualLocation(state)
+    return type(state) == "table" and VIRTUAL_LOCATION_ACTIVITIES[state.activity] == true
+end
+
 local function finite(value)
     value = tonumber(value)
     return value ~= nil and value == value and value > -math.huge and value < math.huge
@@ -1237,18 +1264,22 @@ end
 local function materializeVirtualLocation(id, bridge, record, players, maximumDistance)
     local state = KnoxPersistence.getUnloadedSurvivalState ~= nil
         and KnoxPersistence.getUnloadedSurvivalState(id) or nil
-    if state == nil or (state.activity ~= "surviving"
-        and state.activity ~= "group_travel"
-        and state.activity ~= "group_waiting"
-        and state.activity ~= "group_regrouping"
-        and state.activity ~= "base_life"
-        and state.activity ~= "base_working"
-        and state.activity ~= "sleeping"
-        and state.activity ~= "resting"
-        and state.activity ~= "sheltering"
-        and state.activity ~= "returning_to_base"
-        and state.activity ~= "away_mission") then
+    if state == nil then
         return record, nil, nil, nil, "no_virtual_travel"
+    end
+    if state.pendingMaterialization == true then
+        return record, nil, nil, nil, "pending_materialization"
+    end
+    -- OnSave captures live bodies too. Their native record is authoritative;
+    -- the last offscreen activity is not a reason to hide them on reload.
+    if state.status == "loaded" then
+        return record, nil, nil, nil, "no_virtual_travel"
+    end
+    if not hasMaterializableVirtualLocation(state) then
+        -- A ledger state with a virtual position is authoritative over the
+        -- saved record.  Do not resurrect it at that stale record location
+        -- while an event/origin/transitional owner has not released it.
+        return record, nil, nil, nil, "virtual_activity_blocked"
     end
     local x = math.floor(tonumber(state.virtualX) or -1)
     local y = math.floor(tonumber(state.virtualY) or -1)

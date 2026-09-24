@@ -48,7 +48,7 @@ The `KnoxSurvivors` folder under Project Zomboid's `Workshop` directory must con
 
 Because this updates the existing item, `workshop.txt` must contain `id=3749727604`. Review its title, description, tags, and `visibility=public` before uploading. Do not create a second Workshop item.
 
-Build 42.20.3 uploads the contents of `Contents/`, not its parent folder. The Java
+Steam Workshop uploads the contents of `Contents/`, not its parent folder. The Java
 runtime belongs inside `Contents/mods/KnoxSurvivors/java/`. A root-level `java/`
 folder is not published. `stageWorkshop` synchronizes the generated mod folder so
 removed Lua files and old runtime versions are not accidentally shipped; it leaves
@@ -93,36 +93,29 @@ Do not label it an exact latest-release rollback without checking the actual upl
 See [NORMAL_PLAYER_TEST.md](NORMAL_PLAYER_TEST.md) before testing from this development PC:
 local copies with the same Mod ID can shadow the subscribed files.
 
-## Steam launch-option acceptance
+## Direct Steam launch-option acceptance
 
-The supported Windows Steam route uses the Workshop-shipped
-`knox-steam-launch.cmd` bootstrap:
+The retired `knox-steam-launch.cmd` wrapper is not part of the Workshop package.
+The optional Windows support/development route passes the stable subscribed agent
+directly through Steam's launch options:
 
-`"<actual subscribed path>\mods\KnoxSurvivors\knox-steam-launch.cmd" %command%`
+`-javaagent:"<actual subscribed path>\mods\KnoxSurvivors\java\knox-agent.jar"=pz-game --`
 
-The bootstrap keeps the normal Steam command, prepends the game's own
-`jre64\bin` and `jre64\bin\server` to PATH for that process tree only,
-preserves inherited `JAVA_TOOL_OPTIONS`, appends the Knox agent, and forwards all
-existing Steam arguments. It does not edit global environment values, game JSON/BAT
-files, saves or mod settings.
+The staged/subscribed `get-steam-launch-options.ps1` discovers that agent, validates
+its checksum and premain manifest, and prints the direct option. Pass
+`-ExistingOptions` to preserve JVM options before one existing `--` separator and
+game arguments after it. If no separator exists, the supplied text is treated as
+game arguments. Existing `%command%` wrappers, duplicate Knox entries, and ambiguous
+separators are rejected for manual review. The helper writes no Steam, game, save,
+or environment settings.
 
-For support/development, the staged/subscribed
-`get-steam-launch-options.ps1` discovers the subscribed agent, validates its checksum
-and premain manifest, checks the bootstrap is present, and prints a merged Steam line.
-Pass `-ExistingOptions` with the player's current Steam line. Plain launch arguments
-are kept after an explicit `%command%`; a line that already contains exactly one
-`%command%` is preserved behind the Knox bootstrap. Duplicate Knox entries and
-multiple `%command%` placeholders are rejected.
-
-Common Java mod options must survive unchanged. In particular, a Windows ZombieBuddy
-line such as `-agentlib:zbNative --` becomes:
-
-`"<actual subscribed path>\mods\KnoxSurvivors\knox-steam-launch.cmd" %command% -agentlib:zbNative --`
+ZombieBuddy and the direct Knox Java-agent route are separate runtime choices. Do
+not merge a ZombieBuddy agent option into this Knox-only line.
 
 Before calling this route live-verified:
 
-1. Confirm the subscribed package contains `knox-steam-launch.cmd`,
-   `get-steam-launch-options.ps1`, the stable `java/knox-agent.jar`, and its matching
+1. Confirm the subscribed package contains `get-steam-launch-options.ps1`, the
+   stable `java/knox-agent.jar`, and its matching
    checksum. Exclude local mods shadowing the subscription and remove any older Knox
    `-javaagent` Steam option.
 2. Record the game JSON/BAT hashes, effective heap/options, other agents, game arguments
@@ -133,13 +126,13 @@ Before calling this route live-verified:
    bridge availability.
 4. Verify loaded `java.dll`/JVM components come from Project Zomboid's bundled
    `jre64`, not the external Java installation.
-5. Test one existing direct agent option (ZombieBuddy is the primary compatibility
-   case) and one existing `%command%` wrapper. Confirm their original arguments remain
-   present and Knox loads only once.
+5. Test preserved JVM and game arguments around one `--` separator. Confirm their
+   original arguments remain present and Knox loads only once. Confirm `%command%`
+   wrappers are rejected with an actionable message instead of being rewritten.
 6. Check survivor spawn, movement, melee, firearms/reload and save/reload. Confirm one
    body per persisted identity and no player/camera/input ownership change.
 7. Confirm JSON/BAT hashes, saves and global environment values are unchanged. Remove
-   only the Knox bootstrap prefix and confirm the previous Steam line still launches.
+   only the Knox `-javaagent` option and confirm the previous Steam line still launches.
 
 Keep Steam/subscribed-install and gameplay gates open until those exact runs are
 recorded. Offline payload checks are separate evidence. Linux/macOS and alternate BAT
@@ -148,9 +141,10 @@ startup need their own validation.
 ## Windows runtime isolation and other Java mods
 
 An entry-point error naming an external Java installation (for example Zulu 17's
-`java.dll`) is a native runtime selection problem. The Workshop bootstrap addresses
-that by changing PATH only in the Project Zomboid process tree before the JVM loads;
-it does not uninstall system Java or change the user's global PATH.
+`java.dll`) is a native runtime selection problem. The Knox Launcher addresses that
+by putting Project Zomboid's bundled Java directories first on `PATH` only for the
+child game process. The direct Steam `-javaagent` option does not adjust `PATH`, so
+that optional route still requires a live runtime-selection check on affected systems.
 
 For a runtime-selection fix, require these additional checks:
 
@@ -167,11 +161,10 @@ For a runtime-selection fix, require these additional checks:
   and operation both with and without an external Java installation. Any one-time
   integration must have a clear removal path and must not leave stale absolute paths
   after moving or unsubscribing from the Workshop item.
-- Round-trip the generated wrapper through Windows `cmd`, comparing the exact child
-  arguments, working directory, exit code, inherited agent variables and remaining PATH.
-  Cover quoted spaces/parentheses and reject unsupported shell syntax rather than
-  silently changing it. Verify parent-process and user/machine environment values stay
-  unchanged. Simulating `%command%` is a parser test, not an actual Steam launch.
+- Round-trip generated launch options through Windows PowerShell 5.1 and compare the
+  exact preserved JVM options, separator, and game arguments. Cover quoted paths and
+  reject unsupported or ambiguous input rather than silently changing it. This parser
+  check is not an actual Steam launch.
 - Distinguish command preservation from gameplay compatibility. Require a real run
   with the installed ZombieBuddy/Project REM versions, fresh loading evidence, and
   representative gameplay before claiming that combination is supported. Arbitrary

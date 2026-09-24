@@ -71,6 +71,9 @@ KnoxPersistence = {
             },
         }
     end,
+    getSurvivorDeathEvidence = function()
+        return {x=20,y=21,z=0,locationSource="logical",corpseState="logical_only"}
+    end,
 }
 KnoxCompanionService = {
     getCompanionIds = function() return { "survivor-1" } end,
@@ -223,7 +226,8 @@ assert(viewModel.getSurvivor("survivor-1", 0).locationLabel == "Away - assigned 
 duty.mode = "companion"
 KnoxPersistence.isSurvivorAlive = function() return false end
 local dead = viewModel.getSurvivor("survivor-1", 0)
-assert(dead.alive == false and dead.activity == "Dead" and dead.locationLabel == "Deceased")
+assert(dead.alive == false and dead.activity == "Dead" and dead.locationLabel == "Deceased - logical location recorded"
+    and dead.deathEvidence ~= nil and dead.deathEvidence.corpseState == "logical_only")
 assert(#viewModel.getForPlayer(0) == 0, "dead persisted companion must leave HUD before roster cleanup")
 KnoxPersistence.isSurvivorAlive = function() return true end
 KnoxSurvivorRuntime.snapshot = function() return {loaded = false, activity = "away"} end

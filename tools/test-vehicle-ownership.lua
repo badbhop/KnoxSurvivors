@@ -42,6 +42,7 @@ ISTimedActionQueue.clear(a)
 ok, reason = vehicles.board(c, vehicle)
 assert(ok and reason == "boarding_seat=1", "failed path must release the reservation")
 now = 45001
+vehicles.tick()
 assert(not vehicles.isBusy(b) and #ISTimedActionQueue.queues[b].queue == 0, "timeout must release native action ownership")
 vehicles.cancel(c)
 failAdd = true

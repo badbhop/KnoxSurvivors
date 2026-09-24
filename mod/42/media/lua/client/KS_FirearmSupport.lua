@@ -7,6 +7,7 @@ require "TimedActions/ISReloadWeaponAction"
 require "TimedActions/ISRackFirearm"
 require "TimedActions/ISTimedActionQueue"
 pcall(function() require "KS_DebugLog" end)
+local KS_SafeCall = require "KS_SafeCall"
 
 local Firearms = rawget(_G, "KnoxFirearmSupport") or {}
 _G.KnoxFirearmSupport = Firearms
@@ -135,8 +136,7 @@ local function bestReadyGun(character)
     return best
 end
 
-local function bestReloadableGun(character)
-    local best, bestScore = carriedGuns(character, function(item)
+local function canPrepare(character, item)
         if isFunctionalGun(item) then
             local needsRack = safe(function()
                 return ISReloadWeaponAction.canRack(item)
@@ -155,9 +155,14 @@ local function bestReloadableGun(character)
             end
         end
         return false
+end
+
+local function bestReloadableGun(character)
+    local best, bestScore = carriedGuns(character, function(item)
+        return canPrepare(character, item)
     end)
     local primary = safe(function() return character:getPrimaryHandItem() end, nil)
-    if primary ~= nil and isFunctionalGun(primary) and best ~= nil
+    if canPrepare(character, primary) and best ~= nil
         and gunScore(primary) + FIREARM_SWITCH_MARGIN >= bestScore then
         return primary
     end
@@ -246,17 +251,26 @@ local function hasUsableMelee(character)
     if carried == nil then return false end
     for index = 0, carried:size() - 1 do
         local item = carried:get(index)
-        if safe(function() return item:IsWeapon() and not item:isRanged() and not item:isBroken() end, false) then
-            return true
+        if item ~= nil then
+            local weapon, weaponReason = KS_SafeCall.invoke(item, "IsWeapon")
+            if weapon and weaponReason == nil then
+                local ranged = KS_SafeCall.invoke(item, "isRanged")
+                local broken = KS_SafeCall.invoke(item, "isBroken")
+                if ranged == false and broken == false then
+                    return true
+                end
+            end
         end
     end
     return false
 end
 
 local function isUsableMelee(item)
-    return safe(function()
-        return item:IsWeapon() and not item:isRanged() and not item:isBroken()
-    end, false)
+    if item == nil then return false end
+    local weapon = KS_SafeCall.invoke(item, "IsWeapon")
+    local ranged = KS_SafeCall.invoke(item, "isRanged")
+    local broken = KS_SafeCall.invoke(item, "isBroken")
+    return weapon == true and ranged == false and broken == false
 end
 
 -- Recursive: bagged blades count. The Java equipper only sees top-level
@@ -274,12 +288,16 @@ function Firearms.findCarriedMelee(character)
         if carried == nil then return end
         for index = 0, carried:size() - 1 do
             local item = carried:get(index)
-            if isUsableMelee(item) then
-                found = item
-                return
-            end
-            if safe(function() return item:IsInventoryContainer() end, false) then
-                walk(safe(function() return item:getInventory() end, nil))
+            if item ~= nil then
+                if isUsableMelee(item) then
+                    found = item
+                    return
+                end
+                local isContainer = KS_SafeCall.invoke(item, "IsInventoryContainer")
+                if isContainer == true then
+                    local nested = KS_SafeCall.invoke(item, "getInventory")
+                    if nested ~= nil then walk(nested) end
+                end
             end
         end
     end
@@ -475,9 +493,8 @@ function Firearms.fireNative(character)
         })
         return false, "firearm_not_ready"
     end
-    -- Pass the primed charge so vanilla renders muzzle/tracer. Java primes
-    -- useChargeDelta=36 on the firearm request; passing 0 looks uncharged
-    -- (click sound, no tracer) even though damage lands.
+    -- Preserve the native charge argument. The installed ranged attackHook
+    -- calls DoAttack(0); chargeDelta only affects its melee/shove branch.
     local charge = 36.0
     pcall(function()
         if character.getUseChargeDelta ~= nil then

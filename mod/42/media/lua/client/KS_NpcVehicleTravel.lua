@@ -91,11 +91,13 @@ function VehicleTravel.tryBegin(controller, destination, ticks)
     controller.nextNpcVehicleTravelAt = ticks + RETRY_TICKS
     for _, vehicle in ipairs(vehiclesInCell()) do
         if safeVehicle(vehicle, origin) then
-            local boarded = boardNearbyMembers(controller, vehicle)
             local started, reason = KnoxCompanionVehicles.driveTo(
                 controller.character, vehicle, destination.x, destination.y, destination.z
             )
             if started then
+                -- Failed routing/disabled driving must not strand passengers
+                -- in a vehicle the leader will never drive.
+                local boarded = boardNearbyMembers(controller, vehicle)
                 print("[KnoxSurvivors][VehicleTravel] leader=" .. tostring(controller.id)
                     .. " passengers=" .. tostring(boarded) .. " destination="
                     .. tostring(destination.x) .. "," .. tostring(destination.y))

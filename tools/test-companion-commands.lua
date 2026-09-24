@@ -132,6 +132,8 @@ assert(dutyController:onDutyChanged() and dutyController.baseTask == nil,
 dutyController.baseTask = manualTask
 assert(KnoxPersistence.setPlayerCompanion("companion", playerId, "follow", 48),
     "manual-preservation check should restore player ownership")
+assert(manualTask.state == "queued" and manualTask.claimedBy == nil,
+    "recalling a resident must release its claimed base work")
 assert(KnoxPersistence.setPlayerBaseResident("companion", playerId, base.id, 48),
     "manual-preservation check should remain a base resident")
 manualTask.manual = true

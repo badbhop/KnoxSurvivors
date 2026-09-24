@@ -32,12 +32,12 @@ the download we need to verify.
 ## Launch as a subscriber
 
 1. Download `KnoxSurvivorsLauncher-windows.zip` from the public
-   [current launcher preview](https://github.com/exe-create/KnoxSurvivorsLauncher/releases/tag/v0.2.3-preview.3).
+   [KnoxSurvivorsLauncher releases page](https://github.com/exe-create/KnoxSurvivorsLauncher/releases).
    Anonymous download/checksum verification is complete; this gameplay smoke test is
    still needed after Steam supplies the updated mod.
 2. Extract the full ZIP into a new folder, for example Desktop/Knox Survivors Player Test.
 3. Open `Launch Knox Survivors.cmd`. Wait for READY, then press PLAY KNOX SURVIVORS.
-4. Enable Knox Survivors in Mods and for a **new** single-player test save on 42.20.3.
+4. Enable Knox Survivors in Mods and use a **new** single-player test save on 42.20.4.
    Do not use an old Knox save to test migration; that is a separate unverified issue.
 5. Check spawn/visibility, short travel, one zombie encounter, recruitment/Follow/Hold,
    inventory interaction, then quit and reload to check identity and equipment.

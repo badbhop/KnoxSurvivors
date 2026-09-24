@@ -226,6 +226,20 @@ assert(not unknown and unknownReason == "real_survival_snapshot_required" and no
     "missing needs snapshot must not invent zero health and kill a stored survivor")
 assert(not simulation.beginBaseReturn("unknown", KnoxPersistence.getBase("base-return"), 100),
     "base-return handoff cannot seed fake needs when capture data is missing")
+states["return-persist-fail"] = { hunger = .1, thirst = .1, health = 100, fatigue = .1,
+    endurance = .9, lastHours = 0, virtualX = 100, virtualY = 200, virtualZ = 0 }
+records["return-persist-fail"] = "record-return-persist-fail"
+local savedStateWriter = KnoxPersistence.setUnloadedSurvivalState
+KnoxPersistence.setUnloadedSurvivalState = function(id, state)
+    if id == "return-persist-fail" then return false end
+    return savedStateWriter(id, state)
+end
+local returnPersisted, returnReason = simulation.beginBaseReturn(
+    "return-persist-fail", KnoxPersistence.getBase("base-return"), 1
+)
+assert(not returnPersisted and returnReason == "base_return_persistence_failed",
+    "base-return preparation must fail closed when its durable ledger write fails")
+KnoxPersistence.setUnloadedSurvivalState = savedStateWriter
 local savedSetRecord = KnoxPersistence.setRecord
 KnoxPersistence.setRecord = function() return false end
 states.rejected = { hunger = .61, thirst = .61, health = 100, fatigue = .1, endurance = .9, lastHours = 0 }

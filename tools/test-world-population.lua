@@ -287,10 +287,19 @@ local hiddenCandidate, hiddenReason = KnoxWorldPopulation.activationCandidate(
 assert(hiddenCandidate == nil and hiddenReason == "no_safe_hidden_loaded_square",
     "first materialization never occurs in player sight")
 
-local restoreId = soloIds[3]
+-- A record with no virtual ledger state follows the ordinary exact-restore
+-- path. Fresh population identities carry origin staging state and are
+-- deliberately covered by the blocked-state cases below instead.
+local restoreId = "saved-restore"
 assert(KnoxPersistence.setRecord(restoreId, "saved-record"), "record stored")
 local exactSquare, exactState = makeSquare(400, 500, 0)
 exactState.visible = true
+-- A real save captures a live body but can retain its previous virtual activity.
+-- Reload must restore the native coordinates even in sight, without relocation.
+KnoxPersistence.setUnloadedSurvivalState(restoreId, {
+    status = "loaded", activity = "origin_shelter",
+    virtualX = 900, virtualY = 900, virtualZ = 0,
+})
 playerSquare = exactSquare
 local bridge = {
     getTestNpcRecordX = function() return 400 end,
@@ -330,6 +339,133 @@ assert(virtualCandidate.mode == "restore" and virtualCandidate.square == virtual
 assert(virtualCandidate.record == relocatedRecord
     and KnoxPersistence.getRecord(virtualId) == relocatedRecord,
     "virtual location is transactionally written into the Java survivor record")
+
+local function assertLogicalVirtualActivityMaterializes(activity, x, y)
+    local id = "virtual-" .. activity
+    local record = activity .. "-record"
+    assert(KnoxPersistence.setRecord(id, record), activity .. " record stored")
+    KnoxPersistence.setUnloadedSurvivalState(id, {
+        status = "hibernated", activity = activity,
+        virtualX = x, virtualY = y, virtualZ = 0,
+    })
+    local square = makeSquare(x, y, 0)
+    local candidate = assert(KnoxWorldPopulation.activationCandidate(
+        id, bridge, { players = { player }, maximumDistance = 150 }
+    ))
+    assert(candidate.mode == "restore" and candidate.square == square
+        and candidate.x == x and candidate.y == y and candidate.z == 0,
+        activity .. " restores at the authoritative virtual coordinates")
+    assert(candidate.activationPriority == 4,
+        activity .. " preserves normal non-owned activation priority")
+end
+
+assertLogicalVirtualActivityMaterializes("riding", 455, 500)
+assertLogicalVirtualActivityMaterializes("exploring", 460, 500)
+assertLogicalVirtualActivityMaterializes("waiting_for_leader", 465, 500)
+assertLogicalVirtualActivityMaterializes("group_objective", 470, 500)
+
+-- Exercise the producer rather than hand-authoring its output: an autonomous
+-- stored survivor following a food intent advances its real itinerary and
+-- emits `seeking_supplies`, which must hand off through activation unchanged.
+require "KS_UnloadedSurvival"
+local seekingId = "virtual-seeking-supplies"
+assert(KnoxPersistence.setRecord(seekingId, "seeking-supplies-record"),
+    "seeking survivor record stored")
+KnoxPersistence.setUnloadedSurvivalState(seekingId, {
+    status = "hibernated", activity = "sheltering", lastHours = 0,
+    hunger = 0.2, thirst = 0.2, fatigue = 0.1, endurance = 0.9, health = 100,
+    bleedingParts = 0, virtualX = 440, virtualY = 500, virtualZ = 0,
+    travelTarget = { x = 600, y = 500, z = 0, key = "test-food-target" },
+})
+local nativeLifeIntent = KnoxPersistence.getSurvivorLifeIntent
+KnoxPersistence.getSurvivorLifeIntent = function(id)
+    if id == seekingId then return { kind = "find_food", phase = "traveling" } end
+    return nativeLifeIntent(id)
+end
+assert(KnoxUnloadedSurvival.advanceHibernated(seekingId, 1),
+    "unloaded itinerary advances the food-seeking survivor")
+KnoxPersistence.getSurvivorLifeIntent = nativeLifeIntent
+local seekingState = KnoxPersistence.getUnloadedSurvivalState(seekingId)
+assert(seekingState.activity == "seeking_supplies"
+    and seekingState.virtualX == 480 and seekingState.virtualY == 500,
+    "unloaded itinerary produces seeking_supplies at its progressed coordinates")
+local seekingSquare = makeSquare(480, 500, 0)
+local seekingCandidate = assert(KnoxWorldPopulation.activationCandidate(
+    seekingId, bridge, { players = { player }, maximumDistance = 150 }
+))
+assert(seekingCandidate.mode == "restore" and seekingCandidate.square == seekingSquare
+    and seekingCandidate.x == 480 and seekingCandidate.y == 500
+    and seekingCandidate.activationPriority == 4,
+    "seeking-supplies ledger materializes at its produced coordinates and priority")
+
+for index, activity in ipairs({
+    "event_waiting_loaded", "origin_shelter", "unknown_state",
+}) do
+    local id = "blocked-virtual-" .. tostring(index)
+    local record = activity .. "-record"
+    assert(KnoxPersistence.setRecord(id, record), activity .. " blocked record stored")
+    KnoxPersistence.setUnloadedSurvivalState(id, {
+        status = "hibernated", activity = activity,
+        virtualX = 480 + index, virtualY = 500, virtualZ = 0,
+    })
+    makeSquare(480 + index, 500, 0)
+    local candidate, reason = KnoxWorldPopulation.activationCandidate(
+        id, bridge, { players = { player }, maximumDistance = 150 }
+    )
+    assert(candidate == nil and reason == "virtual_activity_blocked"
+        and KnoxPersistence.getRecord(id) == record,
+        activity .. " is never materialized by the generic virtual-location path")
+end
+
+local pendingId = "blocked-virtual-pending"
+assert(KnoxPersistence.setRecord(pendingId, "pending-record"), "pending record stored")
+KnoxPersistence.setUnloadedSurvivalState(pendingId, {
+    status = "hibernated", activity = "exploring", pendingMaterialization = true,
+    virtualX = 484, virtualY = 500, virtualZ = 0,
+})
+makeSquare(484, 500, 0)
+local pendingCandidate, pendingReason = KnoxWorldPopulation.activationCandidate(
+    pendingId, bridge, { players = { player }, maximumDistance = 150 }
+)
+assert(pendingCandidate == nil and pendingReason == "pending_materialization"
+    and KnoxPersistence.getRecord(pendingId) == "pending-record",
+    "pending materialization remains owned by the first-materialization path")
+
+local failedRelocationId = "virtual-relocation-failure"
+assert(KnoxPersistence.setRecord(failedRelocationId, "relocation-failure-record"),
+    "relocation failure record stored")
+KnoxPersistence.setUnloadedSurvivalState(failedRelocationId, {
+    status = "hibernated", activity = "riding", virtualX = 490, virtualY = 500, virtualZ = 0,
+})
+makeSquare(490, 500, 0)
+local nativeRelocator = bridge.relocateNpcRecord
+bridge.relocateNpcRecord = function() return nil end
+local failedCandidate, failedReason = KnoxWorldPopulation.activationCandidate(
+    failedRelocationId, bridge, { players = { player }, maximumDistance = 150 }
+)
+assert(failedCandidate == nil and failedReason == "record_relocation_failed"
+    and KnoxPersistence.getRecord(failedRelocationId) == "relocation-failure-record",
+    "failed relocation leaves the durable record untouched")
+bridge.relocateNpcRecord = nativeRelocator
+
+local failedSaveId = "virtual-save-failure"
+assert(KnoxPersistence.setRecord(failedSaveId, "save-failure-record"), "save failure record stored")
+KnoxPersistence.setUnloadedSurvivalState(failedSaveId, {
+    status = "hibernated", activity = "exploring", virtualX = 495, virtualY = 500, virtualZ = 0,
+})
+makeSquare(495, 500, 0)
+local nativeSetRecord = KnoxPersistence.setRecord
+KnoxPersistence.setRecord = function(id, record)
+    if id == failedSaveId then return false end
+    return nativeSetRecord(id, record)
+end
+failedCandidate, failedReason = KnoxWorldPopulation.activationCandidate(
+    failedSaveId, bridge, { players = { player }, maximumDistance = 150 }
+)
+assert(failedCandidate == nil and failedReason == "record_relocation_save_failed"
+    and KnoxPersistence.getRecord(failedSaveId) == "save-failure-record",
+    "failed relocation persistence leaves the durable record untouched")
+KnoxPersistence.setRecord = nativeSetRecord
 
 local baseVirtualId = "virtual-base-resident"
 assert(KnoxPersistence.setRecord(baseVirtualId, "base-virtual-record"),

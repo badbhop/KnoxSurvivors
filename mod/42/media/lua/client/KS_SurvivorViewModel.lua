@@ -515,6 +515,15 @@ function ViewModel.getSurvivor(id, playerNum)
         end)
         alive = alive and not (success and dead == true)
     end
+    local deathEvidence = KnoxPersistence.getSurvivorDeathEvidence ~= nil
+        and KnoxPersistence.getSurvivorDeathEvidence(id) or nil
+    local deathLocationLabel = "Deceased"
+    if type(deathEvidence) == "table" and tonumber(deathEvidence.x) ~= nil
+        and tonumber(deathEvidence.y) ~= nil and tonumber(deathEvidence.z) ~= nil then
+        local source = deathEvidence.locationSource == "loaded" and "exact"
+            or (deathEvidence.locationSource == "logical" and "logical" or "last-known")
+        deathLocationLabel = "Deceased - " .. source .. " location recorded"
+    end
 
     return {
         version = 2,
@@ -538,7 +547,8 @@ function ViewModel.getSurvivor(id, playerNum)
         ageYears = ageYears ~= nil and math.floor(ageYears) or nil,
         daysSurvived = daysSurvived,
         daysKnown = wholeDaysSince(knownSince, nowHours),
-        locationLabel = alive and locationLabelFor(duty, character, distance, sameLevel) or "Deceased",
+        locationLabel = alive and locationLabelFor(duty, character, distance, sameLevel) or deathLocationLabel,
+        deathEvidence = deathEvidence,
         orderLabel = orderLabelFor(duty, id),
         order = tostring(duty.order or "survive"),
         activity = activityFor(duty, state, character ~= nil, alive, currentActivity),

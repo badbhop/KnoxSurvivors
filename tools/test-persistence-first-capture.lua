@@ -51,6 +51,15 @@ assert(not partialSaved and P.getRecord("partial") == payload
 
 -- The outer save loop catches an entirely unexpected per-survivor exception
 -- and still invokes every later survivor.
+getGameTime = function() return { getWorldAgeHours = function() return 10 end } end
+KnoxSurvivorNeeds = { snapshot = function() return { health = 100 } end }
+KnoxUnloadedSurvival = { captureLoaded = function() return false end }
+local ledgerSaved, ledgerEvidence = P.captureActiveSurvivor("ledger-rejected")
+assert(not ledgerSaved and P.getRecord("ledger-rejected") == payload
+    and string.find(ledgerEvidence, "unloaded=false", 1, true),
+    "a rejected needs-ledger write must prevent a successful storage handoff")
+KnoxUnloadedSurvival = nil
+KnoxSurvivorNeeds = nil
 KnoxJavaBridge.getActiveNpcIds = function() return "first,bad,last" end
 local originalCapture = P.captureActiveSurvivor
 local visited = {}

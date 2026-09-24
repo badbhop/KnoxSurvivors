@@ -450,7 +450,12 @@ local function retireDeadSurvivor(bridge, id, controller)
         log.log("combat", id, "died", { killerKind = killerKind, killer = killerId })
     end)
     if KnoxPersistence.isSurvivorAlive(id) then
-        if KnoxPersistence.markSurvivorDead(id, now, "world_death") then
+        local evidence = { locationSource = "loaded", corpseState = "native_pending" }
+        pcall(function()
+            evidence.x, evidence.y, evidence.z = controller.character:getX(),
+                controller.character:getY(), controller.character:getZ()
+        end)
+        if KnoxPersistence.markSurvivorDead(id, now, "world_death", evidence) then
             local feed = rawget(_G, "KnoxActivityFeed")
             if feed ~= nil and feed.survivorDied ~= nil then
                 pcall(feed.survivorDied, id, controller.character)
@@ -469,6 +474,10 @@ local function retireDeadSurvivor(bridge, id, controller)
     local registryStillActive = bridge:getNpcCharacter(id) ~= nil
     if string.find(removed, "CORPSE_CREATED", 1, true) == 1
         or removed == "NONE_ACTIVE" or not registryStillActive then
+        if string.find(removed, "CORPSE_CREATED", 1, true) == 1
+            and KnoxPersistence.markSurvivorCorpseCreated ~= nil then
+            KnoxPersistence.markSurvivorCorpseCreated(id)
+        end
         KnoxSurvivorRuntime.unregister(id, controller)
         controllers[id] = nil
         removeActiveId(id)
@@ -1589,19 +1598,26 @@ function Autonomy.beginVirtualBaseReturn(survivorId, baseId)
     end
     local saved, evidence = controller:shutdown()
     if not saved then return false, "capture_failed=" .. tostring(evidence) end
+    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    local marked, markResult = KnoxUnloadedSurvival.markStored(survivorId, now)
+    if not marked then
+        return false, "store_failed=" .. tostring(markResult)
+    end
+    local started, result = KnoxUnloadedSurvival.beginBaseReturn(survivorId, base, now)
+    if not started then
+        local rolledBack, rollbackResult = KnoxUnloadedSurvival.rollbackBaseReturn(survivorId, now)
+        return false, "route_failed=" .. tostring(result)
+            .. " rollback=" .. tostring(rolledBack and "ok" or rollbackResult)
+    end
     local removed = tostring(bridge:removeNpc(survivorId))
     if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
+        local rolledBack, rollbackResult = KnoxUnloadedSurvival.rollbackBaseReturn(survivorId, now)
         return false, "remove_failed=" .. removed
+            .. " rollback=" .. tostring(rolledBack and "ok" or rollbackResult)
     end
-    local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
-    KnoxUnloadedSurvival.markStored(survivorId, now)
-    local started, result = KnoxUnloadedSurvival.beginBaseReturn(survivorId, base, now)
     KnoxSurvivorRuntime.unregister(survivorId, controller)
     controllers[survivorId] = nil
     removeActiveId(survivorId)
-    if not started then
-        return false, "route_failed=" .. tostring(result)
-    end
     print(TAG .. " id=" .. tostring(survivorId)
         .. " state=VIRTUAL_BASE_RETURN base=" .. tostring(baseId)
         .. " result=" .. tostring(result))

@@ -58,15 +58,14 @@ assert(string.find(persistenceForProperty, "function KnoxPersistence.getBaseAtSq
 assert(string.find(controllerSource, "function Controller:tryBoardFollowVehicle", 1, true)
     and string.find(controllerSource, "self:tryBoardFollowVehicle(ticks)", 1, true),
     "following companions must board a nearby parked player vehicle through native actions")
-assert(string.find(qa, "ensurePlayerProtection", 1, true)
-    and string.find(qa, "setGodMod", 1, true)
-    and string.find(qa, "setGhostMode", 1, true)
-    and string.find(qa, "setInvisible", 1, true)
-    and string.find(qa, "player_protection god=true", 1, true)
+assert(not string.find(qa, "ensurePlayerProtection", 1, true)
+    and not string.find(qa, "setGodMod(true)", 1, true)
+    and not string.find(qa, "setGhostMode(true)", 1, true)
+    and not string.find(qa, "setInvisible(true)", 1, true)
     and string.find(qa, "releasePlayerProtection", 1, true)
     and string.find(qa, "GLOBAL_TIMEOUT_TICKS", 1, true)
     and string.find(qa, "suite_timeout", 1, true),
-    "automated QA must keep the observer invincible/invisible and bound the full run")
+    "automated QA must not enable player protection, must clean up legacy flags, and must bound the full run")
 for _, token in ipairs({
     "preflight", "equipment_persistence", "needs_consumption", "health_injury",
     "medical_treatment", "loot_transfer", "npc_combat", "population_autonomy",

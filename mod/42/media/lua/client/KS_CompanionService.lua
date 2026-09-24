@@ -1592,12 +1592,25 @@ function CompanionService.setResidentLootRuns(player, survivorId, allowed)
     return true, allowed == true and "loot_runs_allowed" or "loot_runs_stay_home"
 end
 
-function CompanionService.activateFromBase(player, survivorId)
+function CompanionService.recallToParty(player, survivorId)
+    if KnoxSettings.enabled ~= nil and KnoxSettings.enabled() ~= true then
+        return false, "mod_disabled"
+    end
     local playerId = CompanionService.getPlayerId(player)
     local affiliation = KnoxPersistence.getSurvivorAffiliation(survivorId)
     if playerId == nil or affiliation == nil or affiliation.kind ~= "player"
         or affiliation.ownerId ~= playerId then
         return false, "not_your_survivor"
+    end
+    if KnoxPersistence.isSurvivorAlive(survivorId) ~= true then
+        return false, "character_dead"
+    end
+    local duty = KnoxPersistence.getSurvivorDuty(survivorId)
+    if duty == nil or duty.mode ~= "base" or duty.ownerId ~= playerId then
+        return false, "not_base_resident"
+    end
+    if #CompanionService.getCompanionIds(player) >= KnoxSettings.companionLimit() then
+        return false, "companion_limit"
     end
     local saved, result = KnoxPersistence.setPlayerCompanion(
         survivorId,
@@ -1607,8 +1620,20 @@ function CompanionService.activateFromBase(player, survivorId)
     )
     if saved then
         KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+        local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+        if character ~= nil then
+            KnoxActivityFeed.speak(character, "I'm joining your party.")
+            signalOrder(player, survivorId, "follow")
+        end
+        KnoxActivityFeed.event(displayName(survivorId) .. " joined your party.")
     end
-    return saved, result
+    return saved, saved and "joined_party" or result
+end
+
+-- Compatibility for callers that used the old internal name.  The public
+-- recall boundary above adds ownership, duty, life-state and capacity checks.
+function CompanionService.activateFromBase(player, survivorId)
+    return CompanionService.recallToParty(player, survivorId)
 end
 
 function CompanionService.dismiss(player, survivorId)

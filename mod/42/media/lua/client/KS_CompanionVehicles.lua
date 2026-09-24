@@ -422,6 +422,8 @@ local function tickDrive(character,run,now)
 end
 
 function CompanionVehicles.tick()
+    -- Expire passenger leases even when their ground AI is no longer ticking.
+    for character in pairs(pending) do CompanionVehicles.isBusy(character) end
     for character,run in pairs(driverRuns) do
         local ok,reason=pcall(tickDrive,character,run,getTimestampMs())
         if not ok then

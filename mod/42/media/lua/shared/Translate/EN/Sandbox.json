@@ -97,7 +97,7 @@
     "Sandbox_KnoxSurvivors_EnableDeveloperTools": "Enable Developer Tools",
     "Sandbox_KnoxSurvivors_EnableDeveloperTools_tooltip": "Adds testing commands to the Knox Survivors world context menu. Disabled by default and not intended for normal play.",
     "Sandbox_KnoxSurvivors_AutomatedQAMode": "Run Automated Knox QA",
-    "Sandbox_KnoxSurvivors_AutomatedQAMode_tooltip": "Runs the opt-in unattended engine test suite when this save loads. Use only in a disposable QA save: it creates test survivors, items, zombies, and temporary world changes, then writes PASS, FAIL, and BLOCKED results to the game log. The player is kept invincible and invisible to zombies for the run. Requires Enable Developer Tools.",
+    "Sandbox_KnoxSurvivors_AutomatedQAMode_tooltip": "Runs the opt-in unattended engine test suite when this save loads. Use only in a disposable QA save: it creates test survivors, items, zombies, and temporary world changes, then writes PASS, FAIL, and BLOCKED results to the game log. The player is not protected during the run and can be injured or killed. Requires Enable Developer Tools.",
     "Sandbox_KnoxSurvivors_DeveloperScenario": "Automatic Test Scenario",
     "Sandbox_KnoxSurvivors_DeveloperScenario_tooltip": "Optionally creates a repeatable test population when the save loads. Manual spawn commands remain available from the world context menu.",
     "Sandbox_KnoxSurvivors_DeveloperScenario_option1": "None",
