@@ -8,8 +8,13 @@ function Layout.fitView(view)
     local height = math.max(1, parent.height - (parent.tabHeight or 0))
     view:setWidth(width)
     view:setHeight(height)
-    view:setScrollWidth(math.max(width, view.knoxContentWidth or width))
-    view:setScrollHeight(math.max(height, view.knoxContentHeight or height))
+    -- Never shrink a scroll extent a vanilla view computed for itself
+    -- (skills content height): refits converge instead of fighting it.
+    local currentH, currentW = 0, 0
+    pcall(function() currentH = view:getScrollHeight() or 0 end)
+    pcall(function() currentW = view:getScrollWidth() or 0 end)
+    view:setScrollWidth(math.max(width, view.knoxContentWidth or width, currentW))
+    view:setScrollHeight(math.max(height, view.knoxContentHeight or height, currentH))
 end
 
 function Layout.bindView(view)
@@ -22,7 +27,10 @@ function Layout.bindView(view)
         Layout.fitView(self)
     end
     view:setScrollChildren(true)
-    view:addScrollBars(true)
+    -- Vertical only. A horizontal bar object shrinks the vanilla scroll
+    -- area on mere presence (getScrollAreaHeight subtracts it), stealing
+    -- 17px from every tab and forcing spurious vertical scrollbars.
+    view:addScrollBars()
     view:setScrollWithParent(false)
     local prerender, render = view.prerender, view.render
     view.prerender = function(self)

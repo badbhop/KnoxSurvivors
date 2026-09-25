@@ -55,6 +55,7 @@ assert(not string.find(sandboxDefinition, "AllowSurvivorFleeing", 1, true)
     and not string.find(sandboxEnglish, "AllowSurvivorFleeing", 1, true),
     "fleeing is an internal risk decision rather than a sandbox option")
 assertDefault("ShowDeveloperDiagnostics", false)
+assertDefault("ShowLegacyContextCommands", false)
 assertDefault("SurvivorAimingAssist", 1)
 assertDefault("AllowSurvivorsTreatPlayer", true)
 assertDefault("FactionRaidMinimumDays", 14)
@@ -183,6 +184,10 @@ assert(KnoxSettings.ignoreJobResourceRequirements() == false or true, "ignore se
 assert(KnoxSettings.orderGesturesEnabled(), "order gestures default enabled")
 SandboxVars.KnoxSurvivors.OrderGestures=false
 assert(not KnoxSettings.orderGesturesEnabled(), "order gestures can be disabled")
+
+assert(not KnoxSettings.showLegacyContextCommands(), "classic context orders default off")
+SandboxVars.KnoxSurvivors.ShowLegacyContextCommands=true
+assert(KnoxSettings.showLegacyContextCommands(), "classic context orders opt-in")
 
 assert(KnoxSettings.useReputation(), "reputation defaults on for recruiting")
 SandboxVars.KnoxSurvivors.UseReputation=false

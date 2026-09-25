@@ -156,6 +156,10 @@ local BASE_SUPPLY_ORDER_KINDS = {
     find_medical = true,
     find_weapon = true,
     find_tools = true,
+    find_wood = true,
+    find_materials = true,
+    find_clothing = true,
+    find_ammo = true,
 }
 
 local LIFE_INTENT_PHASES = {
@@ -898,6 +902,14 @@ local function ensureSurvivorState(id)
     local weaponPreference = survivor.policies.weaponPreference
     if weaponPreference ~= "melee" and weaponPreference ~= "ranged" and weaponPreference ~= "auto" then
         survivor.policies.weaponPreference = "auto"
+    end
+    -- Corrupted schedules (hand edits, older experiments) must not survive
+    -- the load boundary: an invalid record falls back to nil, which reads
+    -- as "anything", instead of poisoning schedule resolution.
+    if survivor.duty.schedule ~= nil
+        and not KnoxPersistence.validDutySchedule(survivor.duty.schedule) then
+        survivor.duty.schedule = nil
+        survivor.duty.scheduleAuto = nil
     end
     if survivor.alive == nil then
         survivor.alive = true
@@ -2470,15 +2482,17 @@ function KnoxPersistence.getBaseResidentWorkStatus(id, baseId)
     return { state = "idle" }
 end
 
--- RimWorld-style duty schedule, backend model for the future schedule tab.
+-- RimWorld-style duty schedule, backend model for the schedule UI.
 -- duty.schedule is a list of { from = hour, to = hour, assignment } with
 -- hours on 0-24 (from > to means overnight) and assignment one of sleep,
--- work, recreation or anything. First matching window wins. Nil schedule
--- means anything (current behavior). The scheduler only honors sleep and
--- recreation as no-work windows; work defers to the existing preference,
--- skill and rotation machinery.
+-- work, patrol, guard, recreation or anything. First matching window wins.
+-- Nil schedule means anything (current behavior). The scheduler honors
+-- sleep and recreation as no-work windows; work, patrol and guard defer
+-- to the existing preference, skill and rotation machinery, with patrol
+-- and guard biasing election toward watch tasks.
 local SCHEDULE_ASSIGNMENTS = {
-    sleep = true, work = true, recreation = true, anything = true,
+    sleep = true, work = true, patrol = true, guard = true,
+    recreation = true, anything = true,
 }
 
 local function validScheduleWindow(window)
@@ -2529,6 +2543,63 @@ function KnoxPersistence.scheduleAssignmentFor(schedule, hour)
         end
     end
     return "anything"
+end
+
+-- RimWorld-style 24-hour strip transforms. The schedule tab paints one
+-- assignment per hour (index 1 = hour 0 through index 24 = hour 23) and
+-- these pure helpers convert to/from the window backend above, which stays
+-- the sole persisted authority. Unknown hours sanitize to anything.
+function KnoxPersistence.dutyWindowsToHours(schedule)
+    local hours = {}
+    for hour = 0, 23 do
+        hours[hour + 1] = KnoxPersistence.scheduleAssignmentFor(schedule, hour)
+    end
+    return hours
+end
+
+function KnoxPersistence.hoursToDutyWindows(hours)
+    local normalized = {}
+    for hour = 0, 23 do
+        local assignment = type(hours) == "table" and hours[hour + 1] or nil
+        if SCHEDULE_ASSIGNMENTS[assignment] ~= true then assignment = "anything" end
+        normalized[hour + 1] = assignment
+    end
+    local runs = {}
+    local start, current = 0, normalized[1]
+    for hour = 1, 23 do
+        if normalized[hour + 1] ~= current then
+            runs[#runs + 1] = { from = start, to = hour, assignment = current }
+            start, current = hour, normalized[hour + 1]
+        end
+    end
+    runs[#runs + 1] = { from = start, to = 24, assignment = current }
+    -- Overnight merge: hour 23 and hour 0 sharing an assignment rejoin
+    -- into one wrapping window instead of two stubs.
+    if #runs > 1 and runs[1].assignment == runs[#runs].assignment then
+        local last = runs[#runs]
+        runs[1] = { from = last.from, to = runs[1].to, assignment = runs[1].assignment }
+        runs[#runs] = nil
+    end
+    if #runs == 1 then
+        if runs[1].assignment == "anything" then return nil end
+        return { { from = 0, to = 24, assignment = runs[1].assignment } }
+    end
+    -- Pathological striping (alternating hours) can exceed the 12-window
+    -- backend cap; absorb the shortest run into its predecessor rather
+    -- than failing the save.
+    while #runs > 12 do
+        local victim, shortest = 2, math.huge
+        for index = 2, #runs do
+            local length = runs[index].to - runs[index].from
+            if runs[index].to < runs[index].from then
+                length = length + 24
+            end
+            if length < shortest then victim, shortest = index, length end
+        end
+        runs[victim - 1].to = runs[victim].to
+        table.remove(runs, victim)
+    end
+    return runs
 end
 
 -- Shape validation only; ownership gating belongs to the future schedule
@@ -2595,6 +2666,90 @@ function KnoxPersistence.setBaseJobPreference(id, playerId, baseId, preference, 
         return false
     end
     survivor.duty.jobPreference = normalizedPreference
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+-- Player-facing schedule writer: same ownership gating as job preference.
+-- A nil schedule clears back to "anything". The raw setDutySchedule stays
+-- for the scheduler's internal NPC use.
+function KnoxPersistence.setBaseDutySchedule(id, playerId, baseId, schedule, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or survivor.alive == false then return false end
+    if schedule ~= nil and not KnoxPersistence.validDutySchedule(schedule) then
+        return false
+    end
+    if survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.eventId ~= nil
+        or survivor.duty.mode ~= "base" or survivor.duty.baseId ~= baseId then
+        return false
+    end
+    return KnoxPersistence.setDutySchedule(id, schedule, worldAgeHours)
+end
+
+-- RimWorld-style work priorities: per-survivor map of work-group key to
+-- 1-4 (1 first) or false (never). Keys are the order-catalogue preference
+-- groups (guard, patrol, repair, cooking, farming, woodwork, barricade,
+-- hauling); absent keys mean automatic (legacy behavior). A nil or empty
+-- map clears back to fully automatic. Same-save safe: a new optional duty
+-- field read only by the automatic election.
+local WORK_PRIORITY_GROUPS = {
+    guard = true, patrol = true, repair = true, cooking = true,
+    farming = true, woodwork = true, barricade = true, hauling = true,
+}
+
+function KnoxPersistence.validWorkPriorities(map)
+    if type(map) ~= "table" then return false end
+    local count = 0
+    for key, value in pairs(map) do
+        if WORK_PRIORITY_GROUPS[key] ~= true then return false end
+        if value ~= false then
+            local number = tonumber(value)
+            if number == nil or number < 1 or number > 4
+                or math.floor(number) ~= number then
+                return false
+            end
+        end
+        count = count + 1
+    end
+    return count >= 1 and count <= 8
+end
+
+-- Returns a copy of the explicit map, or nil when the survivor is fully
+-- automatic (legacy election applies untouched).
+function KnoxPersistence.getWorkPriorities(id)
+    local survivor = ensureSurvivorState(id)
+    local map = survivor ~= nil and survivor.duty ~= nil
+        and survivor.duty.workPriorities or nil
+    if type(map) ~= "table" then return nil end
+    local count = 0
+    for _ in pairs(map) do count = count + 1 end
+    if count == 0 then return nil end
+    return copySerializable(map)
+end
+
+-- Player-facing work-priority writer: same ownership gating as the other
+-- base-tab writers. A nil map clears back to automatic.
+function KnoxPersistence.setBaseWorkPriorities(id, playerId, baseId, map, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or survivor.alive == false then return false end
+    if map ~= nil and not KnoxPersistence.validWorkPriorities(map) then
+        return false
+    end
+    if survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.eventId ~= nil
+        or survivor.duty.mode ~= "base" or survivor.duty.baseId ~= baseId then
+        return false
+    end
+    local stored = nil
+    if map ~= nil then
+        stored = {}
+        for key, value in pairs(map) do stored[key] = value end
+    end
+    survivor.duty.workPriorities = stored
     survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
     survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
     return true
@@ -2859,6 +3014,82 @@ function KnoxPersistence.setCompanionDoorOpening(id, playerId, allowed, worldAge
     else
         survivor.policies.allowDoorOpening = allowed == true
     end
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+-- Auto-loot while following is its own permission, separate from explicit
+-- loot directives. Nil means enabled (the historical behavior); explicit
+-- disable wins for that companion everywhere.
+function KnoxPersistence.setCompanionAutoLoot(id, playerId, allowed, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or survivor.affiliation.kind ~= "player"
+        or survivor.affiliation.ownerId ~= playerId
+        or survivor.duty.mode ~= "companion" then
+        return false
+    end
+    if allowed == nil then
+        survivor.policies.autoLoot = nil
+    else
+        survivor.policies.autoLoot = allowed == true
+    end
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+-- Assigned beds: which survivor sleeps in which world bed. Stored as plain
+-- coordinates plus object index inside the schemaless policies table, so old
+-- saves simply have none and nothing migrates. Resolution is transient and
+-- nil-safe: a removed/unloaded/occupied bed falls back to normal search.
+local function bedOwnerId(playerId, survivor)
+    if survivor == nil then return false end
+    if survivor.affiliation.kind == "player"
+        and survivor.affiliation.ownerId == playerId then
+        return true
+    end
+    if survivor.duty.mode == "base" and survivor.duty.baseId ~= nil then
+        local base = KnoxPersistence.getBase(survivor.duty.baseId)
+        if base ~= nil and base.ownerKind == "player"
+            and base.ownerId == playerId then
+            return true
+        end
+    end
+    return false
+end
+
+function KnoxPersistence.setSurvivorBed(id, playerId, bedRef, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or type(bedRef) ~= "table"
+        or not bedOwnerId(playerId, survivor) then
+        return false, "not_your_survivor"
+    end
+    local x = tonumber(bedRef.x)
+    local y = tonumber(bedRef.y)
+    local z = tonumber(bedRef.z)
+    local objectIndex = tonumber(bedRef.objectIndex)
+    if not finiteCoordinate(x) or not finiteCoordinate(y)
+        or not finiteCoordinate(z) or objectIndex == nil then
+        return false, "invalid_bed"
+    end
+    survivor.policies.assignedBed = {
+        x = x, y = y, z = z, objectIndex = math.floor(objectIndex),
+    }
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    return true
+end
+
+function KnoxPersistence.clearSurvivorBed(id, playerId, worldAgeHours)
+    local survivor = ensureSurvivorState(id)
+    if survivor == nil or not bedOwnerId(playerId, survivor) then
+        return false, "not_your_survivor"
+    end
+    if survivor.policies.assignedBed == nil then
+        return false, "no_assigned_bed"
+    end
+    survivor.policies.assignedBed = nil
     survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
     survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
     return true
@@ -5393,7 +5624,7 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
     end
     local validCategories = {
         food=true, water=true, medical=true, weapons=true,
-        ammunition=true, tools=true, building=true, farming=true, clothing=true, junk=true,
+        ammunition=true, tools=true, logs=true, building=true, farming=true, clothing=true, junk=true,
     }
     if not validCategories[category] then return nil, "unknown_storage_category" end
     local policy = {

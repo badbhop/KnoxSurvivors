@@ -18,7 +18,7 @@ KnoxCompanionService = {
     getCompanionIds = function() return {} end,
     issueOrder = function(player, id, kind)
         calls[#calls + 1] = kind
-        if kind == "loot_area" then return false, "not_your_companion" end
+        if kind == "disallow_climbing" then return false, "not_your_companion" end
         return true
     end,
 }
@@ -62,10 +62,7 @@ deny.callback(deny.target, unpack(deny.args))
 assert(calls[#calls] == "disallow_climbing", "per-survivor disallow must dispatch")
 
 -- Failed orders must explain themselves instead of silently doing nothing.
-local loot = menu.options.Orders.sub.options["Loot Orders"].sub.options["Explore and Search"]
-assert(loot ~= nil, "companion loot orders must be offered")
-loot.callback(loot.target, unpack(loot.args))
 assert(fed[#fed] ~= nil and string.find(fed[#fed], "not_your_companion", 1, true) ~= nil,
-    "a rejected loot order must report its reason, got: " .. tostring(fed[#fed]))
+    "a rejected toggled order must report its reason, got: " .. tostring(fed[#fed]))
 
 print("Companion climb menu PASS toggle=true checked=true feedback=true")

@@ -74,6 +74,10 @@ local BASE_SUPPLY_ORDERS = {
     find_medical = true,
     find_weapon = true,
     find_tools = true,
+    find_wood = true,
+    find_materials = true,
+    find_clothing = true,
+    find_ammo = true,
 }
 
 local function isPlayerCompanion(player, survivorId)
@@ -728,6 +732,14 @@ function CompanionService.issueOrder(player, survivorId, kind, payload)
             normalizedKind == "allow_doors"
         )
     end
+    if normalizedKind == "enable_autoloot"
+        or normalizedKind == "disable_autoloot" then
+        return CompanionService.setAutoLoot(
+            player,
+            survivorId,
+            normalizedKind == "enable_autoloot"
+        )
+    end
     if normalizedKind == "combat_stance" then
         local stance = type(payload) == "table" and payload.stance or payload
         return CompanionService.setCombatStance(player, survivorId, stance)
@@ -891,6 +903,14 @@ function CompanionService.issueOrderAll(player, kind, payload)
         local success, changed = CompanionService.setDoorOpeningAll(
             player,
             normalizedKind == "allow_doors"
+        )
+        return success, changed, success and "updated" or "no_companions"
+    end
+    if normalizedKind == "enable_autoloot"
+        or normalizedKind == "disable_autoloot" then
+        local success, changed = CompanionService.setAutoLootAll(
+            player,
+            normalizedKind == "enable_autoloot"
         )
         return success, changed, success and "updated" or "no_companions"
     end
@@ -1303,6 +1323,16 @@ function CompanionService.setDoorOpening(player, survivorId, allowed, quiet)
         return false, "not_your_companion"
     end
     KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    -- Apply immediately to the live controller so the toggle changes behavior
+    -- on this tick, not just after the next duty sync (which the sync cache
+    -- could otherwise delay). Persistence remains the authority on reload.
+    pcall(function()
+        local controller = KnoxSurvivorRuntime.getController ~= nil
+            and KnoxSurvivorRuntime.getController(survivorId) or nil
+        if controller ~= nil and controller.setDoorWindowOpeningPolicy ~= nil then
+            controller:setDoorWindowOpeningPolicy(allowed == true)
+        end
+    end)
     if not quiet then
         local character = KnoxSurvivorRuntime.getCharacter(survivorId)
         if character ~= nil then
@@ -1314,6 +1344,62 @@ function CompanionService.setDoorOpening(player, survivorId, allowed, quiet)
             allowed == true and "allow_doors" or "disallow_doors")
     end
     return true, allowed == true and "doors_allowed" or "doors_disabled"
+end
+
+function CompanionService.setAutoLoot(player, survivorId, allowed, quiet)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or not KnoxPersistence.setCompanionAutoLoot(
+        survivorId,
+        playerId,
+        allowed,
+        worldAge()
+    ) then
+        return false, "not_your_companion"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    -- Same immediate-apply pattern as door permission: the toggle changes
+    -- behavior on this tick. Persistence remains the authority on reload.
+    pcall(function()
+        local controller = KnoxSurvivorRuntime.getController ~= nil
+            and KnoxSurvivorRuntime.getController(survivorId) or nil
+        if controller ~= nil and controller.setAutoLootPolicy ~= nil then
+            controller:setAutoLootPolicy(allowed == true)
+        end
+    end)
+    if not quiet then
+        local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+        if character ~= nil then
+            KnoxActivityFeed.speak(character, allowed == true
+                and "I'll grab useful stuff I see."
+                or "I won't pick anything up.")
+        end
+        signalOrder(player, survivorId,
+            allowed == true and "enable_autoloot" or "disable_autoloot")
+    end
+    return true, allowed == true and "autoloot_enabled" or "autoloot_disabled"
+end
+
+function CompanionService.setAutoLootAll(player, allowed)
+    local changed, members = 0, {}
+    for _, survivorId in ipairs(CompanionService.getCompanionIds(player)) do
+        local success = CompanionService.setAutoLoot(player, survivorId, allowed, true)
+        if success then
+            changed = changed + 1
+            local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+            if character ~= nil then members[#members + 1] = character end
+        end
+    end
+    if changed > 0 then
+        KnoxActivityFeed.event(allowed
+            and "Party auto-loot enabled."
+            or "Party auto-loot disabled.")
+        local signals = rawget(_G, "KnoxOrderSignals")
+        if signals ~= nil and signals.group ~= nil then
+            signals.group(player, members,
+                allowed == true and "enable_autoloot" or "disable_autoloot")
+        end
+    end
+    return changed > 0, changed
 end
 
 function CompanionService.setDoorOpeningAll(player, allowed)
@@ -1520,6 +1606,44 @@ function CompanionService.setBaseJobPreference(player, survivorId, preference)
     return true, normalizedPreference
 end
 
+-- Duty-schedule write boundary for the base-tab UI. Ownership and shape are
+-- enforced by persistence; a nil schedule clears back to "anything".
+function CompanionService.setBaseDutySchedule(player, survivorId, schedule)
+    local playerId = CompanionService.getPlayerId(player)
+    local manager = rawget(_G, "KnoxBaseManager")
+    local base = manager ~= nil and manager.getForOwner ~= nil
+        and manager.getForOwner("player", playerId) or nil
+    if base == nil or not KnoxPersistence.setBaseDutySchedule(
+        survivorId, playerId, base.id, schedule, worldAge()
+    ) then
+        return false, "not_your_base_resident"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    local character = KnoxSurvivorRuntime.getCharacter(survivorId)
+    if character ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+        KnoxActivityFeed.speak(character, schedule == nil
+            and "I'll work whenever I'm needed."
+            or "I'll keep to the new hours.")
+    end
+    return true, "schedule_updated"
+end
+
+-- Work-priority write boundary for the priorities-tab UI. Ownership and
+-- shape are enforced by persistence; a nil map clears back to automatic.
+function CompanionService.setBaseWorkPriorities(player, survivorId, priorities)
+    local playerId = CompanionService.getPlayerId(player)
+    local manager = rawget(_G, "KnoxBaseManager")
+    local base = manager ~= nil and manager.getForOwner ~= nil
+        and manager.getForOwner("player", playerId) or nil
+    if base == nil or not KnoxPersistence.setBaseWorkPriorities(
+        survivorId, playerId, base.id, priorities, worldAge()
+    ) then
+        return false, "not_your_base_resident"
+    end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, "priorities_updated"
+end
+
 function CompanionService.setBaseSupplyOrder(player, survivorId, kind)
     local normalized = KnoxOrderCatalog.normalize(kind)
     local playerId = CompanionService.getPlayerId(player)
@@ -1698,6 +1822,12 @@ function CompanionService.syncController(survivorId, controller)
         else
             opening = opening ~= false
         end
+        local autoLoot = policies.autoLoot
+        if autoLoot == nil then
+            autoLoot = true
+        else
+            autoLoot = autoLoot ~= false
+        end
         local roster = ""
         if duty ~= nil and duty.mode == "companion" then
             local ids = KnoxPersistence.getCompanionIds(duty.ownerId) or {}
@@ -1710,6 +1840,7 @@ function CompanionService.syncController(survivorId, controller)
             tostring(stance), directive, tostring(baseId), tostring(jobPreference),
             tostring(revision), supplyOrder, roster, tostring(policies.weaponPreference or "auto"), climbing,
             tostring(policies.allowDoorOpening), tostring(opening),
+            tostring(policies.autoLoot), tostring(autoLoot),
         }, "|")
         local previous = syncCache[controller]
         -- Base assignment also reconciles an active supply trip. Its runtime
@@ -1724,6 +1855,9 @@ function CompanionService.syncController(survivorId, controller)
         controller:setWeaponPreference(policies.weaponPreference)
         if controller.setDoorWindowOpeningPolicy ~= nil then
             controller:setDoorWindowOpeningPolicy(opening)
+        end
+        if controller.setAutoLootPolicy ~= nil then
+            controller:setAutoLootPolicy(autoLoot)
         end
     else
         syncCache[controller] = nil

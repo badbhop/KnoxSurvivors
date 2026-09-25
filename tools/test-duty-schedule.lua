@@ -115,4 +115,104 @@ assert(KnoxBaseJobs.scheduleAssignment("npc-1") == "work",
 local stored = KnoxPersistence.getDutySchedule("npc-1")
 assert(stored ~= nil and #stored == 7, "auto default persists once")
 
-print("Duty schedule PASS model=true player_legacy=true explicit=true npc_auto=true")
+-- Owner-gated production writer: the schedule tab boundary.
+local rota = {
+    { from = 22, to = 6, assignment = "sleep" },
+    { from = 6, to = 22, assignment = "work" },
+}
+assert(KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", base.id, rota, 48),
+    "owner writes resident rota")
+local saved = KnoxPersistence.getDutySchedule("resident-1")
+assert(saved ~= nil and #saved == 2 and saved[1].assignment == "sleep",
+    "rota stored")
+saved[1].assignment = "work"
+assert(KnoxPersistence.getDutySchedule("resident-1")[1].assignment == "sleep",
+    "stored rota is a copy")
+assert(not KnoxPersistence.setBaseDutySchedule("resident-1", "player-2", base.id, rota, 48),
+    "foreign player rejected")
+assert(not KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", "other-base", rota, 48),
+    "wrong base rejected")
+assert(not KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", base.id, {}, 48),
+    "empty schedule rejected")
+assert(not KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", base.id,
+    { { from = 8, to = 12, assignment = "nap" } }, 48),
+    "unknown assignment rejected")
+assert(not KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", base.id,
+    { { from = -1, to = 12, assignment = "work" } }, 48),
+    "out-of-range hours rejected")
+local big = {}
+for hour = 0, 12 do big[#big + 1] = { from = hour, to = hour + 1, assignment = "work" } end
+assert(not KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", base.id, big, 48),
+    "oversized schedule rejected")
+assert(KnoxPersistence.setBaseDutySchedule("resident-1", "player-1", base.id, nil, 48),
+    "nil clears back to anything")
+assert(KnoxPersistence.getDutySchedule("resident-1") == nil, "cleared rota reads nil")
+
+-- RimWorld strip transforms: hours expand from windows and compress back.
+local defaultHours = KnoxPersistence.dutyWindowsToHours(
+    KnoxPersistence.defaultDutySchedule())
+assert(#defaultHours == 24, "strip has 24 hours")
+assert(defaultHours[24] == "sleep" and defaultHours[1] == "sleep",
+    "overnight sleep spans midnight")
+assert(defaultHours[9] == "work" and defaultHours[13] == "recreation",
+    "day blocks expand")
+local rebuilt = KnoxPersistence.hoursToDutyWindows(defaultHours)
+assert(rebuilt ~= nil and KnoxPersistence.validDutySchedule(rebuilt),
+    "compressed strip stays valid")
+for hour = 0, 23 do
+    assert(KnoxPersistence.scheduleAssignmentFor(rebuilt, hour)
+        == KnoxPersistence.scheduleAssignmentFor(
+            KnoxPersistence.defaultDutySchedule(), hour),
+        "round trip preserves every hour")
+end
+local clearHours = {}
+for hour = 1, 24 do clearHours[hour] = "anything" end
+assert(KnoxPersistence.hoursToDutyWindows(clearHours) == nil,
+    "all-anything strip clears to nil")
+local striped = {}
+for hour = 1, 24 do striped[hour] = (hour % 2 == 0) and "work" or "sleep" end
+local merged = KnoxPersistence.hoursToDutyWindows(striped)
+assert(merged ~= nil and #merged <= 12
+    and KnoxPersistence.validDutySchedule(merged),
+    "pathological striping merges within the backend cap")
+local dirty = { [1] = "nap", [2] = "work" }
+local cleaned = KnoxPersistence.hoursToDutyWindows(dirty)
+assert(cleaned ~= nil and cleaned[1].assignment == "anything"
+    and cleaned[2].assignment == "work",
+    "unknown hours sanitize to anything")
+local solo = {}
+for hour = 1, 24 do solo[hour] = "recreation" end
+local soloWindows = KnoxPersistence.hoursToDutyWindows(solo)
+assert(soloWindows ~= nil and #soloWindows == 1
+    and soloWindows[1].from == 0 and soloWindows[1].to == 24
+    and soloWindows[1].assignment == "recreation",
+    "single-assignment strip becomes one full-day window")
+
+-- Watch assignments: patrol and guard validate, resolve, and round-trip.
+assert(KnoxPersistence.validDutySchedule({
+    { from = 22, to = 6, assignment = "sleep" },
+    { from = 6, to = 14, assignment = "work" },
+    { from = 14, to = 18, assignment = "patrol" },
+    { from = 18, to = 22, assignment = "guard" },
+}), "patrol/guard windows validate")
+assert(KnoxPersistence.scheduleAssignmentFor({
+    { from = 14, to = 18, assignment = "patrol" },
+    { from = 18, to = 22, assignment = "guard" },
+}, 15) == "patrol", "patrol hour resolves")
+assert(KnoxPersistence.scheduleAssignmentFor({
+    { from = 14, to = 18, assignment = "patrol" },
+    { from = 18, to = 22, assignment = "guard" },
+}, 20) == "guard", "guard hour resolves")
+local watchHours = {}
+for hour = 1, 24 do watchHours[hour] = "anything" end
+for hour = 15, 18 do watchHours[hour] = "patrol" end
+for hour = 19, 22 do watchHours[hour] = "guard" end
+local watchWindows = KnoxPersistence.hoursToDutyWindows(watchHours)
+assert(watchWindows ~= nil and KnoxPersistence.validDutySchedule(watchWindows),
+    "watch strip compresses valid")
+for hour = 0, 23 do
+    assert(KnoxPersistence.scheduleAssignmentFor(watchWindows, hour) == watchHours[hour + 1],
+        "watch round trip preserves every hour")
+end
+
+print("Duty schedule PASS model=true player_legacy=true explicit=true npc_auto=true writer=true strip=true watch=true")

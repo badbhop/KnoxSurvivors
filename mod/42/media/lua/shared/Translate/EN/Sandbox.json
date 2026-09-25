@@ -9,6 +9,8 @@
     "Sandbox_KnoxSurvivors_ZombieEngagementDistance_tooltip": "Maximum distance for automatically engaging an idle visible zombie. Default 4 tiles; lower values favor avoidance. Nearby attacks on themselves or allies still trigger defense within 8 tiles, and an existing fight can continue within 6. Aggressive companion orders retain their wider engagement range; base and group boundaries still apply. Hostile human encounters are unaffected.",
     "Sandbox_KnoxSurvivors_OrderGestures": "Use Gestures When Giving Orders",
     "Sandbox_KnoxSurvivors_OrderGestures_tooltip": "Player orders use native Follow, Stop and Move Out gestures. Nearby free survivors can nod in acknowledgement. Gestures are rate limited and suppressed during combat, traversal and queued actions.",
+    "Sandbox_KnoxSurvivors_ShowLegacyContextCommands": "Show Classic Right-Click Orders",
+    "Sandbox_KnoxSurvivors_ShowLegacyContextCommands_tooltip": "Restores Follow, Hold, Relax and Auto-Loot entries in the survivor right-click menu alongside the emote radial wheel. Off by default: the radial is the primary way to command. The classic entries always return automatically when no radial UI is available.",
     "Sandbox_KnoxSurvivors_IgnoreJobResourceRequirements": "Ignore Job Tool and Resource Requirements",
     "Sandbox_KnoxSurvivors_IgnoreJobResourceRequirements_tooltip": "Provides real tools and materials to survivors for supported base jobs, including barricading, without stocking storage first. Native actions still animate and consume the items; skills, valid targets and world rules still apply. Off by default. Provided items remain if this option is disabled.",
     "Sandbox_KnoxSurvivors_SpawnWithSpouse": "Start with a Spouse",

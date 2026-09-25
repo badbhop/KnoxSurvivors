@@ -5,6 +5,9 @@ require "KS_ActivityFeed"
 require "KS_Settings"
 require "KS_SurvivorNotebook"
 require "KS_OrderCatalog"
+-- Optional radial bridge: fail-closed and dormant when the vanilla radial API
+-- is absent. Never affects the context menus below.
+pcall(require, "KS_RadialOrders")
 if rawget(_G, "KnoxOrderCatalog") == nil then
     _G.KnoxOrderCatalog = { label = function(_, fallback) return fallback or "Order" end }
 end
@@ -46,23 +49,6 @@ local function pointDirective(kind, square)
         minY = square:getY(),
         maxX = square:getX(),
         maxY = square:getY(),
-        z = square:getZ(),
-    }
-end
-
-local function buildingDirective(square)
-    local building = square ~= nil and square:getBuilding() or nil
-    local definition = building ~= nil and building:getDef() or nil
-    if definition == nil then
-        return nil
-    end
-    return {
-        kind = "loot_building",
-        buildingId = tostring(definition:getID()),
-        minX = definition:getX(),
-        minY = definition:getY(),
-        maxX = definition:getX() + definition:getW() - 1,
-        maxY = definition:getY() + definition:getH() - 1,
         z = square:getZ(),
     }
 end
@@ -124,6 +110,13 @@ function PartyCommands.doorsAll(_, playerNum, allowed)
     KnoxCompanionService.issueOrderAll(
         player(playerNum),
         allowed and "allow_doors" or "disallow_doors"
+    )
+end
+
+function PartyCommands.autoLootAll(_, playerNum, allowed)
+    KnoxCompanionService.issueOrderAll(
+        player(playerNum),
+        allowed and "enable_autoloot" or "disable_autoloot"
     )
 end
 
@@ -308,19 +301,13 @@ local function populate(menu, playerNum, square)
             playerNum, pointDirective("guard", square))
         locationMenu:addOption(catalogLabel("patrol_location", "Patrol This Area"), PartyCommands, PartyCommands.directiveAll,
             playerNum, areaDirective("patrol_area", square, 10))
-        local loot = locationMenu:addOption(catalogLabel("loot_orders", "Loot Orders"), nil, nil)
+        local loot = locationMenu:addOption(catalogLabel("loot_orders", "Auto-Loot"), nil, nil)
         local lootMenu = ISContextMenu:getNew(locationMenu)
         locationMenu:addSubMenu(loot, lootMenu)
-        lootMenu:addOption(KnoxOrderCatalog.label("loot_area"), PartyCommands, PartyCommands.directiveAll,
-            playerNum, areaDirective("loot_area", square, 10))
-        lootMenu:addOption(KnoxOrderCatalog.label("loot_corpses"), PartyCommands, PartyCommands.directiveAll,
-            playerNum, areaDirective("loot_corpses", square, 15))
-        local building = buildingDirective(square)
-        local buildingOption = lootMenu:addOption(KnoxOrderCatalog.label("loot_building"), PartyCommands,
-            PartyCommands.directiveAll, playerNum, building)
-        if building == nil then
-            buildingOption.notAvailable = true
-        end
+        lootMenu:addOption(KnoxOrderCatalog.label("enable_autoloot"), PartyCommands, PartyCommands.autoLootAll,
+            playerNum, true)
+        lootMenu:addOption(KnoxOrderCatalog.label("disable_autoloot"), PartyCommands, PartyCommands.autoLootAll,
+            playerNum, false)
         local survival = locationMenu:addOption(catalogLabel("survival_orders", "Survival Orders"), nil, nil)
         local survivalMenu = ISContextMenu:getNew(locationMenu)
         locationMenu:addSubMenu(survival, survivalMenu)

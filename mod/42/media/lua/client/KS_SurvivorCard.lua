@@ -38,6 +38,11 @@ local COL_VALUE   = { 0.88, 0.88, 0.85 }
 local COL_DIM     = { 0.52, 0.52, 0.50 }
 local COL_ACCENT  = { 0.48, 0.56, 0.38 }
 
+-- Vanilla ISScrollBar is 17 wide. Custom-drawn scrollers always reserve it
+-- so right-aligned values never slide under the bar when it appears, and
+-- the layout never shifts by its width.
+local VSCROLL_W = 18
+
 local windows = {}
 local nextRefreshAt = 0
 
@@ -157,6 +162,18 @@ local function restoreJoypadFocus(window)
     setJoypadFocus(window.playerNum, previous)
 end
 
+local function fitViews(window)
+    -- The window is user-resizable but tab views are sized at creation, so
+    -- a manual resize otherwise leaves stale sizes behind: clipped content,
+    -- floating rows and wrong scrollbars until a resolution change.
+    if window.panel == nil then return end
+    for _, v in ipairs(window.panel.viewList or {}) do
+        if v.view ~= nil then
+            UILayout.fitView(v.view)
+        end
+    end
+end
+
 -- Knox tab — misc history / current job only. Vanilla tabs now cover portrait, traits, skills, health, protection, temperature.
 local KnoxPanel = ISPanelJoypad:derive("KnoxSurvivorKnoxPanel")
 
@@ -171,7 +188,7 @@ function KnoxPanel:prerender()
     if self.medicalButton ~= nil then self.medicalButton:setEnable(snapshot.loaded == true) end
     local smallH = getTextManager():getFontHeight(UIFont.Small)
     local y = PADDING
-    local w = self.width - PADDING * 2
+    local w = self.width - PADDING * 2 - VSCROLL_W
 
     local function sectionHeader(title)
         self:drawRect(PADDING, y, w, smallH + 4, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
@@ -268,9 +285,24 @@ function KnoxPanel:prerender()
     if snapshot.isSpouse then keyValue("Relationship", "Spouse", COL_ACCENT) end
     keyValue("Group", snapshot.affiliation and snapshot.affiliation.kind or "independent")
     local buttonH = smallH + 10
-    self.inventoryButton:setY(y + SECTION_GAP)
-    self.medicalButton:setY(y + SECTION_GAP)
-    self:setScrollHeight(y + SECTION_GAP + buttonH + PADDING)
+    -- Pin the buttons to the content end, or the panel bottom when the
+    -- content is short, so they never float mid-panel with dead space
+    -- below. Scroll height and button position only rewrite on change:
+    -- vanilla clamps the scroll offset on every setScrollHeight, so
+    -- per-frame rewrites are what made the bar jump.
+    local buttonY = y + SECTION_GAP
+    local minButtonY = self.height - buttonH - PADDING
+    if buttonY < minButtonY then buttonY = minButtonY end
+    if self.knoxButtonY ~= buttonY then
+        self.knoxButtonY = buttonY
+        self.inventoryButton:setY(buttonY)
+        self.medicalButton:setY(buttonY)
+    end
+    local contentH = buttonY + buttonH + PADDING
+    if self.knoxScrollH ~= contentH then
+        self.knoxScrollH = contentH
+        self:setScrollHeight(contentH)
+    end
 end
 
 function KnoxPanel:onInventoryButton()
@@ -408,7 +440,7 @@ local function ensureViews(window)
             local snap = self.knoxWindow and self.knoxWindow.snapshot or nil
             if snap == nil then return end
             local y = (self.knoxContentHeight or self:getHeight()) + 10
-            local w = math.max(20, self.width - 20)
+            local w = math.max(20, self.width - 20 - VSCROLL_W)
             self:drawRect(10, y, w, 1, 0.5, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
             y = y + 8
             self:drawRect(10, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
@@ -437,7 +469,12 @@ local function ensureViews(window)
             if snap.distanceTiles ~= nil then act = act .. " (" .. tostring(math.floor(snap.distanceTiles+0.5)) .. " tiles)" end
             kv("Activity", act)
             local nh = y + 6
-            self:setScrollHeight(math.max(nh, self:getHeight()))
+            -- Same clamp churn as the Knox tab: only rewrite when the
+            -- appended block actually changed height.
+            if self.knoxScrollH ~= nh then
+                self.knoxScrollH = nh
+                self:setScrollHeight(math.max(nh, self:getHeight()))
+            end
         end
         window.infoView = view
         window.panel:addView(xpSystemText.info, view)
@@ -669,12 +706,14 @@ end
 function Window:onMouseUp(x, y)
     ISCollapsableWindowJoypad.onMouseUp(self, x, y)
     self:clampToViewport()
+    fitViews(self)
     return true
 end
 
 function Window:onMouseUpOutside(x, y)
     ISCollapsableWindowJoypad.onMouseUpOutside(self, x, y)
     self:clampToViewport()
+    fitViews(self)
     return true
 end
 
@@ -834,11 +873,7 @@ local function onResolutionChange()
             local rh = window:resizeWidgetHeight()
             window.panel:setWidth(nw)
             window.panel:setHeight(nh - th - rh)
-            for _, v in ipairs(window.panel.viewList or {}) do
-                if v.view ~= nil then
-                    UILayout.fitView(v.view)
-                end
-            end
+            fitViews(window)
         end
         window:clampToViewport()
     end

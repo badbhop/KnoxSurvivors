@@ -72,6 +72,94 @@ function DeveloperTools.printFactionReadiness()
     KnoxActivityFeed.event("Faction formation status written to console.txt.")
 end
 
+-- Damage-state diagnostic: prints the ACTUAL protection flags and zombie
+-- attack telemetry per active survivor. Shell overrides force several of
+-- these false by design, so this distinguishes "protected" (no known writer
+-- can do this) from "zombies not acquiring / not completing attacks".
+function DeveloperTools.diagnoseDamage(playerNum)
+    local autonomy = rawget(_G, "KnoxSurvivorAutonomy")
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    local status = nil
+    pcall(function()
+        if autonomy ~= nil and autonomy.status ~= nil then
+            status = autonomy.status()
+        end
+    end)
+    local player = nil
+    pcall(function()
+        if getSpecificPlayer ~= nil then player = getSpecificPlayer(playerNum) end
+    end)
+    local ids = status ~= nil and status.ids or {}
+    print("[KnoxSurvivors][DeveloperTools] damage_diagnostic survivors=" .. tostring(#ids))
+    for _, id in ipairs(ids) do
+        local controller = status.controllers ~= nil and status.controllers[id] or nil
+        local character = controller ~= nil and controller.character or nil
+        if character == nil then
+            print("[KnoxSurvivors][DeveloperTools] id=" .. tostring(id) .. " no_loaded_body")
+        else
+            local function flag(method)
+                local ok, value = pcall(function() return character[method](character) end)
+                if not ok then return "error" end
+                return tostring(value)
+            end
+            local health = "unknown"
+            pcall(function()
+                local damage = character:getBodyDamage()
+                if damage ~= nil then health = tostring(damage:getHealth()) end
+            end)
+            print("[KnoxSurvivors][DeveloperTools] id=" .. tostring(id)
+                .. " zombiesDontAttack=" .. flag("isZombiesDontAttack")
+                .. " god=" .. flag("isGodMod")
+                .. " invulnerable=" .. flag("isInvulnerable")
+                .. " ghost=" .. flag("isGhostMode")
+                .. " invisible=" .. flag("isInvisible")
+                .. " health=" .. health)
+            -- Nearest zombie attack telemetry through the existing bridge.
+            local nearest, nearestDistance = nil, math.huge
+            pcall(function()
+                local cell = getCell ~= nil and getCell() or nil
+                local zombies = cell ~= nil and cell:getZombieList() or nil
+                local square = character:getCurrentSquare()
+                if zombies ~= nil and square ~= nil then
+                    for index = 0, zombies:size() - 1 do
+                        local zombie = zombies:get(index)
+                        local zombieSquare = zombie ~= nil and zombie:getCurrentSquare() or nil
+                        if zombieSquare ~= nil and zombieSquare:getZ() == square:getZ() then
+                            local distance = (zombieSquare:getX() - square:getX()) ^ 2
+                                + (zombieSquare:getY() - square:getY()) ^ 2
+                            if distance < nearestDistance then
+                                nearest, nearestDistance = zombie, distance
+                            end
+                        end
+                    end
+                end
+            end)
+            if nearest ~= nil and nearestDistance <= 100 then
+                local target = "unknown"
+                pcall(function()
+                    local current = nearest:getTarget()
+                    target = current == nil and "none"
+                        or (current == character and "this_survivor" or "other")
+                end)
+                print("[KnoxSurvivors][DeveloperTools] id=" .. tostring(id)
+                    .. " nearestZombie distance=" .. string.format("%.2f", math.sqrt(nearestDistance))
+                    .. " target=" .. target)
+                if bridge ~= nil and bridge.zombieAttackDiagnostics ~= nil then
+                    local ok, report = pcall(function()
+                        return bridge:zombieAttackDiagnostics(id, nearest)
+                    end)
+                    print("[KnoxSurvivors][DeveloperTools] id=" .. tostring(id)
+                        .. " attackDiagnostics=" .. tostring(ok and report or "unavailable"))
+                end
+            else
+                print("[KnoxSurvivors][DeveloperTools] id=" .. tostring(id)
+                    .. " no_zombie_within_10_tiles")
+            end
+        end
+    end
+    KnoxActivityFeed.event("Damage diagnostics written to console.txt.")
+end
+
 function DeveloperTools.dispatchScout(playerNum, worldObjects)
     local square = worldObjects ~= nil and worldObjects[1] ~= nil
         and worldObjects[1]:getSquare() or nil
@@ -284,6 +372,7 @@ local function onFill(playerNum, context, worldObjects, test)
     local diagnosticsMenu = ISContextMenu:getNew(menu)
     menu:addSubMenu(diagnosticsOption, diagnosticsMenu)
     diagnosticsMenu:addOption("Write Survivor Status to Log", nil, DeveloperTools.printStatus)
+    diagnosticsMenu:addOption("Diagnose Survivor Damage State", playerNum, DeveloperTools.diagnoseDamage)
 end
 
 Events.OnFillWorldObjectContextMenu.Add(onFill)

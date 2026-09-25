@@ -24,6 +24,41 @@ assert(source:find("function Controller:beginAmbientSocial", 1, true)
     and source:find("faceThisObject", 1, true)
     and source:find("self.nextSocialAt = ticks + 1800", 1, true),
     "ambient socials must face a nearby resident and respect a shared cooldown")
+assert(source:find("function Controller:beginAmbientWatch", 1, true)
+    and source:find('self.activeDecision = "base_ambient_watch"', 1, true)
+    and source:find('instanceof(object, "IsoTelevision")', 1, true)
+    and source:find("self.nextWatchAt = ticks + 3600", 1, true),
+    "ambient television must face a nearby in-base set and respect a cooldown")
+assert(source:find("function Controller:setTelevisionPower", 1, true)
+    and source:find("function Controller:isTelevisionOn", 1, true)
+    and source:find("function Controller:releaseWatch", 1, true)
+    and source:find("deviceData:setIsTurnedOn(on == true)", 1, true)
+    and source:find("deviceData:canBePoweredHere()", 1, true)
+    and source:find("function Controller:isTelevisionPowered", 1, true)
+    and source:find("self:setTelevisionPower(set.object, true)", 1, true)
+    and source:find("self:releaseWatch()", 1, true),
+    "watchers must switch a dark set on and back off, never touching a set they did not power")
+assert(source:find('if phase <= 9 then return "tv" end', 1, true),
+    "scheduled recreation must include television in company time")
+assert(source:find('if assignment == "patrol" or assignment == "guard" then', 1, true)
+    and source:find('preference = assignment', 1, true),
+    "patrol/guard schedule windows must bias election toward watch tasks")
+assert(source:find("function Controller:beginFollowerCompany", 1, true)
+    and source:find('sayDialogue(self.character, self.id, "player_talk", ticks, 2400)', 1, true)
+    and source:find("self:beginFollowerCompany(ticks, self.companionTarget, true)", 1, true)
+    and source:find("self:beginFollowerCompany(ticks, self.groupLeader, false)", 1, true),
+    "idle followers must keep company: face a settled leader, player-bound chatter only")
+assert(source:find('if self.companionOrder == "relax" then', 1, true)
+    and source:find("if not self:beginAmbientSnack(ticks) then", 1, true),
+    "relax orders must snack from the hip pocket before resting")
+assert(source:find("function Controller:beginFollowerHygiene", 1, true)
+    and source:find("KnoxBaseHygiene.beginNear(self.character, 16, self.bridge, self.id, ticks)", 1, true)
+    and source:find('if self:beginFollowerHygiene(ticks) then return end', 1, true),
+    "idle followers must wash at nearby water through the shared hygiene machinery")
+assert(source:find("self.leisureBreakDue = true", 1, true)
+    and source:find("self.consecutiveAutoTasks", 1, true)
+    and source:find("local forceLeisure = false", 1, true),
+    "consecutive automatic successes must earn one ambient leisure round instead of another claim")
 
 local dialoguePath = rootPath .. "/mod/42/media/lua/client/KS_SurvivorDialogue.lua"
 local dialogueFile = assert(io.open(dialoguePath, "r"))
@@ -33,4 +68,4 @@ assert(dialogue:find("base_social = {", 1, true)
     and dialogue:find("base_snack = {", 1, true),
     "ambient company needs its own dialogue banks")
 
-print("Base ambient life PASS vanilla_sit=true bounded=true cleanup=true snack=true social=true")
+print("Base ambient life PASS vanilla_sit=true bounded=true cleanup=true snack=true social=true tv=true tv_power=true leisure_break=true follower_company=true relax_snack=true follower_hygiene=true")

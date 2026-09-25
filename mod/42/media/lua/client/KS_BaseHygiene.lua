@@ -99,6 +99,51 @@ function Hygiene.begin(character, base, bridge, id, ticks)
     return plan, "working"
 end
 
+-- Field washing for followers on the move. Same dirt threshold and vanilla
+-- ISWashYourself machinery as the base version, but the water search is a
+-- radius scan around the survivor instead of base territory: a sink, tub
+-- or rain barrel in a building the party is already passing is fair game.
+-- No soap logic, no new actions; when nothing wet is near, the caller
+-- picks other idle instead of roaming for water.
+function Hygiene.findNearby(character, radius)
+    local origin = character ~= nil and call(character, "getCurrentSquare", nil) or nil
+    local cell = getCell ~= nil and getCell() or nil
+    if origin == nil or cell == nil then return nil end
+    radius = math.max(4, math.min(24, tonumber(radius) or 16))
+    local ox, oy, oz = origin:getX(), origin:getY(), origin:getZ()
+    local best, bestDistance = nil, math.huge
+    for x = ox - radius, ox + radius do for y = oy - radius, oy + radius do
+        local square = cell:getGridSquare(x, y, oz)
+        local objects = square ~= nil and call(square, "getObjects", nil) or nil
+        if objects ~= nil then for index = 0, objects:size() - 1 do
+            local object = objects:get(index)
+            local water = tonumber(call(object, "getFluidAmount", 0)) or 0
+            if water >= 1 then
+                local approach = AdjacentFreeTileFinder.Find(square, character)
+                if approach ~= nil then
+                    local dx, dy = approach:getX() - ox, approach:getY() - oy
+                    local distance = dx * dx + dy * dy
+                    if distance < bestDistance then
+                        best, bestDistance = { object = object, approach = approach }, distance
+                    end
+                end
+            end
+        end end
+    end end
+    return best
+end
+
+function Hygiene.beginNear(character, radius, bridge, id, ticks)
+    if not Hygiene.isNeeded(character) then return nil, "not_dirty" end
+    if bridge == nil then return nil, "no_bridge" end
+    local plan = Hygiene.findNearby(character, radius)
+    if plan == nil then return nil, "no_nearby_water" end
+    local result = tostring(bridge:moveNpc(id, plan.approach))
+    if not string.find(result, "MOVE_STARTED", 1, true) then return nil, "wash_route:" .. result end
+    plan.phase, plan.startedAt, plan.dirtyBefore = "move", ticks, Hygiene.dirtyParts(character)
+    return plan, "working"
+end
+
 function Hygiene.cancel(character, plan, bridge, id)
     if plan ~= nil and plan.phase == "move" and bridge ~= nil then pcall(bridge.cancelNpcMove, bridge, id) end
     if plan ~= nil and plan.action ~= nil then

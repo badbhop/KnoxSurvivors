@@ -11,8 +11,10 @@ require "KS_OrderCatalog"
 -- inventory before the relief is recorded.
 local MAX_STEP_HOURS = 6
 local PHYSICAL_TASK_OFFSCREEN_WAIT_HOURS = 12
-local FOOD_TRIGGER = 0.60
-local WATER_TRIGGER = 0.60
+-- Meal triggers match the loaded need thresholds (0.45) so hibernated
+-- survivors eat/drink on the same schedule they would while loaded.
+local FOOD_TRIGGER = 0.45
+local WATER_TRIGGER = 0.45
 local FOOD_AFTER_MEAL = 0.22
 local WATER_AFTER_DRINK = 0.22
 local HUNGER_PER_HOUR = 0.026

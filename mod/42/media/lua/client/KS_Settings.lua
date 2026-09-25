@@ -34,6 +34,7 @@ local DEFAULTS = {
     ShowActivityFeed = true,
     ShowSurvivorSpeech = true,
     OrderGestures = true,
+    ShowLegacyContextCommands = false,
     AllowSurvivorDoorWindowOpening = true,
     CautiousTravel = true,
     BaseReading = true,
@@ -266,6 +267,13 @@ end
 
 function Settings.orderGesturesEnabled()
     return Settings.enabled() and value("OrderGestures") ~= false
+end
+
+-- Classic right-click Follow/Hold/Relax/Auto-Loot entries. Off by default:
+-- the emote radial is the primary way to command. Nil-safe for old saves
+-- that predate the option (value() falls back to DEFAULTS).
+function Settings.showLegacyContextCommands()
+    return Settings.enabled() and value("ShowLegacyContextCommands") == true
 end
 
 function Settings.developerToolsEnabled()

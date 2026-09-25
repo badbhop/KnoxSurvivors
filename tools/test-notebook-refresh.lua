@@ -25,4 +25,17 @@ local otherCalls = 0
 active = {populate = function() otherCalls = otherCalls + 1 end}
 window:prerender(); assert(otherCalls == 1 and calls == 2, "switching tab only refreshes active page")
 window.isCollapsed = true; now = 4000; window:prerender(); assert(otherCalls == 1)
-print("Notebook refresh PASS selection=true scroll=true bounded=true activeOnly=true collapsed=true")
+assert(source:find("local CrewView", 1, true)
+    and source:find("function CrewView:onCrewPriorityCell", 1, true)
+    and source:find("function CrewView:onCycleHour", 1, true)
+    and source:find("function CrewView:onSaveSchedule", 1, true)
+    and source:find('self.panel:addView("Crew", self.crewView)', 1, true)
+    and source:find("setBaseWorkPriorities", 1, true)
+    and source:find("setBaseDutySchedule", 1, true),
+    "crew tab must unite roster, priority cells and the hours strip with role and party controls")
+assert(source:find("local WorldView", 1, true)
+    and source:find("function WorldView:memberRole", 1, true)
+    and source:find('self.panel:addView("World", self.worldView)', 1, true)
+    and source:find("getFactionRelationship", 1, true),
+    "world tab must merge factions and survivors with member roles")
+print("Notebook refresh PASS selection=true scroll=true bounded=true activeOnly=true collapsed=true crew=true world=true")

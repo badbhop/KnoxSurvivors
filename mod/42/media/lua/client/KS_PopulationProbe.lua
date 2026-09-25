@@ -333,6 +333,13 @@ local function onGameStart()
 end
 
 local function onMainMenuEnter()
+    for _, agent in pairs(agents or {}) do
+        pcall(function()
+            if agent ~= nil and agent.character ~= nil then
+                agent.character:setZombiesDontAttack(false)
+            end
+        end)
+    end
     KnoxPersistence.captureAllActiveSurvivors()
     stop()
 end
@@ -354,5 +361,12 @@ function Probe.status()
     }
 end
 function Probe.cleanup()
+    for _, agent in pairs(agents or {}) do
+        pcall(function()
+            if agent ~= nil and agent.character ~= nil then
+                agent.character:setZombiesDontAttack(false)
+            end
+        end)
+    end
     stop()
 end

@@ -115,6 +115,165 @@ function BaseContextMenu.removeStorage(baseId, key, object, containerIndex)
     if success and KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
 end
 
+local function displayNameFor(id)
+    local identity = nil
+    pcall(function()
+        if KnoxPersistence.getSurvivorIdentity ~= nil then
+            identity = KnoxPersistence.getSurvivorIdentity(id)
+        end
+    end)
+    if type(identity) == "table" then
+        local name = tostring(identity.forename or "")
+        if identity.surname ~= nil and tostring(identity.surname) ~= "" then
+            name = name .. " " .. tostring(identity.surname)
+        end
+        if name ~= "" then return name end
+    end
+    return tostring(id)
+end
+
+local function bedReference(object)
+    if object == nil or object.getSquare == nil then return nil end
+    local square, objectIndex = nil, nil
+    local okSquare = pcall(function() square = object:getSquare() end)
+    local okIndex = pcall(function() objectIndex = object:getObjectIndex() end)
+    if not okSquare or not okIndex or square == nil or objectIndex == nil then
+        return nil
+    end
+    return {
+        x = square:getX(),
+        y = square:getY(),
+        z = square:getZ(),
+        objectIndex = objectIndex,
+    }
+end
+
+local function isBedObject(object)
+    if object == nil or object.getProperties == nil then return false end
+    local ok, properties = pcall(function() return object:getProperties() end)
+    if not ok or properties == nil then return false end
+    local okType, bedType = pcall(function() return properties:get("BedType") end)
+    return okType and string.find(string.lower(tostring(bedType or "")),
+        "bed", 1, true) ~= nil
+end
+
+local function bedCandidates(base, playerId)
+    local found, seen = {}, {}
+    local function add(id)
+        if id == nil or seen[tostring(id)] then return end
+        local alive = true
+        pcall(function()
+            if KnoxPersistence.isSurvivorAlive ~= nil then
+                alive = KnoxPersistence.isSurvivorAlive(id) ~= false
+            end
+        end)
+        if not alive then return end
+        seen[tostring(id)] = true
+        found[#found + 1] = { id = id, name = displayNameFor(id) }
+    end
+    if KnoxPersistence.getCompanionIds ~= nil then
+        local ok, ids = pcall(function()
+            return KnoxPersistence.getCompanionIds(playerId)
+        end)
+        if ok and type(ids) == "table" then
+            for _, id in ipairs(ids) do add(id) end
+        end
+    end
+    if base ~= nil and base.id ~= nil
+        and KnoxPersistence.getBaseResidentIds ~= nil then
+        local ok, ids = pcall(function()
+            return KnoxPersistence.getBaseResidentIds(base.id)
+        end)
+        if ok and type(ids) == "table" then
+            for _, id in ipairs(ids) do add(id) end
+        end
+    end
+    table.sort(found, function(a, b)
+        if a.name ~= b.name then return a.name < b.name end
+        return tostring(a.id) < tostring(b.id)
+    end)
+    return found
+end
+
+local function bedAssignee(bedRef, candidates)
+    if bedRef == nil then return nil end
+    for _, candidate in ipairs(candidates) do
+        local policies = nil
+        pcall(function()
+            if KnoxPersistence.getSurvivorPolicies ~= nil then
+                policies = KnoxPersistence.getSurvivorPolicies(candidate.id)
+            end
+        end)
+        local assigned = type(policies) == "table" and policies.assignedBed or nil
+        if type(assigned) == "table"
+            and tonumber(assigned.x) == tonumber(bedRef.x)
+            and tonumber(assigned.y) == tonumber(bedRef.y)
+            and tonumber(assigned.z) == tonumber(bedRef.z)
+            and tonumber(assigned.objectIndex) == tonumber(bedRef.objectIndex) then
+            return candidate
+        end
+    end
+    return nil
+end
+
+function BaseContextMenu.assignBed(target, object)
+    local survivorId = type(target) == "table" and target.survivorId or nil
+    local playerId = type(target) == "table" and target.playerId or nil
+    local ref = bedReference(object)
+    if survivorId == nil or ref == nil then
+        KnoxActivityFeed.event("Could not assign bed: invalid bed.")
+        return
+    end
+    local ok, reason = KnoxPersistence.setSurvivorBed(
+        survivorId, playerId, ref, getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    )
+    KnoxActivityFeed.event(ok and "Bed assigned. They will use it when sleeping here."
+        or ("Could not assign bed: " .. tostring(reason)))
+end
+
+function BaseContextMenu.unassignBed(target)
+    local survivorId = type(target) == "table" and target.survivorId or nil
+    local playerId = type(target) == "table" and target.playerId or nil
+    if survivorId == nil then
+        KnoxActivityFeed.event("Could not unassign bed.")
+        return
+    end
+    local ok, reason = KnoxPersistence.clearSurvivorBed(
+        survivorId, playerId, getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+    )
+    KnoxActivityFeed.event(ok and "Bed assignment cleared."
+        or ("Could not unassign bed: " .. tostring(reason)))
+end
+
+local function addBedMenu(parent, base, player, playerId, worldobjects)
+    local bed = nil
+    for _, object in ipairs(worldobjects or {}) do
+        if isBedObject(object) then bed = object break end
+    end
+    if bed == nil then return end
+    local candidates = bedCandidates(base, playerId)
+    if #candidates == 0 then return end
+    local ref = bedReference(bed)
+    local current = bedAssignee(ref, candidates)
+    local root = parent:addOption("Assign Bed", nil, nil)
+    local menu = ISContextMenu:getNew(parent)
+    parent:addSubMenu(root, menu)
+    if current ~= nil then
+        local status = menu:addOption("Assigned: " .. current.name, nil, nil)
+        status.notAvailable = true
+        menu:addOption("Unassign Bed",
+            { survivorId = current.id, playerId = playerId },
+            BaseContextMenu.unassignBed)
+    end
+    for _, candidate in ipairs(candidates) do
+        if current == nil or tostring(candidate.id) ~= tostring(current.id) then
+            menu:addOption("Assign to " .. candidate.name,
+                { survivorId = candidate.id, playerId = playerId },
+                BaseContextMenu.assignBed, bed)
+        end
+    end
+end
+
 function BaseContextMenu.selectTerritory(player, baseId)
     KnoxBaseTerritorySelector.start(player, baseId)
 end
@@ -310,6 +469,7 @@ local function addStorageMenu(parent, base, object)
         { key = "weapons", label = "Weapons" },
         { key = "ammunition", label = "Ammunition" },
         { key = "tools", label = "Tools" },
+        { key = "logs", label = "Logs & Lumber" },
         { key = "building", label = "Materials" },
         { key = "farming", label = "Farming" },
         { key = "clothing", label = "Clothing" },
@@ -428,6 +588,7 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
     for _, object in ipairs(containers) do
         addStorageMenu(menu, base, object)
     end
+    addBedMenu(menu, base, player, playerId, worldobjects)
 end
 
 Events.OnFillWorldObjectContextMenu.Add(BaseContextMenu.onFill)

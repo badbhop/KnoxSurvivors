@@ -246,14 +246,15 @@ function Woodcutting.findTask(base, character, eligible)
                 end
             end
         end
-        -- Storage-based auto processing: building storage doubles as the saw
-        -- site so logs become planks when needed without a log_processing zone.
-        -- Tries every building store closest-first so multiple locations work.
+        -- Storage-based auto processing: logs (falling back to legacy
+        -- building) storage doubles as the saw site so logs become planks
+        -- when needed without a log_processing zone.
+        -- Tries every candidate store closest-first so multiple locations work.
         local storage = rawget(_G, "KnoxBaseStorage")
         if storage ~= nil and storage.policies ~= nil and storage.resolvePolicy ~= nil then
             local candidates = {}
             for _, policy in ipairs(storage.policies(base)) do
-                if policy.storageRole == "building" then
+                if policy.storageRole == "logs" or policy.storageRole == "building" then
                     candidates[#candidates + 1] = policy
                 end
             end

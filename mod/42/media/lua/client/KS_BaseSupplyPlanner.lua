@@ -116,6 +116,10 @@ function Planner.reserveStatus(totals, residentCount)
         { kind = "find_medical", category = "medical", target = 1 },
         { kind = "find_weapon", category = "weapons", target = 1 },
         { kind = "find_tools", category = "tools", target = 1 },
+        { kind = "find_wood", category = "logs", target = residents * 4 },
+        { kind = "find_materials", category = "building", target = 4 },
+        { kind = "find_clothing", category = "clothing", target = residents },
+        { kind = "find_ammo", category = "ammunition", target = 2 },
     }
     local result = {}
     for _, definition in ipairs(definitions) do

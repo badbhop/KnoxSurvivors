@@ -61,4 +61,15 @@ assert(hygiene.step(plan, actor, bridge, "worker", 101) == "working" and plan.ph
     "arrival queues the native washing action")
 parts[1].blood, parts[2].dirt, parts[3].blood, parts[4].dirt = 0, 0, 0, 0
 assert(hygiene.step(plan, actor, bridge, "worker", 102) == "complete", "completed native wash reduces visible dirt")
-print("Base hygiene PASS threshold=true in_base_water=true native_action=true completion=true")
+
+-- Field washing: the same dirt bar, but the water search needs no base.
+parts[1].blood, parts[2].dirt, parts[3].blood, parts[4].dirt = 1, 1, 1, 1
+assert(hygiene.isNeeded(actor), "field wash keeps the visible-filth threshold")
+local near = assert(hygiene.findNearby(actor, 16))
+assert(near.object == sink and near.approach == sinkSquare, "field scan finds nearby water without territory")
+local dryCell = function()
+    return { getGridSquare = function() return nil end }
+end
+getCell = dryCell
+assert(hygiene.findNearby(actor, 16) == nil, "dry ground yields no plan instead of roaming for water")
+print("Base hygiene PASS threshold=true in_base_water=true native_action=true completion=true field_scan=true")

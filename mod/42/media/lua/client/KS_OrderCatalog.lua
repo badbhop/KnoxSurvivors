@@ -58,6 +58,10 @@ Catalog.directives = {
     find_medical = { label = "Find Medical Supplies", description = "Look for medical supplies nearby." },
     find_weapon = { label = "Find Better Weapon", description = "Look for a more useful weapon nearby." },
     find_tools = { label = "Find Useful Tools", description = "Look for useful tools nearby." },
+    find_wood = { label = "Find Wood", description = "Collect logs and firewood for the settlement." },
+    find_materials = { label = "Find Materials", description = "Collect building materials for the settlement." },
+    find_clothing = { label = "Find Clothing", description = "Collect clothing and warm gear." },
+    find_ammo = { label = "Find Ammunition", description = "Collect ammunition for the settlement." },
     clean_inventory = { label = "Clean Up Inventory", description = "Sort carried supplies." },
 }
 
@@ -111,7 +115,7 @@ Catalog.basePreferences = {
 Catalog.actions = {
     recruit = { label = "Recruit", description = "Ask this survivor to join you." },
     dismiss = { label = "Dismiss", description = "Release this survivor from your group." },
-    check_needs = { label = "Check Party Needs", description = "Review current party needs." },
+    check_needs = { label = "Check Needs", description = "Review current needs." },
     enter_vehicle = { label = "Take Passenger Seat", description = "Enter a free passenger seat in your vehicle; the driver seat stays yours." },
     drive_ahead = { label = "Take Driver Seat & Drive", description = "You must leave the driver seat first. The survivor enters or switches seats, then drives a short distance." },
     exit_vehicle = { label = "Exit Vehicle", description = "Leave the current vehicle after it stops." },
@@ -119,6 +123,8 @@ Catalog.actions = {
     disallow_climbing = { label = "Disallow", description = "Do not vault or climb." },
     allow_doors = { label = "Allow", description = "Open closed doors and windows." },
     disallow_doors = { label = "Disallow", description = "Do not open doors or windows." },
+    enable_autoloot = { label = "Enable Auto-Loot", description = "Pick up nearby useful items while following." },
+    disable_autoloot = { label = "Disable Auto-Loot", description = "Do not pick up items on your own." },
     open_activity = { label = "Show Activity Feed" },
     open_notebook = { label = "Open Survivor Notebook" },
     open_base = { label = "Open Base Management" },

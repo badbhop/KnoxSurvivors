@@ -256,6 +256,11 @@ local function containerFitsFactionRole(kind, role)
             or kind:find("shelf", 1, true) ~= nil
             or kind:find("pallet", 1, true) ~= nil
     end
+    if role == "logs" then
+        return kind:find("woodpile", 1, true) ~= nil
+            or kind:find("pallet", 1, true) ~= nil
+            or kind:find("crate", 1, true) ~= nil
+    end
     return false
 end
 
@@ -307,7 +312,7 @@ local function ensureFactionStorage(base)
     -- without a tools/materials cupboard, barricade/repair/woodcutting tasks
     -- can never leave the supply-wait state. Designate from real world
     -- containers only; map loot and resident scavenging fill them.
-    local roles = { "tools", "building" }
+    local roles = { "tools", "building", "logs" }
     for _, role in ipairs(roles) do
         if not storageRoleAssigned(base, role) then
             for _, entry in ipairs(found) do
@@ -326,7 +331,7 @@ local function ensureFactionStorage(base)
     -- Houses without a refrigerator still need a pantry. Fill uncovered
     -- categories from remaining real dry containers without reassigning any
     -- existing player or faction policy. Separate roles are optional capacity.
-    for _, role in ipairs({ "food", "water", "tools", "building", "medical",
+    for _, role in ipairs({ "food", "water", "tools", "logs", "building", "medical",
         "farming", "weapons", "ammunition", "clothing", "junk" }) do
         if not storageRoleAssigned(base, role) then
             for _, entry in ipairs(found) do

@@ -192,6 +192,10 @@ option KnoxSurvivors.OrderGestures = {
     type = boolean, default = true, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_OrderGestures,
 }
 
+option KnoxSurvivors.ShowLegacyContextCommands = {
+    type = boolean, default = false, page = KnoxSurvivors_Companions, translation = KnoxSurvivors_ShowLegacyContextCommands,
+}
+
 option KnoxSurvivors.NpcDrivingSpeed = {
     type = integer, min = 5, max = 30, default = 20,
     page = KnoxSurvivors_Companions, translation = KnoxSurvivors_NpcDrivingSpeed,

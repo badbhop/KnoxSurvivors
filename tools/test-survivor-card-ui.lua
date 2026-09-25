@@ -54,5 +54,27 @@ assert(string.find(source, 'if survivor ~= nil and window.skillsView == nil then
     "unloaded survivors must not create vanilla skill views without a live shell")
 assert(string.find(source, 'window.infoView ~= nil and window.infoView.char ~= survivor', 1, true),
     "live view rebinding must tolerate a card that was opened while unloaded")
+assert(string.find(source, 'local VSCROLL_W = 18', 1, true)
+    and string.find(source, 'local w = self.width - PADDING * 2 - VSCROLL_W', 1, true),
+    "custom-drawn knox tab must reserve the vanilla scrollbar width so values never slide under it")
+assert(string.find(source, 'if self.knoxScrollH ~= contentH then', 1, true)
+    and string.find(source, 'if self.knoxScrollH ~= nh then', 1, true),
+    "scroll height must only rewrite on content change because vanilla clamps scroll on every set")
+assert(string.find(source, 'if self.knoxButtonY ~= buttonY then', 1, true)
+    and string.find(source, 'if buttonY < minButtonY then buttonY = minButtonY end', 1, true),
+    "knox tab buttons must pin to content or panel bottom without per-frame repositioning")
+assert(string.find(source, 'local function fitViews(window)', 1, true)
+    and string.find(source, 'fitViews(self)', 1, true),
+    "manual window resizes must refit tab views instead of leaving stale sizes")
 
-print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true resident_fallback=true appearance_hidden=true condition=true")
+local layoutPath = rootPath .. "/mod/42/media/lua/client/KS_SurvivorUILayout.lua"
+local layoutFile = assert(io.open(layoutPath, "r"))
+local layout = layoutFile:read("*a")
+layoutFile:close()
+assert(string.find(layout, 'view:getScrollHeight() or 0', 1, true),
+    "layout refits must preserve vanilla-computed scroll extents instead of clobbering them")
+assert(string.find(layout, 'view:addScrollBars()', 1, true)
+    and not string.find(layout, 'addScrollBars(true)', 1, true),
+    "bound tabs must not create horizontal bars: vanilla shrinks the scroll area on mere presence")
+
+print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true resident_fallback=true appearance_hidden=true condition=true scrollbar_stable=true resize_fit=true")

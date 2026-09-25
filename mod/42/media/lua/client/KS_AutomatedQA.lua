@@ -124,14 +124,10 @@ local function result(scenario, status, reason, evidence)
     end
 end
 
--- Clear protection that may have been left active by an older QA run.
-local function releasePlayerProtection()
-    local player = playerFor(0)
-    if player == nil then return end
-    pcall(function() player:setGodMod(false) end)
-    pcall(function() player:setGhostMode(false) end)
-    pcall(function() player:setInvisible(false) end)
-end
+-- Policy: Knox never writes player protection state (god/ghost/invisible or
+-- zombie-ignore). Those flags are 100% vanilla/user-controlled, so no test or
+-- QA path can ever leave a player invincible. QA damage scenarios therefore
+-- require god mode OFF before starting; that is stated in the start log below.
 
 -- QA is opt-in and restricted to a disposable save.  Remove only loaded
 -- zombies in the compact fixture radius; survivor cleanup remains limited to
@@ -227,7 +223,6 @@ local function finish()
     end
     state.phase = "FINISHED"
     stop()
-    releasePlayerProtection()
 end
 
 local function failCurrent(reason, evidence)
@@ -1525,8 +1520,8 @@ function QA.start(playerNum)
     end
     print(TAG .. " START save_is_disposable=true player=" .. tostring(state.playerNum)
         .. " maxPasses=" .. tostring(MAX_PASSES)
-        .. " scenarios=" .. table.concat(scenarioNames, ","))
-    releasePlayerProtection()
+        .. " scenarios=" .. table.concat(scenarioNames, ",")
+        .. " requires_god_mode_off=true")
     stop()
     Events.OnTick.Add(update)
     return true, "started"
@@ -1553,7 +1548,6 @@ end
 
 local function onMainMenuEnter()
     stop()
-    releasePlayerProtection()
     cleanupActiveProbe()
     cleanupScenarioFixtures()
     cleanupNeeds()

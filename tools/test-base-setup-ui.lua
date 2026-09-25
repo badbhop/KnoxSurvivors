@@ -11,11 +11,10 @@ local notebook = read(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNotebook.
 assert(string.find(notebook, 'require "ISUI/ISCollapsableWindowJoypad"', 1, true),
     "Notebook must use the vanilla collapsable window pattern")
 assert(not string.find(notebook, 'self.baseView:createChildren()', 1, true)
-    and not string.find(notebook, 'self.residentsView:createChildren()', 1, true)
+    and not string.find(notebook, 'self.crewView:createChildren()', 1, true)
     and not string.find(notebook, 'self.workView:createChildren()', 1, true)
     and not string.find(notebook, 'self.missionsView:createChildren()', 1, true)
-    and not string.find(notebook, 'self.survivorsView:createChildren()', 1, true)
-    and not string.find(notebook, 'self.factionsView:createChildren()', 1, true),
+    and not string.find(notebook, 'self.worldView:createChildren()', 1, true),
     "vanilla addView lifecycle must create each tab's controls exactly once")
 assert(string.find(notebook, 'local rawW,rawH=760,600', 1, true)
     and string.find(notebook, 'left+(sw-width)/2', 1, true)
@@ -39,14 +38,19 @@ assert(string.find(notebook, 'local function workStatusFor', 1, true)
     and string.find(notebook, 'KnoxOrderCatalog.label(work.taskType', 1, true)
     and string.find(notebook, 'work.offscreen == true', 1, true)
     and string.find(notebook, 'taskLabel = "Resting"', 1, true),
-    "Residents tab must show each base resident's active task")
+    "Crew tab must show each survivor's live task, job and schedule state")
 assert(string.find(notebook, 'KnoxBaseJobs.settlementSummary', 1, true)
     and string.find(notebook, 'taskRowText(t, now)', 1, true)
     and string.find(notebook, 'reserve.missing', 1, true),
     "Work tab must show authoritative shortages and blocked task detail")
-for _, tab in ipairs({ '"Base"', '"Residents"', '"Work"', '"Away"', '"Survivors"', '"Factions"' }) do
+for _, tab in ipairs({ '"Base"', '"Crew"', '"Work"', '"Away"', '"World"' }) do
     assert(string.find(notebook, tab, 1, true), "Notebook must expose all management tabs")
 end
+assert(not string.find(notebook, 'local ResidentsView', 1, true)
+    and not string.find(notebook, 'local PrioritiesView', 1, true)
+    and not string.find(notebook, 'local SurvivorsView', 1, true)
+    and not string.find(notebook, 'local FactionsView', 1, true),
+    "split roster/priority/survivor/faction tabs must be unified, not duplicated")
 assert(string.find(notebook, 'KnoxBaseTerritorySelector.start', 1, true),
     "boundary editing must use the existing selector")
 assert(string.find(notebook, 'KnoxBaseZoneSelector.start', 1, true),

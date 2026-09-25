@@ -83,6 +83,25 @@ local function feedOrder(ok, reason, action)
     end
 end
 
+-- Classic right-click Follow/Hold/Relax/Auto-Loot entries. Shown when the
+-- player opts in via sandbox, or automatically when no radial UI exists to
+-- command through (radial mod conflict, API change, headless test). The
+-- emote radial is the default path everywhere else.
+local function legacyCommandsVisible()
+    local settings = rawget(_G, "KnoxSettings")
+    if settings ~= nil and settings.showLegacyContextCommands ~= nil then
+        local ok, enabled = pcall(function()
+            return settings.showLegacyContextCommands()
+        end)
+        if ok and enabled == true then return true end
+    end
+    if rawget(_G, "ISEmoteRadialMenu") == nil then return true end
+    local radial = rawget(_G, "KnoxRadialOrders")
+    if radial == nil or radial.isInstalled == nil then return true end
+    local ok, installed = pcall(function() return radial.isInstalled() end)
+    return not (ok and installed == true)
+end
+
 local function onTalk(_, playerNum, survivorId)
     runService(playerNum, KnoxCompanionService.talk, survivorId)
 end
@@ -245,17 +264,19 @@ local function onWeaponPreference(_, playerNum, survivorId, preference)
 end
 
 local function onClimbing(_, playerNum, survivorId, allowed)
-    runService(playerNum, function(player, id)
+    local ok, reason = runService(playerNum, function(player, id)
         return KnoxCompanionService.issueOrder(player, id,
             allowed and "allow_climbing" or "disallow_climbing")
     end, survivorId)
+    feedOrder(ok, reason, "climbing")
 end
 
 local function onDoors(_, playerNum, survivorId, allowed)
-    runService(playerNum, function(player, id)
+    local ok, reason = runService(playerNum, function(player, id)
         return KnoxCompanionService.issueOrder(player, id,
             allowed and "allow_doors" or "disallow_doors")
     end, survivorId)
+    feedOrder(ok, reason, "doors")
 end
 
 local function onUnstick(_, playerNum, survivorId)
@@ -309,27 +330,12 @@ local function areaDirective(kind, square, radius)
     }
 end
 
-local function buildingDirective(square)
-    local building = square ~= nil and square:getBuilding() or nil
-    local definition = building ~= nil and building:getDef() or nil
-    if definition == nil then return nil end
-    return {
-        kind = "loot_building",
-        buildingId = tostring(definition:getID()),
-        minX = definition:getX(),
-        minY = definition:getY(),
-        maxX = definition:getX() + definition:getW() - 1,
-        maxY = definition:getY() + definition:getH() - 1,
-        z = square:getZ(),
-    }
-end
-
-local function onLootOrder(_, playerNum, survivorId, directive)
-    if directive == nil then return end
+local function onAutoLoot(_, playerNum, survivorId, allowed)
     local ok, reason = runService(playerNum, function(player, id)
-        return KnoxCompanionService.issueOrder(player, id, directive.kind, directive)
+        return KnoxCompanionService.issueOrder(player, id,
+            allowed and "enable_autoloot" or "disable_autoloot")
     end, survivorId)
-    feedOrder(ok, reason, "loot")
+    feedOrder(ok, reason, "auto-loot")
 end
 
 local function onNeedOrder(_, playerNum, survivorId, kind)
@@ -390,15 +396,6 @@ local function onResumeNormalDuty(_, playerNum, survivorId)
     runService(playerNum, function(player, id)
         return KnoxCompanionService.issueOrder(player, id, "resume_normal_duty")
     end, survivorId)
-end
-
-local function onFinishInventory(_, playerNum, survivorId)
-    if KnoxCompanionInventory ~= nil and KnoxCompanionInventory.finish ~= nil then
-        KnoxCompanionInventory.finish(playerNum)
-    elseif KnoxCompanionInventory ~= nil and KnoxCompanionInventory.clear ~= nil then
-        KnoxCompanionInventory.clear(playerNum)
-        if ISInventoryPage ~= nil and ISInventoryPage.dirtyUI ~= nil then ISInventoryPage.dirtyUI() end
-    end
 end
 
 local function onBaseJobPreference(_, playerNum, survivorId, preference)
@@ -619,7 +616,8 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         local supply = ordersMenu:addOption("Survival Orders", nil, nil)
         local supplyMenu = ISContextMenu:getNew(ordersMenu)
         ordersMenu:addSubMenu(supply, supplyMenu)
-        for _, kind in ipairs({ "find_food", "find_water", "find_medical", "find_weapon", "find_tools" }) do
+        for _, kind in ipairs({ "find_food", "find_water", "find_medical", "find_weapon", "find_tools",
+            "find_wood", "find_materials", "find_clothing", "find_ammo" }) do
             supplyMenu:addOption(KnoxOrderCatalog.label(kind), SurvivorContextMenu, onNeedOrder,
                 playerNum, survivorId, kind)
         end
@@ -642,13 +640,21 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         local orders = menu:addOption("Orders", nil, nil)
         local ordersMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(orders, ordersMenu)
-        local follow = ordersMenu:addOption(KnoxOrderCatalog.label("follow"), SurvivorContextMenu, onFollow, playerNum, survivorId)
-        local hold = ordersMenu:addOption(KnoxOrderCatalog.label("hold"), SurvivorContextMenu, onHold, playerNum, survivorId)
-        local relax = ordersMenu:addOption(duty.order == "relax" and "Stop Relaxing" or KnoxOrderCatalog.label("relax"),
-            SurvivorContextMenu, duty.order == "relax" and onFollow or onRelax, playerNum, survivorId)
-        ordersMenu:setOptionChecked(follow, duty.order == "follow")
-        ordersMenu:setOptionChecked(hold, duty.order == "hold")
-        ordersMenu:setOptionChecked(relax, duty.order == "relax")
+        -- Follow/Hold/Relax live on the emote radial by default; the classic
+        -- entries return via sandbox opt-in or automatically when no radial
+        -- UI exists. Everything the radial cannot do stays here regardless.
+        if legacyCommandsVisible() then
+            local follow = ordersMenu:addOption(KnoxOrderCatalog.label("follow"), SurvivorContextMenu, onFollow, playerNum, survivorId)
+            local hold = ordersMenu:addOption(KnoxOrderCatalog.label("hold"), SurvivorContextMenu, onHold, playerNum, survivorId)
+            local relax = ordersMenu:addOption(duty.order == "relax" and "Stop Relaxing" or KnoxOrderCatalog.label("relax"),
+                SurvivorContextMenu, duty.order == "relax" and onFollow or onRelax, playerNum, survivorId)
+            ordersMenu:setOptionChecked(follow, duty.order == "follow")
+            ordersMenu:setOptionChecked(hold, duty.order == "hold")
+            ordersMenu:setOptionChecked(relax, duty.order == "relax")
+        else
+            local radialHint = ordersMenu:addOption("Follow/Hold/Relax: use the emote radial", nil, nil)
+            radialHint.notAvailable = true
+        end
         local resume = ordersMenu:addOption(KnoxOrderCatalog.label("resume_normal_duty"), SurvivorContextMenu,
             onResumeNormalDuty, playerNum, survivorId)
         resume.notAvailable = duty.directive == nil
@@ -739,20 +745,20 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         end
         tacticsMenu:addOption("Unstick Survivor", SurvivorContextMenu,
             onUnstick, playerNum, survivorId)
-        local lootRoot = ordersMenu:addOption("Loot Orders", nil, nil)
-        local lootMenu = ISContextMenu:getNew(ordersMenu)
-        ordersMenu:addSubMenu(lootRoot, lootMenu)
-        local lootChar = KnoxSurvivorRuntime.getCharacter(survivorId)
-        local lootSquare = lootChar ~= nil and lootChar:getCurrentSquare() or player:getCurrentSquare()
-        local area = areaDirective("loot_area", lootSquare, 10)
-        local corpses = areaDirective("loot_corpses", lootSquare, 15)
-        local building = buildingDirective(lootSquare)
-        local lootArea = lootMenu:addOption(KnoxOrderCatalog.label("loot_area"), SurvivorContextMenu, onLootOrder, playerNum, survivorId, area)
-        local lootCorpses = lootMenu:addOption(KnoxOrderCatalog.label("loot_corpses"), SurvivorContextMenu, onLootOrder, playerNum, survivorId, corpses)
-        local lootBuilding = lootMenu:addOption(KnoxOrderCatalog.label("loot_building"), SurvivorContextMenu, onLootOrder, playerNum, survivorId, building)
-        if area == nil then lootArea.notAvailable = true end
-        if corpses == nil then lootCorpses.notAvailable = true end
-        if building == nil then lootBuilding.notAvailable = true end
+        if legacyCommandsVisible() then
+            local lootRoot = ordersMenu:addOption("Auto-Loot", nil, nil)
+            local lootMenu = ISContextMenu:getNew(ordersMenu)
+            ordersMenu:addSubMenu(lootRoot, lootMenu)
+            local lootPolicies = KnoxPersistence.getSurvivorPolicies(survivorId) or {}
+            local autoLoot = lootPolicies.autoLoot
+            if autoLoot == nil then autoLoot = true end
+            for _, choice in ipairs({ { "Auto-Loot While Following", true },
+                { "Do Not Pick Up Items", false } }) do
+                local option = lootMenu:addOption(choice[1], SurvivorContextMenu,
+                    onAutoLoot, playerNum, survivorId, choice[2])
+                lootMenu:setOptionChecked(option, (autoLoot ~= false) == choice[2])
+            end
+        end
         local needsRoot = ordersMenu:addOption("Survival Orders", nil, nil)
         local needsMenu = ISContextMenu:getNew(ordersMenu)
         ordersMenu:addSubMenu(needsRoot, needsMenu)
@@ -766,6 +772,14 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             playerNum, survivorId, "find_weapon")
         needsMenu:addOption(KnoxOrderCatalog.label("find_tools"), SurvivorContextMenu, onNeedOrder,
             playerNum, survivorId, "find_tools")
+        needsMenu:addOption(KnoxOrderCatalog.label("find_wood"), SurvivorContextMenu, onNeedOrder,
+            playerNum, survivorId, "find_wood")
+        needsMenu:addOption(KnoxOrderCatalog.label("find_materials"), SurvivorContextMenu, onNeedOrder,
+            playerNum, survivorId, "find_materials")
+        needsMenu:addOption(KnoxOrderCatalog.label("find_clothing"), SurvivorContextMenu, onNeedOrder,
+            playerNum, survivorId, "find_clothing")
+        needsMenu:addOption(KnoxOrderCatalog.label("find_ammo"), SurvivorContextMenu, onNeedOrder,
+            playerNum, survivorId, "find_ammo")
         needsMenu:addOption(KnoxOrderCatalog.label("clean_inventory"), SurvivorContextMenu, onNeedOrder,
             playerNum, survivorId, "clean_inventory")
         local base = KnoxBaseManager.getForOwner("player", playerId)

@@ -175,7 +175,10 @@ local function fail(reason, evidence)
     releasePacified()
     restoreHands()
     if npc ~= nil then
-        npc:setZombiesDontAttack(true)
+        -- Hand back a vulnerable survivor. Leaving ZombiesDontAttack(true)
+        -- here produced "swarmed but invincible" NPCs that persisted into
+        -- normal saves when the test survivor was captured.
+        pcall(function() npc:setZombiesDontAttack(false) end)
     end
     if targetZombie ~= nil then
         removeZombie(targetZombie)
@@ -525,7 +528,9 @@ local function onMainMenuEnter()
     releasePacified()
     restoreHands()
     if npc ~= nil then
-        npc:setZombiesDontAttack(true)
+        -- Same handoff rule as fail(): menu exit returns the NPC to normal
+        -- gameplay, so it must be zombie-vulnerable.
+        pcall(function() npc:setZombiesDontAttack(false) end)
     end
     if targetZombie ~= nil then
         removeZombie(targetZombie)
@@ -561,6 +566,6 @@ function Probe.cleanup()
     end
     releasePacified()
     restoreHands()
-    if npc ~= nil then pcall(function() npc:setZombiesDontAttack(true) end) end
+    if npc ~= nil then pcall(function() npc:setZombiesDontAttack(false) end) end
     stop()
 end

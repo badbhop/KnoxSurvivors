@@ -33,16 +33,22 @@ local TOOL_TYPES = {
 
 local BUILDING_TYPES = {
     ["Base.Plank"] = true,
-    ["Base.Log"] = true,
-    ["Base.TreeBranch"] = true,
-    ["Base.Twigs"] = true,
-    ["Base.Firewood"] = true,
     ["Base.SheetMetal"] = true,
     ["Base.SmallSheetMetal"] = true,
     ["Base.Nails"] = true,
     ["Base.Woodglue"] = true,
     ["Base.Screws"] = true,
     ["Base.DuctTape"] = true,
+}
+
+-- Raw timber has its own role so log piles stay separate from processed
+-- building supplies. Anything already shelved under building stays valid;
+-- only new classification prefers logs.
+local LOG_TYPES = {
+    ["Base.Log"] = true,
+    ["Base.TreeBranch"] = true,
+    ["Base.Twigs"] = true,
+    ["Base.Firewood"] = true,
 }
 
 local FARMING_TYPES = {
@@ -62,6 +68,7 @@ Storage.RESOURCE_CATEGORIES = {
     "weapons",
     "ammunition",
     "tools",
+    "logs",
     "building",
     "farming",
     "clothing",
@@ -188,7 +195,15 @@ function Storage.policies(base)
             -- Unmigrated records without any category are preserved on disk but
             -- never treated as assigned storage (legacy fridge check).
             if policy.category == nil and policy.storageRole == nil then
-                -- preserve, do not include
+                -- Transient legacy-fridge migration: an old-save record that
+                -- still resolves to a loaded fridge/freezer is surfaced as
+                -- food storage so residents can eat from a stocked fridge.
+                -- Nothing is written back; the save record is untouched.
+                local migrated = Storage.legacyFridgePolicy(policy)
+                if migrated ~= nil then
+                    result[#result + 1] = migrated
+                end
+                -- else: preserve, do not include
             else
                 if policy.storageRole == nil then
                     policy.storageRole = policy.category == "depot" and "supplies"
@@ -200,6 +215,36 @@ function Storage.policies(base)
     end
     table.sort(result, function(a, b) return a.key < b.key end)
     return result
+end
+
+-- Transient, read-only migration for pre-typed-storage saves. Returns a
+-- food-role view of a legacy record when it still resolves to a loaded
+-- fridge/freezer, else nil. Never mutates the persisted record.
+function Storage.legacyFridgePolicy(policy)
+    if policy == nil or getCell == nil or getCell() == nil then return nil end
+    local ok, resolved = pcall(function() return Storage.resolvePolicy(policy) end)
+    if not ok or type(resolved) ~= "table" or resolved.container == nil then
+        return nil
+    end
+    local okType, containerType = pcall(function()
+        return resolved.container:getType()
+    end)
+    if not okType or type(containerType) ~= "string" then return nil end
+    local lower = string.lower(containerType)
+    if string.find(lower, "fridg", 1, true) == nil
+        and string.find(lower, "freez", 1, true) == nil then
+        return nil
+    end
+    return {
+        key = policy.key,
+        storageRole = "food",
+        x = policy.x,
+        y = policy.y,
+        z = policy.z,
+        objectIndex = policy.objectIndex,
+        containerIndex = policy.containerIndex,
+        containerType = policy.containerType,
+    }
 end
 
 function Storage.mainPolicy(base)
@@ -216,7 +261,7 @@ function Storage.label(policy)
     local labels = {
         supplies = "Main Supplies", food = "Food & Drink", water = "Water",
         medical = "Medical", weapons = "Weapons", ammunition = "Ammunition",
-        tools = "Tools", building = "Materials", farming = "Farming",
+        tools = "Tools", logs = "Logs & Lumber", building = "Materials", farming = "Farming",
         clothing = "Clothing", junk = "Junk",
     }
     return labels[role] or "Storage"
@@ -281,6 +326,9 @@ function Storage.matchesCategory(item, category)
     if category == "building" then
         return BUILDING_TYPES[full] == true
             or displayCategory(item) == "Material"
+    end
+    if category == "logs" then
+        return LOG_TYPES[full] == true
     end
     if category == "farming" then
         return FARMING_TYPES[full] == true
