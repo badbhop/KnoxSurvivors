@@ -177,3 +177,42 @@ assert(quietZombie.target==npc and directed==initial+1, "sustained real exposure
 KnoxZombieAwareness.update({near={character=npc}},{"near"},585)
 assert(directed==initial+2, "discovery changes must not weaken native pursuit refresh")
 print("Stealth awareness integration PASS no_false_memory=true native_pursuit=true")
+
+-- Bite-envelope visibility bits: held only while a zombie actively engages
+-- the shell with verified line of sight, moved with the survivor, cleared
+-- on every disengage path so no square keeps phantom wall-hack vision.
+local function bitSquare(x, y, z)
+    local bits = {}
+    local s = square(x, y, z)
+    s.setCouldSee = function(_, index, value) bits[index] = value end
+    s.isCouldSee = function(_, index) return bits[index] == true end
+    s._bits = bits
+    return s
+end
+npc.getIndex = function() return 7 end
+npc.isSneaking = function() return false end
+local homeSquare = bitSquare(10, 10, 0)
+npc.current = homeSquare
+local biter = {
+    __zombie = true,
+    dead = false,
+    current = bitSquare(10.5, 10, 0),
+    getCurrentSquare = function(self) return self.current end,
+    isDead = function(self) return self.dead end,
+    getTarget = function(self) return self.target end,
+    setTarget = function(self, target) self.target = target end,
+    CanSee = function(self) return true end,
+}
+list.get = function(_, index) return index == 0 and biter or nil end
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 600)
+assert(biter.target == npc, "adjacent shell is acquired")
+assert(homeSquare._bits[7] == true, "engaged bite envelope holds the shell visibility bit")
+local awaySquare = bitSquare(12, 10, 0)
+npc.current = awaySquare
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 615)
+assert(homeSquare._bits[7] ~= true, "moved survivor releases the old square")
+assert(awaySquare._bits[7] == true, "bit follows the survivor")
+biter.dead = true
+KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 630)
+assert(awaySquare._bits[7] ~= true, "disengage clears the bit")
+print("Visibility bit ownership PASS engaged=true follows=true cleared=true")

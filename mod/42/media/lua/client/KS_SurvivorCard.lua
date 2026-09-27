@@ -139,6 +139,33 @@ local function screenBounds(playerNum)
         getPlayerScreenHeight(playerNum)
 end
 
+-- Visible content bottom for views whose vanilla extent covers hidden
+-- rows (the temperature panel pre-builds Simple and Advanced groups and
+-- reports one constant height). Scrollbars and hidden children are
+-- skipped so each style scrolls exactly to its own content.
+local function visibleContentBottom(view, fallback)
+    local content = tonumber(fallback) or 0
+    if view == nil or view.children == nil then return content end
+    for _, child in pairs(view.children) do
+        if child ~= nil and child ~= view.vscroll and child ~= view.hscroll then
+            local visible = true
+            if child.getIsVisible ~= nil then
+                local ok, flag = pcall(function() return child:getIsVisible() end)
+                if ok then visible = flag ~= false end
+            end
+            if visible and child.getY ~= nil and child.getHeight ~= nil then
+                local ok, bottom = pcall(function()
+                    return (child:getY() or 0) + (child:getHeight() or 0)
+                end)
+                if ok and tonumber(bottom) ~= nil and bottom > content then
+                    content = bottom
+                end
+            end
+        end
+    end
+    return content
+end
+
 local function restoreJoypadFocus(window)
     local joypadData = JoypadState.players[window.playerNum + 1]
     if joypadData == nil or getJoypadFocus(window.playerNum) ~= window then
@@ -439,18 +466,22 @@ local function ensureViews(window)
             origRender(self)
             local snap = self.knoxWindow and self.knoxWindow.snapshot or nil
             if snap == nil then return end
+            -- Measured metrics, not fixed pixels: at scaled UI fonts the
+            -- old 16px rows overlapped each other.
+            local smallH = getTextManager():getFontHeight(UIFont.Small)
+            local rowH = smallH + 4
             local y = (self.knoxContentHeight or self:getHeight()) + 10
             local w = math.max(20, self.width - 20 - VSCROLL_W)
             self:drawRect(10, y, w, 1, 0.5, COL_BORDER[1], COL_BORDER[2], COL_BORDER[3])
             y = y + 8
-            self:drawRect(10, y, w, 16, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
+            self:drawRect(10, y, w, rowH, 0.92, COL_SEC_BG[1], COL_SEC_BG[2], COL_SEC_BG[3])
             self:drawText("KNOX", 16, y + 2, COL_SEC_HDR[1], COL_SEC_HDR[2], COL_SEC_HDR[3], 0.8, UIFont.Small)
-            y = y + 20
+            y = y + rowH + 4
             local function kv(label, value)
                 local vw = math.max(20, w - 70)
                 self:drawText(tostring(label), 10, y, COL_LABEL[1], COL_LABEL[2], COL_LABEL[3], 1, UIFont.Small)
                 self:drawTextRight(trimText(UIFont.Small, tostring(value or "Unknown"), vw), 10 + w, y, COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
-                y = y + 16
+                y = y + rowH
             end
             kv("Time Alive", dayLabel(snap.daysSurvived))
             kv("Known", dayLabel(snap.daysKnown))
@@ -584,6 +615,14 @@ local function ensureViews(window)
         window.clothingView = view
         window.panel:addView(xpSystemText.clothingIns, view)
         UILayout.bindView(view)
+        -- See visibleContentBottom: vanilla reports one constant height for
+        -- both temperature styles, so this must run after bindView (which
+        -- replaces the hooks below) and on every vanilla render call.
+        view.setHeightAndParentHeight = function(self, h)
+            self:setHeight(h)
+            self.knoxContentHeight = math.max(h, visibleContentBottom(self, h) + 10)
+            UILayout.fitView(self)
+        end
     end
     if window.knoxView == nil then
         local view = KnoxPanel:new(0, 8, window.panel.width, window.panel.height - 8)
@@ -789,6 +828,15 @@ end
 
 function SurvivorCard.show(playerNum, survivorId)
     playerNum = tonumber(playerNum) or 0
+    -- Diagnostic (temporary): a card opening unprompted leaves its caller
+    -- in the traceback below. Remove once the phantom opener is found.
+    local trace = ""
+    if debug ~= nil and debug.traceback ~= nil then
+        local ok, result = pcall(debug.traceback, "", 2)
+        if ok and type(result) == "string" then trace = result end
+    end
+    print("[KnoxSurvivors][Card] show survivor=" .. tostring(survivorId)
+        .. " player=" .. tostring(playerNum) .. " trace=" .. tostring(trace))
     if getSpecificPlayer(playerNum) == nil or type(survivorId) ~= "string" then
         return nil
     end
@@ -864,8 +912,9 @@ end
 local function onResolutionChange()
     for _, window in pairs(windows) do
         local _, _, sw, sh = screenBounds(window.playerNum)
-        local nw = math.min(WINDOW_WIDTH, math.max(1, sw - 20))
-        local nh = math.min(WINDOW_HEIGHT, math.max(1, sh - 20))
+        local scale = math.max(1, getTextManager():getFontHeight(UIFont.Small) / 14)
+        local nw = math.min(math.floor(WINDOW_WIDTH * scale), math.max(1, sw - 20))
+        local nh = math.min(math.floor(WINDOW_HEIGHT * scale), math.max(1, sh - 20))
         window:setWidth(nw)
         window:setHeight(nh)
         if window.panel ~= nil then

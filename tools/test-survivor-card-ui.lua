@@ -76,5 +76,9 @@ assert(string.find(layout, 'view:getScrollHeight() or 0', 1, true),
 assert(string.find(layout, 'view:addScrollBars()', 1, true)
     and not string.find(layout, 'addScrollBars(true)', 1, true),
     "bound tabs must not create horizontal bars: vanilla shrinks the scroll area on mere presence")
+assert(string.find(source, 'local function visibleContentBottom(view, fallback)', 1, true)
+    and string.find(source, 'child ~= view.vscroll and child ~= view.hscroll', 1, true)
+    and string.find(source, 'self.knoxContentHeight = math.max(h, visibleContentBottom(self, h) + 10)', 1, true),
+    "temperature tab must measure visible children so each style scrolls exactly to its content")
 
-print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true resident_fallback=true appearance_hidden=true condition=true scrollbar_stable=true resize_fit=true")
+print("Survivor card UI PASS vanilla_portrait=true inventory=true medical=true skills=true health_single=true resident_fallback=true appearance_hidden=true condition=true scrollbar_stable=true resize_fit=true temperature_fit=true")

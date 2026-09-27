@@ -738,6 +738,15 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                         grace,
                         DETACHED_GRACE_CHECKS
                     )
+                -- Companions ride inside the player's streaming bubble: a nil
+                -- square is always transient for them (vault, climb, cell
+                -- edge), never grounds for capture. Distance hibernation
+                -- already exempts them; the detached path must too. Permanent
+                -- loss still unregisters through the nil-shell path above.
+                if type(duty) == "table" and tostring(duty.mode or "") == "companion" then
+                    detachedGrace[id] = nil
+                    shouldHibernate, decision = false, "preserve-companion-detached"
+                end
                 print(TAG .. " detach-detected id=" .. tostring(id) .. " actorXYZ=" .. actorXYZDescription(character) .. " currentSquare=" .. squareDescription(square) .. " finiteDistance=" .. tostring(finiteDistance) .. " squareDistance=" .. tostring(squareDistance) .. " detachedTicks=" .. tostring(grace) .. " decision=" .. tostring(decision))
                 if shouldHibernate then
                     detachedGrace[id] = nil

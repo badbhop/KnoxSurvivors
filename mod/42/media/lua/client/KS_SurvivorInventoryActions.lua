@@ -71,33 +71,9 @@ function KnoxNpcInventoryTransferAction:isValid()
     local events = rawget(_G, "KnoxEventRuntime")
     if self.knoxEventContext ~= nil and (events == nil or not events.lootTransferAllowed(
         self.knoxEventContext, self.character, self.srcContainer, self.destContainer)) then return false end
-    -- Assigned base storage has infinite weight: bypass vanilla capacity while
-    -- keeping all other native validity (existence, item allowed, etc).
-    local cupboard = rawget(_G, "KnoxToolCupboard")
-    if cupboard ~= nil and cupboard.isInfiniteContainer ~= nil and self.destContainer ~= nil then
-        local ok, infinite = pcall(function()
-            return cupboard.isInfiniteContainer(self.destContainer)
-        end)
-        if ok and infinite == true then
-            if self.item == nil or self.srcContainer == nil then return false end
-            local okSrc, inSrc = pcall(function() return self.srcContainer:contains(self.item) end)
-            if not okSrc or inSrc ~= true then
-                -- Item may already be moved; let native decide.
-                return ISInventoryTransferAction.isValid(self)
-            end
-            if self.destContainer.isItemAllowed ~= nil then
-                local okAllowed, allowed = pcall(function()
-                    return self.destContainer:isItemAllowed(self.item)
-                end)
-                if okAllowed and allowed ~= true then return false end
-            end
-            if self.destContainer.isExistYet ~= nil then
-                local okExist, exists = pcall(function() return self.destContainer:isExistYet() end)
-                if okExist and exists ~= true then return false end
-            end
-            return true
-        end
-    end
+    -- Native validity decides everything including real container capacity:
+    -- assigned storage fills like ordinary Project Zomboid containers, and
+    -- full shelves simply reject so deposits overflow elsewhere.
     return ISInventoryTransferAction.isValid(self)
 end
 

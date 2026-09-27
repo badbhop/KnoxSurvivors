@@ -1517,12 +1517,20 @@ function CompanionService.clearDirectiveAll(player)
     return changed > 0, changed
 end
 
-function CompanionService.sendToBase(player, survivorId)
+function CompanionService.sendToBase(player, survivorId, baseId)
     local playerId = CompanionService.getPlayerId(player)
     local manager = rawget(_G, "KnoxBaseManager")
-    local base = manager ~= nil and manager.getForOwner ~= nil
-        and manager.getForOwner("player", playerId)
-        or nil
+    local base = nil
+    if type(baseId) == "string" and KnoxPersistence.getBase ~= nil then
+        base = KnoxPersistence.getBase(baseId)
+        if base == nil or base.ownerKind ~= "player" or base.ownerId ~= playerId then
+            return false, "not_your_base"
+        end
+    else
+        base = manager ~= nil and manager.getForOwner ~= nil
+            and manager.getForOwner("player", playerId)
+            or nil
+    end
     if base == nil then
         return false, "no_player_base"
     end
@@ -1716,6 +1724,24 @@ function CompanionService.setResidentLootRuns(player, survivorId, allowed)
     return true, allowed == true and "loot_runs_allowed" or "loot_runs_stay_home"
 end
 
+-- Base-to-base transfer for multi-home owners (Missions callbacks, base
+-- picker flows). Clears any in-flight supply order, then moves the
+-- resident record; claims requeue through the existing persistence
+-- boundary. Ownership and base validity stay in persistence.
+function CompanionService.transferBaseResident(player, survivorId, baseId)
+    local playerId = CompanionService.getPlayerId(player)
+    if playerId == nil or type(baseId) ~= "string" then
+        return false, "invalid_transfer"
+    end
+    local now = worldAge()
+    KnoxPersistence.clearBaseSupplyOrder(survivorId, playerId, nil, now)
+    local saved, result = KnoxPersistence.setPlayerBaseResident(
+        survivorId, playerId, baseId, now
+    )
+    if not saved then return false, result end
+    KnoxSurvivorRuntime.notifyDutyChanged(survivorId)
+    return true, "transferred"
+end
 function CompanionService.recallToParty(player, survivorId)
     if KnoxSettings.enabled ~= nil and KnoxSettings.enabled() ~= true then
         return false, "mod_disabled"

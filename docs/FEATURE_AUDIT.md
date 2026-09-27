@@ -1074,7 +1074,7 @@ release-ready goal or any live survivor acceptance gate. No release published.
   required feature set. Internal resource categories still describe contents and
   task requirements; they no longer represent multiple player-assigned stores.
 
-See [current progress and remaining work](PROGRESS_2026-09-07.md). Offline checks
+The old dated progress file was consolidated in the 2026-09-26 documentation cleanup. See [current production state](production/CURRENT_STATE.md) and [active work queue](production/WORK_QUEUE.md). Offline checks
 cover migration, retired sorting, corpse-order dispatch, routine deposits,
 reserve retention and failed/full storage. No live gameplay or public release
 is implied by those checks.
@@ -1142,7 +1142,7 @@ movement selection, spouse retries, cupboard designation/reassignment, storage
 deposit/withdrawal selection and lifecycle activation-budget filtering.
 No public release or Workshop publication is part of this pass.
 
-See [long-session evidence and live checks](LONG_SESSION_REVIEW_2026-09-06.md).
+The old long-session checkpoint file was consolidated in the 2026-09-26 documentation cleanup. Current live acceptance is governed by [QA_RELEASE.md](production/QA_RELEASE.md).
 
 ### Replacement-quality review, formations and sandbox coherence — 2026-09-06
 
@@ -1174,7 +1174,7 @@ See [long-session evidence and live checks](LONG_SESSION_REVIEW_2026-09-06.md).
   check/build, retains per-check output and a machine-readable summary, and fails
   when any check fails. It does not deploy or run the game.
 
-See [Replacement quality](RELEASE_QUALITY.md) for ordered delivery and measurable
+See [QA and release contract](production/QA_RELEASE.md) for current ordered delivery and measurable
 acceptance gates. Next live case is one ordinary companion day through movement,
 needs, combat, passenger actions and save/reload; then small-group and settlement
 integration. Autonomous driving, sustained gameplay performance, full UI scaling

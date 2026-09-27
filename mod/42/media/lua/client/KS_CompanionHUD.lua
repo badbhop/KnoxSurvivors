@@ -105,7 +105,10 @@ function Panel:calculateMetrics()
     self.portraitSize = portrait
     self.headerHeight = medium + 12
     self.rowHeight = math.max(74, small * 4 + 14)
-    self.panelWidth = 188
+    -- Font-relative width (same factor as the card and notebook): fixed
+    -- pixels clip names and bars on large-font displays and big TVs.
+    local fontScale = math.max(1, small / 14)
+    self.panelWidth = math.floor(188 * fontScale)
     self.sidebarOption = getCore():getOptionSidebarSize()
 end
 

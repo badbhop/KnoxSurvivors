@@ -62,7 +62,8 @@ assertEqual(planner.chooseShortage({ food = 8, water = 8, medical = 0 }, 3), "fi
     "medical shortage should be selected after food and water")
 assertEqual(planner.chooseShortage({ food = 8, water = 8, medical = 2, weapons = 0 }, 3), "find_weapon",
     "weapon shortage should be selected before tools")
-assertEqual(planner.chooseShortage({ food = 8, water = 8, medical = 2, weapons = 1, tools = 1 }, 3), nil,
+assertEqual(planner.chooseShortage({ food = 8, water = 8, medical = 2, weapons = 1, tools = 1,
+    logs = 12, building = 4, clothing = 3, ammunition = 2 }, 3), nil,
     "healthy stores should not create a supply trip")
 local reserves = planner.reserveStatus({
     food = 3, water = 6, medical = 1, weapons = 0, tools = 2,
@@ -76,7 +77,7 @@ assertEqual(reserves[4].missing, 1, "missing weapon reserve must remain visible"
 local shortages = planner.shortages({
     food = 0, water = 0, medical = 0, weapons = 1, tools = 1,
 }, 3)
-assertEqual(#shortages, 3, "all meaningful concurrent shortages should be exposed")
+assertEqual(#shortages, 7, "all meaningful concurrent shortages should be exposed")
 assertEqual(shortages[1], "find_food", "shortage order must remain deterministic")
 assertEqual(shortages[2], "find_water", "water follows food in shortage priority")
 assertEqual(shortages[3], "find_medical", "medical follows critical provisions")
@@ -94,6 +95,7 @@ assertEqual(planner.chooseAvailableShortage({
     "an in-flight lower-priority claim must survive a higher shortage becoming available")
 assertEqual(planner.chooseAvailableShortage({
     food = 0, water = 0, medical = 2, weapons = 1, tools = 1,
+    logs = 12, building = 4, clothing = 3, ammunition = 2,
 }, 3, {
     find_food = { survivorId = "worker-a" },
     find_water = { survivorId = "worker-b" },

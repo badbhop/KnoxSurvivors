@@ -4,6 +4,8 @@
 
 A survivor is an autonomous human agent. It is not a scripted zombie and it is not a second local-input player.
 
+The product rule is also that a survivor is **not a colony-game pawn**: it should remain a persistent Project Zomboid survivor whose AI chooses and executes work in the same world. `docs/design/NPC_SYSTEM_INSPIRATION.md` records the current cross-game design research. Planned arbitration/reservation/memory improvements in that note must not be mistaken for already-complete architecture.
+
 Knox Survivors owns:
 
 - persistent survivor identity;

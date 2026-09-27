@@ -45,6 +45,9 @@ local ACTIVITY_LABELS = {
     cooking_move = "Working in the kitchen", cooking_transfer = "Moving kitchen supplies",
     collecting_book = "Collecting a book",
     returning_book = "Returning a book",
+    organizing = "Organizing storage",
+    collecting_item = "Collecting an item",
+    shelving_item = "Shelving an item",
     fighting = "Fighting",
     retreating = "Retreating",
     guarding = "Keeping watch",
@@ -63,9 +66,9 @@ local ACTIVITY_LABELS = {
     following = "Following",
     holding = "Waiting here",
     returning_home = "Returning to base",
-    working_at_base = "Working at base",
-    at_base = "At base",
-    walking_at_base = "Walking around base",
+    working_at_base = "Working",
+    at_base = "Standing by",
+    walking_at_base = "Walking around",
     scouting_base = "Looking for a base",
     meeting = "Talking",
     stopped = "Stopped",
@@ -317,8 +320,8 @@ local function runtimeActivity(id)
         local stored = KnoxPersistence.getUnloadedSurvivalState ~= nil
             and KnoxPersistence.getUnloadedSurvivalState(id) or nil
         local labels = {
-            base_life = "Living at base",
-            base_working = "Working at base",
+            base_life = "Settled",
+            base_working = "Working",
             group_travel = "Travelling with group",
             group_waiting = "Waiting for group",
             group_regrouping = "Regrouping",

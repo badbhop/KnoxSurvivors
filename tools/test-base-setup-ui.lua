@@ -16,10 +16,11 @@ assert(not string.find(notebook, 'self.baseView:createChildren()', 1, true)
     and not string.find(notebook, 'self.missionsView:createChildren()', 1, true)
     and not string.find(notebook, 'self.worldView:createChildren()', 1, true),
     "vanilla addView lifecycle must create each tab's controls exactly once")
-assert(string.find(notebook, 'local rawW,rawH=760,600', 1, true)
+assert(string.find(notebook, 'math.floor(760*scale)', 1, true)
+    and string.find(notebook, 'getFontHeight(UIFont.Small) / 14', 1, true)
     and string.find(notebook, 'left+(sw-width)/2', 1, true)
     and string.find(notebook, 'top+(sh-height)/2', 1, true),
-    "Notebook must use a readable viewport-clamped centered size")
+    "Notebook must scale font-relatively within a viewport-clamped centered size")
 assert(string.find(notebook, 'function Window:fitToPlayerViewport', 1, true)
     and string.find(notebook, 'self:setWidth(width)', 1, true)
     and string.find(notebook, 'self:setHeight(height)', 1, true),
@@ -42,8 +43,8 @@ assert(string.find(notebook, 'local function workStatusFor', 1, true)
 assert(string.find(notebook, 'KnoxBaseJobs.settlementSummary', 1, true)
     and string.find(notebook, 'taskRowText(t, now)', 1, true)
     and string.find(notebook, 'reserve.missing', 1, true),
-    "Work tab must show authoritative shortages and blocked task detail")
-for _, tab in ipairs({ '"Base"', '"Crew"', '"Work"', '"Away"', '"World"' }) do
+    "Base tab must show authoritative shortages and blocked task detail")
+for _, tab in ipairs({ '"Base"', '"Crew"', '"Missions"', '"World"' }) do
     assert(string.find(notebook, tab, 1, true), "Notebook must expose all management tabs")
 end
 assert(not string.find(notebook, 'local ResidentsView', 1, true)
@@ -55,22 +56,27 @@ assert(string.find(notebook, 'KnoxBaseTerritorySelector.start', 1, true),
     "boundary editing must use the existing selector")
 assert(string.find(notebook, 'KnoxBaseZoneSelector.start', 1, true),
     "work areas must use the existing selector")
-assert(string.find(notebook, 'KnoxCompanionService.issueOrder', 1, true)
-    and string.find(notebook, '"return_to_base"', 1, true),
-    "party recall must use the shared order dispatcher")
+assert(string.find(notebook, 'KnoxCompanionService.sendToBase', 1, true)
+    and string.find(notebook, 'KnoxBasePicker', 1, true),
+    "party recall must use the shared service boundary with a base choice when several homes exist")
 assert(string.find(notebook, 'KnoxPersistence.getAwayTeams', 1, true),
     "Notebook must list real persisted teams separately from unloaded survivors")
 assert(string.find(notebook, 'getAwayTeamProgress', 1, true)
     and string.find(notebook, 'remainingHours', 1, true)
     and string.find(notebook, 'statusLabel', 1, true),
     "Notebook mission rows must show durable status and remaining time")
-assert(string.find(notebook, 'Storage is assigned by right-clicking a container inside the base.', 1, true),
+assert(string.find(notebook, 'Right-click a container at home > Use for', 1, true),
     "Notebook must direct physical storage assignment through the world context menu")
-assert(string.find(notebook, '"Cancel Selected"', 1, true)
-    and string.find(notebook, '"Resume Selected"', 1, true)
+assert(string.find(notebook, '"Cancel"', 1, true)
+    and string.find(notebook, '"Resume"', 1, true)
     and string.find(notebook, 'KnoxPersistence.cancelBaseTask', 1, true)
-    and string.find(notebook, 'KnoxPersistence.resumeBaseTask', 1, true),
-    "Work tab must allow safe cancellation and resume of unclaimed base tasks")
+    and string.find(notebook, 'KnoxPersistence.resumeBaseTask', 1, true)
+    and string.find(notebook, 'function BaseView:onAssignTask', 1, true),
+    "Base tab must allow safe cancellation, resume and assignment of base tasks")
+assert(string.find(notebook, 'self.basePicker', 1, true)
+    and string.find(notebook, 'notebookBaseId', 1, true)
+    and string.find(notebook, 'Security: no guard posts', 1, true),
+    "Base tab must switch between multiple homes with readable workforce and security lines")
 assert(string.find(notebook, 'KnoxSurvivorViewModel.getSurvivor', 1, true)
     and string.find(notebook, 'KnoxPersistence.getFactions', 1, true)
     and string.find(notebook, 'KnoxPersistence.getFactionRelationship', 1, true),
@@ -78,7 +84,7 @@ assert(string.find(notebook, 'KnoxSurvivorViewModel.getSurvivor', 1, true)
 assert(string.find(notebook, '"Set Job"', 1, true)
     and string.find(notebook, 'KnoxCompanionService.issueOrder', 1, true)
     and not string.find(notebook, 'KnoxPersistence.setBaseJobPreference', 1, true),
-    "Residents tab must use the canonical order boundary for base-job preferences")
+    "Crew tab must use the canonical order boundary for base-job preferences")
 assert(string.find(notebook, 'self.showHighlights.enable=false', 1, true),
     "Build 42 tick boxes must not use the ISButton-only setEnable method")
 assert(string.find(notebook, 'self.jobPicker:setEnabled', 1, true),

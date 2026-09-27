@@ -57,7 +57,7 @@ KnoxSurvivorViewModel = {
 
 local dispatchedAll = {}
 local dispatchedOne = {}
-local talked, recruited, recalled, unstuck = {}, {}, {}, {}
+local talked, recruited, recalled, unstuck, tactics, sentHome = {}, {}, {}, {}, {}, {}
 local companionIds = { "c1", "c2" }
 local residentIds = { "r1" }
 local activeIds = { "c1", "c2", "r1", "s1", "dead1" }
@@ -94,6 +94,22 @@ KnoxCompanionService = {
     end,
     recallToParty = function(player, survivorId)
         recalled[#recalled + 1] = { player = player, id = survivorId }
+        return true
+    end,
+    sendToBase = function(player, survivorId, baseId)
+        sentHome[#sentHome + 1] = { player = player, id = survivorId, base = baseId }
+        return true
+    end,
+    setCombatStance = function(player, survivorId, stance)
+        tactics[#tactics + 1] = { player = player, id = survivorId, stance = stance }
+        return true
+    end,
+    setClimbing = function(player, survivorId, allowed)
+        tactics[#tactics + 1] = { player = player, id = survivorId, climbing = allowed }
+        return true
+    end,
+    setDoorOpening = function(player, survivorId, allowed)
+        tactics[#tactics + 1] = { player = player, id = survivorId, doors = allowed }
         return true
     end,
 }
@@ -200,14 +216,15 @@ assert(radialMenu.slices[1].text == "VM_c1", "followers sorted by name")
 assert(radialMenu.slices[1].texture == "tex:media/ui/defense/female_base.png",
     "follower slice uses the outline icon")
 select(1)
-assert(#radialMenu.slices == 10, "follower level has 9 orders + back")
+assert(#radialMenu.slices == 11, "follower level has 10 orders + back")
 assert(radialMenu.slices[6].text == "Survival Orders", "survival submenu entry present")
+assert(radialMenu.slices[7].text == "Tactics", "follower tactics entry present")
 select(1)
 assert(#dispatchedOne == 1, "follower select dispatches once")
 assert(dispatchedOne[1].player.id == "player0", "dispatch targets radial player")
 assert(dispatchedOne[1].id == "c1", "dispatch targets that follower")
 assert(dispatchedOne[1].kind == "follow", "dispatch carries order kind")
-assert(#radialMenu.slices == 10, "wheel rebuilds at the follower level")
+assert(#radialMenu.slices == 11, "wheel rebuilds at the follower level")
 
 -- Case 4b: follower survival submenu dispatches per-survivor find orders.
 select(6)
@@ -219,17 +236,57 @@ assert(dispatchedOne[2].id == "c1", "survival targets that follower")
 assert(dispatchedOne[2].kind == "find_food", "survival carries find kind")
 assert(#radialMenu.slices == 6, "wheel rebuilds at the survival level")
 select(6)
-assert(#radialMenu.slices == 10, "survival back returns to the follower level")
+assert(#radialMenu.slices == 11, "survival back returns to the follower level")
+
+-- Case 4c: follower tactics submenu dispatches stance and permissions.
+select(7)
+assert(#radialMenu.slices == 8, "follower tactics has 7 entries + back")
+select(1)
+assert(#tactics == 1 and tactics[1].id == "c1" and tactics[1].stance == "aggressive",
+    "stance dispatches for c1")
+assert(#radialMenu.slices == 8, "wheel rebuilds at the tactics level")
+select(4)
+assert(#tactics == 2 and tactics[2].climbing == true, "climbing dispatches for c1")
+select(8)
+assert(#radialMenu.slices == 11, "tactics back returns to the follower level")
 
 -- Case 5: party tab dispatches issueOrderAll and rebuilds.
 Radial.fillKnox(menuSelf, "knox")
 select(1)
-assert(#radialMenu.slices == 8, "party level has 7 orders + back")
+assert(#radialMenu.slices == 9, "party level has 7 orders + more + back")
+assert(radialMenu.slices[8].text == "More Orders", "party more entry present")
 select(2)
 assert(#dispatchedAll == 1, "party select dispatches once")
 assert(dispatchedAll[1].player.id == "player0", "party targets radial player")
 assert(dispatchedAll[1].kind == "hold", "party carries order kind")
-assert(#radialMenu.slices == 8, "wheel rebuilds at the party level")
+assert(#radialMenu.slices == 9, "wheel rebuilds at the party level")
+
+-- Case 5b: party more menu drills into movements, tactics and permissions.
+select(8)
+assert(#radialMenu.slices == 4, "more level has 3 groups + back")
+select(1)
+assert(#radialMenu.slices == 4, "movements level has 3 orders + back")
+select(1)
+assert(#dispatchedAll == 2 and dispatchedAll[2].kind == "go_to",
+    "regroup dispatches a player-anchored move")
+assert(#radialMenu.slices == 4, "wheel rebuilds at the movements level")
+select(4)
+assert(#radialMenu.slices == 4, "movements back returns to more")
+select(2)
+assert(#radialMenu.slices == 4, "tactics level has 3 stances + back")
+select(1)
+assert(#dispatchedAll == 3 and dispatchedAll[3].kind == "combat_stance",
+    "stance dispatches party-wide")
+select(4)
+select(3)
+assert(#radialMenu.slices == 8, "permissions level has 7 entries + back")
+select(1)
+assert(#dispatchedAll == 4 and dispatchedAll[4].kind == "allow_climbing",
+    "climbing dispatches party-wide")
+select(8)
+assert(#radialMenu.slices == 4, "permissions back returns to more")
+select(4)
+assert(#radialMenu.slices == 9, "more back returns to the party level")
 
 -- Case 6: residents tab excludes companions; recall dispatches + rebuilds.
 Radial.fillKnox(menuSelf, "knox")
@@ -312,5 +369,39 @@ ISEmoteRadialMenu.fillMenu(menuSelf, nil)
 ISEmoteRadialMenu.fillMenu(menuSelf, nil)
 assert(#radialMenu.slices == 2, "repeated fills must not duplicate")
 assert(fillCalls == 5, "original fill runs once per open")
+
+-- Case 12: send-home asks which base when several exist, goes direct with one.
+Radial.fillKnox(menuSelf, "f:c1")
+select(4)
+assert(#sentHome == 1 and sentHome[1].id == "c1" and sentHome[1].base == nil,
+    "single home sends direct without prompting")
+KnoxPersistence.getBasesForOwner = function()
+    return { { id = "b1", name = "Home Base" }, { id = "b2", name = "Outpost 2" } }
+end
+local promptedWith, pickedBase = nil, nil
+KnoxBasePicker = {
+    choose = function(playerNum, prompt, bases, onPick)
+        promptedWith = { playerNum = playerNum, prompt = prompt, bases = bases }
+        pickedBase = onPick
+        return true
+    end,
+}
+Radial.fillKnox(menuSelf, "f:c1")
+select(4)
+assert(promptedWith ~= nil and #promptedWith.bases == 2
+    and promptedWith.bases[2].name == "Outpost 2",
+    "several homes prompt with base names")
+assert(#sentHome == 1, "prompt waits for the choice")
+pickedBase("b2")
+assert(#sentHome == 2 and sentHome[2].id == "c1" and sentHome[2].base == "b2",
+    "choice sends that survivor to that base")
+pickedBase(nil)
+assert(#sentHome == 2, "cancel sends nobody")
+Radial.fillKnox(menuSelf, "knox_party")
+select(4)
+assert(promptedWith ~= nil, "party send-home prompts too")
+pickedBase("b1")
+assert(#sentHome == 4 and sentHome[3].base == "b1" and sentHome[4].base == "b1",
+    "party choice sends every companion to that base")
 
 print("Radial orders PASS tabs=true dispatch=true rebuild=true back=true stale_safe=true split=true idempotent=true")

@@ -389,6 +389,45 @@ function BaseManager.establishPlayerBase(player, square)
     return base, result
 end
 
+-- Additional player base (outpost) in another building. The primary home
+-- base is untouched: faction home, move flow and every singular getter
+-- keep resolving to the earliest base. Territory overlap and faction
+-- claims are enforced exactly like the first home.
+function BaseManager.establishOutpost(player, square)
+    if player == nil or square == nil then
+        return nil, "invalid_location"
+    end
+    local playerId = KnoxPersistence.ensurePlayerId(player)
+    local area = areaFromBuilding(square:getBuilding(), square)
+    if area == nil then
+        return nil, "must_be_inside_building"
+    end
+    local owned = KnoxPersistence.getBasesForOwner ~= nil
+        and KnoxPersistence.getBasesForOwner("player", playerId) or {}
+    for _, other in ipairs(owned) do
+        if other ~= nil and other.home ~= nil
+            and other.home.buildingId == area.buildingId then
+            return other, "existing"
+        end
+    end
+    local territory = territoryAround(area, PLAYER_BASE_YARD_PADDING)
+    if blockedBySurvivorSafehouse(territory) then
+        return nil, "claimed_by_survivor_faction"
+    end
+    local base, result = KnoxPersistence.createBase(
+        "player",
+        playerId,
+        area,
+        worldAge(),
+        territory,
+        true
+    )
+    if base == nil then return nil, result end
+    base.name = "Outpost " .. tostring(#owned + 1)
+    BaseManager.syncStructureProtection()
+    return base, result
+end
+
 function BaseManager.movePlayerBase(player, square)
     if player == nil or square == nil then return nil, "invalid_location" end
     local playerId = KnoxPersistence.ensurePlayerId(player)

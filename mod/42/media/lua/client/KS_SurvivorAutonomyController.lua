@@ -29,6 +29,7 @@ require "KS_BaseStorage"
 require "KS_JobTestSupplies"
 require "KS_BaseRecreation"
 require "KS_BaseHygiene"
+require "KS_BaseOrganize"
 require "KS_BaseCooking"
 require "KS_OrderSignals"
 require "KS_BaseBarricades"
@@ -3569,6 +3570,10 @@ function Controller:interruptForDirective()
         or self.state == "INVENTORY_CLEANUP"
         or self.state == "MOVING_TO_DEPOSIT"
     if self.state == "PLAYER_CONVERSATION" or self.state == "BASE_RECREATION" or self.state == "BASE_COOKING" then safe = true end
+    if self.state == "BASE_ORGANIZE" then
+        self:releaseBaseOrganize()
+        safe = true
+    end
     if not safe then
         return false
     end
@@ -3579,6 +3584,7 @@ function Controller:interruptForDirective()
     if self.state == "INVENTORY_CLEANUP" or self.state == "AID_ACTION"
         or self.state == "WAITING_TO_RECOVER" or self.state == "SLEEPING_RECOVERY"
         or self.state == "COMPANION_RELAX" or self.state == "BASE_AMBIENT_REST"
+        or self.state == "BASE_ORGANIZE"
         or self.state == "CAMP_AMBIENT_REST" then
         if hasPendingTimedActions(self.character) then
             ISTimedActionQueue.clear(self.character)
@@ -6391,6 +6397,7 @@ function Controller:recoverFromControllerError(ticks, reason)
     cleanup("base_cooking", function() self:releaseBaseCooking() end)
     cleanup("base_recreation", function() self:releaseBaseRecreation() end)
     cleanup("base_hygiene", function() self:releaseBaseHygiene() end)
+    cleanup("base_organize", function() self:releaseBaseOrganize() end)
     cleanup("opened_doors", function() self:closeOpenedDoors() end)
     cleanup("reservation_sweep", function() self:releaseAllTransientReservations() end)
     cleanup("movement_recovery", function() self:resetMovementRecovery() end)
@@ -6911,6 +6918,101 @@ function Controller:updateBaseRecreation(ticks)
     end
 end
 
+function Controller:releaseBaseOrganize()
+    local plan = self.pendingOrganize
+    if plan == nil then return end
+    if KnoxBaseOrganize ~= nil and KnoxBaseOrganize.cancelAction ~= nil then
+        KnoxBaseOrganize.cancelAction(self.character, plan)
+    end
+    if plan.item ~= nil then
+        release(self.reservations, "items", plan.item, self.id)
+    end
+    if plan.destinationPolicy ~= nil then
+        release(self.reservations, "containers", plan.destinationPolicy, self.id)
+    end
+    self.pendingOrganize = nil
+end
+
+-- Ambient re-shelving for idle base residents: carry one misplaced or
+-- demoted item to its best shelf through the shared reservation and
+-- transfer machinery. Honors hauling=Never, work windows only (never
+-- sleep/recreation), threats and needs preempt like any idle round.
+function Controller:beginBaseOrganize(ticks)
+    if KnoxBaseOrganize == nil or self.base == nil or self.baseTask ~= nil
+        or self.pendingOrganize ~= nil
+        or not KnoxBaseManager.containsSquare(self.base, self.character:getCurrentSquare())
+        or ticks < (self.nextOrganizeAt or 0)
+        or not self.character:getCharacterActions():isEmpty()
+        or ISTimedActionQueue.getTimedActionQueue(self.character).current ~= nil then
+        return false
+    end
+    local duty = KnoxPersistence.getSurvivorDuty ~= nil
+        and KnoxPersistence.getSurvivorDuty(self.id) or nil
+    local priorities = type(duty) == "table" and duty.workPriorities or nil
+    if type(priorities) == "table" and priorities.hauling == false then
+        return false
+    end
+    self.nextOrganizeAt = ticks + 1800
+    local recent = self.recentOrganized or {}
+    local plan, reason = KnoxBaseOrganize.find(self.base, self.character,
+        function(item) return (recent[item] or 0) <= ticks end,
+        function(item) return reservedByOther(self.reservations, "items", item, self.id) end)
+    if plan == nil then
+        self.nextOrganizeAt = ticks + 3600
+        return false
+    end
+    if not reserve(self.reservations, "items", plan.item, self.id) then
+        self.nextOrganizeAt = ticks + 900
+        return false
+    end
+    if not reserve(self.reservations, "containers", plan.destinationPolicy, self.id) then
+        release(self.reservations, "items", plan.item, self.id)
+        self.nextOrganizeAt = ticks + 900
+        return false
+    end
+    self.pendingOrganize = plan
+    self.organizeStartedAt = ticks
+    self.nextOrganizeNeedsCheck = ticks
+    self.state, self.activeDecision = "BASE_ORGANIZE", "organizing"
+    return true
+end
+
+function Controller:updateBaseOrganize(ticks)
+    if self.pendingOrganize == nil then self:finishDecision(ticks); return end
+    if ticks >= (self.nextOrganizeNeedsCheck or 0) then
+        self.nextOrganizeNeedsCheck = ticks + 90
+        local need = KnoxSurvivorNeeds.decide(self.character, nil)
+        if need ~= nil and need.kind ~= "roam" then
+            self:releaseBaseOrganize()
+            self:finishDecision(ticks)
+            self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
+            return
+        end
+    end
+    local plan = self.pendingOrganize
+    local outcome, reason = KnoxBaseOrganize.step(
+        plan, self.character, self.base, self.bridge, self.id, ticks)
+    if ticks - (self.organizeStartedAt or ticks) > 9000 then
+        outcome, reason = "failed", "organize_timeout"
+    end
+    self.activeDecision = (plan.phase == "borrow_move" or plan.phase == "borrowing")
+        and "collecting_item"
+        or ((plan.phase == "deposit_move" or plan.phase == "depositing")
+            and "shelving_item" or "organizing")
+    if outcome ~= "working" then
+        self.recentOrganized = self.recentOrganized or {}
+        if plan.item ~= nil then
+            self.recentOrganized[plan.item] = ticks + 3600
+        end
+        self:releaseBaseOrganize()
+        self.nextOrganizeAt = ticks + (outcome == "done" and 900 or 1800)
+        if outcome == "failed" then
+            self:recordFailure("organize:" .. tostring(reason), ticks, 1800)
+        end
+        self:finishDecision(ticks)
+    end
+end
+
 -- Ambient snack: eat or drink carried supplies through the real native
 -- consume actions (hunger/thirst genuinely drop, verified by the shared
 -- self-care completion path). Only below the comfort line and only from
@@ -7075,6 +7177,86 @@ function Controller:setTelevisionPower(object, on)
     end
     local verifyOk, nowOn = pcall(function() return deviceData:getIsTurnedOn() end)
     if verifyOk then return nowOn == on end
+    return true
+end
+
+-- Release a light switch this survivor turned on. Only our own sets are
+-- ever touched; a player's lit room is never killed under them.
+function Controller:releaseLights()
+    local lights = self.pendingLights
+    self.pendingLights = nil
+    if lights == nil or lights.turnedOn ~= true or lights.object == nil then return end
+    pcall(function() lights.object:setActivated(false) end)
+end
+
+-- Nearby dark-room switch scan for ambient lighting. Same square area
+-- only (a couple of tiles, same floor, inside the base): no walking, no
+-- movement state, just a reachable switch flipped while settling in.
+-- Class and power methods verified against this build's game jar
+-- (IsoLightSwitch: isActivated/setActivated/canSwitchLight); darkness
+-- comes from the native tooDarkToRead check the reading behavior uses.
+function Controller:findDarkLightSwitch(here)
+    local base = self.base
+    if here == nil or base == nil or getCell == nil or getCell() == nil then
+        return nil
+    end
+    local z = here:getZ()
+    for x = here:getX() - 2, here:getX() + 2 do
+        for y = here:getY() - 2, here:getY() + 2 do
+            local square = getCell():getGridSquare(x, y, z)
+            if square ~= nil and KnoxBaseManager ~= nil
+                and KnoxBaseManager.containsSquare ~= nil
+                and KnoxBaseManager.containsSquare(base, square) then
+                local objects = square:getObjects()
+                for i = 0, objects:size() - 1 do
+                    local object = objects:get(i)
+                    local ok, isSwitch = pcall(function()
+                        return instanceof(object, "IsoLightSwitch")
+                    end)
+                    if ok and isSwitch == true then
+                        local okPower, canSwitch = pcall(function()
+                            return object:canSwitchLight()
+                        end)
+                        local okState, isOn = pcall(function()
+                            return object:isActivated()
+                        end)
+                        if okPower and canSwitch == true and okState and isOn ~= true then
+                            return object
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Ambient lights: flip a nearby dark room's switch while idling through
+-- company time, and switch it back off when the watch expires or sleep
+-- takes over. Instant and decision-free; threats and needs preempt
+-- normally since no state changes hands.
+function Controller:maintainBaseLights(ticks)
+    if self.base == nil or self.character == nil then return false end
+    if self.pendingLights ~= nil then return true end
+    if ticks < (self.nextLightsAt or 0) then return false end
+    local dark = false
+    local ok, tooDark = pcall(function() return self.character:tooDarkToRead() end)
+    if ok then dark = tooDark == true end
+    if not dark then return false end
+    local found = self:findDarkLightSwitch(self.character:getCurrentSquare())
+    if found == nil then
+        self.nextLightsAt = ticks + 1800
+        return false
+    end
+    local setOk = pcall(function() found:setActivated(true) end)
+    local readOk, isOn = pcall(function() return found:isActivated() end)
+    if not (setOk and readOk and isOn == true) then
+        self.nextLightsAt = ticks + 1800
+        return false
+    end
+    self.nextLightsAt = ticks + 3600
+    self.pendingLights = { object = found, turnedOn = true, untilTick = ticks + 1800 }
+    self:diag("social", "ambient_lights", nil)
     return true
 end
 
@@ -7389,6 +7571,11 @@ end
 function Controller:interruptSelfCareForDanger(ticks)
     if self.pendingHygiene ~= nil then
         self:releaseBaseHygiene()
+        self.activeDecision,self.state=nil,"IDLE"
+        return true
+    end
+    if self.pendingOrganize ~= nil then
+        self:releaseBaseOrganize()
         self.activeDecision,self.state=nil,"IDLE"
         return true
     end
@@ -8117,7 +8304,8 @@ function Controller.baseIdleChoice(ticks, id, residentCount, mode)
     end
     if phase <= 3 then return "move" end
     if phase <= 5 then return "rest" end
-    if phase <= 7 then return "snack" end
+    if phase <= 6 then return "snack" end
+    if phase == 7 then return "tidy" end
     if phase <= 9 then return "socialize" end
     return "wait"
 end
@@ -9523,6 +9711,10 @@ function Controller:think(ticks)
                     if self:beginExploration(ticks, nil) then
                         return
                     end
+                else
+                    -- Nothing worth taking: throttle the next inspect scan
+                    -- instead of re-walking containers every idle think.
+                    self.nextExplorationSearch = ticks + EMPTY_SEARCH_COOLDOWN_TICKS
                 end
             end
             self:resetMovementRecovery()
@@ -9531,7 +9723,10 @@ function Controller:think(ticks)
             self:beginFollowerCompany(ticks, self.companionTarget, true)
             self.activeDecision = "follow_player"
             self.state = "COMPANION_WAIT"
-            self.nextThink = ticks + 45
+            -- Settled cadence: needs and orders still arrive through the
+            -- normal think, but a parked follower must not re-scan loot,
+            -- water and company every few seconds (visible rethink stutter).
+            self.nextThink = ticks + 90
         end
         return
     end
@@ -9577,9 +9772,14 @@ function Controller:think(ticks)
         elseif self.baseTask == nil then
             -- A finished watch switches its set back off before the next
             -- decision; an interrupted one keeps burning until this expiry.
+            -- Lit rooms follow the same rule through pendingLights.
             if self.pendingWatch ~= nil
                 and ticks >= (self.pendingWatch.untilTick or 0) then
                 self:releaseWatch()
+            end
+            if self.pendingLights ~= nil
+                and ticks >= (self.pendingLights.untilTick or 0) then
+                self:releaseLights()
             end
             local explicit = self.baseSupplyOrder
             local explicitKind = explicit ~= nil and tostring(explicit.kind or "") or nil
@@ -9676,8 +9876,15 @@ function Controller:think(ticks)
                 idleAssignment = KnoxBaseJobs.scheduleAssignment(self.id)
             end
             if idleAssignment == "sleep" then
+                self:releaseLights()
                 self:beginAmbientBaseRest(ticks)
                 return
+            end
+            -- Company time keeps the lights on: flip a nearby dark room's
+            -- switch while settling into leisure, never while working.
+            if idleAssignment == "recreation" or forceLeisure
+                or idleAssignment == "anything" then
+                self:maintainBaseLights(ticks)
             end
             local choice = Controller.baseIdleChoice(
                 ticks,
@@ -9712,6 +9919,13 @@ function Controller:think(ticks)
             elseif choice == "tv" then
                 if not self:beginAmbientWatch(ticks) then
                     self:beginAmbientBaseRest(ticks)
+                end
+            elseif choice == "tidy" then
+                if not self:beginBaseOrganize(ticks) then
+                    self.activeDecision = "base_idle"
+                    self.state = "BASE_IDLE"
+                    self.nextThink = ticks + 600 + Controller.baseIdleJitter(self.id)
+                    sayDialogue(self.character, self.id, "base_idle", ticks, 1800)
                 end
             else
                 self.activeDecision = "base_idle"
@@ -10198,6 +10412,11 @@ function Controller:tick(ticks)
 
     if self.state == "BASE_HYGIENE" then
         self:updateBaseHygiene(ticks)
+        return
+    end
+
+    if self.state == "BASE_ORGANIZE" then
+        self:updateBaseOrganize(ticks)
         return
     end
 

@@ -154,9 +154,10 @@ assert(contextSource:find('issueOrder(player, id, "check_needs")', 1, true),
 assert(contextSource:find('issueOrder(p, id, "hold")', 1, true),
     "medical check must preserve Hold through the shared order dispatcher")
 local notebookSource = assert(io.open(rootPath .. "/mod/42/media/lua/client/KS_SurvivorNotebook.lua", "r")):read("*a")
-assert(notebookSource:find('KnoxCompanionService.sendToBase(p, s.id)', 1, true) == nil
-    and notebookSource:find('KnoxCompanionService.issueOrder(p, s.id, "return_to_base")', 1, true),
-    "Notebook resident recall must use the shared order dispatcher")
+assert(notebookSource:find('KnoxCompanionService.sendToBase', 1, true)
+    and notebookSource:find('transferBaseResident', 1, true)
+    and notebookSource:find('KnoxPersistence.setPlayerBaseResident', 1, true) == nil,
+    "Notebook resident recall must use the shared service boundary, never raw persistence writes")
 local catalogFile = assert(io.open(rootPath .. "/mod/42/media/lua/client/KS_OrderCatalog.lua", "r"))
 local catalogSource = catalogFile:read("*a")
 catalogFile:close()

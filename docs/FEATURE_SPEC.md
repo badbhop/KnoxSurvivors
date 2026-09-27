@@ -20,7 +20,7 @@ A feature does not count as complete merely because code exists.
 
 Major required systems must have a real production implementation, be connected to normal gameplay, preserve required state, and not depend on developer commands.
 
-`FEATURE_AUDIT.md` tracks current completion status.
+`production/CURRENT_STATE.md` and `production/WORK_QUEUE.md` track current status. `FEATURE_AUDIT.md` is the retained deep historical implementation/evidence ledger.
 
 `ARCHITECTURE.md` defines how these systems must be implemented safely.
 
@@ -31,6 +31,8 @@ Major required systems must have a real production implementation, be connected 
 # Core Vision
 
 Knox survivors should behave like persistent human survivors sharing the Project Zomboid world with the player.
+
+They are AI-controlled Project Zomboid survivors, not colony-game pawns. Other games may inform specific job/priority/social/off-screen mechanics, but Project Zomboid remains the gameplay foundation. See `design/NPC_SYSTEM_INSPIRATION.md`.
 
 They should be able to:
 
@@ -298,40 +300,35 @@ Work areas should support where applicable:
 - Farming;
 - Woodcutting;
 - Corpse Drop;
-- Animal Care;
-- Repair;
-- Construction/Defense.
+- Repair.
+
+Typed storage policies are separate from work areas and remain the canonical storage model.
 
 ## Base Jobs
 
-Production jobs include:
+The current required production job family includes:
 
 - guard;
 - patrol;
 - corpse hauling to a designated Corpse Drop area;
-- automatic surplus deposits into the shared cupboard while retaining personal needs;
+- categorized storage/organizer work that respects active reservations and personal needs;
 - barricading;
 - farming;
+- cooking;
 - tree cutting;
 - log processing;
-- corpse cleanup;
-- animal feeding/watering;
-- repair;
-- construction/defense.
+- corpse cleanup/burning where supported;
+- damaged-structure repair.
 
 Jobs must use appropriate real world tools/materials/resources and recover safely after interruption/failure.
 
-## Construction / Defense
+Animal-care jobs and general construction jobs were intentionally retired from the current production scheduler. Do not silently re-add them because older saves/docs mention them.
 
-Where safely supported, settlements should construct practical defenses including appropriate:
+## Defense boundary
 
-- barricades;
-- doors;
-- walls;
-- gates;
-- access points.
+Current required settlement defense work is **barricading plus supported repair behavior**.
 
-Use real materials, tools, skills and valid vanilla/world actions.
+General player-style construction of new walls, gates, doors or access structures is not a current production requirement. Any future construction system requires a separately approved design/work item using real materials, tools, skills and valid vanilla/world actions.
 
 ## Companions
 
@@ -595,14 +592,12 @@ meet
 
 ## Settlement
 
-storage
+storage/organizing
 → guard/patrol
 → barricade/repair
-→ farming
+→ farming/cooking
 → wood processing
 → corpse cleanup
-→ animal care
-→ practical construction
 → resource mission
 → return.
 

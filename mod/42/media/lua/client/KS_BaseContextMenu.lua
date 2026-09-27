@@ -51,6 +51,17 @@ function BaseContextMenu.establish(player, square)
     end
 end
 
+function BaseContextMenu.establishOutpost(player, square)
+    local base, result = KnoxBaseManager.establishOutpost(player, square)
+    if base ~= nil and result ~= "existing" then
+        KnoxActivityFeed.event("Outpost established: " .. tostring(base.name or base.id) .. ".")
+    elseif base ~= nil then
+        KnoxActivityFeed.event("That building is already one of your bases.")
+    else
+        KnoxActivityFeed.event("Could not establish an outpost here: " .. tostring(result) .. ".")
+    end
+end
+
 function BaseContextMenu.confirmMove(_, button, player, square)
     if button == nil or button.internal ~= "YES" then
         KnoxActivityFeed.event("Home base move cancelled.")
@@ -85,6 +96,16 @@ function BaseContextMenu.setStorage(baseId, object, containerIndex, category)
         if KnoxBaseHighlights ~= nil then KnoxBaseHighlights.refresh() end
     else
         KnoxActivityFeed.event("Could not set storage: " .. tostring(result) .. ".")
+    end
+end
+
+function BaseContextMenu.setStoragePriority(baseId, key, priority)
+    local ok, result = KnoxPersistence.setBaseStoragePriority(baseId, key, priority)
+    if ok then
+        KnoxActivityFeed.event("Storage priority set to "
+            .. KnoxBaseStorage.priorityLabel({ priority = priority }) .. ".")
+    else
+        KnoxActivityFeed.event("Could not set priority: " .. tostring(result) .. ".")
     end
 end
 
@@ -504,6 +525,21 @@ local function addStorageMenu(parent, base, object)
                 status.notAvailable = true
                 targetMenu:addOption("Stop Using for " .. KnoxBaseStorage.label(policy), base.id,
                     BaseContextMenu.removeStorage, policy.key, object, containerIndex)
+                -- RimWorld-style priority: Critical shelves fill first, Low
+                -- last. Current level is checked; changing it re-ranks every
+                -- future deposit without moving existing contents.
+                local priorityOption = targetMenu:addOption("Priority: "
+                    .. KnoxBaseStorage.priorityLabel(policy), nil, nil)
+                local priorityMenu = ISContextMenu:getNew(targetMenu)
+                targetMenu:addSubMenu(priorityOption, priorityMenu)
+                for _, level in ipairs({ "critical", "preferred", "normal", "low" }) do
+                    local current = (policy.priority == nil and level == "normal")
+                        or policy.priority == level
+                    local entry = priorityMenu:addOption(
+                        KnoxBaseStorage.priorityLabel({ priority = level }),
+                        base.id, BaseContextMenu.setStoragePriority, policy.key, level)
+                    if current then priorityMenu:setOptionChecked(entry, true) end
+                end
             end
             local kind = string.lower(tostring(container:getType() or ""))
             local unusable = kind == "corpse" or kind:find("water", 1, true) ~= nil
@@ -557,6 +593,20 @@ function BaseContextMenu.onFill(playerNum, context, worldobjects, test)
         menu:addOption("Establish Home Base", player, BaseContextMenu.establish, square)
     elseif canMove then
         menu:addOption("Move Home Base Here", player, BaseContextMenu.requestMove, square)
+        -- A second (or third) home in another building: residents, jobs and
+        -- storage stay per base, and send-home flows ask which base.
+        -- Not offered inside your own territory (it would overlap).
+        local insideOwn = false
+        if KnoxPersistence.getBaseAtSquare ~= nil then
+            local ok, found = pcall(function()
+                return KnoxPersistence.getBaseAtSquare(
+                    square:getX(), square:getY(), square:getZ(), "player")
+            end)
+            insideOwn = ok and found ~= nil and found.ownerId == playerId
+        end
+        if not insideOwn then
+            menu:addOption("Establish Outpost Here", player, BaseContextMenu.establishOutpost, square)
+        end
     end
     if base ~= nil then
         menu:addOption("Open Base Management", BaseContextMenu, BaseContextMenu.openSetup, playerNum)

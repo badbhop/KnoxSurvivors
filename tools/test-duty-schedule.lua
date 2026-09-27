@@ -215,4 +215,16 @@ for hour = 0, 23 do
         "watch round trip preserves every hour")
 end
 
+-- Plain-words summary backing: 24-hour totals, unknowns fold to anything.
+local counts = KnoxPersistence.dutyHourCounts(defaultHours)
+local total = counts.sleep + counts.work + counts.patrol + counts.guard
+    + counts.recreation + counts.anything
+assert(total == 24, "counts always total a full day")
+assert(counts.sleep == 8 and counts.work == 9 and counts.recreation == 3
+    and counts.anything == 4, "default rota counts read correctly")
+local messy = { [1] = "nap", [2] = "work" }
+local messyCounts = KnoxPersistence.dutyHourCounts(messy)
+assert(messyCounts.work == 1 and messyCounts.anything == 23,
+    "unknown and missing hours fold to anything")
+
 print("Duty schedule PASS model=true player_legacy=true explicit=true npc_auto=true writer=true strip=true watch=true")

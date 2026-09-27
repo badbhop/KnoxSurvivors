@@ -255,3 +255,53 @@ assert(E.get(event.id).phase == "failed" and P.getSurvivorDuty("b").eventId == n
 assert(P.getSurvivorDuty("b").mode == "autonomous" and P.getSurvivorAffiliation("b").factionId == faction.id,
     "lost-home cleanup preserves the survivor's real faction")
 print("Event cleanup PASS casualties=true no_resurrection=true corruption=true lost_home=true")
+
+-- Abstract raid defense for unloaded targets: watch strength decides.
+local feedLines = {}
+KnoxActivityFeed = { event = function(text) feedLines[#feedLines + 1] = tostring(text) end }
+assert(P.setRecord("guard-1", "record-guard-1"))
+assert(P.setRecord("guard-2", "record-guard-2"))
+assert(P.setPlayerCompanion("guard-1", "player-9", "follow", 200))
+assert(P.setPlayerCompanion("guard-2", "player-9", "follow", 200))
+local homeBase = assert(P.createBase("player", "player-9",
+    { minX = 500, minY = 500, width = 6, height = 6 }, 200))
+assert(P.setPlayerBaseResident("guard-1", "player-9", homeBase.id, 200))
+assert(P.setPlayerBaseResident("guard-2", "player-9", homeBase.id, 200))
+assert(P.setBaseJobPreference("guard-1", "player-9", homeBase.id, "guard", 200))
+assert(P.setBaseJobPreference("guard-2", "player-9", homeBase.id, "guard", 200))
+local raidEvent = { id = "raid-abstract-1", kind = "faction_raid", phase = "objective",
+    targetBaseId = homeBase.id, memberIds = { "x1", "x2" }, sourceFactionId = "faction-9" }
+assert(R.resolveUnloadedRaid(raidEvent, {}, 201) == true, "unloaded raid resolves abstractly")
+local history = P.getRaidHistory()
+assert(#history >= 1 and history[#history].outcome == "repelled"
+    and history[#history].targetBaseId == homeBase.id, "two guards repel two raiders")
+assert(feedLines[#feedLines]:find("repelled", 1, true), "defense feeds back to the player")
+local raidEvent2 = { id = "raid-abstract-2", kind = "faction_raid", phase = "active",
+    targetBaseId = homeBase.id,
+    memberIds = { "y1", "y2", "y3", "y4", "y5", "y6" }, sourceFactionId = "faction-9" }
+assert(R.resolveUnloadedRaid(raidEvent2, {}, 202) == true)
+assert(P.getRaidHistory()[#P.getRaidHistory()].outcome == "breached",
+    "six raiders breach two guards")
+assert(feedLines[#feedLines]:find("breached", 1, true), "breach feeds back to the player")
+local breached = false
+for _, site in ipairs(P.getTraceSites()) do
+    if site.kind == "breach" then breached = true end
+end
+assert(breached, "breach leaves a world trace")
+getSpecificPlayer = function()
+    return { getCurrentSquare = function()
+        return { getX = function() return 502 end,
+            getY = function() return 502 end, getZ = function() return 0 end }
+    end }
+end
+local raidEvent3 = { id = "raid-abstract-3", kind = "faction_raid", phase = "objective",
+    targetBaseId = homeBase.id,
+    memberIds = { "z1", "z2", "z3", "z4", "z5", "z6" }, sourceFactionId = "faction-9" }
+assert(R.resolveUnloadedRaid(raidEvent3, {}, 203) == false,
+    "loaded base never resolves abstractly")
+local raidEvent4 = { id = "raid-abstract-4", kind = "faction_raid", phase = "objective",
+    targetBaseId = homeBase.id,
+    memberIds = { "w1", "w2" }, sourceFactionId = "faction-9" }
+assert(R.resolveUnloadedRaid(raidEvent4, { w1 = { character = {} } }, 204) == false,
+    "loaded raiders keep their raid")
+print("Abstract raid defense PASS repelled=true breached=true traces=true loaded_veto=true live_raiders=true")

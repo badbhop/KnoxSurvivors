@@ -276,8 +276,9 @@ function UI.show(playerNum, survivorId)
     if player == nil then return nil end
     if windows[playerNum] ~= nil then windows[playerNum]:close() end
     local session, reason = KnoxTradeActions.beginBrowse(player, survivorId)
-    local width = math.min(680, math.max(1, getPlayerScreenWidth(playerNum) - 20))
-    local height = math.min(500, math.max(1, getPlayerScreenHeight(playerNum) - 20))
+    local scale = math.max(1, getTextManager():getFontHeight(UIFont.Small) / 14)
+    local width = math.min(math.floor(680*scale), math.max(1, getPlayerScreenWidth(playerNum) - 20))
+    local height = math.min(math.floor(500*scale), math.max(1, getPlayerScreenHeight(playerNum) - 20))
     local window = ISCollapsableWindowJoypad.new(Window,
         getPlayerScreenLeft(playerNum) + (getPlayerScreenWidth(playerNum) - width) / 2,
         getPlayerScreenTop(playerNum) + (getPlayerScreenHeight(playerNum) - height) / 2, width, height)

@@ -51,6 +51,7 @@ local function menu()
         return option
     end
     function m:addSubMenu(option,child) option.menu=child end
+    function m:setOptionChecked(option,checked) option.checked=checked end
     menus[#menus+1]=m
     return m
 end
@@ -82,6 +83,10 @@ assert(capacity[2]==100 and refreshed==1, "assigned storage gets infinite (nativ
 assert(customNames[2]=="Food & Drink", "container renamed to storage type")
 open()
 assert(#optionsNamed("Assigned: Food & Drink")==1)
+local checked={}
+for _,m in ipairs(menus) do for _,o in ipairs(m.options) do
+    if o.checked then checked[#checked+1]=o end end end
+assert(#checked==1 and checked[1].name=="Normal", "current storage priority is checked")
 click(optionsNamed("Stop Using for Food & Drink")[1])
 assert(base.storage[reference.key]==nil and refreshed==2)
 assert(customNames[2]=="" or customNames[2]==nil, "container name cleared on removal")

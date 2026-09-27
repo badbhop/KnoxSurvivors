@@ -732,6 +732,34 @@ function Simulation.advanceHibernated(id, hours)
         end
     end
     persistence.setUnloadedSurvivalState(id, state)
+    -- Abstract scuffles for travelers: the road leaves bodies. Once per
+    -- day, hibernated wanderers and supply runners risk a fight at their
+    -- virtual position. Survived scuffles chip health through the existing
+    -- damage path and record a trace site (blood where the player may walk).
+    if state.status ~= "dead" and state.virtualX ~= nil then
+        local duty = persistence.getSurvivorDuty ~= nil
+            and persistence.getSurvivorDuty(id) or {}
+        local mode = type(duty) == "table" and tostring(duty.mode or "") or ""
+        local traveling = mode == "autonomous"
+            or (mode == "base" and type(duty.activeSupplyRun) == "table")
+        local day = math.floor((tonumber(targetHours) or 0) / 24)
+        if traveling and (tonumber(state.lastScuffleDay) or -1) < day then
+            state.lastScuffleDay = day
+            local roll = stableHash(tostring(id) .. ":scuffle:" .. tostring(day)) % 100
+            if roll < 20 then
+                state.health = clamp((tonumber(state.health) or 100) - (2 + roll % 4), 0, 100)
+                if persistence.recordTraceSite ~= nil then
+                    persistence.recordTraceSite("fight",
+                        state.virtualX, state.virtualY, state.virtualZ, targetHours)
+                end
+                events[#events + 1] = "scuffle"
+                if state.health <= 0 then
+                    state.status = "dead"
+                end
+            end
+        end
+        persistence.setUnloadedSurvivalState(id, state)
+    end
     if state.status == "dead" then
         persistence.markSurvivorDead(id, targetHours, "unloaded_survival", {
             locationSource = "logical", corpseState = "logical_only",

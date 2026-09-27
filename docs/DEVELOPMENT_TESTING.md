@@ -414,7 +414,7 @@ Use `-Lua` and `-Luac` for explicit interpreter paths, `-GameDirectory` when nat
 Lua fixtures need a non-default game installation, or `-SkipJava` for a focused Lua
 pass (the summary records that omission). This does not stage, deploy or start a game.
 
-The [replacement-quality delivery gates](RELEASE_QUALITY.md) define the integrated
+The [current QA and release contract](production/QA_RELEASE.md) defines the integrated
 acceptance order. For the current additions, check paired and single-file followers
 at spacing 1 and 3 through doorways and turns; no movement to an unloaded/blocked
 slot or leader tile should be issued. Verify injured companions show both current

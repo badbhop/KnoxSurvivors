@@ -4,6 +4,7 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 package.loaded["KS_Persistence"] = true
 package.loaded["KS_SurvivorNeeds"] = true
 package.loaded["KS_SurvivorInventoryActions"] = true
+package.loaded["TimedActions/ISTimedActionQueue"] = true
 package.loaded["Util/AdjacentFreeTileFinder"] = true
 KnoxSurvivorNeeds = {
     isSafeFood = function(item) return item:getFullType() == "Base.TinnedSoup" end,
@@ -375,3 +376,103 @@ assert(rollbackSource:contains(rollbackFood) and not rollbackInventory:contains(
         and rollbackReport.shortages.food ~= nil,
     "failed provisioning transfer must restore the real item to base storage")
 print("Unloaded base provisioning PASS real=true bounded=true idempotent=true shortage=true rollback=true")
+
+-- RimWorld priorities: rank helpers, persistence shape, deposit order.
+-- Isolated shelves so earlier sections cannot disturb the fixture.
+assert(storage.priorityRank(nil) == 2, "missing policy reads normal")
+assert(storage.priorityRank({}) == 2, "missing priority reads normal")
+assert(storage.priorityRank({ priority = "critical" }) == 0, "critical sorts first")
+assert(storage.priorityRank({ priority = "preferred" }) == 1)
+assert(storage.priorityRank({ priority = "normal" }) == 2)
+assert(storage.priorityRank({ priority = "low" }) == 3, "low sorts last")
+assert(storage.priorityRank({ priority = "penthouse" }) == 2, "unknown reads normal")
+assert(storage.priorityLabel({ priority = "critical" }) == "Critical")
+assert(storage.priorityLabel(nil) == "Normal")
+local shelfACrate = container("crate", {})
+local shelfBCrate = container("crate", {})
+local shelfAObject, shelfBObject = {}, {}
+function shelfAObject:getObjectIndex() return 11 end
+function shelfAObject:getContainerByIndex(index) return index == 0 and shelfACrate or nil end
+function shelfAObject:getContainerCount() return 1 end
+function shelfBObject:getObjectIndex() return 12 end
+function shelfBObject:getContainerByIndex(index) return index == 0 and shelfBCrate or nil end
+function shelfBObject:getContainerCount() return 1 end
+squares["10:30:0"] = square(10, 30, 0, shelfAObject)
+squares["12:30:0"] = square(12, 30, 0, shelfBObject)
+local shelfBase = { id = "base-shelves", storage = {
+    ["shelf-a"] = { key = "shelf-a", x = 10, y = 30, z = 0, objectIndex = 11,
+        containerIndex = 0, containerType = "crate", category = "food", storageRole = "food" },
+    ["shelf-b"] = { key = "shelf-b", x = 12, y = 30, z = 0, objectIndex = 12,
+        containerIndex = 0, containerType = "crate", category = "food", storageRole = "food" },
+} }
+local shelfWorker = { getCurrentSquare = function() return square(11, 30, 0, {}) end,
+    getInventory = function() return container("inventory", {}) end }
+local soupProbe = item("Base.TinnedSoup")
+-- The shared approach stub sits by the old y=20 fixtures; trip deposits
+-- near the y=30 shelves need an adjacent tile to prove reachability.
+local shelfApproach = square(11, 30, 0, {})
+function shelfApproach:isSomethingTo() return false end
+local previousFinder = AdjacentFreeTileFinder
+AdjacentFreeTileFinder = { Find = function() return shelfApproach end }
+shelfBase.storage["shelf-a"].priority = "critical"
+local ranked = assert(storage.findDepositTrip(shelfBase, shelfWorker, soupProbe, {}, 100))
+assert(ranked.policy.key == "shelf-a", "critical shelf wins the deposit")
+shelfBase.storage["shelf-a"].priority = nil
+local unranked = assert(storage.findDepositTrip(shelfBase, shelfWorker, soupProbe, {}, 100))
+assert(unranked.policy.key == "shelf-a",
+    "unranked shelves keep distance-then-key order")
+print("Storage priorities PASS ranks=true order=true legacy_default=true")
+AdjacentFreeTileFinder = previousFinder
+
+-- Ambient re-shelving: a stray meal in a non-accepting crate moves to
+-- supplies through real native transfers, never fabricated or lost.
+local organize = dofile(rootPath .. "/mod/42/media/lua/client/KS_BaseOrganize.lua")
+local stray = item("Base.TinnedSoup")
+stray.getID = function() return 4242 end
+stray._container = destination
+destination.values[#destination.values + 1] = stray
+local organizerInventory = container("inventory", {})
+local organizerSquare = squares["12:20:0"]
+local organizer = {
+    getCurrentSquare = function() return organizerSquare end,
+    getInventory = function() return organizerInventory end,
+    getCharacterActions = function() return { isEmpty = function() return true end } end,
+}
+local organizerQueue = { current = nil,
+    indexOf = function() return -1 end }
+ISTimedActionQueue = {
+    add = function() end,
+    getTimedActionQueue = function() return organizerQueue end,
+    clear = function() organizerQueue.current = nil end,
+}
+KnoxInventoryActions.queueTransfer = function(_, item, source, dest)
+    if source ~= nil and dest ~= nil and source.contains ~= nil and source:contains(item) then
+        dest:AddItem(item)
+        return {}, "queued"
+    end
+    return nil, "transfer_failed"
+end
+local organizerBridge = {
+    moveNpc = function() return "MOVE_STARTED" end,
+    tickNpc = function() return "Succeeded" end,
+}
+local plan = assert(organize.find(base, organizer,
+    function() return true end, function() return false end))
+assert(plan.item == stray, "misplaced meal is nominated")
+assert(plan.destinationPolicy.key == "depot", "supplies is the accepting shelf")
+local outcome, reason = "working", nil
+for _ = 1, 20 do
+    outcome, reason = organize.step(plan, organizer, base, organizerBridge, "tidy-1", 200)
+    if plan.phase == "borrow_move" then organizerSquare = squares["12:20:0"] end
+    if plan.phase == "deposit_move" then organizerSquare = squares["10:20:0"] end
+    if outcome ~= "working" then break end
+end
+assert(outcome == "done" and reason == "organize_completed",
+    "shelving completes end to end: " .. tostring(reason))
+assert(depot:contains(stray) and not destination:contains(stray)
+    and not organizerInventory:contains(stray),
+    "the real item moves shelf to shelf with nothing left behind")
+-- Settled shelves stay settled: nothing else qualifies right now.
+assert(organize.find(base, organizer, function() return true end,
+    function() return false end) == nil, "no reshuffle once everything is shelved")
+print("Base organize PASS nominate=true transfer=true settled=true")

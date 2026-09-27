@@ -2557,8 +2557,21 @@ function KnoxPersistence.dutyWindowsToHours(schedule)
     return hours
 end
 
-function KnoxPersistence.hoursToDutyWindows(hours)
-    local normalized = {}
+-- Plain-words summary backing for the schedule UI: hours per assignment in
+-- a 24-entry strip. Unknown entries count as anything so the totals
+-- always add to 24.
+function KnoxPersistence.dutyHourCounts(hours)
+    local counts = { sleep = 0, work = 0, patrol = 0, guard = 0,
+        recreation = 0, anything = 0 }
+    for hour = 1, 24 do
+        local assignment = type(hours) == "table" and hours[hour] or nil
+        if counts[assignment] == nil then assignment = "anything" end
+        counts[assignment] = counts[assignment] + 1
+    end
+    return counts
+end
+
+function KnoxPersistence.hoursToDutyWindows(hours)    local normalized = {}
     for hour = 0, 23 do
         local assignment = type(hours) == "table" and hours[hour + 1] or nil
         if SCHEDULE_ASSIGNMENTS[assignment] ~= true then assignment = "anything" end
@@ -2900,6 +2913,16 @@ function KnoxPersistence.clearBaseSupplyOrder(id, playerId, baseId, worldAgeHour
     survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
     survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
     return true
+end
+
+-- Read-only copy of a resident's durable supply order for UI rows.
+-- Nil when none is active.
+function KnoxPersistence.getBaseSupplyOrder(id)
+    local survivor = ensureSurvivorState(id)
+    local order = survivor ~= nil and survivor.duty ~= nil
+        and survivor.duty.baseSupplyOrder or nil
+    if type(order) ~= "table" then return nil end
+    return copySerializable(order)
 end
 
 function KnoxPersistence.updateCompanionOrder(id, playerId, order, worldAgeHours)
@@ -5295,6 +5318,106 @@ function KnoxPersistence.getBase(id)
     return type(id) == "string" and root().bases[id] or nil
 end
 
+local RAID_HISTORY_LIMIT = 12
+local TRACE_SITE_LIMIT = 24
+local TRACE_SITE_TTL_HOURS = 7 * 24
+
+-- Completed raid log for faction cards and history. Capped, newest last;
+-- readers show newest first. Same-save safe: a new optional root key.
+function KnoxPersistence.recordRaidHistory(entry)
+    if type(entry) ~= "table" then return false end
+    local data = root()
+    data.raidHistory = data.raidHistory or {}
+    data.raidHistory[#data.raidHistory + 1] = {
+        atHours = tonumber(entry.atHours) or 0,
+        sourceFactionId = tostring(entry.sourceFactionId or ""),
+        sourceName = tostring(entry.sourceName or ""),
+        targetBaseId = tostring(entry.targetBaseId or ""),
+        targetName = tostring(entry.targetName or ""),
+        outcome = tostring(entry.outcome or "unknown"),
+    }
+    while #data.raidHistory > RAID_HISTORY_LIMIT do
+        table.remove(data.raidHistory, 1)
+    end
+    return true
+end
+
+function KnoxPersistence.getRaidHistory()
+    local data = root()
+    local history = {}
+    for _, entry in ipairs(type(data.raidHistory) == "table" and data.raidHistory or {}) do
+        history[#history + 1] = copySerializable(entry)
+    end
+    return history
+end
+
+-- World trace sites: abstract fights and breaches leave records here, and
+-- the materializer turns them into blood and broken windows when a player
+-- approaches. Capped with age expiry; visited sites never re-materialize.
+function KnoxPersistence.recordTraceSite(kind, x, y, z, atHours)
+    if kind ~= "fight" and kind ~= "breach" then return nil end
+    x, y, z = tonumber(x), tonumber(y), tonumber(z or 0)
+    if x == nil or y == nil then return nil end
+    local data = root()
+    data.traceSites = data.traceSites or {}
+    data.nextTraceId = (tonumber(data.nextTraceId) or 0) + 1
+    local site = {
+        id = "trace-" .. tostring(data.nextTraceId),
+        kind = kind, x = math.floor(x), y = math.floor(y), z = math.floor(z or 0),
+        atHours = tonumber(atHours) or 0, visited = false,
+    }
+    data.traceSites[#data.traceSites + 1] = site
+    KnoxPersistence.pruneTraceSites(site.atHours)
+    return site.id
+end
+
+function KnoxPersistence.pruneTraceSites(nowHours)
+    local data = root()
+    if type(data.traceSites) ~= "table" then
+        data.traceSites = {}
+        return 0
+    end
+    local now = tonumber(nowHours) or 0
+    local kept = {}
+    for _, site in ipairs(data.traceSites) do
+        if type(site) == "table" and now - (tonumber(site.atHours) or 0) <= TRACE_SITE_TTL_HOURS then
+            kept[#kept + 1] = site
+        end
+    end
+    while #kept > TRACE_SITE_LIMIT do
+        local victim = 1
+        for index, site in ipairs(kept) do
+            if site.visited and not kept[victim].visited then victim = index; break end
+            if (tonumber(site.atHours) or 0) < (tonumber(kept[victim].atHours) or 0) then
+                victim = index
+            end
+        end
+        table.remove(kept, victim)
+    end
+    data.traceSites = kept
+    return #kept
+end
+
+function KnoxPersistence.getTraceSites()
+    local data = root()
+    local sites = {}
+    for _, site in ipairs(type(data.traceSites) == "table" and data.traceSites or {}) do
+        sites[#sites + 1] = copySerializable(site)
+    end
+    return sites
+end
+
+function KnoxPersistence.markTraceVisited(id)
+    local data = root()
+    for _, site in ipairs(type(data.traceSites) == "table" and data.traceSites or {}) do
+        if type(site) == "table" and tostring(site.id or "") == tostring(id) then
+            site.visited = true
+            return true
+        end
+    end
+    return false
+end
+
 -- Territory is the durable ownership boundary for both player and NPC bases.
 -- Keep this lookup in persistence so interaction rules cannot drift from base
 -- creation, relocation, or save restoration.
@@ -5326,12 +5449,32 @@ function KnoxPersistence.getBaseAtSquare(x, y, z, ownerKind)
 end
 
 function KnoxPersistence.getBaseForOwner(ownerKind, ownerId)
+    -- Deterministic primary: the earliest-established base. Single-base
+    -- saves behave exactly as before; multi-base owners resolve here.
+    local primary, primaryAt = nil, nil
     for _, base in pairs(root().bases) do
         if base ~= nil and base.ownerKind == ownerKind and base.ownerId == ownerId then
-            return base
+            local at = tonumber(base.createdAtHours) or 0
+            if primary == nil or at < primaryAt then
+                primary, primaryAt = base, at
+            end
         end
     end
-    return nil
+    return primary
+end
+
+-- All bases for an owner, oldest first. Empty table when none.
+function KnoxPersistence.getBasesForOwner(ownerKind, ownerId)
+    local list = {}
+    for _, base in pairs(root().bases) do
+        if base ~= nil and base.ownerKind == ownerKind and base.ownerId == ownerId then
+            list[#list + 1] = base
+        end
+    end
+    table.sort(list, function(a, b)
+        return (tonumber(a.createdAtHours) or 0) < (tonumber(b.createdAtHours) or 0)
+    end)
+    return list
 end
 
 -- Automated QA may create faction safehouses in a disposable save. Remove
@@ -5425,7 +5568,7 @@ function KnoxPersistence.canSetBaseTerritory(baseId, bounds, worldAgeHours)
     return normalizedBaseTerritory(baseId, bounds, worldAgeHours)
 end
 
-function KnoxPersistence.createBase(ownerKind, ownerId, home, worldAgeHours, territoryBounds)
+function KnoxPersistence.createBase(ownerKind, ownerId, home, worldAgeHours, territoryBounds, allowMultiple)
     if (ownerKind ~= "player" and ownerKind ~= "faction")
         or type(ownerId) ~= "string" or ownerId == "" then
         return nil, "invalid_owner"
@@ -5435,9 +5578,13 @@ function KnoxPersistence.createBase(ownerKind, ownerId, home, worldAgeHours, ter
         or area.width == nil or area.height == nil then
         return nil, "invalid_home"
     end
-    local existing = KnoxPersistence.getBaseForOwner(ownerKind, ownerId)
-    if existing ~= nil then
-        return existing, "existing"
+    -- Single-home owners keep the legacy gate; outposts pass allowMultiple.
+    -- Territory overlap against every existing base is still enforced below.
+    if allowMultiple ~= true then
+        local existing = KnoxPersistence.getBaseForOwner(ownerKind, ownerId)
+        if existing ~= nil then
+            return existing, "existing"
+        end
     end
     local territory = nil
     if territoryBounds ~= nil then
@@ -5639,6 +5786,8 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
         depot = false,
         storageRole = category,
         toolCupboard = false,
+        priority = KnoxPersistence.validStoragePriority((base.storage or {})[reference.key] ~= nil
+            and (base.storage or {})[reference.key].priority or nil) or "normal",
     }
     local retained = {}
     for key, existing in pairs(base.storage or {}) do
@@ -5669,6 +5818,33 @@ function KnoxPersistence.removeBaseStoragePolicy(baseId, key)
         base.toolCupboardKey = nil
     end
     return true, "removed"
+end
+
+local VALID_STORAGE_PRIORITIES = {
+    low = true, normal = true, preferred = true, critical = true,
+}
+
+-- RimWorld-style storage priority. Nil/unknown normalizes to nil (the
+-- caller falls back to "normal"); only the four levels persist.
+function KnoxPersistence.validStoragePriority(value)
+    if type(value) ~= "string" then return nil end
+    if VALID_STORAGE_PRIORITIES[value] == true then return value end
+    return nil
+end
+
+-- Player-facing priority writer for one assigned container. Same-save
+-- safe: a new optional policy field, defaulting to normal everywhere.
+function KnoxPersistence.setBaseStoragePriority(baseId, key, priority)
+    local base = KnoxPersistence.getBase(baseId)
+    if base == nil or type(key) ~= "string" then
+        return false, "storage_missing"
+    end
+    local policy = base.storage ~= nil and base.storage[key] or nil
+    if type(policy) ~= "table" then return false, "storage_missing" end
+    local normalized = KnoxPersistence.validStoragePriority(priority)
+    if normalized == nil then return false, "unknown_priority" end
+    policy.priority = normalized
+    return true, "saved"
 end
 
 function KnoxPersistence.setBaseDoorLock(baseId, x, y, z, locked)

@@ -11,6 +11,15 @@ _G.KnoxZombieAwareness = ZombieAwareness
 -- Off-slot IsoPlayer shells cannot use IsoPlayer.updateLOS because it writes into
 -- local-player lighting. This module supplies only the missing discovery/perception
 -- edge; zombie locomotion, attack state, animation, hit rolls, and damage stay vanilla.
+--
+-- Visibility-bit ownership: the shells have no LOS render channel, so the
+-- native isCouldSee bit for a shell's viewer index is never maintained and
+-- the bite check fails every lunge (attack-ready forever, biteDone never).
+-- The close-combat loop below therefore maintains that single bit itself,
+-- but ONLY for pairs it has already verified with real line of sight that
+-- tick, and clears it on every disengage path. A bit is per-square, so it
+-- follows the survivor and can never leak wall-hack vision elsewhere.
+local visibilityBits = {}
 local AWARENESS_RADIUS_SQUARED = 20 * 20
 local SWITCH_MARGIN = 1.0
 local NPC_INTERCEPT_RADIUS = 3.0
@@ -71,6 +80,53 @@ local function reportFailure(ticks, result)
         lastFailureReport = ticks
         print("[KnoxSurvivors][ZombieAwareness] perception_failed=" .. tostring(result))
     end
+end
+
+local function shellViewerIndex(npc)
+    local ok, index = pcall(function() return npc:getIndex() end)
+    if not ok then return nil end
+    index = tonumber(index)
+    if index == nil then return nil end
+    return math.floor(index)
+end
+
+local function setSquareBit(square, index, value)
+    if square == nil or index == nil then return false end
+    local ok = pcall(function() square:setCouldSee(index, value == true) end)
+    return ok
+end
+
+-- Hold the shell's visibility bit on its current square while engaged.
+-- Re-points when the survivor moves; no-ops when already held.
+local function ensureVisibilityBit(id, npc)
+    local square = npc ~= nil and npc:getCurrentSquare() or nil
+    local index = npc ~= nil and shellViewerIndex(npc) or nil
+    if square == nil or index == nil then return false end
+    local tracked = visibilityBits[id]
+    if tracked ~= nil and tracked.square == square then return true end
+    if tracked ~= nil then
+        setSquareBit(tracked.square, tracked.index, false)
+        visibilityBits[id] = nil
+    end
+    if not setSquareBit(square, index, true) then return false end
+    visibilityBits[id] = { square = square, index = index }
+    return true
+end
+
+local function clearVisibilityBit(id)
+    local tracked = visibilityBits[id]
+    if tracked == nil then return end
+    setSquareBit(tracked.square, tracked.index, false)
+    visibilityBits[id] = nil
+end
+
+-- Drop close combat for a zombie, releasing its visibility bit first so
+-- no square keeps phantom wall-hack vision for that viewer index.
+local function dropCloseCombat(zombie)
+    local entry = closeCombatTargets[zombie]
+    closeCombatTargets[zombie] = nil
+    local id = type(entry) == "table" and entry.id or entry
+    if id ~= nil then clearVisibilityBit(id) end
 end
 
 local function directZombie(bridge, zombie, id, ticks)
@@ -143,9 +199,10 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
             or zombieSquare:getZ() ~= npcSquare:getZ()
             or distanceSquared(zombieSquare, npcSquare) > CLOSE_ATTACK_REFRESH_RADIUS_SQUARED
             or not canSeeTarget(zombie, npc) then
-            closeCombatTargets[zombie] = nil
+            dropCloseCombat(zombie)
         elseif ticks >= (type(entry) == "table" and entry.nextRefresh or 0) then
             directZombie(bridge, zombie, id, ticks)
+            ensureVisibilityBit(id, npc)
             closeCombatTargets[zombie] = {
                 id = id,
                 nextRefresh = ticks + CLOSE_ATTACK_REFRESH_TICKS,
@@ -293,6 +350,7 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                         id = selectedId,
                         nextRefresh = ticks + CLOSE_ATTACK_REFRESH_TICKS,
                     }
+                    ensureVisibilityBit(selectedId, npc)
                 end
             elseif currentNpcId ~= nil and memoryId == nil then
                 -- The off-slot visibility adapter cannot let the engine expire this
@@ -302,10 +360,10 @@ function ZombieAwareness.update(controllers, orderedIds, ticks)
                     zombie:setTarget(nil)
                 end)
                 targetMemory[zombie] = nil
-                closeCombatTargets[zombie] = nil
+                dropCloseCombat(zombie)
             elseif currentTarget == nil then
                 targetMemory[zombie] = nil
-                closeCombatTargets[zombie] = nil
+                dropCloseCombat(zombie)
             end
         end
     end

@@ -3,6 +3,7 @@ require "ISUI/ISRichTextPanel"
 require "KS_Settings"
 require "KS_Persistence"
 require "KS_SurvivorRuntime"
+require "KS_SpeechIndicators"
 local SurvivorNames = require "KS_SurvivorNames"
 
 local ActivityFeed = rawget(_G, "KnoxActivityFeed") or {}
@@ -22,8 +23,10 @@ local GROUP_COLOURS = {
 local FeedWindow = ISCollapsableWindow:derive("KnoxActivityFeedWindow")
 
 function FeedWindow:new(x, y)
-    -- Keep compact; clamp to viewport like other Knox windows.
-    local w = math.min(WINDOW_WIDTH, math.max(1, getCore():getScreenWidth() - 20))
+    -- Keep compact; clamp to viewport like other Knox windows. Width
+    -- follows UI font scale so lines stop wrapping early on big fonts.
+    local scale = math.max(1, getTextManager():getFontHeight(UIFont.Small) / 14)
+    local w = math.min(math.floor(WINDOW_WIDTH * scale), math.max(1, getCore():getScreenWidth() - 20))
     local h = math.min(WINDOW_HEIGHT, math.max(1, getCore():getScreenHeight() - 20))
     local window = ISCollapsableWindow:new(x, y, w, h)
     setmetatable(window, self)
@@ -163,8 +166,28 @@ function ActivityFeed.speak(character, text)
         end)
     end
     local groupLabel, colour = speakerContext(character)
+    -- Close-but-offscreen voices get a screen-edge arrow (track them down)
+    -- and a distance tag; distant lines stay feed-only.
+    local tag = ""
+    if character ~= nil and KnoxSpeechIndicators ~= nil
+        and KnoxSpeechIndicators.noteSpeech ~= nil then
+        local ok, info = pcall(function()
+            local square = character:getCurrentSquare()
+            local id = KnoxSurvivorRuntime ~= nil
+                and KnoxSurvivorRuntime.idForCharacter(character) or nil
+            local party = false
+            if id ~= nil and KnoxPersistence.getSurvivorAffiliation ~= nil then
+                local aff = KnoxPersistence.getSurvivorAffiliation(id)
+                party = type(aff) == "table" and aff.kind == "player"
+            end
+            return KnoxSpeechIndicators.noteSpeech(square, id, party)
+        end)
+        if ok and type(info) == "table" then
+            tag = " (~" .. tostring(info.dist) .. " tiles " .. tostring(info.dir) .. ")"
+        end
+    end
     addLine("[" .. groupLabel .. "] " .. characterName(character)
-        .. ": " .. tostring(text), colour)
+        .. ": " .. tostring(text) .. tag, colour)
 end
 
 function ActivityFeed.event(text)

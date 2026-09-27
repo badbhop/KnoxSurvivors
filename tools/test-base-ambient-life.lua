@@ -43,6 +43,15 @@ assert(source:find('if phase <= 9 then return "tv" end', 1, true),
 assert(source:find('if assignment == "patrol" or assignment == "guard" then', 1, true)
     and source:find('preference = assignment', 1, true),
     "patrol/guard schedule windows must bias election toward watch tasks")
+assert(source:find('self.nextThink = ticks + 90', 1, true)
+    and source:find('self.nextExplorationSearch = ticks + EMPTY_SEARCH_COOLDOWN_TICKS', 1, true),
+    "settled followers must think less often and throttle empty loot peeks")
+assert(source:find('function Controller:maintainBaseLights', 1, true)
+    and source:find('function Controller:releaseLights', 1, true)
+    and source:find('instanceof(object, "IsoLightSwitch")', 1, true)
+    and source:find('found:setActivated(true)', 1, true)
+    and source:find('self.character:tooDarkToRead()', 1, true),
+    "idle residents must light dark rooms and switch them back off")
 assert(source:find("function Controller:beginFollowerCompany", 1, true)
     and source:find('sayDialogue(self.character, self.id, "player_talk", ticks, 2400)', 1, true)
     and source:find("self:beginFollowerCompany(ticks, self.companionTarget, true)", 1, true)
@@ -68,4 +77,4 @@ assert(dialogue:find("base_social = {", 1, true)
     and dialogue:find("base_snack = {", 1, true),
     "ambient company needs its own dialogue banks")
 
-print("Base ambient life PASS vanilla_sit=true bounded=true cleanup=true snack=true social=true tv=true tv_power=true leisure_break=true follower_company=true relax_snack=true follower_hygiene=true")
+print("Base ambient life PASS vanilla_sit=true bounded=true cleanup=true snack=true social=true tv=true tv_power=true leisure_break=true follower_company=true relax_snack=true follower_hygiene=true steady_follow=true room_lights=true")

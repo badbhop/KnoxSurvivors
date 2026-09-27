@@ -1,0 +1,105 @@
+{
+  "version": 3,
+  "purpose": "Keep routine context small, current, production-oriented, and evidence-first while retaining deep Knox engineering history on demand.",
+  "always_include": [
+    "AGENTS.md",
+    ".modforge/project.json",
+    "docs/production/PROJECT.md",
+    "docs/production/CURRENT_STATE.md",
+    "docs/production/WORK_QUEUE.md",
+    "docs/production/BUGS.md",
+    "docs/production/DECISIONS.md",
+    "docs/production/QA_RELEASE.md",
+    "docs/production/AI_WORKFLOW.md"
+  ],
+  "on_demand": [
+    "docs/production/RUNTIME_AND_MIGRATION.md",
+    "docs/design/NPC_SYSTEM_INSPIRATION.md",
+    "docs/design/README.md",
+    "docs/production/ROADMAP.md",
+    "docs/production/MILESTONES.md",
+    "docs/production/RELEASE_OPERATIONS.md",
+    "docs/production/COLLABORATION.md",
+    "docs/production/CREDITS.md",
+    "docs/production/SUPPORT_AND_TRIAGE.md",
+    "docs/production/RESEARCH_AND_COMPATIBILITY.md",
+    "docs/production/SOURCE_REGISTRY.md",
+    "README.md",
+    "RELEASE_NOTES.md",
+    "docs/FEATURE_SPEC.md",
+    "docs/ARCHITECTURE.md",
+    "docs/DEVELOPMENT_TESTING.md",
+    "docs/FEATURE_AUDIT.md",
+    "docs/LAUNCHER.md",
+    "docs/LAUNCHER_FREE_MIGRATION.md",
+    "docs/NORMAL_PLAYER_TEST.md",
+    "docs/SANDBOX_SETTINGS.md",
+    "docs/WORKSHOP_RELEASE.md"
+  ],
+  "sync_include": [
+    "docs/production/*.md",
+    "RELEASE_NOTES.md",
+    "docs/design/*.md"
+  ],
+  "exclude": [
+    "dev-runs/**",
+    ".gradle/**",
+    ".gradle-user-home/**",
+    ".opencode/node_modules/**",
+    "build/**",
+    "**/build/**",
+    "**/bin/**",
+    "**/obj/**",
+    "**/__pycache__/**",
+    "**/*.class",
+    "launcher/artifacts/**",
+    "local.properties",
+    ".git/cursor/**",
+    "**/*.log",
+    "**/console.txt",
+    "**/console*.txt",
+    "logs/**"
+  ],
+  "document_authority": {
+    "entrypoint": [
+      "AGENTS.md"
+    ],
+    "canonical": [
+      "docs/production/*.md",
+      "docs/design/*.md",
+      "docs/design/NPC_SYSTEM_INSPIRATION.md"
+    ],
+    "technical": [
+      "README.md",
+      "RELEASE_NOTES.md",
+      "docs/FEATURE_SPEC.md",
+      "docs/ARCHITECTURE.md",
+      "docs/DEVELOPMENT_TESTING.md"
+    ],
+    "generated": [
+      ".modforge/PROJECT_STATE.md"
+    ],
+    "historical": [
+      "docs/FEATURE_AUDIT.md"
+    ]
+  },
+  "writeback": {
+    "enabled": true,
+    "task_sources": [
+      "docs/production/WORK_QUEUE.md",
+      "docs/production/BUGS.md"
+    ],
+    "conflict_policy": "repository_wins_on_external_change",
+    "generated_state_read_only": true
+  },
+  "diagnostics": {
+    "load": "on-demand-only",
+    "auto_ingest": false,
+    "instructions": "Logs/console output are diagnostic evidence, not normal project context. Use only for the active runtime/test boundary and prefer a small recent slice."
+  },
+  "generated_change_notes": {
+    "path": ".modforge/changes/CHANGE_LEDGER.md",
+    "load": "on-demand/relevant",
+    "purpose": "ModForge file-write audit notes for Codex/OpenCode continuation; Git diff remains exact code authority"
+  }
+}

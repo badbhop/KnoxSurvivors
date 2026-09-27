@@ -1,0 +1,31 @@
+<!-- modforge-doc
+authority: canonical
+load: on-demand
+purpose: canonical release attribution source
+-->
+
+# Knox Survivors — production credits source
+
+Updated: 2026-09-26
+
+This file is the release-prep source for attribution. `COLLABORATION.md` holds the detailed private ledger; only confirmed records should be promoted here.
+
+## Creator
+
+- **.exe** — Knox Survivors creator, project owner, original code/framework and project direction.
+
+## Game / platform
+
+- **Project Zomboid / The Indie Stone** — base game and game assets/systems used by the mod.
+
+## Inspiration
+
+- **Superb Survivors** — acknowledged in the repository README as inspiration for the survivor-mod concept. Knox Survivors is documented as a from-scratch rebuild rather than a source-code dependency.
+
+## Runtime integration
+
+- **ZombieBuddy** — optional runtime integration path supported by Knox Survivors. This entry describes interoperability and should not be presented as a claim that ZombieBuddy authored Knox Survivors.
+
+## Translators and collaborators
+
+No additional contributor identity is promoted here until it is confirmed in `COLLABORATION.md` with the preferred credit wording and permission/status.

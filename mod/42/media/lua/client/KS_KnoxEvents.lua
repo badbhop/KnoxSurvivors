@@ -288,8 +288,23 @@ function KnoxEvents.finishRaidObjective(id, revision, hours, outcome)
     return copy(event), "finished"
 end
 
-function KnoxEvents.memberEvent(id)
-    for _, event in pairs(records()) do
+-- Abstract raid resolution for unloaded targets. Pure and deterministic:
+-- each guard counts double, every other resident single. Overwhelming
+-- watch repels cleanly, a near thing costs a fight, anything less breaches.
+function KnoxEvents.resolveAbstractRaid(event, guards, residents)
+    local raiders = 0
+    if type(event) == "table" then
+        for _ in ipairs(event.memberIds or {}) do raiders = raiders + 1 end
+    end
+    guards = math.max(0, tonumber(guards) or 0)
+    residents = math.max(0, tonumber(residents) or 0)
+    if raiders <= 0 then return "repelled" end
+    if guards * 2 >= raiders then return "repelled" end
+    if guards + residents >= raiders then return "repelled_costly" end
+    return "breached"
+end
+
+function KnoxEvents.memberEvent(id)    for _, event in pairs(records()) do
         if type(event) == "table" and not terminal(event) then
             for _, member in pairs(type(event.memberIds) == "table" and event.memberIds or {}) do
                 if member == id then return copy(event) end

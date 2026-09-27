@@ -264,8 +264,120 @@ function Runtime.storedMemberReady(id, home, hours)
     return ok and ready == true, ok and (ready and "ready" or "stored_weapon_unready") or "stored_readiness_unavailable"
 end
 
-function Runtime.dispatch(event, controllers, hours)
-    if event == nil or (event.phase ~= "scheduled" and event.phase ~= "spawning") then return false, "invalid_phase" end
+-- Abstract raid defense for unloaded targets. Loaded raids resolve through
+-- bodies on the ground; a raid aimed at a base nobody is near would stall
+-- forever, so the watch strength on record decides it instead: guards
+-- count double, other residents single. Outcomes feed faction history and
+-- leave world traces (blood on a costly fight, smashed windows on breach).
+-- Returns true when the event was resolved here and needs no loaded pass.
+local ABSTRACT_RESOLVE_RADIUS_SQUARED = 300 * 300
+
+local function playersNearSquare(x, y, radiusSquared)
+    if getSpecificPlayer == nil then return false end
+    local count = 4
+    if getNumActivePlayers ~= nil then
+        local ok, n = pcall(getNumActivePlayers)
+        if ok and tonumber(n) ~= nil then count = math.max(1, math.floor(tonumber(n))) end
+    end
+    for index = 0, math.max(0, count - 1) do
+        local ok, player = pcall(getSpecificPlayer, index)
+        if ok and player ~= nil and player.getCurrentSquare ~= nil then
+            local okSq, square = pcall(function() return player:getCurrentSquare() end)
+            if okSq and square ~= nil then
+                local dx, dy = square:getX() - x, square:getY() - y
+                if dx * dx + dy * dy <= radiusSquared then return true end
+            end
+        end
+    end
+    return false
+end
+
+local function baseGuardStrength(base)
+    local guards, residents = 0, 0
+    if base == nil or KnoxPersistence.getBaseResidentIds == nil then
+        return guards, residents
+    end
+    for _, id in ipairs(KnoxPersistence.getBaseResidentIds(base.id) or {}) do
+        local alive = KnoxPersistence.isSurvivorAlive == nil
+            or KnoxPersistence.isSurvivorAlive(id) ~= false
+        local duty = KnoxPersistence.getSurvivorDuty ~= nil
+            and KnoxPersistence.getSurvivorDuty(id) or nil
+        if alive and type(duty) == "table" and duty.mode == "base"
+            and duty.baseId == base.id then
+            residents = residents + 1
+            local pref = tostring(duty.jobPreference or "")
+            if pref == "guard" or pref == "patrol" then guards = guards + 1 end
+        end
+    end
+    return guards, residents
+end
+
+function Runtime.resolveUnloadedRaid(event, controllers, hours)
+    if event == nil or event.kind ~= "faction_raid" then return false end
+    if event.phase ~= "approaching" and event.phase ~= "active"
+        and event.phase ~= "objective" then
+        return false
+    end
+    -- Loaded raiders own their raid through bodies on the ground; the
+    -- abstract path is only for parties nobody is embodying.
+    if type(controllers) == "table" then
+        for _, id in ipairs(event.memberIds or {}) do
+            local controller = controllers[id]
+            if controller ~= nil and controller.character ~= nil then
+                return false
+            end
+        end
+    end
+    local base = event.targetBaseId ~= nil and KnoxPersistence.getBase(event.targetBaseId) or nil
+    local area = base ~= nil and (base.territory or base.home) or nil
+    if base == nil or area == nil then return false end
+    local cx = (tonumber(area.minX) or 0) + (tonumber(area.width) or 4) / 2
+    local cy = (tonumber(area.minY) or 0) + (tonumber(area.height) or 4) / 2
+    if playersNearSquare(cx, cy, ABSTRACT_RESOLVE_RADIUS_SQUARED) then return false end
+    local guards, residents = baseGuardStrength(base)
+    local outcome = KnoxEvents.resolveAbstractRaid ~= nil
+        and KnoxEvents.resolveAbstractRaid(event, guards, residents)
+        or "repelled"
+    for _, id in ipairs(event.memberIds or {}) do
+        if owns(id, event.id) then
+            KnoxPersistence.releaseEventDuty(id, event.id, hours)
+        end
+    end
+    change(event, outcome == "breached" and "completed" or "failed",
+        hours, "abstract_" .. tostring(outcome))
+    local source = event.sourceFactionId ~= nil
+        and KnoxPersistence.getFaction ~= nil
+        and KnoxPersistence.getFaction(event.sourceFactionId) or nil
+    KnoxPersistence.recordRaidHistory({
+        atHours = hours,
+        sourceFactionId = event.sourceFactionId,
+        sourceName = source ~= nil and source.name or nil,
+        targetBaseId = base.id,
+        targetName = base.name,
+        outcome = outcome,
+    })
+    local home = base.home or {}
+    local hx = (tonumber(home.minX) or tonumber(area.minX) or 0) + 2
+    local hy = (tonumber(home.minY) or tonumber(area.minY) or 0) + 2
+    if outcome == "breached" or outcome == "repelled_costly" then
+        KnoxPersistence.recordTraceSite("fight", hx, hy, 0, hours)
+    end
+    if outcome == "breached" then
+        KnoxPersistence.recordTraceSite("breach", hx, hy, 0, hours)
+    end
+    if base.ownerKind == "player" and KnoxActivityFeed ~= nil then
+        if outcome == "breached" then
+            KnoxActivityFeed.event("Raid on " .. tostring(base.name or "base")
+                .. " overwhelmed " .. tostring(guards) .. " guards — the base was breached.")
+        else
+            KnoxActivityFeed.event("Raid on " .. tostring(base.name or "base")
+                .. " repelled by " .. tostring(guards) .. " guards.")
+        end
+    end
+    return true
+end
+
+function Runtime.dispatch(event, controllers, hours)    if event == nil or (event.phase ~= "scheduled" and event.phase ~= "spawning") then return false, "invalid_phase" end
     if hours < event.dueAtHours then return false, "not_due" end
     local valid, why = KnoxEvents.validate(event)
     if not valid then return false, why end
@@ -517,7 +629,11 @@ function Runtime.update(controllers, hours)
             if not valid and event.phase ~= "scheduled" and event.phase ~= "withdrawing" then
                 event = change(event, "withdrawing", hours, reason) or event
             end
-            if event.phase == "scheduled" or event.phase == "spawning" then
+            -- Unloaded raid targets resolve abstractly from watch strength
+            -- (guards matter while away); loaded processing skips this pass.
+            if Runtime.resolveUnloadedRaid(event, controllers, hours) then
+                -- handled; nothing further this pass
+            elseif event.phase == "scheduled" or event.phase == "spawning" then
                 if hours >= (nextDispatchCheck[event.id] or 0) then
                     nextDispatchCheck[event.id] = hours + 0.05
                     Runtime.dispatch(event, controllers, hours)

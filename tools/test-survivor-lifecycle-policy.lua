@@ -38,6 +38,8 @@ assert(autonomy:find("return nil, \"dead_identity\"", 1, true),
 assert(autonomy:find("character:getVehicle() ~= nil", 1, true)
     and autonomy:find("Passenger shells are owned by the live vehicle", 1, true),
     "occupied vehicle seats must not be hibernated as detached shells")
+assert(autonomy:find("preserve-companion-detached", 1, true),
+    "detached companions must never hibernate on transient nil squares")
 
 local registryPath = rootPath .. "/java/src/main/java/com/knoxsurvivors/npc/KnoxNpcRegistry.java"
 local registry = assert(io.open(registryPath, "r")):read("*a")

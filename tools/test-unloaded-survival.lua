@@ -471,3 +471,49 @@ local distinct = 0
 for _ in pairs(destinations) do distinct = distinct + 1 end
 assert(distinct > 1, "stored residents do not all gather at one corner")
 print("Stored territory geometry PASS")
+
+-- Abstract road scuffles: hibernated travelers risk one deterministic
+-- fight per day. Hits chip health through the existing damage path and
+-- record a trace where the player may walk.
+local scuffleTraces = {}
+KnoxPersistence.recordTraceSite = function(kind, x, y, z, atHours)
+    scuffleTraces[#scuffleTraces + 1] = { kind = kind, x = x, y = y, at = atHours }
+    return "trace-test"
+end
+local function djb2(value)
+    local result = 5381
+    value = tostring(value)
+    for index = 1, #value do
+        result = (result * 33 + string.byte(value, index)) % 2147483647
+    end
+    return result
+end
+records.roamer = "record-roamer"
+states.roamer = {
+    hunger = 0.1, thirst = 0.1, fatigue = 0.1, endurance = 0.9,
+    health = 100, bleedingParts = 0, lastHours = 0, status = "hibernated",
+    virtualX = 1000, virtualY = 2000, virtualZ = 0,
+}
+local expectedHits, expectedChip, scuffleEvents = 0, 0, 0
+for day = 1, 10 do
+    states.roamer.hunger, states.roamer.thirst = 0.1, 0.1
+    local ok, events = simulation.advanceHibernated("roamer", day * 24)
+    assert(ok, "traveler advances off-screen")
+    if events ~= nil and string.find(tostring(events), "scuffle", 1, true) then
+        scuffleEvents = scuffleEvents + 1
+    end
+    local roll = djb2("roamer:scuffle:" .. tostring(day)) % 100
+    if roll < 20 then
+        expectedHits = expectedHits + 1
+        expectedChip = expectedChip + (2 + roll % 4)
+    end
+end
+assert(expectedHits > 0, "fixture days include at least one scuffle")
+assert(#scuffleTraces == expectedHits, "every scuffle records one trace")
+assert(scuffleEvents == expectedHits, "scuffles surface in advance events")
+assert(states.roamer.health == 100 - expectedChip, "chips match the deterministic rolls")
+assert(states.roamer.lastScuffleDay == 10, "one roll per day at most")
+for _, trace in ipairs(scuffleTraces) do
+    assert(trace.kind == "fight" and trace.at > 0, "traces carry kind and time")
+end
+print("Abstract scuffles PASS traces=true chips=true cadence=true")

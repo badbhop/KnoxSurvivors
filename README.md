@@ -18,7 +18,7 @@ The current build includes working implementations of the following systems. The
 - Survivor meetings, dialogue, groups, factions and small camps/settlements.
 - Recruitment and companion behavior, including Follow, Hold, Return to Base, Dismiss, Go To, Guard and loot-related orders.
 - Player and faction bases with residents, work areas, storage categories and a task system.
-- Base work including guarding, patrols, storage sorting, window barricading, farming, tree cutting, log sawing, corpse hauling/cleanup, trough feeding and watering, and damaged-structure repairs.
+- Base work including guarding, patrols, categorized storage/organizing, window barricading, farming, cooking, tree cutting, log sawing, corpse hauling/cleanup, and damaged-structure repairs.
 - Companion HUD, survivor information/cards, inventory interaction, activity messages and the current Survivors Notebook work.
 - Save/load support plus hibernation/off-screen survivor simulation so every survivor does not need to stay physically loaded at all times.
 
@@ -30,7 +30,7 @@ This release candidate is not advertising unfinished systems as complete. In par
 - Autonomous survivor driving/vehicle behavior is experimental.
 - Raids and larger faction-event systems are experimental and are not a release promise.
 - Away-team/resource missions are not complete.
-- Full player-style base construction is not complete; only the currently implemented limited construction/defense work should be expected.
+- Full player-style base construction is not part of the current production job set. Current defense work is limited to supported barricading and repair behavior.
 - Live Build 42 behavior can still expose pathing, combat, save/load or job bugs that offline checks cannot reproduce.
 
 Use a fresh save for this rebuild and back up saves you care about. Migration from old Knox Survivors NPC data is not guaranteed.
@@ -83,6 +83,8 @@ The ZombieBuddy integration changes the runtime bootstrap, not Knox's save schem
 
 The most version-sensitive code remains Knox's narrow bytecode edits in `CombatManager`, `SwipeStatePlayer`, and `IsoZombie`. A Project Zomboid update or another Java mod patching the same exact methods still requires live compatibility testing.
 
+Developer runtime/migration/signing details are consolidated in `docs/production/RUNTIME_AND_MIGRATION.md`.
+
 ## Support and testing
 
 Windows is the primary test platform. For a useful bug report, include what the survivor was doing, your Project Zomboid version, whether the save was fresh, and the relevant `console.txt` / `KnoxIsoPlayer.log` files after checking them for personal information.
@@ -91,7 +93,7 @@ Discord: https://discord.gg/cTfd2WWD4s
 
 ## Development documentation
 
-The repository also contains internal development, audit and testing documents under `docs/` plus release-readiness planning files. Those are engineering records and may discuss incomplete work, test gates or future systems; they are not player-facing feature promises.
+The repository also contains internal production, architecture, design/research, audit and testing documents under `docs/`. Current engineering state lives in `docs/production/`; NPC design research lives in `docs/design/`. Those records may discuss incomplete work, test gates or future systems and are not player-facing feature promises.
 
 ## Ownership and permission
 

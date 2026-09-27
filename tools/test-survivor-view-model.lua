@@ -238,7 +238,7 @@ assert(viewModel.getSurvivor("survivor-1", 0).activity == "Returning to base",
 KnoxPersistence.getSurvivorLifeIntent = function() return {kind = "find_food"} end
 for activity, label in pairs({
     returning_to_base = "Returning to base", sleeping = "Sleeping", resting = "Resting",
-    base_working = "Working at base", waiting_for_leader = "Waiting for leader",
+    base_working = "Working", waiting_for_leader = "Waiting for leader",
     away_mission = "On a mission", seeking_supplies = "Looking for food",
 }) do
     KnoxPersistence.getUnloadedSurvivalState = function() return {activity = activity} end
@@ -254,8 +254,8 @@ local sq = { getX = function() return 10 end, getY = function() return 10 end,
 local actor = { getCurrentSquare = function() return sq end }
 local controller = { character = actor }
 assert(runtime.register("survivor-1", controller))
-for state, label in pairs({ FLEEING = "Retreating", BASE_TASK_MOVE = "Working at base",
-    BASE_TASK_ACTION = "Working at base", BASE_TASK_SUPPLY_MOVE = "Collecting job supplies",
+for state, label in pairs({ FLEEING = "Retreating", BASE_TASK_MOVE = "Working",
+    BASE_TASK_ACTION = "Working", BASE_TASK_SUPPLY_MOVE = "Collecting job supplies",
     BASE_TASK_SUPPLY_WAIT = "Waiting for materials", BASE_AMBIENT_REST = "Resting",
     PLAYER_CONVERSATION = "Talking", COMPANION_GUARD = "Keeping watch",
     MOVING_TO_DEPOSIT = "Storing supplies" }) do

@@ -256,8 +256,7 @@ function Storage.mainPolicy(base)
     return nil
 end
 
-function Storage.label(policy)
-    local role = policy ~= nil and policy.storageRole or "supplies"
+function Storage.label(policy)    local role = policy ~= nil and policy.storageRole or "supplies"
     local labels = {
         supplies = "Main Supplies", food = "Food & Drink", water = "Water",
         medical = "Medical", weapons = "Weapons", ammunition = "Ammunition",
@@ -265,6 +264,27 @@ function Storage.label(policy)
         clothing = "Clothing", junk = "Junk",
     }
     return labels[role] or "Storage"
+end
+
+-- RimWorld-style priority rank for deposit ordering. Lower sorts first:
+-- critical shelves fill before preferred, normal, then low. Missing or
+-- legacy records read as normal so old saves behave unchanged.
+local STORAGE_PRIORITY_RANKS = {
+    critical = 0, preferred = 1, normal = 2, low = 3,
+}
+
+function Storage.priorityRank(policy)
+    local rank = policy ~= nil and STORAGE_PRIORITY_RANKS[policy.priority] or nil
+    if rank == nil then return STORAGE_PRIORITY_RANKS.normal end
+    return rank
+end
+
+function Storage.priorityLabel(policy)
+    local labels = {
+        critical = "Critical", preferred = "Preferred",
+        normal = "Normal", low = "Low",
+    }
+    return labels[policy ~= nil and policy.priority or nil] or "Normal"
 end
 
 function Storage.acceptsDeposit(policy, item)
@@ -571,14 +591,10 @@ local function hasRoom(container, item, character)
     if container == nil then
         return false
     end
-    -- Assigned storage areas have infinite weight: bypass vanilla capacity.
-    -- Native transfer validity is separately bypassed in KnoxInventoryActions.
-    if KnoxToolCupboard ~= nil and KnoxToolCupboard.isInfiniteContainer ~= nil then
-        local ok, infinite = pcall(function()
-            return KnoxToolCupboard.isInfiniteContainer(container)
-        end)
-        if ok and infinite == true then return true end
-    end
+    -- Real native capacity: assigned storage fills like any Project Zomboid
+    -- container, and deposits overflow to the next-best shelf through the
+    -- ranked candidates above. Full shelves reject; nothing is lost, the
+    -- item stays carried until room exists.
     if container.hasRoomFor ~= nil then
         local success, result = pcall(function()
             return container:hasRoomFor(character, item)
@@ -630,8 +646,10 @@ local function findDeposit(base, character, item, trip, excluded, ticks, policyK
                     local classified = Storage.classifyItem(item)
                     local exactCategory = policy.storageRole == classified
                         or (policy.storageRole == "food" and Storage.acceptsDeposit(policy, item))
-                    -- Exact and supplies matches keep their historical order;
-                    -- overflow shelves sort after every typed match.
+                    -- RimWorld order: highest-priority valid shelf first,
+                    -- then exact-type matches, then distance. A critical
+                    -- overflow shelf beats a normal exact one by design.
+                    resolved.priorityRank = Storage.priorityRank(policy)
                     resolved.preference = exactCategory and 0
                         or policy.storageRole == "supplies" and 1
                         or exact and 2
@@ -647,6 +665,7 @@ local function findDeposit(base, character, item, trip, excluded, ticks, policyK
         end
     end
     table.sort(candidates, function(a, b)
+        if a.priorityRank ~= b.priorityRank then return a.priorityRank < b.priorityRank end
         if a.preference ~= b.preference then return a.preference < b.preference end
         if a.distance ~= b.distance then return a.distance < b.distance end
         return a.policy.key < b.policy.key
