@@ -231,7 +231,7 @@ survivor was in combat.
 ### Evidence
 On 2026-09-27, disposable Build 42.20.4 save `KS-QA-Vertical-1` recorded 76
 occurrences between 04:58:02 and 05:02:50 in
-`C:\\Users\\Gary\\Zomboid\\Logs\\2026-09-27_04-42_DebugLog.txt`. The Knox stack
+`<Zomboid-Logs>\2026-09-27_04-42_DebugLog.txt`. The Knox stack
 is `KS_ZombieAwareness.setSquareBit` → `ensureVisibilityBit` → `update` →
 `KS_SurvivorAutonomy`; the fixture was `ks-dev-1` in `COMBAT`. This confirms an
 unsafe Knox lighting-state write, not native combat success or failure.
@@ -369,7 +369,7 @@ The following reports were copied from the Discord bug tracker on 2026-09-27.
 They are intentionally recorded as `reported` rather than confirmed bugs. Some
 may already be fixed, may be design requests rather than defects, or may have
 come from a different mod/version/setup. The external reference path supplied
-by the owner is `C:\Users\Gary\Documents\Bug Info\Sgttoserya`; inspect it only
+by the owner is held in a local owner-only bug inbox; inspect it only
 when the related item is actively investigated. Do not treat those files as
 authoritative without matching the Build 42 version, Knox revision, save, and
 runtime setup.

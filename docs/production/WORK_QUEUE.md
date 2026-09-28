@@ -285,7 +285,7 @@ and Windows bootstrap verification. The main repository retirement check and
 `tools/verify.ps1` also passed (112 Lua sources, 174 regression scripts, Java
 included, 287 checks, 0 failed). These are offline checks, not live startup or
 staging/package evidence. Before the live matrix, isolate
-the current `C:\Users\Gary\Zomboid\mods\KnoxSurvivors` shadow copy (same Mod ID,
+the current local `<Zomboid-mods>\KnoxSurvivors` shadow copy (same Mod ID,
 no Java payload). Use ZombieBuddy alone for one run, launcher v0.3.3 with
 ZombieBuddy disabled for the second, then verify the launcher blocks a third
 duplicate-runtime preflight.
