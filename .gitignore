@@ -33,10 +33,10 @@ opencode.go.json
 AI_START_PROMPT.txt
 scripts/start-opencode.ps1
 
-# Local regression scripts — kept on disk, not published to git.
-# Consolidation into one runner is future work; verify.ps1 stays public.
-tools/test-*.lua
-tools/vehicle-test-world.lua
+# Local dev tooling — kept on disk, not published to git.
+# Includes verify.ps1 (its test files are local-only) and the
+# Steam launch-option helper bundled at Workshop staging time.
+tools/
 
 # Local dev shortcut — kept on disk, not published to git.
 # The underlying tools/run-dev.ps1 stays public.
