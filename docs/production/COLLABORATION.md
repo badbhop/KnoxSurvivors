@@ -6,7 +6,7 @@ purpose: canonical private collaboration ledger
 
 # Knox Survivors — collaboration and external-work ledger
 
-Updated: 2026-09-26
+Updated: 2026-09-28
 
 This is the private production ledger for translators, compatibility partners, external mod authors, donated assets/work, permissions, and joint work. Public credits should be derived from confirmed records here, not from memory or an old chat.
 
@@ -39,12 +39,84 @@ This is the private production ledger for translators, compatibility partners, e
 
 ## Translators
 
-_No repository-backed translator identity is confirmed in the retained documents yet._
-
-Add confirmed translators here:
-
 | Language | Contributor / team | Source / fork | Official or community | Permission / notes | Public credit |
 |---|---|---|---|---|---|
+| PT-BR (Brazilian Portuguese) | babhop (GitHub: `badbhop`) | Standalone injector: `badbhop/KnoxSurvivors_PTBR` (v1.0 zip); future fork/PR to `exe-create/KnoxSurvivors` | Community standalone now; official integration only after owner review/merge | Standalone must disclose unofficial status (recorded in its README); no mod source merged; owner performs native `getText()` integration | Pending — awaiting preferred credit name |
+
+### COLLAB-PTBR — babhop (PT-BR translator)
+
+- Contact reference: Discord `babhop`; GitHub `badbhop`; standalone repo `badbhop/KnoxSurvivors_PTBR`
+- Relationship: translator
+- Project or language: Brazilian Portuguese localization of Knox Survivors UI
+- Started: 2026-09-24
+- Current status: active
+- Official or community work: community standalone (Phase 1 injector); official native integration deferred to Phase 2 after owner review/merge
+- Permission/license boundary: owner approved the standalone community addon with explicit unofficial-status disclosure; owner performs all main-mod edits; translator owns Portuguese strings and testing. No main-mod source merged as of 2026-09-28.
+- Public credit wording: pending — owner requested GitHub username, preferred credit name, and repo/release link on 2026-09-28; no reply recorded yet
+- Canonical tasks/bugs: none (localization support work is owner-side future scope; hardcoded-string reports arrive via the pending-items catalog, not `BUGS.md`)
+- Files/package location: `KS_PTBR_Injetor.lua` + `sandbox.json` (v1.0 zip at the standalone repo, verified 2026-09-28: repo live with README carrying the temporary-project disclaimer, Issues channel open with 0 issues, 4 commits; install targets Workshop content `108600/3749727604`); pending-items reports per component folder with `.txt` + screenshots/clips; overflow list `KS_Text_Overflow_PTBR.txt` expected at handoff
+
+#### Conversation and decision log
+
+| Date | From/To | Topic | Decision or request | Follow-up | Evidence/link |
+|---|---|---|---|---|---|
+| 2026-09-24 | collaborator → owner | Offer to translate to PT-BR; first-day injector results | Owner welcomed the work; agreed mix: standalone addon now, official integration later | Translator keeps building injector | First Drive folder with screenshots/files |
+| 2026-09-24 | owner → collaborator | Direction confirmation | Standalone addon continues independently; long-term official PT-BR in-mod; translator owns strings/testing, owner refactors for localization support; credit for PT-BR work confirmed in principle | Both continue in parallel | Message record |
+| 2026-09-24 | collaborator → owner | Method: monkey-patch injector; vanilla-aligned PT-BR terms | Accepted; specific terms adjustable at official integration | Translator continues | Message record |
+| 2026-09-24 | collaborator → owner | Base Manager hardcoded zone labels (8 defaults saved to persistence) | Owner verified 8 labels + persistence + notebook rendering; agreed design: stable `labelKey` stored, `getText()` at render with English fallback, one-time exact-match migration, player renames untouched, headers/tabs translated at render directly | Owner implements when ready; translator sends 8 key names + EN sources + header/tab strings in scope | Message record |
+| 2026-09-24 | collaborator → owner | Layout clipping with long PT-BR strings | Noted; containers loosened once longest strings are visible; snug-in-English panels to be listed | Translator compiles overflow list | Message record |
+| 2026-09-24 | owner → collaborator | AI-workflow transparency (OpenCode/Codex, budget models) | No objection; collaborator uses conversational single-model dialectic method | None | Message record |
+| 2026-09-25 | collaborator → owner | Phase 1 injector / Phase 2 catalog workflow; encoding fix (Latin-1/UTF-8); Lua dir cleanup; dev-tools testing | Owner confirmed split is correct; keep injecting, catalog tricky strings, don't refactor main mod | Translator continues | Message record |
+| 2026-09-26 | collaborator → owner | Base Manager 90–100%; header brand question; video clips; pending-items package format | Owner: keep `Knox Survivors` title untouched (brand identity; set via `setTitle()`); clips may be shared locally; pending-items format approved; overflow expected | Translator shares locally; sends catalog | Drive preview package + clips |
+| 2026-09-26 | collaborator → owner | ES/IT/FR auto-generation after PT-BR | Deferred: lock PT-BR first; auto-generated languages need native-speaker check before official ship | Later | Message record |
+| 2026-09-26 | collaborator → owner | Roadmap v1.0/v2.0/v3.0; dev options left untranslated | Accepted; dev options out of scope unless owner asks | Translator continues v2.0 | Message record |
+| 2026-09-26 | collaborator → owner | Workshop on hold; GitHub zip distribution instead | Accepted; focus on clean functional translation over fighting upload tools | Translator published v1.0 zip | Standalone repo |
+| 2026-09-27 | owner → collaborator | Slow replies explained; refactor in progress; fork/PR offer; disclosure restated | Translator agreed; keeps cataloging; will use fork/PR when set up | Owner sets up merge timing | Message record |
+| 2026-09-28 | owner → collaborator | Fork/PR workflow: fork `exe-create/KnoxSurvivors`, branch `pt-br-dictionary-update`, PR to main; requested username, credit name, repo link; hardcoded-report format specified | Awaiting collaborator reply | Collaborator | Message record |
+
+#### Work log
+
+| Date | Contributor work | Knox-side work | Result/evidence | Next action |
+|---|---|---|---|---|
+| 2026-09-24 | Day-one injector (context menus, order catalog) + Drive files | Approach reviewed | Working, non-intrusive | Continue |
+| 2026-09-25 | Encoding fix, submenu pattern matching, cache cleanup, dev-tools testing method | Confirmed | Stable coverage growing | Continue |
+| 2026-09-26 | Base Manager 90–100% incl. concatenated strings; video clips; pending-items preview package | Header decision (keep title); format approved | Awaiting full catalog | Catalog + v2.0 |
+| 2026-09-26 | v1.0 zip on standalone GitHub repo; translation refinements, tooltips | None required | Community-available | v2.0 + overflow list |
+| 2026-09-28 | Local files reviewed by owner: v1.3 injector, 574 lines (order-catalog label wrapper, UI string-replacement tables, context-menu option patches; UTF-8 byte escapes for accents); PTBR `Sandbox.json` covers 115/117 EN keys — only `ShowLegacyContextCommands` + tooltip absent | None required | Matches claimed scope; 2 missing keys flagged for translator | v2.0 + overflow list |
+
+#### Handoff checklist
+
+- [x] scope and files identified (PT-BR UI; injector + sandbox.json now, Translation files + catalog later)
+- [x] permission/license recorded (standalone with disclosure; owner integrates)
+- [x] build/version and compatibility context recorded (current Knox version; Build 42)
+- [ ] delivered files preserved or linked (v1.0 zip linked; full catalog + overflow list pending)
+- [ ] review task/bug linked (none yet — create on catalog arrival if code changes needed)
+- [ ] public credit wording confirmed (pending preferred credit name)
+- [ ] integration/release status recorded (not integrated; community-only)
+
+#### Joint plan (both sides may propose edits via fork PR)
+
+Agreed 2026-09-24 through 2026-09-28. Either side may propose changes to this plan; owner approves.
+
+**Phase 1 — Standalone coverage (babhop leads, owner unblocked).**
+- babhop keeps extending the injector (v1.0 action layer done; v2.0 management layer next; v3.0 immersion last), testing with Sandbox dev tools, keeping zero-LUA-error stability.
+- babhop does NOT refactor main-mod code; tricky strings go to the catalog with version, location, screenshot, EN source + PT-BR proposal.
+- babhop keeps the unofficial-status disclosure in README/release notes and distributes via the GitHub zip.
+- Owner does nothing blocking here; merges stay slow during the refactor, nothing on babhop's side is blocked by that.
+- Done when: management + immersion layers are covered as far as injection can reach, catalog + overflow list are complete, v1.0+ zip is public.
+
+**Phase 2 — Native integration (owner leads, babhop supports).**
+- babhop sends one package: Translation `.txt` dictionary, pending-items catalog per component folder, overflow list, clips/screenshots, plus GitHub username + preferred credit name + repo link.
+- Owner creates one review task, then implements in order: (a) render-time `getText()` for headers/tabs; (b) `labelKey` storage + render resolution + exact-match migration for the 8 default zone labels, player renames untouched; (c) container loosening from measured longest strings; (d) `Translate/PTBR/` file from the dictionary.
+- babhop tests the integrated build and reports breakage against the same catalog format.
+- Done when: PT-BR renders natively without the injector, saves migrate cleanly, credit is published in `CREDITS.md`.
+
+**Standing rules.**
+- Brand title `Knox Survivors` stays untranslated everywhere.
+- Dev options stay untranslated unless the owner asks.
+- ES/IT/FR only after PT-BR ships, and only with native-speaker checks.
+- Either side may pause for life/work with no penalty; the record holds the state.
+- Open questions: exact 8 key names + EN sources (babhop to propose); header/tab string scope list (babhop to propose); longest-string measurements (babhop to deliver); merge timing (owner to call during refactor).
 
 ### Per-collaborator record template
 

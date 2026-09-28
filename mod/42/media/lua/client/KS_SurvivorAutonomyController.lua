@@ -10306,7 +10306,31 @@ function Controller:tick(ticks)
     if self.character ~= nil and vehicles ~= nil and vehicles.isBusy ~= nil then
         -- Native passenger actions own their route and inputs until completion.
         local busy, result = vehicles.isBusy(self.character)
-        if busy then return end
+        if busy then
+            -- A boarding lease must not hold the survivor deaf: retreat-worthy
+            -- danger or a critical need releases the lease through the existing
+            -- owner, and the normal arbitration below runs on the next tick
+            -- with fresh scans. Fightable danger can wait out the short
+            -- boarding window; fleeing cannot. Either check failing safe
+            -- preserves today's behavior instead of erroring the tick.
+            local flee = false
+            if fleeAssessment ~= nil then
+                local assessed, verdict = pcall(fleeAssessment, self)
+                flee = assessed and verdict == true
+            end
+            local need = nil
+            if KnoxSurvivorNeeds ~= nil and KnoxSurvivorNeeds.decide ~= nil then
+                local decided, decision = pcall(KnoxSurvivorNeeds.decide, self.character, nil)
+                if decided then need = decision end
+            end
+            if flee or (need ~= nil and need.kind ~= nil and need.kind ~= "roam") then
+                vehicles.cancel(self.character)
+                self.nextThreatScan = 0
+                self.nextThink = 0
+                return
+            end
+            return
+        end
         if result == "interrupted" then self.nextThreatScan = 0; self.nextThink = 0 end
         if self.character.getVehicle ~= nil and self.character:getVehicle() ~= nil then return end
     end

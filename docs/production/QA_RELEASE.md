@@ -95,6 +95,75 @@ Use this when checking a small change or deciding whether a build is worth deepe
 6. Travel far enough to unload the area, return, and check that no outcome was invented without the required loaded/native behavior.
 7. Record PASS, FAIL, or unverified for each step before moving on.
 
+### Owner full playthrough checklist
+
+The long checklist for a serious playthrough while Codex is away. Setup once: disposable save,
+default sandbox settings, Developer Tools + diagnostics ON, exactly one runtime path
+(normal / Knox launcher / ZombieBuddy), and write down the save name and mod revision.
+Work top to bottom. Tick what passes; anything else becomes a FAIL report (format below) —
+you never need to diagnose, just describe what you saw. Unrun stays unticked.
+
+**Startup and first people**
+- [ ] Game loads with the mod on, no startup errors. Good = you reach the world normally.
+- [ ] Living survivors exist out in the county but don't feel like an army. Good = you find some by exploring, not crowds on every corner.
+- [ ] A survivor you watch keeps doing survivor things (walking, looting, resting). Good = they look busy with a purpose, not frozen or vibrating in place.
+
+**Meeting and recruiting**
+- [ ] Walk up to a survivor and Talk. Good = they stop briefly, conversation happens, then they resume what they were doing.
+- [ ] Recruit one survivor. Good = a companion HUD row appears with portrait, name, health, and needs.
+- [ ] Dismiss (or send home) and re-check. Good = no frozen clone left behind, no duplicate of them wandering around.
+
+**Orders and movement**
+- [ ] Order Follow and walk through a doorway. Good = they come through without long pauses or getting stuck.
+- [ ] Order Follow over/through a fence. Good = they climb after you and resume quickly — no standing frozen for seconds after landing.
+- [ ] Order Hold, walk away, then Follow again. Good = they stay, then rejoin; the order label always matches what they're actually doing.
+- [ ] Spook them mid-order with a nearby zombie. Good = they react to danger, then go back to the order (or visibly fail it) — never silently hang.
+
+**Combat**
+- [ ] Let your companion fight ONE zombie. Good = real swinging, real health changes on someone, zombie actually dies or hurts someone.
+- [ ] Throw them into a small group. Good = they fight sensibly; overwhelming odds make them run to safety instead of suiciding.
+- [ ] After the fight, check their health/injuries screen. Good = wounds shown are real and treatable, nothing fake.
+
+**Needs and health**
+- [ ] Watch hunger/thirst drop over time and see them eat/drink from carried supplies. Good = real items get consumed.
+- [ ] Open Medical Check on a companion and treat a real wound with a bandage. Good = vanilla treatment window, bandage consumed, wound improves.
+
+**Storage**
+- [ ] Assign a container as Food storage and another as general storage (right-click container menus).
+- [ ] Give a survivor loot and watch it get deposited. Good = food lands in the food container, odd items land in general — nothing vanishes or duplicates.
+
+**Base and jobs**
+- [ ] Set up a base and assign one simple job (e.g. guard, farming, barricade) with the needed tools/materials present.
+- [ ] Watch the job happen. Good = the survivor walks there, does the visible work action, and the world actually changes (or honestly reports why it can't).
+
+**Companion UI**
+- [ ] Open the Survivor Card: identity, skills, health, needs, equipment all look right and match the real survivor.
+- [ ] Open the Notebook: party, base, known survivors, factions sections show true info, not stale entries.
+- [ ] Watch speech bubbles/activity messages during all of the above. Good = readable, matches what's happening, doesn't block right-click menus.
+
+**Vehicles**
+- [ ] Order a companion into a car as passenger, then out. Good = clean entry/exit, no clones, no stuck seats.
+- [ ] Order a drive (experimental) in a fueled running car on open ground. Good = it either drives properly or refuses with a visible reason — never freezes, teleports, or steals your controls.
+- [ ] Save and reload with a companion in/near the car. Good = same people, same car, no duplicates.
+
+**Off-screen life**
+- [ ] Travel 300+ tiles away, wait a while, come back. Good = the same survivors with the same names/gear, sensibly changed (hungrier, moved) — no duplicates, no invented corpses/loot/blood.
+- [ ] Leave a companion at an unloaded base and return later. Good = they're there, still themselves, still on duty.
+
+**Save and reload (the big one)**
+- [ ] Save in the middle of activity (walking, working, or fighting) and reload. Good = same identities, locations, needs, equipment, inventory, orders, relationships, and jobs. Nothing lost, nobody duplicated.
+
+**Groups and factions out in the world**
+- [ ] If you spot independent survivors or groups traveling, watch a while. Good = they move together, wait for stragglers, don't jitter or pile onto one tile.
+- [ ] If you meet a hostile survivor, note what caused it. Good = hostility feels earned (you attacked, stole, or they're with enemies) — not random, not guaranteed.
+
+**Performance and feel**
+- [ ] Play at least an hour with normal population. Good = smooth game, no action spam in logs, no mass freezing, survivors feel like people rather than robots.
+- [ ] If anything felt off but you can't name it, write one sentence about the moment anyway. Vague reports still help.
+
+**When something fails**, copy this, fill it in, and send it (Discord/DM/notes — wherever we triage):
+Result: FAIL / item name / what you did / what you expected / what actually happened / repeatable? / save name + revision + runtime path.
+
 ### Specific failure signals
 
 Look for these concrete symptoms rather than trying to diagnose their cause:

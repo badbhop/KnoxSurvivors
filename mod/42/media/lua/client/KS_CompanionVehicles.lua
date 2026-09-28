@@ -14,6 +14,10 @@ _G.KnoxCompanionVehicles = CompanionVehicles
 -- Short-lived native action ownership; no seats or actions enter save data.
 local pending = setmetatable({}, { __mode = "k" })
 local driverRuns = setmetatable({}, { __mode = "k" })
+-- Passengers whose abort-time exit was refused (a moving vehicle) wait here
+-- for a stationary retry instead of sitting lease-free with no owner.
+local awaitingExit = setmetatable({}, { __mode = "k" })
+local EXIT_RETRY_LIMIT = 20
 local ACTION_TIMEOUT_MS = 45000
 local DRIVER_DISTANCE = 18
 local DRIVER_STOP_DISTANCE = 2.5
@@ -65,13 +69,56 @@ local function rollbackRoster(character, run)
     if roster == nil then return end
     for _, entry in ipairs(roster) do
         local member = entry ~= nil and entry.member or nil
+        -- The driver is settled by their own run teardown, never by the
+        -- passenger sweep: on arrival they stay seated until an explicit
+        -- order moves them, and the run simply ends beneath them.
         if member ~= nil and member ~= character then
             local aboard = member.getVehicle ~= nil and member:getVehicle() ~= nil
                 and (run.vehicle == nil or member:getVehicle() == run.vehicle)
             if aboard then
-                CompanionVehicles.exit(member)
+                -- A refused exit (moving vehicle, missing action) must not
+                -- strand the rider lease-free: mark them for the bounded
+                -- stationary retry in tick() below instead of inventing an exit.
+                if not CompanionVehicles.exit(member) and member:getVehicle() ~= nil then
+                    awaitingExit[member] = { vehicle = run.vehicle, tries = 0 }
+                end
             else
                 CompanionVehicles.cancel(member)
+            end
+        end
+    end
+end
+
+-- Bounded recovery sweep for abort-time exit refusals. A member with fresh
+-- ownership (a new boarding lease) or who left the marked vehicle clears the
+-- mark; otherwise a stationary vehicle gets a native exit attempt. Attempts
+-- while moving do not count down, so a long drive waits rather than expires.
+local function retryAwaitingExits()
+    for member, mark in pairs(awaitingExit) do
+        local aboard = member.getVehicle ~= nil and member:getVehicle() ~= nil
+            and (mark.vehicle == nil or member:getVehicle() == mark.vehicle)
+        if not aboard or CompanionVehicles.isBusy(member) then
+            awaitingExit[member] = nil
+        else
+            local speed = 0
+            if mark.vehicle ~= nil and mark.vehicle.getCurrentSpeedKmHour ~= nil then
+                local ok, value = pcall(function() return mark.vehicle:getCurrentSpeedKmHour() end)
+                speed = (ok and tonumber(value)) or 0
+            end
+            if math.abs(speed) <= 1 then
+                mark.tries = (mark.tries or 0) + 1
+                if CompanionVehicles.exit(member) or member:getVehicle() == nil then
+                    awaitingExit[member] = nil
+                elseif mark.tries > EXIT_RETRY_LIMIT then
+                    awaitingExit[member] = nil
+                    -- A bounded wait that never resolves is a reportable fact,
+                    -- not a silent print: one restrained line to the member,
+                    -- exactly once, alongside the existing diagnostic.
+                    if KnoxActivityFeed ~= nil and KnoxActivityFeed.speak ~= nil then
+                        KnoxActivityFeed.speak(member, "I can't get out.")
+                    end
+                    print("[KnoxSurvivors][Driving] exit_unrecoverable member_mark_cleared=true")
+                end
             end
         end
     end
@@ -501,5 +548,6 @@ function CompanionVehicles.tick()
             print("[KnoxSurvivors][Driving] error="..tostring(reason))
         end
     end
+    retryAwaitingExits()
 end
 return CompanionVehicles

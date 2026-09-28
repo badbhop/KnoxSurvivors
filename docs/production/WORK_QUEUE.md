@@ -79,7 +79,7 @@ full offline/package gate and live Build 42 acceptance remain separate queue
 items and are not implied by this completion.
 
 ## KS-PROD-003 — Run the full offline candidate gate
-Status: todo
+Status: in_progress
 Priority: high
 Owner: Codex
 Type: release
@@ -92,6 +92,15 @@ Run the complete syntax/regression/Java/build/package verification on the same c
 - Exact check counts, revision/worktree state, and packaging result are recorded.
 
 ### Validation
+On 2026-09-28, `tools/verify.ps1` (full, Java included) checked 112 Lua sources and ran 177
+Lua scripts (290 checks, 0 failed, including `java-check-build`) on worktree `decbda5`
+plus 5 uncommitted files (`KS_CompanionVehicles.lua`, `KS_SurvivorAutonomyController.lua`,
+`BUGS.md`, `CURRENT_STATE.md`, `WORK_QUEUE.md`). Test scripts are intentionally local-only
+(`.gitignore`, owner commit `1d10f42`), so the harness itself is not part of the published
+candidate. `verify.ps1` covers syntax, regression, and Java check/build only — Workshop
+staging/package verification is not part of that tool and remains outstanding, as does a
+clean-tree rerun. Prior partial record below is superseded by this run for Lua/Java scope.
+
 On 2026-09-27, `tools/verify.ps1 -SkipJava` checked 112 Lua sources and ran 174
 Lua scripts (286 checks, 0 failed) against the current working tree. This is
 partial offline evidence only; Java, staging/package verification, and the full
@@ -174,7 +183,10 @@ conservative defaults, no ownership bypasses.
 `KS_CompanionVehicles.lua` (drive admission), `KS_VehicleNavigation.lua` (geometry/routing, unchanged),
 `KS_BaseStorage.lua` Materials routing for parts. Offline: shared ready/low-fuel/locked/unknown matrix on both the
 travel path and the module-absent fallback; no boarding or `driveTo` on rejection; no movement, routing, formation,
-leader-order, away-team, lifecycle, or persistence owner changes; full gate 112/176/288, 0 failed. Group boarding
+leader-order, away-team, lifecycle, or persistence owner changes. Boarding yields to retreat-worthy danger and
+critical needs through the existing lease owner (rearming next-tick arbitration); refused abort-time exits retry
+boundedly once stopped; arrival exits each passenger exactly once with the driver explicitly staying seated and one
+truthful feed line; unrecoverable exits report once. Full gate 112/177/289, 0 failed. Group boarding
 commits an explicit per-member roster attached to the driver run; every abort/arrival rolls it back at once (pending
 leases release immediately, seated passengers get native exit, overflow stays unclaimed); `stopDriver` only clears a
 present run key. Duty/order changes arbitrate vehicle leases through the existing interruption owner (lease-free

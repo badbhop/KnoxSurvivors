@@ -1024,6 +1024,30 @@ active or the survivor rides. Covered by the duty-lease matrix in
 `test-companion-commands.lua` and the cancel/takeover matrix in
 `test-vehicle-driver.lua` within the same 112/176/288 green gate.
 
+Boarding stays interruptible and abort-stranded riders recover: a busy
+boarding lease now yields to retreat-worthy danger (`fleeAssessment`) or a
+critical need (`Needs.decide`, same non-`roam` convention as organizer rounds)
+through the existing lease owner, rearming threat/think scans for next-tick
+arbitration instead of holding the survivor deaf up to the 45s timeout; checks
+fail safe on lean native state. An abort-time exit refused by a moving vehicle
+marks the rider for a bounded stationary retry in the vehicle tick sweep (new
+ownership wins, attempts while moving do not count down, 20-try give-up), so
+no passenger sits lease-free with no owner. Covered by the new
+`test-vehicle-boarding-urgency.lua` (healthy boarding kept, exhausted boarding
+released, rescans armed) and the stranded-recovery matrix in
+`test-vehicle-driver.lua` (moving waits, stopped retries). Full gate now
+112 Lua sources, 177 scripts, 289 checks, 0 failures; `git diff --check`
+passed.
+
+Arrival is deterministic and honest: each roster passenger exits exactly
+once with no re-queue on later ticks, the driver stays seated with nothing
+queued and no run beneath them, and the feed speaks arrival exactly once;
+base-vs-wasteland recognition stays explicitly pending with no lookup
+invented. An unrecoverable exit reports one restrained member line instead
+of printing forever. Multi-driver orchestration is confirmed out of reach
+offline (one driver run per car plus native physics) and stays a Codex+live
+design slice.
+
 ### Remaining live verification
 Disposable-save Build 42 replay over real parked vehicles: engine off/on,
 empty fuel, damaged/non-driveable condition, locked driver door, blocked seat,
