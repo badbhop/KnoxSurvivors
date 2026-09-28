@@ -122,6 +122,10 @@ local function onTrade(_, playerNum, survivorId)
     KnoxTradeUI.show(playerNum, survivorId)
 end
 
+local function onGiveItem(_, playerNum, survivorId)
+    KnoxTradeUI.showGift(playerNum, survivorId)
+end
+
 local function onViewSurvivor(_, playerNum, survivorId)
     KnoxSurvivorCard.show(playerNum, survivorId)
 end
@@ -522,8 +526,6 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
         { "Tell Joke", "joke" },
         { "Compliment", "compliment" },
         { "Make Funny Face", "funny_face" },
-        { "Offer Gift", "offer_gift" },
-        { "Give Money", "give_money" },
         { "Insult", "insult" },
         { "Slap", "slap" },
     }
@@ -542,6 +544,11 @@ function SurvivorContextMenu.populate(menu, playerNum, survivorId)
             if isClient() or isServer() then label = "Trade (single-player only)" end
             local trade = menu:addOption(label, SurvivorContextMenu, onTrade, playerNum, survivorId)
             if not enabled then unavailable(trade) end
+            local giftLabel = hostile and "Give Item (hostile)"
+                or (closeEnough and "Give Item" or "Give Item (too far away)")
+            if isClient() or isServer() then giftLabel = "Give Item (single-player only)" end
+            local gift = menu:addOption(giftLabel, SurvivorContextMenu, onGiveItem, playerNum, survivorId)
+            if not enabled then unavailable(gift) end
         end
         addRecruitOption(menu, player, survivorId, closeEnough)
         return true

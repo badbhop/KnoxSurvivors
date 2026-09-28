@@ -40,6 +40,25 @@ metadata, results, evidence types, and checkpoints. A missing native fixture is
 `HARNESS_ERROR`. The older broad scenario inventory is retained in source for
 future migration, but it is not run by this vertical-slice entry point.
 
+For a symptom outside that automated slice, use Developer Tools > Diagnostics >
+**Write Survivor Status to Log** while the relevant survivor is loaded. The
+existing status line reports current controller context; immediately after it,
+the command prints up to twelve recent failures from the centralized autonomy
+failure path, oldest first. Each `recent_failure` line includes survivor ID,
+game tick, normalized reason, controller state, active decision, retry deadline,
+and position when available. This is a transient controller ring: it is not
+saved, does not poll every tick, and clears when the controller unloads. It
+does not capture failures that bypass `recordFailure`; use their owning
+diagnostic/reproduction path. The ring is evidence for diagnosis, not a second
+state owner or proof of native behavior.
+
+Build 42 acceptance for this diagnostic should use a loaded survivor after a
+native recoverable movement failure: invoke the status command, confirm the
+failure row matches the visible controller state/retry, then unload/reload and
+confirm the session ring is empty while persistent survivor state remains
+unchanged. This verifies only the diagnostic integration; it does not accept
+the underlying movement behavior.
+
 ## Barricade route regression - 2026-09-19
 
 Assign one resident to barricade an accessible unbarricaded window. Confirm the
@@ -362,6 +381,12 @@ storage; Developer Tools > Base & Job Tests can stock real materials for testing
    Empty one resident's carried food. They should collect a safe meal at home,
    eat it, and resume work. Repeat with the pantry upstairs. Spoiled/unsafe food
    must not be selected for eating. A full kitchen falls back to main supplies.
+   Also let hunger become urgent while the resident is actively doing ordinary
+   non-guard base work, then during a real supply transfer. Work should yield
+   through the existing self-care path, real food access/eating should relieve
+   hunger, and the same task should resume without a duplicated claim or item.
+   Repeat with unsafe/unavailable food and verify truthful bounded failure;
+   do not count a native action request alone as eating success.
 3. Send a resident to find base supplies. Existing assigned stock must not be
    taken and redeposited as a new find. Watch them return from an actual find,
    approach the assigned container, transfer the item and resume base life.
@@ -379,6 +404,27 @@ storage; Developer Tools > Base & Job Tests can stock real materials for testing
 
 All six are pending live acceptance; Lua tests verify control flow and invariants,
 not the visual animation, stairs, doors or driving behavior inside the game.
+
+## Base-job supply entry recovery - 2026-09-28
+
+Use a disposable loaded base with one real claimed job and the required item in
+its assigned storage. Put that store behind a locked door with a usable quiet
+window route. Confirm the resident tries the existing alternate-entry path,
+keeps the exact item/container reservation, enters, resumes the same storage
+approach, transfers the item natively, then resumes the claimed work. Repeat
+with all quiet entries unavailable and a permitted melee-equipped forced
+entry; verify the lease remains owned through door combat and the same real
+item is still checked at arrival. Then repeat with protected structures,
+opening disabled, inadequate endurance, or no valid forced entry and verify
+truthful task failure plus released claims/reservations. Interrupt traversal
+with danger or an order, and save/reload during the route if practical. Record
+native movement/action outcomes and item counts; offline tests do not prove
+these Build 42 results.
+
+The public locked-door persistence report is not considered reproduced by this
+scenario; it validates the assigned-storage leg that previously bypassed the
+existing traversal recovery. Corpse/fence behavior remains a separate live
+replay.
 
 ## Integrated settlement and encounter acceptance - 2026-09-09
 
@@ -1214,3 +1260,42 @@ disposable save, verify these native behavior boundaries:
 
 Offline verification proves decision boundaries, compilation and fixtures. Projectile visuals,
 native drag direction, get-up timing, real pathfinding and UI readability remain live acceptance.
+
+### Base-job completion authority live replay
+
+In a disposable Build 42 save, let a resident complete one real-resource base
+job and verify that the native world result, task-board state, resident
+completion feedback, released reservations, and next useful activity agree.
+Repeat with the job claim reassigned/revoked while the native action is in
+progress or immediately before controller completion. The physical effect may
+already exist, but Knox must not report the stale task as accepted or retain
+the old resident's transient supply lease. Save/reload and verify the task and
+claim remain owned only by the authoritative board. Offline regression
+`test-base-task-validation.lua` covers board acceptance/rejection, diagnostics,
+pacing, local cleanup and feedback; it does not prove native action timing,
+world result, save/reload, or live arbitration.
+
+### Base supply ownership past the loaded lease
+
+In a disposable Build 42 save, start a real base shortage trip and leave it
+searching or returning for longer than 1.5 in-game hours while another willing
+resident is available. The second resident must not start a duplicate trip;
+the original run must retain ownership through unload/reload and terminate only
+after the existing truthful outcome path (including native storage receipt
+when carrying a real item). Confirm the shortage is reassessed after completion.
+Offline `test-base-auto-scavenge.lua` advances beyond lease expiry while the
+persisted active run remains and verifies that no helper run is elected. It
+does not prove Build 42 scheduling, real pickup/deposit, or save/reload.
+
+### Loaded social memory and later recount
+
+In a disposable Build 42 save, let two loaded survivors complete a cautious
+greeting, a decline, a group join (and a rejected join), then test a persisted
+hostile disposition. Confirm each participant's Survivor Card/history and later
+dialogue recount reflect only the resolved outcome after save/reload. Interrupt
+one approach and one greeting before finalization and confirm neither creates a
+completed encounter memory. A hostile memory must not claim a fight or robbery
+unless those native outcomes separately occurred. Offline coverage is in
+`test-human-encounters.lua`, `test-offscreen-stories.lua`,
+`test-offscreen-recount.lua`, and `test-relationship-coherence.lua`; these
+fixtures do not prove native encounter timing, persistence, speech, or UI.

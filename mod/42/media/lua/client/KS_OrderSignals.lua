@@ -19,7 +19,7 @@ local EMOTES = {follow="followme",hold="stop",relax="signalok",guard="stop",
     enter_vehicle="comehere",exit_vehicle="signalok",dismiss="signalok",
     signalok="signalok",
     talk="wavehi",joke="clap",compliment="thumbsup",funny_face="shrug",
-    offer_gift="thankyou",give_money="thankyou",insult="insult",slap="thumbsdown"}
+    insult="insult",slap="thumbsdown"}
 local function call(actor, method)
     local ok,value=pcall(function() return actor[method](actor) end)
     return ok and value or nil

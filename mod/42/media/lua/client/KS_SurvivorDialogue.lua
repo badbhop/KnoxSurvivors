@@ -301,7 +301,13 @@ function Dialogue.recountEntry(survivorId, entry)
     end
     if kind == "meet" and subject ~= nil then
         if entry.outcome == "hostile" then
-            return "Crossed " .. subject .. " out past " .. place .. ". Weapons came out. I walked away."
+            return "Crossed " .. subject .. " out past " .. place .. ". Things turned hostile between us."
+        end
+        if entry.outcome == "joined" then
+            return "Met " .. subject .. " out past " .. place .. ". We decided to travel together."
+        end
+        if entry.outcome == "declined" or entry.outcome == "parted" then
+            return "Met " .. subject .. " out past " .. place .. ". We decided to go our separate ways."
         end
         return "Ran into " .. subject .. " out past " .. place .. ". We talked and walked on."
     end

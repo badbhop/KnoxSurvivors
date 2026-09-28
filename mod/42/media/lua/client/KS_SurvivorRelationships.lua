@@ -459,6 +459,15 @@ local function recordEncounterCooldown(firstId, secondId, disposition, worldAge,
     )
 end
 
+local function recordFinalizedEncounter(firstId, secondId, outcome, worldAge)
+    local stories = rawget(_G, "KnoxOffscreenStories")
+    if stories == nil or stories.recordLoadedEncounter == nil then return end
+    -- Each survivor's canonical ledger is written independently. The story
+    -- owner deduplicates each side so a repeated completion cannot grow memory.
+    pcall(stories.recordLoadedEncounter, firstId, secondId, outcome, worldAge)
+    pcall(stories.recordLoadedEncounter, secondId, firstId, outcome, worldAge)
+end
+
 local function observePair(first, second, worldAge, ticks, participants)
     local key = pairKey(first.id, second.id)
     local state = pairStates[key] or {
@@ -909,10 +918,13 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                 if meeting.outcome == "hostile" or meeting.outcome == "lure" then
                     local aggressor = meeting.aggressorId == first.id and first or second
                     local victim = meeting.aggressorId == first.id and second or first
-                    local _, scope = KnoxPersistence.escalateSurvivorConflict(
+                    local conflict, scope = KnoxPersistence.escalateSurvivorConflict(
                         first.id, second.id, worldAge,
                         "encounter_" .. meeting.outcome
                     )
+                    if conflict ~= nil then
+                        recordFinalizedEncounter(first.id, second.id, "hostile", worldAge)
+                    end
                     diagConflict(tostring(aggressor.id) .. ">" .. tostring(victim.id),
                         "hostile_" .. tostring(meeting.outcome), {
                             scope = tostring(scope or "failed"),
@@ -937,12 +949,15 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         and "A survivor encounter became an ambush."
                         or "A survivor encounter turned hostile.")
                 elseif meeting.outcome == "decline" then
-                    KnoxPersistence.setRelationshipDisposition(
+                    local dispositionRecord = KnoxPersistence.setRelationshipDisposition(
                         first.id,
                         second.id,
                         "declined",
                         worldAge + 6
                     )
+                    if dispositionRecord ~= nil then
+                        recordFinalizedEncounter(first.id, second.id, "declined", worldAge)
+                    end
                     first:resumeAfterGreeting(ticks)
                     second:resumeAfterGreeting(ticks)
                     pendingMeetings[key] = nil
@@ -956,6 +971,7 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         worldAge,
                         GREETING_COOLDOWN_HOURS
                     )
+                    recordFinalizedEncounter(first.id, second.id, "friendly", worldAge)
                     local greetSignals = rawget(_G, "KnoxOrderSignals")
                     if greetSignals ~= nil and greetSignals.play ~= nil then
                         pcall(function() greetSignals.play(first.character, "wavehi") end)
@@ -1000,6 +1016,7 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         first:resumeAfterGreeting(ticks)
                         second:resumeAfterGreeting(ticks)
                         pendingMeetings[key] = nil
+                        recordFinalizedEncounter(first.id, second.id, "parted", worldAge)
                         print(
                             TAG .. " encounter-outcome=join-rejected "
                                 .. first.id .. "," .. second.id
@@ -1009,25 +1026,28 @@ function Relationships.coordinate(controllers, orderedIds, ticks)
                         meeting.outcome = "join_rejected"
                     end
                     if meeting.outcome == "join" then
-                    KnoxPersistence.setRelationshipDisposition(
-                        first.id,
-                        second.id,
-                        "allied",
-                        worldAge
-                    )
-                    first:resumeAfterGreeting(ticks)
-                    second:resumeAfterGreeting(ticks)
-                    pendingMeetings[key] = nil
-                    print(
-                        TAG .. " travel-group=" .. tostring(group ~= nil and group.id or "none")
-                            .. " members=" .. first.id .. "," .. second.id
-                            .. " faction=" .. tostring(group ~= nil and group.factionId or false)
-                            .. (group ~= nil and group.factionId == nil
-                                and " requires=" .. tostring(KnoxSettings.npcFactionMinimumMembers())
-                                or "")
-                    )
-                    KnoxActivityFeed.event("Survivors have agreed to travel together.")
-                    lastGroupAssignmentTick = ticks - 60
+                        KnoxPersistence.setRelationshipDisposition(
+                            first.id,
+                            second.id,
+                            "allied",
+                            worldAge
+                        )
+                        if group ~= nil then
+                        recordFinalizedEncounter(first.id, second.id, "joined", worldAge)
+                        end
+                        first:resumeAfterGreeting(ticks)
+                        second:resumeAfterGreeting(ticks)
+                        pendingMeetings[key] = nil
+                        print(
+                            TAG .. " travel-group=" .. tostring(group ~= nil and group.id or "none")
+                                .. " members=" .. first.id .. "," .. second.id
+                                .. " faction=" .. tostring(group ~= nil and group.factionId or false)
+                                .. (group ~= nil and group.factionId == nil
+                                    and " requires=" .. tostring(KnoxSettings.npcFactionMinimumMembers())
+                                    or "")
+                        )
+                        KnoxActivityFeed.event("Survivors have agreed to travel together.")
+                        lastGroupAssignmentTick = ticks - 60
                     end
                 end
             end

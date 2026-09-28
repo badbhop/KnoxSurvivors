@@ -430,6 +430,17 @@ actually within awareness range on the same level. The save retains their names,
 and most recent meeting times, number of meetings, nearby world-hours, and shared
 completed roaming, looting, and combat activity.
 
+The loaded relationship coordinator records finalized social outcomes through the
+existing `KS_OffscreenStories` history owner. Each participant's existing canonical
+unloaded-survival ledger receives a bounded `meet` entry only after a greeting,
+decline, persisted hostile disposition, successful group mutation, or rejected join
+has actually resolved. Missing ledgers fail closed; this path never creates a partial
+survivor record. The 12-entry history cap and persistent-ID references are shared with
+offscreen storylets. Dialogue recounts and Survivor Card summaries read that same
+history. A hostile entry means the relationship became hostile; it does not prove a
+fight, robbery, or item transfer. In-progress or interrupted approaches do not enter
+history.
+
 Active allegiance is also resolved only from persisted IDs. `affiliation` owns player/faction
 membership, travel-group and faction records own their member and leader lists, and pair/faction
 relationship records own disposition. Runtime character lists are derived caches used for movement

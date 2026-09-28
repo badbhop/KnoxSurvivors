@@ -158,3 +158,30 @@ Settled from owner direction, 2026-09-28:
 - **Tempo:** live Build 42 testing is halted unless absolutely needed. Progress is proven offline with focused regressions plus `tools/verify.ps1 -SkipJava`; every live-only boundary is recorded as an open replay item with its exact scenario, not run. Evidence gates themselves do not move — deferred live items still block their release claims.
 
 Source: owner direction, 2026-09-28.
+
+## D-020 — Social transfer consequences require verified real transfer
+
+Gift or money interactions may not award relationship trust, play a received-
+gift response, or report success unless the existing physical item owner has
+verified the corresponding transfer. `Give Item` therefore uses the existing
+trade UI/action in explicit one-way gift mode, including real inventory
+ownership, capacity, receipt, rollback, and capture checks. Its gift contribution
+is awarded after the verified transfer only. Abstract currency balances are not
+an owner; supported tangible currency items are transferred as real items.
+Social-only actions must never stand in for a missing economy operation.
+
+Source: source-confirmed `BUG-KS-032`, 2026-09-28.
+
+## D-021 — Loaded social memory records finalized outcomes only
+
+The loaded relationship coordinator owns encounter decisions and verified
+social consequences; `KS_OffscreenStories` owns bounded personal history in
+each survivor's existing persistent ledger. Record an event only after its
+loaded outcome is committed (greeting, disposition, or real group membership).
+Interrupted encounters are not memories. Hostility records a persisted hostile
+encounter, never an assumed fight, robbery, or transfer. Fail closed when a
+canonical survivor ledger is unavailable; do not create partial persistence
+state for narrative convenience. Existing dialogue and presentation consume
+that history.
+
+Source: source-confirmed `BUG-KS-036`, 2026-09-28.

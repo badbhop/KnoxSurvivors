@@ -12,6 +12,7 @@ local PAD = 10
 
 local MESSAGES = {
     both_sides_required = "Choose items on both sides.", fair_offer = "That looks fair.",
+    gift_item_required = "Choose an item to give.", gift_ready = "Ready to give this item.",
     offer_too_low = "They want more for those items.", offer_no_longer_fair = "The offer has changed. Review the items.",
     food_reserve = "They need to keep that food.", water_reserve = "They need to keep that water.",
     bandage_reserve = "They need to keep those medical supplies.", best_melee_reserve = "They need a weapon at least as good in return.",
@@ -37,7 +38,7 @@ local MESSAGES = {
     capture_unavailable = "Their inventory could not be saved. No items were exchanged.",
     exchange_rolled_back = "The exchange failed. Both offers were returned.",
     recovery_required = "Inventory recovery failed. Stop testing and keep the logs.",
-    completed = "Trade complete.", cancelled = "Trade cancelled.", closed = "Trade closed.",
+    completed = "Trade complete.", gift_completed = "Gift delivered.", cancelled = "Trade cancelled.", closed = "Trade closed.",
     queue_cancelled = "Trade cancelled.", lease_lost = "Trading was interrupted.",
     combat = "Trading stopped because of combat.", danger_detected = "Trading stopped because of danger.",
     directive_changed = "They have new orders. Trading stopped.",
@@ -134,6 +135,11 @@ function Window:createChildren()
         window:refreshQuote()
     end)
     self.doneButton = button(PAD * 3 + footerWidth * 2, footerY, footerWidth, getText("UI_Close"), Window.close)
+    if self.giftMode then
+        self.survivorList:setVisible(false)
+        self.takeButton:setVisible(false)
+        self.tradeButton.title = "Give Item"
+    end
     self.tradeButton:setEnable(false)
 end
 
@@ -149,8 +155,13 @@ end
 
 function Window:refreshQuote()
     if self.action ~= nil then return end
-    local quote, reason = KnoxTradeValuation.quote(self.player, self.survivorId,
-        selectedItems(self.giving), selectedItems(self.taking))
+    local quote, reason
+    if self.giftMode then
+        quote, reason = KnoxTradeValuation.quoteGift(self.player, self.survivorId, selectedItems(self.giving))
+    else
+        quote, reason = KnoxTradeValuation.quote(self.player, self.survivorId,
+            selectedItems(self.giving), selectedItems(self.taking))
+    end
     self.quote = quote
     self.status = UI.message(self.actionError or (quote ~= nil and quote.reason or reason))
     self.tradeButton.tooltip = self.status
@@ -173,7 +184,7 @@ function Window:refreshStock()
         list:setYScroll(scroll)
     end
     fill(self.playerList, stock.playerItems)
-    fill(self.survivorList, stock.survivorItems)
+    if not self.giftMode then fill(self.survivorList, stock.survivorItems) end
     self:refreshQuote()
 end
 
@@ -190,7 +201,7 @@ end
 function Window:exchange()
     if self.action ~= nil or self.session == nil or not self.session:isValid() then return end
     local action, reason = KnoxTradeActions.queue(self.player, self.survivorId,
-        selectedItems(self.giving), selectedItems(self.taking), self.session)
+        selectedItems(self.giving), selectedItems(self.taking), self.session, self.giftMode and "gift" or nil)
     if action == nil then
         self.actionError, self.status = reason, UI.message(reason)
         self.tradeButton:setEnable(false)
@@ -234,10 +245,14 @@ function Window:prerender()
     self:drawText("Your inventory", PAD, y, .88, .88, .85, 1, UIFont.Small)
     self:drawText(trim(self.survivorName, self.survivorList.width), self.survivorList.x, y, .88, .88, .85, 1, UIFont.Small)
     self:drawText(trim(self.status, self.width - PAD * 2), PAD, self.statusY, .88, .88, .85, 1, UIFont.Small)
-    local counts = "You offer " .. #selectedItems(self.giving) .. " item(s); they offer " .. #selectedItems(self.taking) .. "."
+    local counts = self.giftMode
+        and ("You give " .. #selectedItems(self.giving) .. " item(s).")
+        or ("You offer " .. #selectedItems(self.giving) .. " item(s); they offer " .. #selectedItems(self.taking) .. ".")
     self:drawText(trim(counts, self.width - PAD * 2), PAD, self.statusY + line, .65, .65, .65, 1, UIFont.Small)
     if self.helpLines > 0 then
-        self:drawText(trim("Double-click / A: offer item. Y: trade. B: close.", self.width - PAD * 2), PAD,
+        local help = self.giftMode and "Double-click / A: select item. Y: give item. B: close."
+            or "Double-click / A: offer item. Y: trade. B: close."
+        self:drawText(trim(help, self.width - PAD * 2), PAD,
             self.statusY + line * 2, .65, .65, .65, 1, UIFont.Small)
         self:drawText(trim("Equipped, favorite and unsupported items are hidden.", self.width - PAD * 2), PAD,
             self.statusY + line * 3, .65, .65, .65, 1, UIFont.Small)
@@ -271,7 +286,7 @@ function Window:close()
     end
 end
 
-function UI.show(playerNum, survivorId)
+function UI.show(playerNum, survivorId, giftMode)
     local player = getSpecificPlayer(playerNum)
     if player == nil then return nil end
     if windows[playerNum] ~= nil then windows[playerNum]:close() end
@@ -283,7 +298,7 @@ function UI.show(playerNum, survivorId)
         getPlayerScreenLeft(playerNum) + (getPlayerScreenWidth(playerNum) - width) / 2,
         getPlayerScreenTop(playerNum) + (getPlayerScreenHeight(playerNum) - height) / 2, width, height)
     window.player, window.playerNum, window.survivorId = player, playerNum, survivorId
-    window.session, window.giving, window.taking = session, {}, {}
+    window.session, window.giving, window.taking, window.giftMode = session, {}, {}, giftMode == true
     local identity = KnoxPersistence.getSurvivorIdentity(survivorId)
     local name = identity ~= nil and ((identity.forename or "") .. " " .. (identity.surname or "")) or ""
     name = name:match("^%s*(.-)%s*$")
@@ -292,7 +307,7 @@ function UI.show(playerNum, survivorId)
     window.resizable, window.pin, window.nextRefreshAt = false, true, 0
     window.backgroundColor = { r = .06, g = .06, b = .06, a = .94 }
     window.borderColor = { r = .28, g = .28, b = .28, a = 1 }
-    window:setTitle(trim("Trade - " .. window.survivorName, width - 80))
+    window:setTitle(trim((window.giftMode and "Give Item - " or "Trade - ") .. window.survivorName, width - 80))
     window:initialise()
     window:setRenderThisPlayerOnly(playerNum)
     window:addToUIManager()
@@ -303,6 +318,10 @@ function UI.show(playerNum, survivorId)
         setJoypadFocus(playerNum, window.playerList)
     end
     return window
+end
+
+function UI.showGift(playerNum, survivorId)
+    return UI.show(playerNum, survivorId, true)
 end
 
 function UI.closeAll()

@@ -160,20 +160,55 @@ pass on the exact candidate AND its live replay passes (or its failure becomes
 a tracked bug). Slices map to `ROADMAP.md` Phase 2 and the dossiers in
 `docs/design/NPC_SYSTEM_INSPIRATION.md`; they create no new task IDs.
 
+2026-09-28 traversal integration: claimed base jobs now route entry-related
+failure on assigned-storage pickup through the existing window/door recovery
+owner. Quiet entry and permitted forced entry retain the exact task supply
+lease and resume the same approach; unavailable entry fails through existing
+task cleanup. Focused `test-base-task-supply-entry.lua` plus entry, action
+lifecycle, task validation, arrival, claim and inventory cleanup checks pass.
+The full offline gate passed 112 Lua sources, 178 regression scripts, 290
+checks and 0 failures. The focused script is local under ignored `tools/`
+policy. BUG-KS-033 records the offline boundary. Build 42 still needs native
+door/window traversal, actual container receipt, interruption and save/reload.
+Public corpse/fence and general locked-door reports remain unconfirmed live
+cases.
+
 - **Slice A — Identity/lifecycle/off-screen truth.** Owners: `KS_Persistence.lua`, lifecycle policy, runtime, unloaded ledger, storylets, traces. Offline: lifecycle-policy, persistence-recovery, unloaded-survival/group/base-return, event-runtime, world-trace tests. Live: save/reload identity/inventory/orders, hibernation/rematerialization with no duplicates, loaded→unloaded→loaded travel with real consumption and retryable traces. Bugs: `BUG-KS-001`, `BUG-KS-002`, `BUG-KS-008`, `BUG-KS-024`. Rule: D-016 continuous-real, never faked.
 - **Slice B — Brains/autonomy/claims.** Owners: autonomy controller, needs/loot/medical probes, task board, duty simulation. Offline: autonomy, needs, work-priority, anti-flap, group support/scavenge, behavior-integration tests; the dynamic organizer-duty regression confirms leaving base duty, disabling hauling, or reassignment cancels its action/route once and releases item/container claims. The focused base-life set passed 8/8 and the full offline gate passed 112 Lua sources, 176 scripts, 288 checks, 0 failures. Live: full-day base observation — needs, interruption, resumption, no controller fights, idle residents choose base-life. Bugs: `BUG-KS-013`, `BUG-KS-025`.
 - **Slice C — Movement/pathing/native actions.** Owners: Java traversal runtime, cohesion, formation follow, companion service, action adapters. Offline: formation, traversal, command, order, door-discipline tests. Live: leader-plus-two-followers through travel, door/fence, interruption, recovery; one native work action and one danger-interrupted action with real world change. Bugs: `BUG-KS-011`, `BUG-KS-019`, `BUG-KS-028`.
-- **Slice D — Combat/threat/retreat/firearms.** Owners: awareness, threat classifier, combat/firearm support. Offline: zombie-awareness, combat-intelligence, formation, threat-classifier tests. Live: one-zombie hold, small-group hold, overwhelming-group retreat through a viable lane and recovery; hostile duel plus bystander check with real ammo/health evidence. Bugs: `BUG-KS-009`, `BUG-KS-012`, `BUG-KS-029`.
+- **Slice D — Combat/threat/retreat/firearms.** Owners: awareness, threat classifier, combat/firearm support. Offline: zombie-awareness, combat-intelligence, formation, threat-classifier tests. Live: one-zombie hold, small-group hold, overwhelming-group retreat through a viable lane and recovery; hostile duel plus bystander check with real ammo/health evidence. Bugs: `BUG-KS-009`, `BUG-KS-012`, `BUG-KS-029`. Diagnostic update 2026-09-28 (`dev-runs/20260928-021135`): no `LightingJNI` visibility-write failure appears in the console extract; other encounter logs show native zombie damage, but `combat_group_horde` remained `PARTIAL` (15 survivor hits, zero zombie damage/kills). Do not repeat the base-danger source audit absent new evidence; offline arbitration is covered. Keep the one-zombie/small-group native combat replay in live acceptance.
+- `test-combat-intelligence.lua` drives a base resident through the scheduled danger scan with an active organizer action: the combat bridge starts once, the action is cleared, and the claimed task is retained with `combat_interrupt`. Offline arbitration is covered; native damage, retreat and recovery remain live-only.
 - **Slice E — Storage/organizer/supplies.** Owners: base storage, organize, supply planner, context menu, manager categories. Offline: base-storage/menu/organize/supply-routing/planner/cleanup/inventory tests. Live: typed deposit, General fallback,
 logs/firewood routing, loot→storage→need loop with identity/counts across save/reload. Native vehicle parts
 (`VehicleMaintenance`: tires, batteries, brakes, gas tanks per installed Build 42 item scripts) now resolve to the
 Materials role through the existing building matcher — no new role, registry, or stockpile owner; mechanic hand tools
-were already Tools. Focused storage/supply/organize/cleanup evidence for this connection passed 6/6 with the full
-offline gate at 112 Lua sources, 176 scripts, 288 checks, 0 failures. Native transfer, container capacity/weight,
-save/reload identity, and vehicle acquisition/fuel/condition behavior remain live-only. Bugs: `BUG-KS-015`,
-`BUG-KS-016`.
-- **Slice F — Bases/jobs/duties.** Owners: base manager/jobs/task board/needs, zone executors, duty scheduling. Offline: base-job/ambient/needs/duty/task-board tests, including the organizer duty-change release regression; `test-companion-commands.lua`, `test-base-organize-wiring.lua`, `test-base-recreation.lua`, `test-base-ambient-life.lua`, `test-base-needs.lua`, `test-base-duty-controller.lua`, `test-base-duty-simulation.lua`, and `test-base-task-board.lua` passed 8/8. The full offline gate passed 112 Lua sources, 176 scripts, 288 checks, 0 failures. Live: one supplied job end-to-end with real change; active-organizer duty removal/hauling disable/base reassignment; two-window barricade sequence; territory-corner save/reload. Bugs: `BUG-KS-013`, `BUG-KS-017`, `BUG-KS-018`, `BUG-KS-020`.
-- **Slice G — Companions/orders/UI.** Owners: companion service, party commands, order catalog/signals, radial, HUD, card, notebook, map overlay, speech indicators. Offline: order-routing, radial, notebook, speech, card, view-model, map tests. Live: order/interruption/recovery, speech readability plus right-click menus, UI at small/large scales. Bugs: `BUG-KS-008`, `BUG-KS-010`, `BUG-KS-021`.
+were already Tools. A confirmed supply-claim gap is tracked as `BUG-KS-031`: collection used to terminate the
+durable run before storage receipt. The existing autonomy owner now holds the run and return intent through
+the typed native transfer, and releases it only when destination receipt is confirmed. Focused
+`test-base-auto-scavenge.lua`, `test-base-needs.lua`, and `test-inventory-cleanup.lua` plus the full offline gate
+passed (112 Lua sources, 177 scripts, 289 checks, 0 failed). Native transfer, container capacity/weight, and
+save/reload identity remain live-only. Bugs: `BUG-KS-015`, `BUG-KS-016`, `BUG-KS-031`.
+- **Slice F — Bases/jobs/duties.** Owners: base manager/jobs/task board/needs, zone executors, duty scheduling. Offline: existing base-job/ambient/needs/duty/task-board tests plus dynamic watchdog coverage. `test-base-leisure-routing.lua` now drives `tick` through stalled `BASE_PATROL`, `BASE_RETURN`, and `MOVING_TO_REST`: the first two cancel through `handleBaseMovementFailure` and release their ambient claim with backoff; rest uses the existing ground-rest action and releases its furniture claim. The ordinary base-task loop now also yields to actionable urgent self-care on a 90-tick check while preserving the task claim and routing cancellation/transfer release through existing owners. `test-claim-suspend.lua` covers active work, task action, supply movement/transfer, below-threshold continuation, specialized guard/cook ownership, verified eating, and resumption. The focused connected suite passed; `tools/verify.ps1 -SkipJava` passed 112 Lua files, 177 scripts, 289 checks, 0 failures. Test changes are local under ignored `tools/` policy and are not tracked Git changes. Live: full-day two-resident base observation; stalled chair/patrol/return recovery; hungry residents during ordinary work and supply transfer with real assigned food, native eating, same-task resumption and honest unavailable-food behavior; one supplied job end-to-end; active-organizer duty removal/hauling disable/base reassignment; two-window barricade sequence; territory-corner save/reload. Bugs: `BUG-KS-013`, `BUG-KS-017`, `BUG-KS-018`, `BUG-KS-020`.
+
+2026-09-28 completion-authority correction (`BUG-KS-034`): native base-job
+executors already verify the world result, but a stale/revoked claim could make
+the task board reject the final finish after the controller had emitted success
+and completion speech. The existing board response now gates task success
+diagnostics, automatic-work pacing, and completion speech. Rejection records a
+distinct bounded failure and releases the stale controller's transient task
+and supply leases; it does not mutate another owner's claim or undo a real
+world result. Focused `test-base-task-validation.lua`,
+`test-base-action-lifecycle.lua`, `test-base-task-board.lua`,
+`test-companion-base-domain.lua`, `test-base-repairs.lua`,
+`test-base-farming.lua`, `test-base-woodcutting.lua`, and
+`test-base-corpse-handling.lua` all passed. The full
+`tools/verify.ps1 -SkipJava` run checked **112 Lua sources**, **178 regression
+scripts**, **290 checks**, **0 failures**; the updated test remains local under
+ignored `tools/` policy. `git diff --check` passed. Build 42 must still replay
+ordinary native job completion and a claim revoked during/after the action,
+including feedback, next activity and save/reload. No native action or
+save/reload result is claimed from these offline fixtures.
+- **Slice G — Companions/orders/UI.** Owners: companion service, party commands, order catalog/signals, radial, HUD, card, notebook, map overlay, speech indicators. Offline: order-routing, radial, notebook, speech, card, view-model, map tests. The existing survivor snapshot already supplied persisted life-purpose, relationship meeting count, and bounded newest-first memory to the Card, but those fields were dropped from the player-facing detail. The Card now shows purpose, meeting count, and up to three sanitized history summaries/details without reading raw persistence; list views remain compact and the shared view-model stays authoritative. Focused view-model, Card UI, Notebook refresh/mission ownership, offscreen-story, relationship-coherence, and survivor-needs checks passed; full offline gate on 2026-09-28: 112 Lua sources, 177 regression scripts, 289 checks, 0 failures. The new/updated focused script remains local under ignored `tools/` per repository policy. This cycle corrected trust-only gifts by connecting `Give Item` to explicit one-way mode in the existing trade UI/action: real item eligibility, recipient reserve checks, capacity, transfer receipt, rollback, capture, then the existing gift contribution reward. `Give Money` stays absent as an abstract account action; tangible supported currency objects use the real-item path. `BUG-KS-032` and D-020 record the consequence rule. Focused social-act, valuation, action, and UI regressions plus the full gate passed at 112 Lua sources, 177 scripts, 289 checks, 0 failures. Focused test edits remain local under ignored `tools/` policy. Live: order/interruption/recovery, speech readability plus right-click menus, UI at small/large scales; inspect Card history text clipping/scrolling at both scales and replay real gift/barter receipt, capacity, cancellation, and save/reload. Bugs: `BUG-KS-008`, `BUG-KS-010`, `BUG-KS-021`, `BUG-KS-032`.
 - **Slice H — Events/factions/world life.** Owners: event runtime, Knox events, factions/camps/scouting, group scavenge, away-team executor, storylets. Offline: population, origin, faction-development, event-entry, group tests. Live: solo→group→faction→settlement observable; shortage→mission→return→deposit→memory closes; raids only with loaded outcomes. Bugs: `BUG-KS-001`, `BUG-KS-024`, `BUG-KS-026`. Deferred per D-017: full politics, creator, broad raids.
 - **Slice I — Performance/defaults/customization.** Owners: settings, schedulers,
 population budgets. Offline: full gate counts on exact candidate. Live: frame-time at configured population plus
@@ -211,6 +246,22 @@ correction has passed offline regression but still needs a live one-zombie
 replay. The slice does not establish natural encounter frequency, recruitment
 progression, persistence, combat, movement, storage, jobs, factions, raids,
 vehicles, or whole-world safety.
+
+The same existing Diagnostics > **Write Survivor Status to Log** command now
+adds a bounded session history from the autonomy controller's centralized
+failure path. Up to twelve scalar-only `recent_failure` rows preserve tick,
+reason, controller state, decision, retry deadline, and position when
+available; this is transient evidence, not persisted state or a second QA
+owner. It gives future acceptance scenarios and reports a concise recent
+failure trail without per-tick logging. Exact-worktree offline verification on
+2026-09-28 passed: 112 Lua sources, 177 regression scripts, 289 checks, 0
+failures. Focused autonomy/formation, developer-menu, debug-log, and combat
+scenario-reporting regressions passed. Focused scripts remain local under the
+ignored `tools/` policy. Live diagnostic acceptance: produce a recoverable
+native movement failure, invoke the status command, match its row to the
+controller state/retry, then unload/reload and verify only the transient ring
+clears. This does not verify the underlying movement outcome. Other Build 42
+scenarios remain required for native behavior.
 
 The same live observation established BUG-KS-010 (dark speech overlay),
 BUG-KS-011 (post-fence formation cadence), and BUG-KS-012 (retreat policy
@@ -503,3 +554,35 @@ relationship-coherence, autonomy-formation, and roaming-autonomy tests plus the
 112-source/176-script/288-check offline gate passed. Defer the disposable Build
 42 replay, destination orders, group missions, order UI, firearms live
 acceptance, and vehicle work until their dedicated evidence-backed passes.
+
+2026-09-28 supply-ownership correction (`BUG-KS-035`): the 1.5-hour shared
+loaded-world shortage lease could expire while the persisted `activeSupplyRun`
+still owned an unfinished search/return, allowing another resident to be
+elected for the same shortage. The existing autonomy owner now rebuilds the
+transient claim from valid same-base active runs before shortage election,
+including unloaded residents; only existing terminal run cleanup releases
+that durable ownership. Focused `test-base-auto-scavenge.lua`,
+`test-base-supply-planner.lua`, `test-inventory-cleanup.lua`, and
+`test-base-needs.lua` passed. `tools/verify.ps1 -SkipJava` checked **112 Lua
+sources**, **178 regression scripts**, **290 checks**, **0 failures**; `git
+diff --check` passed. The focused fixture is local under ignored `tools/`
+policy. Build 42 still needs a trip lasting beyond the lease window, including
+unload/reload, real pickup, native storage receipt and reassessment. This is
+offline ownership evidence only, not proof of native transfer or persistence.
+
+2026-09-28 social-memory connection (`BUG-KS-036`): finalized loaded survivor
+encounters previously changed relationship/group state without entering the
+persistent history consumed by later recount dialogue and Survivor Cards. The
+relationship owner now submits only resolved outcomes to `KS_OffscreenStories`,
+which appends to each existing canonical ledger with per-participant
+deduplication and the existing 12-entry cap; no ledger is synthesized. Greet,
+decline, persisted hostility, successful join, and rejected join have truthful
+separate outcomes. Incomplete/interrupted encounters and unverified robbery or
+combat success are not recorded. Dialogue and Survivor Card history labels now
+reflect friendly, joined, parted, and hostile outcomes. Focused story/history,
+recount, encounter, view-model, and relationship-coherence tests passed.
+`tools/verify.ps1 -SkipJava` checked 112
+Lua sources and ran 178 regression scripts (290 checks, 0 failures). Focused
+test edits remain local under ignored `tools/` policy. Build 42 still needs
+native loaded encounter outcome, save/reload, and later dialogue/Card replay;
+this offline path does not prove engine encounter or native robbery behavior.

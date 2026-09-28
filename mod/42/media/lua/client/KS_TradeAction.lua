@@ -113,7 +113,11 @@ local function commit(action)
     local valid, reason = physicalCheck(action)
     if not valid then return false, reason end
     local quote
-    quote, reason = KnoxTradeValuation.quote(action.character, action.survivorId, action.giving, action.taking)
+    if action.mode == "gift" then
+        quote, reason = KnoxTradeValuation.quoteGift(action.character, action.survivorId, action.giving)
+    else
+        quote, reason = KnoxTradeValuation.quote(action.character, action.survivorId, action.giving, action.taking)
+    end
     if quote == nil or not quote.acceptable then return false, reason or "offer_no_longer_fair" end
     local journal
     journal, reason = journalFor(action)
@@ -156,16 +160,16 @@ local function commit(action)
     -- Reward failures must not roll back an already captured, verified exchange.
     local rewardOk, rewardError = pcall(function()
         local reward = KnoxPersistence.recordPlayerContribution(action.playerId, action.survivorId,
-            "trade", getGameTime():getWorldAgeHours())
+            action.mode == "gift" and "gift" or "trade", getGameTime():getWorldAgeHours())
         if reward ~= nil and KnoxActivityFeed ~= nil and KnoxActivityFeed.reputation ~= nil then
             KnoxActivityFeed.reputation(action.npc, reward.trustGain)
         end
         return reward
     end)
     if not rewardOk then print("[KnoxSurvivors][Trade] reward_failed id=" .. action.survivorId .. " " .. tostring(rewardError)) end
-    print("[KnoxSurvivors][Trade] completed id=" .. action.survivorId
+    print("[KnoxSurvivors][Trade] completed id=" .. action.survivorId .. " mode=" .. tostring(action.mode or "barter")
         .. " given=" .. #action.giving .. " received=" .. #action.taking)
-    return true, "completed"
+    return true, action.mode == "gift" and "gift_completed" or "completed"
 end
 
 function Action:isValid()
@@ -240,16 +244,19 @@ function Trade.endBrowse(session, reason)
     KnoxSurvivorRuntime.releaseTrade(session.survivorId, session)
 end
 
-function Trade.queue(player, survivorId, giving, taking, session)
+function Trade.queue(player, survivorId, giving, taking, session, mode)
     if not localOnly() or Trade.failedExchange ~= nil then return nil, "trading_unavailable" end
-    local quote, reason = KnoxTradeValuation.quote(player, survivorId, giving, taking)
+    if mode ~= nil and mode ~= "gift" then return nil, "invalid_exchange_mode" end
+    local quote, reason
+    if mode == "gift" then quote, reason = KnoxTradeValuation.quoteGift(player, survivorId, giving)
+    else quote, reason = KnoxTradeValuation.quote(player, survivorId, giving, taking) end
     if quote == nil or not quote.acceptable then return nil, reason or "offer_too_low" end
     local queue = ISTimedActionQueue.queues[player]
     if not player:getCharacterActions():isEmpty() or (queue ~= nil and #queue.queue > 0) then return nil, "player_busy" end
     local action = ISBaseTimedAction.new(Action, player)
     action.npc, action.survivorId = KnoxSurvivorRuntime.getCharacter(survivorId), survivorId
     action.playerId = player:getModData().KnoxSurvivors.playerId
-    action.giving, action.taking, action.maxTime = {}, {}, 90
+    action.giving, action.taking, action.mode, action.maxTime = {}, {}, mode, 90
     for i, item in ipairs(giving) do action.giving[i] = item end
     for i, item in ipairs(taking) do action.taking[i] = item end
     local valid

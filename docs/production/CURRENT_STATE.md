@@ -10,36 +10,23 @@ Updated: 2026-09-28
 
 ## Repository baseline
 
-The connected GitHub repository is `exe-create/KnoxSurvivors`.
-
-GitHub `main` and the local checkout are at commit:
-
-`163b789a2564ee626bc9d5acdad46674623c25b8` — 2026-09-26 — `Consolidate production docs, wire ModForge contract, stabilize storage/organize`
-
-This commit is directly based on the prior baseline `7f56dcb846f107a4c226770b3ca72fe21232235b`.
+The connected GitHub repository is `exe-create/KnoxSurvivors`. The local
+checkout is on `main` at `8c78129973afbb227e56adefa2f5ba5d3dd7b1c4`
+(`Bounded vehicle boarding interruption safety; record PT-BR collaboration`).
+GitHub remote parity was not checked in this cycle.
 
 ## Current worktree
 
-The implementation baseline is `163b789`, but the current worktree is not
-clean. The intentional post-baseline changes are documentation and coordination
-work for the optional ModForge/OpenCode workflow:
-
-- modified `.modforge/agents.json`, `context.json`, `project.json` and
-  `workflows.json`;
-- modified `AGENTS.md` and selected `docs/production/*.md` records;
-- added `.modforge/free-models.json`, `opencode.json` and `scripts/`;
-- modified `KS_WorldTraces.lua` and `test-world-traces.lua` for the bounded
-  `BUG-KS-002` retry fix, which is offline-verified but still needs its live gate.
-
-These changes must remain visible in Git review. They do not prove or claim new
-gameplay behavior. Do not describe the worktree as clean until these changes are
-deliberately committed or discarded.
-
-Source/test scope represented by this candidate commit:
-
-- 24 Lua source files changed (20 modified, 4 added);
-- 21 Lua regression tests changed (17 modified, 4 added);
-- additional ModForge/OpenCode/documentation configuration work.
+At this cycle's start, the worktree already contained uncommitted production
+documentation updates from the preceding combat/base-danger evidence review;
+those edits were preserved. The worktree includes the prior base-supply
+delivery fix and this cycle's base-life watchdog recovery fix in
+`KS_SurvivorAutonomyController.lua`; related canonical records are updated.
+The regression harnesses under `tools/` are ignored by the repository-wide
+`.gitignore`; their local edits were exercised but are not tracked Git changes.
+The latest commit bounds vehicle boarding interruption when danger or critical
+needs arise and records Portuguese-Brazilian collaboration state. This does not
+establish native vehicle or combat behavior.
 
 The changed implementation is concentrated in these connected areas:
 
@@ -91,6 +78,7 @@ These are concise anchors only; detailed implementation history remains in `../F
 - **2026-09-24:** commit `2f3aeec` (`Stabilize survivor state, UI, and release tooling`) and the retained 272-check integrated stabilization checkpoint.
 - **2026-09-25:** GitHub `main` was at the prior baseline `7f56dcb`.
 - **2026-09-26:** commit `163b789` consolidated production documentation and coordination contracts, and committed the associated base/storage/UI/autonomy/event/off-screen implementation and regression tests.
+- **2026-09-28:** local `main` advanced through bounded vehicle admission/boarding interruption changes to `8c78129`. The latest saved Build 42 diagnostic run is `dev-runs/20260928-021135`; it shows both successful native zombie damage and a mixed-group horde scenario that remained `PARTIAL`.
 
 ## Last retained offline evidence
 
@@ -104,10 +92,64 @@ These are concise anchors only; detailed implementation history remains in `../F
 
 That evidence predates `163b789`. It remains useful historical evidence, but it is not proof that the current worktree is release-ready.
 
-Fresh full gate 2026-09-28: `tools/verify.ps1` with Java included checked 112 Lua sources and ran 177
-Lua scripts (290 checks, 0 failed, including `java-check-build`) on `decbda5` plus 5 uncommitted
-files. Workshop staging/package verification is not covered by that tool and remains outstanding,
-as does a clean-tree rerun.
+The retained full gate ran with Java on `decbda5` plus five uncommitted files:
+112 Lua sources, 177 Lua scripts, 290 checks, 0 failed. It is not exact-candidate
+evidence for `8c78129`. Fresh offline gate on 2026-09-28 after the base-supply
+delivery fix: `tools/verify.ps1 -SkipJava` checked 112 Lua sources and ran 177
+scripts (289 checks, 0 failed). Focused `test-base-auto-scavenge.lua`,
+`test-base-needs.lua`, and `test-inventory-cleanup.lua` passed. `git diff --check`
+passed. Java checks were intentionally skipped under the offline-first cycle;
+workshop staging/package verification remains outstanding.
+
+Fresh exact-worktree evidence on 2026-09-28 after the base-life recovery and
+Survivor Card semantic integration updates: `tools/verify.ps1 -SkipJava`
+checked 112 Lua sources and ran 177 regression scripts (289 checks, 0 failed).
+Focused view-model, Card UI, Notebook refresh/mission ownership, offscreen-story,
+relationship-coherence, and survivor-needs checks passed. The Card now surfaces
+persisted life-purpose, relationship meeting count, and up to three bounded
+memory details through the existing view-model; the focused script remains local
+under ignored `tools/` policy. `git diff --check` passed after documentation
+updates. Live Build 42 Card readability/scroll behavior at small
+and large UI scales remains pending; native gameplay queues remain unchanged.
+
+The next source-confirmed social defect was that `Offer Gift` and `Give Money`
+awarded trust and thank-you responses without transferring an item. The
+trust-only acts are removed; `Give Item` now opens the existing exchange UI in
+one-way mode and uses its real transfer/capacity/receipt/rollback/capture
+owner. Relationship credit comes only after verified receipt. Abstract `Give
+Money` remains absent, while real supported currency items are selectable.
+Focused social-act and Trade valuation/action/UI regressions and the exact-
+worktree full offline gate passed on 2026-09-28: 112 Lua sources, 177 scripts,
+289 checks, 0 failures. `BUG-KS-032` and D-020 record the boundary. The four
+focused test edits are local under ignored `tools/` policy and are not tracked
+Git evidence. Native item gift/barter receipt, capacity, cancellation, and
+save/reload remain Build 42 acceptance items.
+
+The current QA improvement extends the existing survivor status command with
+up to twelve recent failures from the autonomy controller's shared failure
+owner. The session-only records contain bounded scalar context (tick, cause,
+state, decision, retry deadline, and position when available); they do not
+persist and do not record every tick. Focused autonomy/formation,
+developer-menu, debug-log, and combat-scenario-reporting checks passed. The
+exact-worktree offline gate passed on 2026-09-28: 112 Lua sources, 177
+regression scripts, 289 checks, 0 failures; Java was skipped. This remains
+diagnostic evidence only and does not verify Build 42 behavior.
+
+The next gameplay review found the existing needs/food implementation sound
+through real-item selection, native eat action, and verified hunger reduction,
+but ordinary active base-task states did not revisit that needs owner. The
+autonomy controller now gives eligible ordinary task states a bounded urgent-
+need yield, using the existing suspension path to retain the base task claim
+and release movement/action/transfer state through its current owners. Focused
+tests cover work/action/supply-task interruption, no interruption below the
+need threshold, verified self-care, and task resumption; connected needs,
+cooking, security, task, and arrival regressions pass. Exact-worktree
+`tools/verify.ps1 -SkipJava` checked 112 Lua sources, ran 177 regression
+scripts, and passed 289 checks with 0 failures. The regression edits remain
+local under ignored `tools/` policy. The September 23 public hunger report is
+not reproduced or confirmed by this offline evidence. Build 42 must verify
+native food access/eating, cancellation and same-task resumption, including
+urgent hunger during a supply transfer and unavailable-food recovery.
 
 ## Current release state
 
@@ -118,7 +160,13 @@ as does a clean-tree rerun.
 - Focused candidate checks and the complete Lua regression suite are current;
   the full build/staging/package gate in `KS-PROD-003` remains open.
 - Engine-bound behavior still requires live Build 42.20.4 acceptance.
-- No new release-ready claim was produced by this documentation cleanup.
+- The loaded base-supply loop now retains its shortage claim and durable return
+  intent until typed storage confirms receipt; see `BUG-KS-031` and KS-PROD-008
+  Slice E. Native transfer, capacity, save/reload, and shortage reevaluation
+  still need Build 42 acceptance.
+- Base-danger arbitration is covered offline. Do not repeat its source audit
+  absent new evidence; the one-zombie/small-group combat replay remains live
+  acceptance. No release-ready claim was produced by this offline change.
 
 ## NPC-system design direction
 
@@ -128,7 +176,7 @@ The owner-approved research direction is now captured in:
 
 The central rule is that a Knox survivor remains an AI-controlled Project Zomboid survivor, not a colony pawn. Existing autonomy, base jobs, relationships, groups, off-screen simulation and persistence should be connected through clearer shared operating rules rather than replaced by unrelated parallel systems.
 
-Settled 2026-09-28 additions: off-screen life is continuous-real and cheaper, never faked (D-016); population is rare-but-findable with future named modes, hostility is relations-driven, and full politics/creator/MP are deferred future tracks (D-017); danger is Walking-Dead unpredictable with universal living-world first moments, all roadmap systems kept, and join-as-member recorded as future work (D-018). The per-slice completion track for the core loop lives in `WORK_QUEUE.md` `KS-PROD-008`; no implementation state changes were claimed by this docs pass.
+Settled 2026-09-28 additions: off-screen life is continuous-real and cheaper, never faked (D-016); population is rare-but-findable with future named modes, hostility is relations-driven, and full politics/creator/MP are deferred future tracks (D-017); danger is Walking-Dead unpredictable with universal living-world first moments, all roadmap systems kept, and join-as-member recorded as future work (D-018). The per-slice completion track for the core loop lives in `WORK_QUEUE.md` `KS-PROD-008`; this cycle's base-life watchdog update is recorded under Slice F.
 
 ## Immediate production goal
 
@@ -171,7 +219,7 @@ passed `test-world-traces.lua`, `test-event-runtime.lua`, and
 | Native actions | Native action adapters and action ownership implemented | Implemented | Native animation, completion, real item transfer and interruption have no live acceptance evidence | Related offline action regressions are included in the 174/174 suite | None recorded | Codex / OpenCode | Verify one native work action and one danger-interrupted action in game |
 | Combat and threat awareness | Native combat integration and threat selection implemented; unsafe off-slot lighting-bit assist disabled; bounded retreat admission restored through the existing native movement path | In progress | BUG-KS-009 and BUG-KS-012 need live replay; native damage and route completion remain unverified | Focused zombie-awareness, combat-intelligence, formation, companion/order, and conversation regressions pass; full Lua suite 175/175 (287 checks) | Build 42.20.4 QA observation recorded the LightingJNI error and owner observed risky multi-zombie commitment; neither corrected combat nor retreat behavior is live-verified | Codex | Run one controlled combat replay: healthy one-zombie/small-group hold, then overwhelming-group retreat through a viable lane and recovery without a loop |
 | Inventory and storage | Native item snapshots, routing, organizer and transfer logic implemented; Logs & Lumber and General Storage roles are assignable through the persisted container policy | Offline verified | Real item transfer, nested-item persistence, resource consumption, and loose ground-item pickup remain unverified; broader reported misrouting needs a live/current reproducer | Focused base/storage/job/resupply tests, including typed roles, general fallback, logs/firewood matching; full Lua suite 175/175 (287 checks). Native `VehicleMaintenance` parts (tires, batteries, brakes, gas tanks) now route to Materials via the existing building matcher with focused + full offline evidence in Slice E (112/176/288, 0 failed); native transfer, capacity/weight, save/reload, and vehicle acquisition behavior remain live-only. | None recorded | Codex / OpenCode | Live-test real item deposit, General fallback, log/firewood routing, and save/reload identity/count |
-| Bases and jobs | Base ownership, task claims, supply planning and job scheduling implemented; base-duty changes now interrupt an in-progress organizer through the existing directive path | Offline verified | BUG-KS-013 remains in progress; native timed action, real item transfer, base-duty/UI behavior, task completion, and resource consumption remain unverified | Dynamic organizer duty-change regression (leave base duty, hauling disabled, reassignment; cancels action/route once and releases item/container claims), eight related focused base-life checks, and full offline gate: 112 Lua sources, 176 scripts, 288 checks, 0 failures | None recorded | Codex / OpenCode | Complete one supplied base job and replay base-duty changes during an active organizer round; verify actual world/inventory changes and no visible idle/stuck behavior |
+| Bases and jobs | Base ownership, task claims, supply planning and job scheduling implemented; organizer and base-life watchdog cleanup use existing interruption/recovery owners | Offline verified | BUG-KS-013 remains in progress; native timed action, transfer, base-duty/UI behavior, visible base-life and task completion remain unverified | Dynamic organizer duty-change regression; seven focused base-life/recovery checks including `test-base-leisure-routing.lua` patrol/return/rest watchdog dispatch; full offline gate: 112 Lua sources, 177 scripts, 289 checks, 0 failures | None recorded | Codex / OpenCode | Observe a full day at a two-resident base; force stalled rest and patrol/return routes, verify fallback/released claims, then complete one real-resource job |
 | Companions, orders and UI | Companion directives, order routing, card/notebook and HUD implemented; stale-shell detachment has bounded hibernation/recovery handling; speech overlay is transparent and input-pass-through configured | Offline verified | BUG-KS-008 lifecycle and BUG-KS-010 rendered indicator/right-click behavior remain open for live validation | Focused lifecycle/order/persistence tests plus speech style/input/expiry/stale-coordinate regression pass | Owner observed a black/ugly arrow and apparent right-click loss before the correction; corrected rendering and input behavior have not been replayed live | Codex | Replay the speech indicator in Build 42, visually confirm projection/colour, and open world context menus outside and over the Activity Feed |
 | Events, factions, raids and world activity | Persistent event/faction systems; unloaded raids retain stored travel/arrival and pause at the native active/objective boundary | Blocked | BUG-KS-001 remains open until live loaded → unloaded → loaded replay; BUG-KS-002 native trace replay remains required | Six focused event/trace tests passed; full Lua verification: 112 sources, 174 scripts, 286 checks, 0 failed | None recorded | Codex | Run the disposable-save raid replay and inspect loaded combat, history, trace, and roster ownership |
 | Launcher/runtime compatibility | Separate launcher repository is the sole launcher source, verification, and packaging owner; embedded project/build path retired | In progress | BUG-KS-003 remains open pending live legacy launch with ZombieBuddy disabled and exactly one runtime PASS | Sibling `scripts/build.ps1` security, updater, runtime-isolation, and Windows-bootstrap checks passed; main repo retirement check and `tools/verify.ps1` passed (112 Lua sources, 174 scripts, Java included, 287 checks, 0 failed); no live startup evidence | None recorded | OpenCode / Human | Run live legacy launch with ZombieBuddy disabled; confirm exactly one `runtime start PASS source=legacy-javaagent` line |
@@ -189,3 +237,71 @@ The documentation structure has been simplified so ModForge, Codex, OpenCode
 and normal human work share one current operational truth instead of competing
 old plans and release snapshots. ModForge is optional; its generated state is a
 convenience snapshot and never replaces the repository records.
+
+## Assigned-storage traversal recovery — 2026-09-28
+
+The current autonomy controller already recovered entry failures during the
+work-site leg, but failed a claimed base job immediately when its assigned
+storage pickup route encountered an entry-related native failure. The pickup
+uses one real item and a transient item/container reservation. It now feeds the
+assigned container's room and exact approach into the existing bounded window
+detour; permitted door breaking retains that exact lease and resumes the same
+pickup route. If entry is unavailable, the existing task-failure path releases
+the task and reservations. Transfer remains owned by the native inventory
+action and is not considered complete until the existing receipt check.
+
+Planner and Terra compared this gap with the public locked-door and
+corpse/fence reports. Corpse handling already has bounded retries/drop
+cooldown and fail-closed task release in offline coverage, so its physical
+fence outcome stays a live-only question. The generic locked-entry machinery
+was already used by other routes; this cycle closed the assigned base-storage
+leg that bypassed it. BUG-KS-033 records the source-confirmed correction.
+Focused supply-entry, shared entry, base-action, task-validation, supply
+arrival, claim-suspension and inventory-cleanup checks passed. Exact-worktree
+`tools/verify.ps1 -SkipJava` checked 112 Lua sources and ran 178 regression
+scripts (290 checks, 0 failures). Java was skipped; the new regression script
+is local under ignored `tools/` policy. Native Build 42 traversal, actual
+container receipt, interruption and save/reload remain unverified.
+
+## Base-job completion authority — 2026-09-28
+
+Current executors verify physical results before task completion, and the
+existing persistent task board rejects finishes from stale/revoked claim
+owners. The autonomy controller now waits for that authoritative response
+before recording job success, advancing automatic-work pacing, or announcing
+completion. Rejected completion is recorded as a bounded failure and clears
+only the local task's transient state/reservations; it does not undo a real
+world change or mutate another survivor's claim. `BUG-KS-034` records this
+handoff correction. Focused task-validation and connected base-job regressions,
+the broad offline gate, and exact counts are recorded in `WORK_QUEUE.md`. A
+native Build 42 job completion with claim reassignment/interruption, feedback,
+next-activity arbitration and save/reload remains unverified.
+
+## Durable base-supply ownership — 2026-09-28
+
+The loaded-world shortage claim was time-limited, but an elected resident's
+persisted `activeSupplyRun` could continue searching or returning past its
+1.5-hour lease. The controller now reconstructs the transient claim from valid
+same-base active runs before electing another worker, including unloaded
+residents. The durable duty remains the sole run owner; native transfer and
+save/reload remain live acceptance. `BUG-KS-035` records the confirmed defect
+and offline correction. The full `tools/verify.ps1 -SkipJava` gate checked 112
+Lua sources, 178 regression scripts, 290 checks and 0 failures; focused supply
+planner, auto-scavenge, inventory-cleanup and base-needs tests passed. Focused
+test updates are local under ignored `tools/` policy, not tracked evidence.
+
+## Loaded social memory connection — 2026-09-28
+
+The loaded encounter coordinator now writes finalized greet, decline, hostile,
+join, and rejected-join outcomes through the existing `KS_OffscreenStories`
+owner into both participants' existing persistent ledgers. Entries use
+canonical survivor IDs, are idempotent for the same outcome/time, and retain
+the established 12-entry cap. Missing ledgers fail closed. Dialogue recounts
+and Survivor Card labels describe joining, parting, and hostility without
+implying combat or theft that was not verified. Focused story/history, recount,
+human-encounter, view-model, and relationship-coherence checks passed.
+`tools/verify.ps1 -SkipJava` checked 112
+Lua sources, 178 regression scripts, 290 checks, 0 failures. Focused test
+changes are local under ignored `tools/` policy. Build 42 still needs encounter
+completion, save/reload persistence, and later dialogue/Card replay; hostility
+does not imply native combat/robbery acceptance.

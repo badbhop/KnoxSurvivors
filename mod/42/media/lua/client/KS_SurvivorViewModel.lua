@@ -26,7 +26,15 @@ local function recentHistoryFor(id)
     local ok, history = pcall(OffscreenStories.recentHistoryFor, id, 3)
     if not ok or type(history) ~= "table" then return {} end
     for _, entry in ipairs(history) do
-        entry.label = MEMORY_LABELS[tostring(entry.kind or "")] or "Survived offscreen"
+        local label = MEMORY_LABELS[tostring(entry.kind or "")]
+        if entry.kind == "meet" then
+            label = entry.outcome == "joined" and "Joined another survivor"
+                or ((entry.outcome == "declined" or entry.outcome == "parted")
+                    and "Parted ways with a survivor")
+                or (entry.outcome == "hostile" and "Hostile encounter"
+                    or "Met another survivor")
+        end
+        entry.label = label or "Survived offscreen"
     end
     return history
 end
