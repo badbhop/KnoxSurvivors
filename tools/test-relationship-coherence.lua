@@ -72,6 +72,58 @@ assert(not KnoxPersistence.setTravelGroupObjective(
     firstGroup.id, "b", leaderIntent, 73
 ), "only the current group leader can replace shared purpose")
 
+local leaderOrder, leaderOrderResult = KnoxPersistence.issueTravelGroupLeaderOrder(
+    firstGroup.id, "a", "follow", 72, 74
+)
+assert(leaderOrderResult == "issued" and leaderOrder.kind == "follow"
+    and leaderOrder.leaderId == "a" and leaderOrder.groupId == firstGroup.id,
+    "only the canonical group leader can persist a follow directive")
+local sameOrder, sameOrderResult = KnoxPersistence.issueTravelGroupLeaderOrder(
+    firstGroup.id, "a", "follow", 72, 74
+)
+assert(sameOrderResult == "unchanged" and sameOrder.revision == leaderOrder.revision,
+    "identical leader directives do not churn revisions or spam followers")
+local rejectedOrder, rejectedReason = KnoxPersistence.issueTravelGroupLeaderOrder(
+    firstGroup.id, "b", "hold", 72, 74
+)
+assert(rejectedOrder == nil and rejectedReason == "invalid_leader_order",
+    "a follower cannot issue a group leader directive")
+local holdOrder = assert(KnoxPersistence.issueTravelGroupLeaderOrder(
+    firstGroup.id, "a", "hold", 72, 73
+))
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 72).kind == "hold",
+    "a valid leader hold directive is durable and group-scoped")
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 73) == nil,
+    "expired leader directives clear instead of holding followers indefinitely")
+
+local boundedOrder = assert(KnoxPersistence.issueTravelGroupLeaderOrder(firstGroup.id, "a", "hold", 73))
+assert(boundedOrder.expiresAtHours == 73.25, "omitted expiry defaults to fifteen game minutes")
+local repeated, repeatedReason = KnoxPersistence.issueTravelGroupLeaderOrder(firstGroup.id, "a", "hold", 73.1)
+assert(repeatedReason == "unchanged" and repeated.revision == boundedOrder.revision
+    and repeated.expiresAtHours == boundedOrder.expiresAtHours,
+    "repeated default orders cannot extend a hold forever")
+firstGroup.leaderOrder.leaderId = "b"
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 73.1) == nil,
+    "stored issuer must still be the canonical leader")
+firstGroup.leaderOrder.leaderId = "a"
+firstGroup.leaderOrder.groupId = secondGroup.id
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 73.1) == nil,
+    "an order cannot be transplanted from another group")
+firstGroup.leaderOrder.groupId = firstGroup.id
+firstFaction.leaderId = "b"
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 73.1) == nil,
+    "a stale faction leader cannot retain command on read")
+firstFaction.leaderId = "a"
+assert(not KnoxPersistence.clearTravelGroupLeaderOrder(firstGroup.id, nil),
+    "cancellation requires a recognized leader")
+assert(KnoxPersistence.clearTravelGroupLeaderOrder(firstGroup.id, "a"))
+assert(KnoxPersistence.issueTravelGroupLeaderOrder(firstGroup.id, "a", "hold", 73, math.huge) == nil,
+    "an infinite expiry cannot create a permanent hold")
+firstGroup.leaderOrder = { kind = "hold", leaderId = "a", groupId = firstGroup.id, issuedAtHours = 73 }
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 73) == nil,
+    "legacy unbounded holds fail closed rather than permanently freezing followers")
+assert(KnoxPersistence.clearTravelGroupLeaderOrder(firstGroup.id, "a"))
+
 assert(KnoxPersistence.areSurvivorsAllied("a", "b"),
     "same group/faction members must classify as allied")
 KnoxPersistence.setRelationshipDisposition("a", "b", "hostile", 96)
@@ -182,6 +234,16 @@ local restoredObjective = assert(
 )
 assert(restoredObjective.kind == "scavenge" and restoredObjective.leaderId == "e",
     "valid shared purpose survives a Lua reload")
+local restoredLeaderOrder = assert(KnoxPersistence.issueTravelGroupLeaderOrder(
+    firstGroup.id, "b", "hold", 74, 80
+))
+package.loaded["KS_Persistence"] = nil
+_G.KnoxPersistence = nil
+require "KS_Persistence"
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 74).kind == "hold"
+    and KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 74).revision
+        == restoredLeaderOrder.revision,
+    "valid leader directive survives a persistence reload without a second record")
 
 -- A normal faction that loses its final member must release every faction-owned
 -- record immediately: successor selection keeps it alive through the first
@@ -201,6 +263,8 @@ SafeHouse = {
     removeSafeHouse = function() removedSafehouses = removedSafehouses + 1 end,
 }
 assert(KnoxPersistence.markSurvivorDead("b", 75, "collapse_test"))
+assert(KnoxPersistence.getTravelGroupLeaderOrder(firstGroup.id, 75) == nil,
+    "death and successor selection retire the previous leader's valid saved hold")
 assert(KnoxPersistence.getFaction(firstFaction.id).leaderId == "c",
     "remaining living member must become deterministic successor")
 assert(KnoxPersistence.markSurvivorDead("c", 76, "collapse_test"))

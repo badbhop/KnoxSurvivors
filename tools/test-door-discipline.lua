@@ -44,4 +44,17 @@ c = controller({ base = nil, companionOrder = nil, groupLeaderId = nil })
 c:closeOpenedDoors()
 assert(toggled == 1, "unowned context keeps closing")
 
+-- Some compatible door wrappers expose setOpen without a toggle method. The
+-- close path must request the closed state, not reuse the opening fallback.
+local requestedOpen = nil
+local setOpenOnly = {
+    IsOpen = function() return requestedOpen ~= false end,
+    getSquare = function() return {} end,
+    setOpen = function(_, value) requestedOpen = value end,
+}
+c = controller({ base = nil, companionOrder = nil, groupLeaderId = nil })
+c.openedDoors = { [setOpenOnly] = true }
+c:closeOpenedDoors()
+assert(requestedOpen == false, "setOpen-only doors must receive an explicit close request")
+
 print("Door discipline PASS companion=true group=true independent=true")

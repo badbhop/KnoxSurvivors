@@ -26,15 +26,21 @@ vehicle.getCurrentSpeedKmHour = function() return 0 end
 vehicle.getVehicleTowing = function() return nil end
 vehicle.getVehicleTowedBy = function() return nil end
 vehicle.getSquare = function(self) return self.square end
+vehicle.fuel, vehicle.locked = 50, false
+vehicle.getRemainingFuelPercentage = function(self) return self.fuel end
+vehicle.areAllDoorsLocked = function(self) return self.locked end
 local collection = { size = function() return 1 end, get = function(_, index) return index == 0 and vehicle or nil end }
 getCell = function() return { getVehicles = function() return collection end } end
 getNumActivePlayers = function() return 1 end
 getSpecificPlayer = function(index) return index == 0 and player or nil end
 KnoxPersistence = { getTravelGroupFor = function() return { leaderId = "leader" } end }
 local boarded, drives = 0, 0
+local seatsTaken, attached = 0, nil
 KnoxCompanionVehicles = {
     board = function(member, candidate)
         assert(candidate == vehicle)
+        if seatsTaken >= 1 then return false, "no_free_passenger_seat" end
+        seatsTaken = seatsTaken + 1
         member.vehicle = candidate
         boarded = boarded + 1
         return true
@@ -43,6 +49,11 @@ KnoxCompanionVehicles = {
         assert(driver == leader and candidate == vehicle and x == 100 and y == 0 and z == 0)
         drives = drives + 1
         return true, "driving_to_destination"
+    end,
+    setRunPassengers = function(driver, candidate, roster)
+        assert(driver == leader and candidate == vehicle)
+        attached = roster
+        return true
     end,
 }
 local travel = dofile(root .. "/mod/42/media/lua/client/KS_NpcVehicleTravel.lua")
@@ -63,4 +74,36 @@ KnoxCompanionVehicles.driveTo=function() return false, "drive_route_unavailable"
 assert(not travel.tryBegin(controller, {x=100,y=0,z=0},3000))
 assert(boarded==before and passenger.vehicle==nil,
     "rejected driver request must not board or interrupt passengers")
-print("NPC vehicle travel PASS leader=true passengers=true player_vehicle_safe=true")
+local ready, reason = travel.assessReadiness(vehicle)
+assert(ready and reason == "vehicle_ready", "a fueled unlocked running vehicle is admitted")
+vehicle.fuel = 0
+ready, reason = travel.assessReadiness(vehicle)
+assert(not ready and reason == "vehicle_low_fuel", "an unfueled vehicle is rejected with reason")
+before = boarded
+assert(not travel.tryBegin(controller, {x=100,y=0,z=0},4000))
+assert(boarded == before and passenger.vehicle == nil,
+    "an unfueled vehicle must not board passengers")
+vehicle.fuel, vehicle.locked = 50, true
+ready, reason = travel.assessReadiness(vehicle)
+assert(not ready and reason == "vehicle_doors_locked", "a fully locked vehicle is rejected with reason")
+vehicle.locked = false
+vehicle.getRemainingFuelPercentage = nil
+ready, reason = travel.assessReadiness(vehicle)
+assert(not ready and reason == "vehicle_state_unknown",
+    "missing native fuel state fails closed instead of inventing usable")
+vehicle.getRemainingFuelPercentage = function(self) return self.fuel end
+local passenger2 = character(3, 0)
+passenger2.square = square(passenger2)
+controller.groupMembers = { leader, passenger, passenger2 }
+seatsTaken = 0
+passenger.vehicle = nil
+KnoxCompanionVehicles.driveTo = function(driver, candidate, x, y, z)
+    drives = drives + 1
+    return true, "driving_to_destination"
+end
+assert(travel.tryBegin(controller, { x = 100, y = 0, z = 0 }, 5000))
+assert(attached ~= nil and #attached == 1 and attached[1].member == passenger
+    and attached[1].vehicle == vehicle,
+    "the roster commits only seated members explicitly")
+assert(passenger2.vehicle == nil, "overflow members stay unleased and unclaimed")
+print("NPC vehicle travel PASS leader=true passengers=true player_vehicle_safe=true readiness=true")

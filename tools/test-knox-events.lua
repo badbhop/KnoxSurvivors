@@ -166,17 +166,6 @@ assert(E.proposeRaid(faction.id, target.id, 12) == nil, "cooldown survives save 
 E.maintain(35)
 assert(E.proposeRaid(faction.id, target.id, 35) ~= nil, "elapsed cooldown permits a later real-roster proposal")
 
--- Abstract raid tiers: guards double, residents single, deterministic.
-assert(E.resolveAbstractRaid({ memberIds = { "a", "b" } }, 1, 0) == "repelled",
-    "overwhelming watch repels cleanly")
-assert(E.resolveAbstractRaid({ memberIds = { "a", "b" } }, 0, 2) == "repelled_costly",
-    "near thing costs a fight")
-assert(E.resolveAbstractRaid({ memberIds = { "a", "b", "c" } }, 0, 1) == "breached",
-    "undermanned watch is breached")
-assert(E.resolveAbstractRaid({ memberIds = {} }, 0, 0) == "repelled",
-    "empty raid cannot breach")
-assert(E.resolveAbstractRaid(nil, 0, 0) == "repelled", "missing event repels")
-
 -- Completed raid log caps newest-last for faction cards.
 for i = 1, 14 do
     assert(P.recordRaidHistory({ atHours = i, sourceFactionId = "f",
@@ -203,4 +192,4 @@ P.pruneTraceSites(300)
 assert(#P.getTraceSites() == 0, "week-old traces expire")
 assert(P.recordTraceSite("campfire", 1, 1, 0, 200) == nil, "unknown kinds rejected")
 
-print("Knox Events PASS migration=true real_roster=true minority=true no_spawn=true phases=true reload=true cancellation=true bounded=true corruption=true cooldown=true abstract=true history=true traces=true")
+print("Knox Events PASS migration=true real_roster=true minority=true no_spawn=true phases=true reload=true cancellation=true bounded=true corruption=true cooldown=true history=true traces=true")

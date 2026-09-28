@@ -43,7 +43,10 @@ end
 local function stopDriver(character)
     local run = driverRuns[character]
     if run ~= nil then resetDriverControls(run, character) end
-    driverRuns[character] = nil
+    -- Assigning nil to an absent key during pairs traversal is undefined
+    -- behavior ("invalid key to 'next'"); passenger rollback cancels
+    -- characters that never owned a driver run, so only clear a present key.
+    if driverRuns[character] ~= nil then driverRuns[character] = nil end
 end
 
 local function health(character)
@@ -52,10 +55,36 @@ local function health(character)
     return ok and tonumber(value) or nil
 end
 
-function CompanionVehicles.cancel(character)
+-- Settle one driver run's committed passenger roster: pending leases cancel
+-- at once instead of waiting out the action timeout, and seated passengers
+-- get the existing native exit (which refuses a moving vehicle itself).
+-- Members riding another vehicle are only unleased, never touched. A finished
+-- run with no roster is a no-op.
+local function rollbackRoster(character, run)
+    local roster = run ~= nil and run.passengers or nil
+    if roster == nil then return end
+    for _, entry in ipairs(roster) do
+        local member = entry ~= nil and entry.member or nil
+        if member ~= nil and member ~= character then
+            local aboard = member.getVehicle ~= nil and member:getVehicle() ~= nil
+                and (run.vehicle == nil or member:getVehicle() == run.vehicle)
+            if aboard then
+                CompanionVehicles.exit(member)
+            else
+                CompanionVehicles.cancel(member)
+            end
+        end
+    end
+end
+
+function CompanionVehicles.cancel(character, keepPassengers)
+    local run = driverRuns[character]
     stopDriver(character)
     local request = pending[character]
-    if request == nil then return end
+    if request == nil then
+        if not keepPassengers then rollbackRoster(character, run) end
+        return
+    end
     pending[character] = nil
     local queue = ISTimedActionQueue.queues[character]
     if queue ~= nil then
@@ -66,6 +95,7 @@ function CompanionVehicles.cancel(character)
             end
         end
     end
+    if not keepPassengers then rollbackRoster(character, run) end
 end
 
 function CompanionVehicles.isBusy(character)
@@ -264,6 +294,29 @@ local function startDrive(character,vehicle,destination)
     if driver~=character and math.abs(vehicle:getCurrentSpeedKmHour())>1 then return false,"vehicle_moving" end
     if not vehicle:isEngineRunning() then return false,"vehicle_engine_off" end
     if not vehicle:isDriveable() then return false,"vehicle_not_driveable" end
+    local travel = rawget(_G, "KnoxNpcVehicleTravel")
+    if travel ~= nil and travel.assessReadiness ~= nil then
+        local ready, reason = travel.assessReadiness(vehicle)
+        if not ready then return false, reason end
+    else
+        -- Unit-test contexts that never load KS_NpcVehicleTravel still need
+        -- the same fuel/lock gate. Keep these two checks identical to
+        -- VehicleTravel.assessReadiness above; production always resolves the
+        -- shared definition through the loaded travel module.
+        if vehicle.getRemainingFuelPercentage == nil then
+            return false, "vehicle_state_unknown"
+        end
+        local fueled, percent = pcall(function() return vehicle:getRemainingFuelPercentage() end)
+        if not fueled or (tonumber(percent) or 0) < 1 then
+            return false, "vehicle_low_fuel"
+        end
+        if vehicle.areAllDoorsLocked == nil then
+            return false, "vehicle_state_unknown"
+        end
+        local checked, allLocked = pcall(function() return vehicle:areAllDoorsLocked() end)
+        if not checked then return false, "vehicle_state_unknown" end
+        if allLocked then return false, "vehicle_doors_locked" end
+    end
     if vehicle.getVehicleTowing~=nil and vehicle:getVehicleTowing()~=nil
         or vehicle.getVehicleTowedBy~=nil and vehicle:getVehicleTowedBy()~=nil then
         return false,"towing_not_supported"
@@ -312,7 +365,9 @@ function CompanionVehicles.driveTo(character,vehicle,x,y,z)
 end
 function CompanionVehicles.stopDriving(character)
     local active=driverRuns[character]~=nil
-    CompanionVehicles.cancel(character)
+    -- Player takeover preserves the passengers: they keep riding with the
+    -- new driver instead of being settled by the abort path below.
+    CompanionVehicles.cancel(character, true)
     return active
 end
 function CompanionVehicles.driverStatus(character)
@@ -322,7 +377,21 @@ function CompanionVehicles.driverStatus(character)
         reason=run.blockedReason,targetSpeed=run.targetSpeed} or nil
 end
 
+-- Attach a committed passenger roster to an active driver run so any abort
+-- or arrival rolls it back through the same lease/exit ownership above.
+-- Silently ignores a missing run or a roster for another vehicle.
+function CompanionVehicles.setRunPassengers(character, vehicle, roster)
+    local run = driverRuns[character]
+    if run == nil or (vehicle ~= nil and run.vehicle ~= nil and run.vehicle ~= vehicle) then
+        return false
+    end
+    run.passengers = roster
+    return true
+end
+
 local function finishDrive(character,reason)
+    -- cancel() settles the attached passenger roster as part of teardown,
+    -- so every abort and arrival shares one rollback owner.
     CompanionVehicles.cancel(character)
     if KnoxActivityFeed~=nil and KnoxActivityFeed.speak~=nil then
         KnoxActivityFeed.speak(character,reason=="arrived" and "We've arrived."

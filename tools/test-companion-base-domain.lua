@@ -336,6 +336,13 @@ local foodPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
 }, "food", false))
 assert(foodPolicy.storageRole == "food" and not foodPolicy.toolCupboard
     and base.storage["container-stable-1"] ~= nil, "typed storages coexist")
+local generalPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
+    key = "container-stable-general", x = 12, y = 20, z = 0,
+    objectIndex = 4, containerIndex = 0, containerType = "crate",
+}, "general", false))
+assert(generalPolicy.storageRole == "general"
+    and base.storage[generalPolicy.key] == generalPolicy,
+    "General Storage is accepted by persistent storage policy validation")
 local converted = assert(KnoxPersistence.setBaseStoragePolicy(base.id, {
     key = "container-stable-1", x = 10, y = 20, z = 0,
     objectIndex = 2, containerIndex = 1, containerType = "crate",
@@ -348,6 +355,8 @@ assert(base.storage["container-stable-2"] == foodPolicy and base.storage["contai
     "rejected main preserves typed assignments")
 assert(KnoxPersistence.removeBaseStoragePolicy(base.id, foodPolicy.key)
     and base.storage[foodPolicy.key] == nil, "food assignment can be removed")
+assert(KnoxPersistence.removeBaseStoragePolicy(base.id, generalPolicy.key)
+    and base.storage[generalPolicy.key] == nil, "General Storage assignment can be removed")
 assert(KnoxPersistence.removeBaseStoragePolicy(base.id, converted.key)
     and base.storage[converted.key] == nil, "typed assignments can be removed")
 local buildingPolicy = assert(KnoxPersistence.setBaseStoragePolicy(base.id,

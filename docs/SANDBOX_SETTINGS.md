@@ -25,6 +25,14 @@ Knox Survivors adds two pages to Project Zomboid's sandbox options.
 - **Automatic NPC Base Work Areas** defaults on. Autonomous NPC factions receive practical guard, patrol, farming, wood, corpse, and storage defaults. Player bases remain manually configured through the Notebook.
 - **Show Companion HUD** controls the right-side companion panel.
 - **Show Survivor Activity Feed** controls the Knox message window. Speech bubbles still work.
+- **Initial Group Chance / Max Size / Count** seed starting-region cohorts (defaults 65% / 4 / 3); most starting identities remain solo.
+- **Activations Per Update** caps new body materialization per population pass (default 2) so the full target is reached over later passes, not one burst.
+- **Minimum Spawn Distance** (default 40) is also the hidden-square safety floor; **Survivor Encounter Distance** (default 280) stays at least ten tiles beyond it to preserve a first-appearance band.
+- **Base Reading / Base Cooking** (both default on) let idle residents collect, use, and return books and cook real meals through native actions.
+- **Cautious Travel** (default on) prefers safer routes; **Allow Survivor Door/Window Opening** (default on) gates traversal permissions.
+- **Survivor Aiming Assistance** (default Native Skills) changes automatic firearm commitment timing only — never skill, accuracy, ammo, or damage.
+- **Spawn With Spouse** (default off), **Survivor Nameplates + Distance** (on / 24), **Use Reputation** (on), **Allow Survivors Treat Player** (on) round out the player-facing surface.
+- Future direction (D-017, not yet implemented): named rarity modes (e.g. Lonely / Balanced / Lively) over these raw numbers, plus any user-expected sandbox settings and eventually a creator on the vanilla character creator with Knox additions. No setting will bypass identity ownership, native requirements, save safety, or evidence gates.
 
 Production population uses real Build 42 player starts and supplemental ground-floor building locations. Distant survivors retain virtual locations and nearby loaded survivors materialize only when safe. Dead origins remain reserved. Disabling caps never recycles dead identities or repeatedly spawns a batch after a long time skip. Re-enabling caps does not delete existing survivors or forcibly dismiss companions. With caps disabled, a starting population of zero can still receive later gradual arrivals.
 

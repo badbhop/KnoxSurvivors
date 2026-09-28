@@ -75,3 +75,68 @@ local movingAccepted,movingReason=vehicles.driveAhead(w.character,w.vehicle)
 assert(not movingAccepted and movingReason=="vehicle_moving")
 w.vehicle.speed=0
 print("Driver handoff PASS boarding_no_remote_brake=true wait_progress=true moving_boarding_rejected=true")
+-- Passenger roster rolls back when the driver run aborts.
+local function rider()
+    return { vehicle = nil, getVehicle = function(self) return self.vehicle end,
+        isDead = function() return false end }
+end
+local riderA, riderB = rider(), rider()
+local realPrepare = KnoxSurvivorRuntime.prepareVehicle
+KnoxSurvivorRuntime.prepareVehicle = function() return true end
+assert(vehicles.board(riderA, w.vehicle) and vehicles.board(riderB, w.vehicle))
+KnoxSurvivorRuntime.prepareVehicle = realPrepare
+assert(vehicles.driveAhead(w.character, w.vehicle))
+assert(vehicles.setRunPassengers(w.character, w.vehicle,
+    { { member = riderA, vehicle = w.vehicle }, { member = riderB, vehicle = w.vehicle } }))
+riderB.vehicle = w.vehicle
+ISTimedActionQueue.clear(riderB)
+ISTimedActionQueue.clear(w.character)
+vehicles.tick()
+assert(not vehicles.isBusy(riderA)
+    and #(ISTimedActionQueue.queues[riderA] and ISTimedActionQueue.queues[riderA].queue or {}) == 0,
+    "driver abort releases unseated passenger leases at once")
+local exitQueue = ISTimedActionQueue.queues[riderB] and ISTimedActionQueue.queues[riderB].queue or {}
+assert(#exitQueue >= 1 and exitQueue[#exitQueue].kind == "exit",
+    "driver abort offers seated passengers the native exit")
+assert(not vehicles.setRunPassengers(w.character, w.vehicle, {}),
+    "a finished run accepts no new roster")
+print("Driver roster PASS rollback=true seated_exit=true stale_run_rejected=true")
+-- Cancelling the driver settles the attached roster; player takeover keeps it.
+local function commuter()
+    return { vehicle = nil, getVehicle = function(self) return self.vehicle end,
+        isDead = function() return false end }
+end
+local commuterA, commuterB = commuter(), commuter()
+local driverPrepare = KnoxSurvivorRuntime.prepareVehicle
+KnoxSurvivorRuntime.prepareVehicle = function() return true end
+assert(vehicles.board(commuterA, w.vehicle) and vehicles.board(commuterB, w.vehicle))
+KnoxSurvivorRuntime.prepareVehicle = driverPrepare
+assert(vehicles.driveAhead(w.character, w.vehicle))
+assert(vehicles.setRunPassengers(w.character, w.vehicle,
+    { { member = commuterA, vehicle = w.vehicle }, { member = commuterB, vehicle = w.vehicle } }))
+vehicles.cancel(w.character)
+assert(not vehicles.isBusy(commuterA) and not vehicles.isBusy(commuterB),
+    "driver cancel settles every attached passenger lease at once")
+assert(vehicles.driveAhead(w.character, w.vehicle))
+KnoxSurvivorRuntime.prepareVehicle = function() return true end
+assert(vehicles.board(commuterA, w.vehicle))
+assert(vehicles.board(commuterB, w.vehicle))
+KnoxSurvivorRuntime.prepareVehicle = driverPrepare
+assert(vehicles.setRunPassengers(w.character, w.vehicle,
+    { { member = commuterA, vehicle = w.vehicle }, { member = commuterB, vehicle = w.vehicle } }))
+assert(vehicles.stopDriving(w.character))
+assert(vehicles.isBusy(commuterA) and vehicles.isBusy(commuterB),
+    "player takeover preserves passenger leases instead of settling them")
+print("Driver arbitration PASS cancel_settles=true takeover_keeps=true")
+-- Readiness fallback without the travel module: fuel and locks still gate.
+w.vehicle.fuel=0
+local dryAccepted,dryReason=vehicles.driveAhead(w.character,w.vehicle)
+assert(not dryAccepted and dryReason=="vehicle_low_fuel", "unfueled vehicle rejected without travel module")
+w.vehicle.fuel=50;w.vehicle.locked=true
+local lockedAccepted,lockedReason=vehicles.driveAhead(w.character,w.vehicle)
+assert(not lockedAccepted and lockedReason=="vehicle_doors_locked", "locked vehicle rejected without travel module")
+w.vehicle.locked=false
+w.vehicle.getRemainingFuelPercentage=nil
+local unknownAccepted,unknownReason=vehicles.driveAhead(w.character,w.vehicle)
+assert(not unknownAccepted and unknownReason=="vehicle_state_unknown", "missing fuel state fails closed")
+print("Driver readiness PASS low_fuel=true locked=true unknown_state=true")

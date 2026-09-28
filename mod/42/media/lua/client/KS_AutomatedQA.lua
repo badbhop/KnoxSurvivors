@@ -39,11 +39,51 @@ local MAX_STEP_ATTEMPTS = 3
 local MAX_PASSES = 3
 local QA_CLEAR_RADIUS = 40
 local GLOBAL_TIMEOUT_TICKS = 30000
+local VERTICAL_STEP_TIMEOUT = 900
+
+-- The unattended entry point now begins with this small, ownership-safe
+-- vertical slice.  The older FULL_STEPS coordinator remains below for future
+-- migration, but this manifest is deliberately limited to readiness, one
+-- developer-owned native body, observation, reporting, and removal.
+local VERTICAL_MANIFEST = {
+    {
+        id = "QA-START-001", kind = "readiness", timeout = 600,
+        evidenceType = "in_game_automated", humanConfirmation = "startup_path",
+        task = "KS-PROD-008",
+    },
+    {
+        id = "QA-ENCOUNTER-001", kind = "encounter_fixture", timeout = VERTICAL_STEP_TIMEOUT,
+        evidenceType = "in_game_automated", humanConfirmation = "fixture_visibility",
+        task = "KS-PROD-008",
+    },
+    {
+        id = "QA-RECRUIT-001", kind = "recruitment_observation", timeout = VERTICAL_STEP_TIMEOUT,
+        evidenceType = "in_game_automated", humanConfirmation = "recruitment_ui",
+        task = "KS-PROD-008",
+    },
+    {
+        id = "QA-CHECKPOINT-001", kind = "checkpoint", timeout = 120,
+        evidenceType = "offline", humanConfirmation = "none",
+        task = "KS-PROD-008",
+    },
+    {
+        id = "QA-CLEANUP-001", kind = "cleanup", timeout = VERTICAL_STEP_TIMEOUT,
+        evidenceType = "in_game_automated", humanConfirmation = "fixture_removed",
+        task = "KS-PROD-008",
+    },
+}
+
+local VERTICAL_STATUSES = {
+    PASS = true, FAIL = true, BLOCKED = true, SKIPPED = true, HARNESS_ERROR = true,
+}
+local runSequence = 0
 
 local state = nil
 local update
 local advanceStep
 local cleanupActiveProbe
+local cleanupVerticalFixtures
+local verticalUpdate
 
 local FULL_STEPS = {
     { name = "equipment_persistence", kind = "probe", module = "KnoxEquipmentProbe", scenario = "equipment", timeout = 1800 },
@@ -1453,8 +1493,291 @@ advanceStep = function()
     end
 end
 
+-- -------------------------------------------------------------------------
+-- QA vertical slice: manifest-driven, non-destructive in-game observation.
+
+local function compact(value)
+    return tostring(value == nil and "unavailable" or value):gsub("[%s|]", "_")
+end
+
+local function safeValue(callback)
+    local ok, value = pcall(callback)
+    return ok and value or nil
+end
+
+local function buildVersion()
+    local core = getCore ~= nil and safeValue(getCore) or nil
+    if core ~= nil and core.getVersionNumber ~= nil then
+        return compact(safeValue(function() return core:getVersionNumber() end))
+    end
+    return "unavailable"
+end
+
+local function saveIdentity()
+    local core = getCore ~= nil and safeValue(getCore) or nil
+    if core ~= nil and core.getGameSaveWorld ~= nil then
+        return compact(safeValue(function() return core:getGameSaveWorld() end))
+    end
+    local world = getWorld ~= nil and safeValue(getWorld) or nil
+    if world ~= nil and world.getWorld ~= nil then
+        return compact(safeValue(function() return world:getWorld() end))
+    end
+    return "unavailable"
+end
+
+local function runtimeStatus()
+    local bridge = rawget(_G, "KnoxJavaBridge")
+    if bridge == nil then return "bridge_missing" end
+    if bridge.ping == nil then return "bridge_ping_unavailable" end
+    local ping = safeValue(function() return bridge:ping() end)
+    return ping ~= nil and ("bridge_" .. compact(ping)) or "bridge_ping_failed"
+end
+
+local function nextRunId()
+    runSequence = runSequence + 1
+    local stamp = getTimestampMs ~= nil and safeValue(getTimestampMs) or nil
+    if stamp == nil then
+        stamp = math.floor((worldHours() or 0) * 3600000)
+    end
+    return "ksqa-" .. compact(stamp) .. "-" .. tostring(runSequence)
+end
+
+local function verticalCheckpoint(spec, phase)
+    if state == nil then return false, "state_missing" end
+    local checkpoint = {
+        runId = state.runId,
+        scenario = spec.id,
+        phase = phase,
+        tick = state.ticks,
+        save = state.metadata.save,
+    }
+    state.checkpoints[#state.checkpoints + 1] = checkpoint
+    print(TAG .. " CHECKPOINT runId=" .. checkpoint.runId
+        .. " scenario=" .. checkpoint.scenario
+        .. " phase=" .. checkpoint.phase
+        .. " tick=" .. tostring(checkpoint.tick)
+        .. " save=" .. checkpoint.save
+        .. " evidenceType=offline")
+    return true
+end
+
+local function verticalResult(spec, status, reason, evidence, evidenceType)
+    status = VERTICAL_STATUSES[status] and status or "HARNESS_ERROR"
+    local entry = {
+        scenario = spec.id,
+        status = status,
+        reason = compact(reason),
+        evidence = tostring(evidence or "none"),
+        evidenceType = evidenceType or spec.evidenceType,
+        runId = state.runId,
+        humanConfirmation = spec.humanConfirmation,
+        task = spec.task,
+    }
+    state.results[#state.results + 1] = entry
+    state.best[entry.scenario] = entry
+    print(TAG .. " RESULT runId=" .. entry.runId
+        .. " scenario=" .. entry.scenario
+        .. " status=" .. entry.status
+        .. " reason=" .. entry.reason
+        .. " evidenceType=" .. compact(entry.evidenceType)
+        .. " humanConfirmation=" .. compact(entry.humanConfirmation)
+        .. " task=" .. compact(entry.task)
+        .. " evidence=" .. entry.evidence)
+end
+
+local function fixtureIdFrom(encoded)
+    return tostring(encoded or ""):match("^([^, ]+)")
+end
+
+local function nativeFixtureEvidence(id)
+    local runtime = rawget(_G, "KnoxSurvivorRuntime")
+    local persistence = rawget(_G, "KnoxPersistence")
+    local character = runtime ~= nil and runtime.getCharacter ~= nil
+        and safeValue(function() return runtime.getCharacter(id) end) or nil
+    local square = character ~= nil and character.getCurrentSquare ~= nil
+        and safeValue(function() return character:getCurrentSquare() end) or nil
+    local origin = persistence ~= nil and persistence.getSurvivorOrigin ~= nil
+        and safeValue(function() return persistence.getSurvivorOrigin(id) end) or nil
+    local identity = persistence ~= nil and persistence.getSurvivorIdentity ~= nil
+        and safeValue(function() return persistence.getSurvivorIdentity(id) end) or nil
+    local group = persistence ~= nil and persistence.getTravelGroupFor ~= nil
+        and safeValue(function() return persistence.getTravelGroupFor(id) end) or nil
+    local faction = persistence ~= nil and persistence.getFactionForSurvivor ~= nil
+        and safeValue(function() return persistence.getFactionForSurvivor(id) end) or nil
+    local originText = origin ~= nil and (tostring(origin.x) .. "," .. tostring(origin.y)
+        .. "," .. tostring(origin.z)) or "unavailable"
+    local groupId = group ~= nil and tostring(group.id or "present") or "none"
+    local factionId = faction ~= nil and tostring(faction.id or "present") or "none"
+    local name = identity ~= nil and compact((identity.forename or "") .. "_" .. (identity.surname or ""))
+        or "unavailable"
+    return character, square,
+        "id=" .. compact(id)
+            .. " owner=" .. compact(state.fixtureOwners[id])
+            .. " identity=" .. name
+            .. " origin=" .. originText
+            .. " body=" .. tostring(character ~= nil)
+            .. " square=" .. squareText(square)
+            .. " group=" .. compact(groupId)
+            .. " faction=" .. compact(factionId)
+end
+
+cleanupVerticalFixtures = function(reason)
+    if state == nil or type(state.fixtureIds) ~= "table" or #state.fixtureIds == 0 then
+        return true, "no_owned_fixture"
+    end
+    local autonomy = rawget(_G, "KnoxSurvivorAutonomy")
+    if autonomy == nil or autonomy.cleanupDeveloperScenario == nil then
+        return false, "cleanup_api_unavailable"
+    end
+    local ok, removed, evidence = pcall(function()
+        return autonomy.cleanupDeveloperScenario(state.fixtureIds, reason)
+    end)
+    if not ok or removed ~= true then
+        return false, "cleanup_failed:" .. tostring(evidence or removed)
+    end
+    local runtime = rawget(_G, "KnoxSurvivorRuntime")
+    for _, id in ipairs(state.fixtureIds) do
+        local body = runtime ~= nil and runtime.getCharacter ~= nil
+            and safeValue(function() return runtime.getCharacter(id) end) or nil
+        if body ~= nil then return false, "owned_body_remains:" .. tostring(id) end
+    end
+    state.fixtureIds = {}
+    return true, tostring(evidence or "removed")
+end
+
+local function runVerticalScenario(spec)
+    local player = playerFor(state.playerNum)
+    if spec.kind == "readiness" then
+        if player == nil or player:getCurrentSquare() == nil then
+            return "BLOCKED", "player_not_ready", "playerSquare=unavailable"
+        end
+        if not KnoxSettings.developerToolsEnabled() then
+            return "BLOCKED", "developer_tools_disabled", "EnableDeveloperTools_required"
+        end
+        local runtime = runtimeStatus()
+        if runtime == "bridge_missing" or runtime == "bridge_ping_failed" then
+            return "BLOCKED", "native_bridge_unavailable", "runtime=" .. runtime
+        end
+        return "PASS", "ready", "build=" .. state.metadata.build
+            .. " save=" .. state.metadata.save
+            .. " mod=" .. state.metadata.mod
+            .. " runtime=" .. runtime
+            .. " duplicateRuntime=not_exposed"
+    end
+
+    if spec.kind == "encounter_fixture" then
+        if state.startReady ~= true then
+            return "SKIPPED", "readiness_not_passed", "dependent=QA-START-001"
+        end
+        local autonomy = rawget(_G, "KnoxSurvivorAutonomy")
+        if autonomy == nil or autonomy.spawnDeveloperScenario == nil then
+            return "BLOCKED", "fixture_api_unavailable", "KnoxSurvivorAutonomy"
+        end
+        local ok, created, encoded = pcall(function()
+            return autonomy.spawnDeveloperScenario(player, "single")
+        end)
+        if not ok then return "HARNESS_ERROR", "fixture_spawn_threw", tostring(created) end
+        if created ~= true then return "BLOCKED", "fixture_not_created", tostring(encoded) end
+        local id = fixtureIdFrom(encoded)
+        if id == nil or string.find(id, "ks-dev-", 1, true) ~= 1 then
+            return "HARNESS_ERROR", "fixture_ownership_invalid", tostring(encoded)
+        end
+        state.fixtureIds = { id }
+        state.fixtureOwners[id] = state.runId
+        local body, square, evidence = nativeFixtureEvidence(id)
+        if body == nil or square == nil then
+            return "BLOCKED", "native_fixture_not_materialized", evidence
+        end
+        return "PASS", "native_fixture_observed", evidence
+    end
+
+    if spec.kind == "recruitment_observation" then
+        local id = state.fixtureIds ~= nil and state.fixtureIds[1] or nil
+        if state.fixtureReady ~= true or id == nil then
+            return "SKIPPED", "fixture_unavailable", "dependent=QA-ENCOUNTER-001"
+        end
+        local service = rawget(_G, "KnoxCompanionService")
+        if service == nil or service.canRecruit == nil then
+            return "BLOCKED", "recruitment_api_unavailable", "KnoxCompanionService"
+        end
+        local ok, eligible, reason, trust = pcall(function()
+            return service.canRecruit(player, id)
+        end)
+        if not ok then return "HARNESS_ERROR", "recruitment_observation_threw", tostring(eligible) end
+        return "PASS", "eligibility_observed", "id=" .. compact(id)
+            .. " eligible=" .. tostring(eligible == true)
+            .. " reason=" .. compact(reason)
+            .. " trust=" .. compact(trust)
+            .. " mutation=none"
+    end
+
+    if spec.kind == "checkpoint" then
+        return "PASS", "checkpoint_recorded", "runId=" .. state.runId
+            .. " fixtureCount=" .. tostring(#(state.fixtureIds or {}))
+    end
+
+    if spec.kind == "cleanup" then
+        local clean, evidence = cleanupVerticalFixtures("qa_vertical_slice:" .. state.runId)
+        if not clean then return "HARNESS_ERROR", "owned_fixture_cleanup_failed", evidence end
+        return "PASS", "owned_fixture_removed", evidence
+    end
+    return "HARNESS_ERROR", "unknown_manifest_kind", tostring(spec.kind)
+end
+
+local function finishVertical()
+    local counts = { PASS = 0, FAIL = 0, BLOCKED = 0, SKIPPED = 0, HARNESS_ERROR = 0 }
+    for _, entry in ipairs(state.results) do counts[entry.status] = (counts[entry.status] or 0) + 1 end
+    local status = counts.HARNESS_ERROR > 0 and "HARNESS_ERROR"
+        or (counts.FAIL > 0 and "FAIL" or (counts.BLOCKED > 0 and "BLOCKED" or "PASS"))
+    print(TAG .. " SUITE runId=" .. state.runId
+        .. " status=" .. status
+        .. " pass=" .. tostring(counts.PASS)
+        .. " fail=" .. tostring(counts.FAIL)
+        .. " blocked=" .. tostring(counts.BLOCKED)
+        .. " skipped=" .. tostring(counts.SKIPPED)
+        .. " harnessError=" .. tostring(counts.HARNESS_ERROR)
+        .. " ticks=" .. tostring(state.ticks)
+        .. " evidenceType=in_game_automated"
+        .. " humanRequired=fixture_visibility,recruitment_ui")
+    state.phase = "FINISHED"
+    stop()
+end
+
+verticalUpdate = function()
+    state.ticks = state.ticks + 1
+    local spec = state.manifest[state.stepIndex]
+    if spec == nil then finishVertical(); return end
+    if state.stepStarted ~= spec.id then
+        state.stepStarted = spec.id
+        state.phaseTicks = state.ticks
+        verticalCheckpoint(spec, "before_setup")
+    end
+    if state.ticks - state.phaseTicks > spec.timeout then
+        verticalResult(spec, "HARNESS_ERROR", "scenario_timeout",
+            "timeoutTicks=" .. tostring(spec.timeout), "offline")
+    else
+        local ok, status, reason, evidence = pcall(runVerticalScenario, spec)
+        if not ok then
+            verticalResult(spec, "HARNESS_ERROR", "scenario_exception", tostring(status), "offline")
+        else
+            verticalResult(spec, status, reason, evidence)
+            if spec.id == "QA-START-001" then state.startReady = status == "PASS" end
+            if spec.id == "QA-ENCOUNTER-001" then state.fixtureReady = status == "PASS" end
+        end
+    end
+    if spec.kind == "cleanup" then
+        verticalCheckpoint(spec, "after_cleanup")
+    end
+    state.stepIndex = state.stepIndex + 1
+    state.stepStarted = nil
+end
+
 update = function()
     if state == nil or state.phase == "FINISHED" then return end
+    if state.mode == "vertical_slice" then
+        verticalUpdate()
+        return
+    end
     state.ticks = state.ticks + 1
     if state.ticks >= GLOBAL_TIMEOUT_TICKS then
         result(state.currentStep ~= nil and state.currentStep.name or "suite",
@@ -1498,33 +1821,46 @@ function QA.start(playerNum)
         print(TAG .. " DISABLED automated_q_a_mode=false")
         return false, "automated_qa_disabled"
     end
+    local runId = nextRunId()
     state = {
-        phase = "WAIT_START",
+        mode = "vertical_slice",
+        phase = "RUNNING",
         playerNum = tonumber(playerNum) or 0,
         ticks = 0,
         phaseTicks = 0,
         results = {},
         best = {},
-        pass = 1,
-        stepIndex = 0,
-        currentStep = nil,
-        currentAttempt = 0,
-        retryCurrent = false,
-        activeProbe = nil,
-        fixtureIds = nil,
-        factionTest = nil,
+        checkpoints = {},
+        manifest = VERTICAL_MANIFEST,
+        stepIndex = 1,
+        stepStarted = nil,
+        fixtureIds = {},
+        fixtureOwners = {},
+        runId = runId,
+        metadata = {
+            build = buildVersion(),
+            save = saveIdentity(),
+            mod = compact(rawget(_G, "KnoxSurvivors") ~= nil
+                and rawget(_G, "KnoxSurvivors").VERSION or "unavailable"),
+            runtime = runtimeStatus(),
+            timestamp = tostring(getTimestampMs ~= nil and safeValue(getTimestampMs) or worldHours()),
+        },
     }
-    local scenarioNames = { "preflight" }
-    for _, step in ipairs(FULL_STEPS) do
-        scenarioNames[#scenarioNames + 1] = step.name
-    end
-    print(TAG .. " START save_is_disposable=true player=" .. tostring(state.playerNum)
-        .. " maxPasses=" .. tostring(MAX_PASSES)
+    local scenarioNames = {}
+    for _, spec in ipairs(VERTICAL_MANIFEST) do scenarioNames[#scenarioNames + 1] = spec.id end
+    print(TAG .. " START runId=" .. state.runId
+        .. " save_is_disposable=true player=" .. tostring(state.playerNum)
+        .. " build=" .. state.metadata.build
+        .. " save=" .. state.metadata.save
+        .. " mod=" .. state.metadata.mod
+        .. " runtime=" .. state.metadata.runtime
+        .. " timestamp=" .. compact(state.metadata.timestamp)
         .. " scenarios=" .. table.concat(scenarioNames, ",")
-        .. " requires_god_mode_off=true")
+        .. " evidenceType=in_game_automated"
+        .. " scope=controlled_fixture_not_natural_encounter")
     stop()
     Events.OnTick.Add(update)
-    return true, "started"
+    return true, "started:" .. runId
 end
 
 local function onGameStart()
@@ -1548,6 +1884,14 @@ end
 
 local function onMainMenuEnter()
     stop()
+    if state ~= nil and state.mode == "vertical_slice" then
+        local cleaned, evidence = cleanupVerticalFixtures("qa_vertical_abort:" .. tostring(state.runId))
+        if not cleaned then
+            print(TAG .. " HARNESS_ERROR runId=" .. tostring(state.runId)
+                .. " scenario=QA-CLEANUP-001 reason=abort_cleanup_failed evidence="
+                .. tostring(evidence) .. " evidenceType=offline")
+        end
+    end
     cleanupActiveProbe()
     cleanupScenarioFixtures()
     cleanupNeeds()

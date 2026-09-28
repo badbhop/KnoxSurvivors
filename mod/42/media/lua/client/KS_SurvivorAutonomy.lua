@@ -42,6 +42,7 @@ local function hibernationDistanceSquared()
     return distance * distance
 end
 local DETACHED_GRACE_CHECKS = 3
+local DETACHED_COMPANION_GRACE_CHECKS = 10
 local detachedGrace = {}
 local recentlyDetached = {}
 local departureRetryAt = {}
@@ -675,6 +676,20 @@ local function actorXYZDescription(character)
     return tostring(x) .. "," .. tostring(y) .. "," .. tostring(z)
 end
 
+local function recognizedDetachedTransient(character)
+    if character == nil then return false end
+    local ok, state = pcall(function()
+        return character.getCurrentStateName ~= nil and character:getCurrentStateName() or nil
+    end)
+    if not ok or type(state) ~= "string" then return false end
+    state = string.lower(state)
+    return string.find(state, "climb", 1, true) ~= nil
+        or string.find(state, "vault", 1, true) ~= nil
+        or string.find(state, "window", 1, true) ~= nil
+        or string.find(state, "fence", 1, true) ~= nil
+        or string.find(state, "sheetrope", 1, true) ~= nil
+end
+
 local function prepareUnloadedResourceHandoff(id, controller, reason)
     local callOk, prepared, evidence = pcall(function()
         return KnoxUnloadedSurvival.prepareBaseResidentForStorage(
@@ -712,6 +727,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
             -- implemented.
             if character ~= nil and character:getVehicle() ~= nil then
                 detachedGrace[id] = nil
+                KnoxSurvivorRuntime.setLifecycleState(id, "active")
             else
             local square = character ~= nil and character:getCurrentSquare() or nil
             local distanceSquared = KnoxWorldPopulation.nearestPlayerDistanceSquared(square, players)
@@ -731,22 +747,31 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                 else
                 local grace = (detachedGrace[id] or 0) + 1
                 detachedGrace[id] = grace
-                local shouldHibernate, decision =
-                    KnoxSurvivorLifecyclePolicy.detachedDecision(
-                        finiteDistanceSquared,
-                        hibernationDistanceSquared(),
-                        grace,
-                        DETACHED_GRACE_CHECKS
-                    )
-                -- Companions ride inside the player's streaming bubble: a nil
-                -- square is always transient for them (vault, climb, cell
-                -- edge), never grounds for capture. Distance hibernation
-                -- already exempts them; the detached path must too. Permanent
-                -- loss still unregisters through the nil-shell path above.
-                if type(duty) == "table" and tostring(duty.mode or "") == "companion" then
-                    detachedGrace[id] = nil
-                    shouldHibernate, decision = false, "preserve-companion-detached"
+                local companion = type(duty) == "table"
+                    and tostring(duty.mode or "") == "companion"
+                local transient = companion and recognizedDetachedTransient(character)
+                local shouldHibernate, decision
+                if companion then
+                    shouldHibernate, decision =
+                        KnoxSurvivorLifecyclePolicy.companionDetachedDecision(
+                            transient,
+                            finiteDistanceSquared,
+                            hibernationDistanceSquared(),
+                            grace,
+                            DETACHED_COMPANION_GRACE_CHECKS
+                        )
+                else
+                    shouldHibernate, decision =
+                        KnoxSurvivorLifecyclePolicy.detachedDecision(
+                            finiteDistanceSquared,
+                            hibernationDistanceSquared(),
+                            grace,
+                            DETACHED_GRACE_CHECKS
+                        )
                 end
+                KnoxSurvivorRuntime.setLifecycleState(id,
+                    shouldHibernate and "detached_stale"
+                        or transient and "detached_transient" or "detached_grace")
                 print(TAG .. " detach-detected id=" .. tostring(id) .. " actorXYZ=" .. actorXYZDescription(character) .. " currentSquare=" .. squareDescription(square) .. " finiteDistance=" .. tostring(finiteDistance) .. " squareDistance=" .. tostring(squareDistance) .. " detachedTicks=" .. tostring(grace) .. " decision=" .. tostring(decision))
                 if shouldHibernate then
                     detachedGrace[id] = nil
@@ -765,6 +790,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
                     print(TAG .. " detach-recovered id=" .. tostring(id) .. " actorXYZ=" .. actorXYZDescription(character) .. " square=" .. squareDescription(square) .. " finiteDistance=" .. tostring(finiteDistance))
                 end
                 detachedGrace[id] = nil
+                KnoxSurvivorRuntime.setLifecycleState(id, "active")
                 -- Ordinary distance hibernation belongs only to production world
                 -- survivors. A missing square is different: any shell, including a
                 -- companion or developer scenario body, must leave DETACHED through
@@ -794,6 +820,7 @@ local function hibernateDistantWorldSurvivors(bridge, players)
         -- While this resident and its assigned containers are still real loaded
         -- objects, move a bounded reserve from base storage into carried stock.
         -- shutdown() then serializes those exact items for unloaded survival.
+        KnoxSurvivorRuntime.setLifecycleState(entry.id, "hibernating")
         prepareUnloadedResourceHandoff(entry.id, entry.controller, "hibernate")
         -- shutdown() captures first. removeNpc() is intentionally not called unless
         -- persistence succeeds, so normal hibernation remains transactional.
@@ -801,34 +828,51 @@ local function hibernateDistantWorldSurvivors(bridge, players)
             return entry.controller:shutdown()
         end)
         if success and saved then
-            local removed = tostring(bridge:removeNpc(entry.id))
-            local registryStillActive = bridge:getNpcCharacter(entry.id) ~= nil
-            if string.find(removed, "REMOVED", 1, true) == 1
-                or removed == "NONE_ACTIVE" or not registryStillActive then
-                local marked, markResult = KnoxUnloadedSurvival.markStored(
-                    entry.id,
-                    getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
-                )
-                if not marked then
-                    print(TAG .. " id=" .. entry.id
-                        .. " hibernate-state-warning=" .. tostring(markResult))
-                end
-                KnoxSurvivorRuntime.unregister(entry.id, entry.controller)
-                controllers[entry.id] = nil
-                removeActiveId(entry.id)
-                if entry.reason == "detached" then recentlyDetached[entry.id] = ticks end
+            -- Commit stored ownership before removing the only native body.
+            -- A failed ledger write must leave the captured shell registered so
+            -- it can be retried, rather than producing an identity owned by
+            -- neither the live runtime nor unloaded simulation.
+            local marked, markResult = KnoxUnloadedSurvival.markStored(
+                entry.id,
+                getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+            )
+            if not marked then
+                KnoxSurvivorRuntime.setLifecycleState(entry.id, "active")
                 print(TAG .. " id=" .. entry.id
-                    .. " state=HIBERNATED reason=" .. tostring(entry.reason)
-                    .. " playerDistance=" .. tostring(distance)
-                    .. " saved=true"
-                    .. " remove=" .. tostring(removed))
+                    .. " hibernate-store-failed reason=" .. tostring(entry.reason)
+                    .. " result=" .. tostring(markResult))
             else
-                entry.controller.state = "STOPPED"
-                print(TAG .. " id=" .. entry.id
-                    .. " hibernate-remove-failed reason=" .. tostring(entry.reason)
-                    .. " result=" .. removed)
+                local removed = tostring(bridge:removeNpc(entry.id))
+                local registryStillActive = bridge:getNpcCharacter(entry.id) ~= nil
+                if not registryStillActive then
+                    KnoxSurvivorRuntime.unregister(entry.id, entry.controller)
+                    controllers[entry.id] = nil
+                    removeActiveId(entry.id)
+                    if entry.reason == "detached" then recentlyDetached[entry.id] = ticks end
+                    print(TAG .. " id=" .. entry.id
+                        .. " state=HIBERNATED reason=" .. tostring(entry.reason)
+                        .. " playerDistance=" .. tostring(distance)
+                        .. " saved=true"
+                        .. " remove=" .. tostring(removed))
+                else
+                    -- The bridge still owns a body, so restore the ledger's loaded
+                    -- snapshot before retrying removal. This prevents an active
+                    -- shell from being advanced by the unloaded scheduler.
+                    local recovered, recoveryEvidence = pcall(function()
+                        return entry.controller:shutdown()
+                    end)
+                    entry.controller.state = "STOPPED"
+                    KnoxSurvivorRuntime.setLifecycleState(entry.id,
+                        entry.reason == "detached" and "detached_stale" or "active")
+                    print(TAG .. " id=" .. entry.id
+                        .. " hibernate-remove-failed reason=" .. tostring(entry.reason)
+                        .. " result=" .. removed
+                        .. " recovery=" .. tostring(recovered and recoveryEvidence or false))
+                end
             end
         else
+            KnoxSurvivorRuntime.setLifecycleState(entry.id,
+                entry.reason == "detached" and "detached_stale" or "active")
             print(TAG .. " id=" .. entry.id
                 .. " hibernate-save-failed reason=" .. tostring(entry.reason)
                 .. " square=" .. squareDescription(entry.square)
@@ -868,7 +912,27 @@ local function activateWorldCandidate(bridge, candidate)
     if character == nil then
         return false, result
     end
-    return registerController(bridge, candidate.id, character, result)
+    local registered, registerResult = registerController(bridge, candidate.id, character, result)
+    if registered and candidate.blockedDispatchRecovery == true then
+        local recovered, recoveryResult = KnoxPersistence.recoverBlockedAwayTeamMember(
+            candidate.blockedAwayTeamId,
+            candidate.id,
+            getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
+        )
+        if not recovered then
+            print(TAG .. " id=" .. tostring(candidate.id)
+                .. " blocked-dispatch-recovery-failed result=" .. tostring(recoveryResult))
+            return false, "blocked_dispatch_recovery_failed=" .. tostring(recoveryResult)
+        end
+        local controller = controllers[candidate.id]
+        if controller ~= nil and controller.setAwayTeam ~= nil then
+            controller:setAwayTeam(nil)
+        end
+        print(TAG .. " id=" .. tostring(candidate.id)
+            .. " state=BLOCKED_DISPATCH_RECOVERED team="
+            .. tostring(candidate.blockedAwayTeamId))
+    end
+    return registered, registerResult
 end
 
 local function reconcileWorldPopulation(bridge)
@@ -911,7 +975,7 @@ local function reconcileWorldPopulation(bridge)
         for _, team in ipairs(KnoxPersistence.getAwayTeams() or {}) do
             local state = type(team) == "table" and team.state or nil
             if state == "awaiting_collection" or state == "collecting"
-                or state == "returning" then
+                or state == "returning" or state == "blocked" then
                 for _, memberId in ipairs(team.memberIds or {}) do
                     if #candidates >= remaining then break end
                     if not activeLookup[memberId] and not missionSeen[memberId] then
@@ -922,6 +986,7 @@ local function reconcileWorldPopulation(bridge)
                                 players = players,
                                 maximumDistance = activationDistance(),
                                 allowAwayMission = true,
+                                allowBlockedDispatchRecovery = true,
                             }
                         )
                         if candidate ~= nil then
@@ -1447,9 +1512,93 @@ function Autonomy.cleanupDeveloperScenario(ids, reason)
             .. (#failures > 0 and " failures=" .. table.concat(failures, ";") or "")
 end
 
--- Developer-only handoff gate for the away-team lifecycle. It uses the same
--- capture/remove sequence as distance hibernation; a mission is never persisted while
--- one of its members still owns an active engine shell.
+-- A multi-survivor mission cannot use the ordinary single-body hibernation
+-- path: team ownership must be durable before any shell is removed, and a
+-- partial native teardown must be recorded as incomplete rather than an
+-- outbound mission. This helper owns that bounded handoff.
+local function dispatchAwayTeam(bridge, ownerKind, ownerId, selected, missionType,
+    destination, now, etaHours, returnDestination, provisionReason)
+    local valid, validation = KnoxPersistence.validateAwayTeam(
+        ownerKind, ownerId, selected, missionType, destination
+    )
+    if not valid then return false, "mission_invalid=" .. tostring(validation) end
+    local entries = {}
+    for _, id in ipairs(selected) do
+        local controller = controllers[id]
+        if controller == nil or bridge:getNpcCharacter(id) == nil then
+            return false, "missing_active_member=" .. tostring(id)
+        end
+        entries[#entries + 1] = { id = id, controller = controller }
+    end
+    local function restoreLoaded(entries, first)
+        for index = first or 1, #entries do
+            local entry = entries[index]
+            if entry.controller ~= nil and controllers[entry.id] == entry.controller then
+                local rolledBack, rollbackResult = KnoxUnloadedSurvival.rollbackStored(
+                    entry.id, now
+                )
+                pcall(function() entry.controller:shutdown() end)
+                KnoxSurvivorRuntime.setLifecycleState(entry.id, "active")
+                if not rolledBack then
+                    print(TAG .. " id=" .. tostring(entry.id)
+                        .. " away-dispatch-store-rollback-failed result="
+                        .. tostring(rollbackResult))
+                end
+            end
+        end
+    end
+    for _, entry in ipairs(entries) do
+        prepareUnloadedResourceHandoff(entry.id, entry.controller, provisionReason)
+        local captured, saved, evidence = pcall(function()
+            return entry.controller:shutdown()
+        end)
+        if not captured or not saved then
+            restoreLoaded(entries)
+            return false, "capture_failed=" .. tostring(entry.id) .. " "
+                .. tostring(captured and evidence or saved)
+        end
+    end
+    for _, entry in ipairs(entries) do
+        local stored, result = KnoxUnloadedSurvival.markStored(entry.id, now)
+        if not stored then
+            restoreLoaded(entries)
+            return false, "store_failed=" .. tostring(entry.id) .. " " .. tostring(result)
+        end
+    end
+    local team, result = KnoxPersistence.prepareAwayTeam(
+        ownerKind, ownerId, selected, missionType, destination,
+        now, etaHours, returnDestination
+    )
+    if team == nil then
+        restoreLoaded(entries)
+        return false, "team_prepare_failed=" .. tostring(result)
+    end
+    for index, entry in ipairs(entries) do
+        local removed = tostring(bridge:removeNpc(entry.id))
+        local gone = bridge:getNpcCharacter(entry.id) == nil
+        if not gone then
+            KnoxPersistence.abortAwayTeamDispatch(
+                team.id, "remove_failed=" .. tostring(entry.id) .. ":" .. removed, now
+            )
+            restoreLoaded(entries, index)
+            return false, "dispatch_incomplete=" .. tostring(team.id)
+                .. " member=" .. tostring(entry.id) .. " remove=" .. removed
+        end
+        KnoxPersistence.recordAwayTeamDispatchRemoval(team.id, entry.id)
+        KnoxSurvivorRuntime.unregister(entry.id, entry.controller)
+        controllers[entry.id] = nil
+        removeActiveId(entry.id)
+    end
+    local finalized, finalResult = KnoxPersistence.finalizeAwayTeamDispatch(team.id, now)
+    if finalized == nil then
+        KnoxPersistence.abortAwayTeamDispatch(team.id, "finalize_failed=" .. tostring(finalResult), now)
+        return false, "dispatch_incomplete=" .. tostring(team.id)
+            .. " finalize=" .. tostring(finalResult)
+    end
+    return true, finalized
+end
+
+-- Developer-only handoff gate for the away-team lifecycle.
 function Autonomy.dispatchDeveloperScout(player, destinationSquare)
     if not KnoxSettings.developerToolsEnabled() then
         return false, "developer_tools_disabled"
@@ -1482,50 +1631,12 @@ function Autonomy.dispatchDeveloperScout(player, destinationSquare)
         x = destinationSquare:getX(), y = destinationSquare:getY(),
         z = destinationSquare:getZ(), label = "Scouting destination",
     }
-    local valid, validation = KnoxPersistence.validateAwayTeam(
-        ownerKind, ownerId, selected, "scout", destination
-    )
-    if not valid then
-        return false, "mission_invalid=" .. tostring(validation)
-    end
-    for _, id in ipairs(selected) do
-        local controller = controllers[id]
-        local saved, evidence = false, "missing"
-        if controller ~= nil then
-            prepareUnloadedResourceHandoff(id, controller, "away_team")
-            saved, evidence = controller:shutdown()
-        end
-        if not saved then
-            return false, "capture_failed=" .. tostring(id) .. " " .. tostring(evidence)
-        end
-    end
-    for _, id in ipairs(selected) do
-        local removed = tostring(bridge:removeNpc(id))
-        if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
-            return false, "remove_failed=" .. tostring(id) .. " " .. removed
-        end
-    end
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
-    for _, id in ipairs(selected) do
-        KnoxUnloadedSurvival.markStored(id, now)
-        KnoxSurvivorRuntime.unregister(id, controllers[id])
-        controllers[id] = nil
-        removeActiveId(id)
-    end
-    local team, result = KnoxPersistence.createAwayTeam(
-        ownerKind,
-        ownerId,
-        selected,
-        "scout",
-        destination,
-        now,
-        now + 2
-    )
-    if team == nil then
-        return false, "mission_create_failed=" .. tostring(result)
-    end
+    local dispatched, team = dispatchAwayTeam(bridge, ownerKind, ownerId, selected,
+        "scout", destination, now, now + 2, nil, "away_team")
+    if not dispatched then return false, team end
     print(TAG .. " away-dispatched id=" .. tostring(team.id)
-        .. " members=" .. table.concat(selected, ",") .. " result=" .. tostring(result))
+        .. " members=" .. table.concat(selected, ",") .. " result=dispatched")
     return true, team.id
 end
 
@@ -1553,37 +1664,14 @@ function Autonomy.dispatchBaseScout(player, baseId, destinationSquare)
         x = destinationSquare:getX(), y = destinationSquare:getY(),
         z = destinationSquare:getZ(), label = "Player scout destination",
     }
-    local valid, validation = KnoxPersistence.validateAwayTeam(
-        "player", playerId, { selected }, "scout", destination
-    )
-    if not valid then
-        return false, "mission_invalid=" .. tostring(validation)
-    end
-    prepareUnloadedResourceHandoff(selected, controller, "base_scout")
-    local saved, evidence = controller:shutdown()
-    if not saved then
-        return false, "capture_failed=" .. tostring(evidence)
-    end
-    local removed = tostring(bridge:removeNpc(selected))
-    if string.find(removed, "REMOVED", 1, true) ~= 1 and removed ~= "NONE_ACTIVE" then
-        return false, "remove_failed=" .. removed
-    end
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
-    KnoxUnloadedSurvival.markStored(selected, now)
-    KnoxSurvivorRuntime.unregister(selected, controller)
-    controllers[selected] = nil
-    removeActiveId(selected)
-    local team, result = KnoxPersistence.createAwayTeam(
-        "player", playerId, { selected }, "scout",
-        destination, now, now + 2,
+    local dispatched, team = dispatchAwayTeam(bridge, "player", playerId, { selected },
+        "scout", destination, now, now + 2,
         {
             x = player:getX(), y = player:getY(), z = player:getZ(),
             label = "Player dispatch point",
-        }
-    )
-    if team == nil then
-        return false, "mission_create_failed=" .. tostring(result)
-    end
+        }, "base_scout")
+    if not dispatched then return false, team end
     return true, team.id
 end
 

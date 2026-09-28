@@ -32,9 +32,8 @@ assert(string.find(firearmTests, "definition.firearm == true and 8 or 1", 1, tru
     and string.find(firearmTests, "cleanupDeveloperScenario", 1, true),
     "firearm QA must isolate a hostile survivor duel, prove native ranged damage and clean fixtures")
 assert(string.find(qa, "MAX_STEP_ATTEMPTS = 3", 1, true)
-    and string.find(qa, "RETRY scenario=", 1, true)
-    and string.find(qa, "area_cleanup removedZombies=", 1, true),
-    "automated QA must clean the local fixture area and retry transient failures")
+    and string.find(qa, "RETRY scenario=", 1, true),
+    "legacy QA retry support must remain available during manifest migration")
 assert(string.find(qa, "MAX_PASSES = 3", 1, true)
     and string.find(qa, "PASS_START pass=", 1, true)
     and string.find(qa, "QA pass ", 1, true)
@@ -146,10 +145,28 @@ for _, probe in ipairs({
 end
 assert(string.find(parser, "AutomatedQA", 1, true)
     and string.find(parser, "ConvertTo-Json", 1, true)
-    and string.find(parser, "START save_is_disposable=true", 1, true)
+    and string.find(parser, "START (?:runId=(\\S+) )?save_is_disposable=true", 1, true)
     and string.find(parser, "$entries = @()", 1, true)
-    and string.find(parser, "brief", 1, true)
-    and string.find(parser, "passes=", 1, true),
-    "live QA parser must produce a machine-readable latest-run report")
+    and string.find(parser, "$checkpoints = @()", 1, true)
+    and string.find(parser, "HARNESS_ERROR", 1, true)
+    and string.find(parser, "evidenceType", 1, true),
+    "live QA parser must preserve run metadata, checkpoints and harness verdicts")
+
+for _, token in ipairs({
+    'id = "QA-START-001"', 'id = "QA-ENCOUNTER-001"',
+    'id = "QA-RECRUIT-001"', 'id = "QA-CHECKPOINT-001"',
+    'id = "QA-CLEANUP-001"', 'PASS = true', 'FAIL = true',
+    'BLOCKED = true', 'SKIPPED = true', 'HARNESS_ERROR = true',
+    'CHECKPOINT runId=', 'scope=controlled_fixture_not_natural_encounter',
+    'fixture_ownership_invalid', 'native_fixture_not_materialized',
+    'mutation=none', 'owned_fixture_cleanup_failed', 'scenario_exception',
+    'scenario_timeout', 'cleanupVerticalFixtures', 'state.mode == "vertical_slice"',
+}) do
+    assert(string.find(qa, token, 1, true),
+        "vertical QA slice must include " .. token)
+end
+assert(not string.find(qa:sub(qa:find("local function runVerticalScenario", 1, true),
+    qa:find("local function finishVertical", 1, true)), "clearQaArea(", 1, true),
+    "vertical QA slice must never clear ordinary zombies or world entities")
 
 print("Automated QA PASS opt_in=true unattended_coordinator=true report_parser=true")

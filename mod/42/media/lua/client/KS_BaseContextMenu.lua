@@ -491,6 +491,7 @@ local function addStorageMenu(parent, base, object)
         { key = "ammunition", label = "Ammunition" },
         { key = "tools", label = "Tools" },
         { key = "logs", label = "Logs & Lumber" },
+        { key = "general", label = "General Storage" },
         { key = "building", label = "Materials" },
         { key = "farming", label = "Farming" },
         { key = "clothing", label = "Clothing" },

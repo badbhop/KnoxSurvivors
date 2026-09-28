@@ -526,6 +526,13 @@ leader and group intent to `reassess` before ordinary itinerary selection can re
 does not split one purposeful trip into unrelated per-member decisions or restore an obsolete live
 path request.
 
+Travel groups may also retain one leader-authorized, bounded `follow` or explicit `hold` directive.
+It is validated against the current stored leader, group, and faction leadership and is delivered by
+relationship coordination as pending formation-only arbitration, never as a second scheduler or a
+destination command. Native traversal/timed actions and existing danger, need, job, combat, recovery,
+and retry owners retain control; any responsive hold cancellation is performed only by the controller
+after those owners release it and native cancellation confirms success.
+
 Once a loaded group reaches a shared building/scavenging objective, nearby followers may assist
 through the ordinary ranked exploration path. The existing container and item reservations keep
 members from choosing the same work, and slot-based delay/cooldown prevents a simultaneous search

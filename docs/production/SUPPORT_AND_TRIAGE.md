@@ -20,6 +20,71 @@ Knox Survivors is now operating at a scale where support reports, compatibility 
 
 ## Intake classes
 
+### Tester and player report intake
+
+The owner may paste a tester's or player's complete report directly into the next
+available intake block below. The report can be informal; the triage agent must
+extract the useful facts without inventing missing details. Keep the original
+wording or a link outside the repository when permission/privacy requires it.
+
+```markdown
+### REPORT-<date>-<short-id> — <short symptom>
+
+- Reporter: <preferred name or anonymous>
+- Contact reference: <platform/profile; no private secrets>
+- Report date: YYYY-MM-DD
+- Game/build: <exact Build 42 version if known>
+- Knox version/commit: <version, workshop revision, or unknown>
+- Launcher/runtime: <normal / Knox launcher / ZombieBuddy / unknown>
+- Save: <new / existing / disposable / unknown>
+- Mods/setup: <relevant list or unknown>
+- Exact symptom: <what the player saw>
+- Reproduction steps: <numbered steps or unknown>
+- Expected result: <what should happen>
+- Actual result: <what happened instead>
+- Evidence: <console slice, screenshot, video, save, file, or none>
+- Frequency: always | often | once | unknown
+- Severity guess: critical | high | medium | low | unknown
+- Privacy/permission limits: <what may not be copied or shared>
+- Triage status: new | needs-info | support | compatibility | bug-candidate | duplicate | feature | resolved
+- Linked record: <BUG-KS-### / KS-PROD-### / none>
+
+#### Triage notes
+
+- Confirmed facts:
+- Missing information:
+- Duplicate check:
+- First likely boundary:
+- Safe workaround, if known:
+- Next owner/action:
+```
+
+For a batch of reports from one tester, use one report block per distinct symptom
+and add the tester's stable identity to a collaborator/tester record in
+`COLLABORATION.md`. Do not create a bug for every message: deduplicate by the
+underlying failing boundary.
+
+### Tester work record
+
+When a tester is repeatedly helping, add a compact record to the collaboration
+ledger rather than turning their reports into a public credit automatically:
+
+```markdown
+### TESTER-<short-id> — <preferred name>
+
+- Contact reference: <platform/profile>
+- Scope: <systems, build, language, or save type>
+- Status: active | occasional | paused
+- Permission to use reports/media: confirmed | pending | not granted
+- Linked reports: REPORT-..., BUG-KS-..., KS-PROD-...
+- Public credit: pending | approved wording | not requested
+
+#### Testing log
+| Date | Scenario/build/save | Result | Evidence | Follow-up |
+|---|---|---|---|---|
+| YYYY-MM-DD | short scenario | pass/fail/partial | link or file | owner/action |
+```
+
 ### Support question
 A player needs setup/runtime/save/feature guidance and there is no confirmed defect yet.
 
@@ -43,6 +108,33 @@ Flow:
 4. create/update `BUGS.md` only when the report is concrete enough to track;
 5. route narrow fixes to OpenCode and architecture/cross-system failures to Codex;
 6. QA Reviewer checks regression evidence and required live verification.
+
+Promotion rule: a pasted report stays in intake until it has a concrete symptom
+and enough reproduction/evidence to distinguish a bug candidate from support or
+compatibility help. Once confirmed, add or update one canonical `BUG-KS-*` entry
+and link the report identifier there. Do not delete the original report context;
+compress it into the canonical record and retain the source reference when allowed.
+
+#### Report-to-bug promotion map
+
+When a report is promoted to `BUGS.md`, carry fields across as follows so no
+evidence is lost in the rename:
+
+| REPORT-* field | BUG-KS-* destination |
+|---|---|
+| Exact symptom + Actual result | `### Symptom` (observed behavior first, then what was desired) |
+| Reproduction steps | `### Reproduction` |
+| Expected result | `### Expected` |
+| Evidence + Triage notes (confirmed facts, duplicate check, first likely boundary) | `### Evidence` |
+| Game/build, Knox version/commit, Launcher/runtime, Save, Mods/setup, Frequency | `### Evidence` (environment block at the top) |
+| Reporter, Contact reference, Report date | `### Evidence` (source line) plus the `Linked record` back-pointer; never paste private secrets |
+| Privacy/permission limits, Safe workaround, Missing information | `### Evidence` (limits/workaround notes) or `### Validation` (missing-info live steps) |
+
+`### Acceptance` and `### Validation` never come from the report verbatim: the
+Planner drafts them from the first likely boundary, and the `Status/Priority/Owner/Type`
+header is assigned at promotion time (`Severity guess` informs priority but does
+not set it). After promotion, set the report's `Triage status` and `Linked record`
+and add the report ID to the bug's evidence section.
 
 ### Compatibility report
 A problem depends on another mod, runtime, Project Zomboid update, or environment.
@@ -68,6 +160,11 @@ Popularity alone does not change severity; reproducibility, impact, and release 
 
 Keep one canonical bug/task per underlying failure. Add new evidence, affected versions, and reproduction variants to that record rather than creating parallel fixes. If two symptoms prove to have different failing boundaries, split them deliberately and link the relationship in the task text.
 
+When deduplicating tester reports, record the report IDs, affected builds, and
+different reproduction conditions in the existing bug's evidence section. A
+report that cannot yet be reproduced remains linked intake evidence, not a
+second bug.
+
 ## Public response discipline
 
 - Do not promise dates or features that are not approved.
@@ -78,10 +175,15 @@ Keep one canonical bug/task per underlying failure. Add new evidence, affected v
 
 ## ModForge usage
 
-ModForge should import this document as project support policy and use the `support_triage` workflow from `.modforge/workflows.json`.
+When ModForge is available, it may import this document as project support
+policy and use the `support_triage` workflow from `.modforge/workflows.json`.
+ModForge is not required: Codex/OpenCode or the owner may follow the same loop
+directly from this document, `BUGS.md`, `WORK_QUEUE.md`, and Git.
 
 Normal support loop:
 
 **report → classify → deduplicate → gather evidence → bug/task if warranted → implementation handoff → validation → update docs/public response**
+
+The normal support loop updates the existing canonical record in place. It must not create a parallel support plan, bug ledger, or status document. A vague report remains triage context only; a confirmed report updates or creates the smallest appropriate `BUG-KS-*` entry in `BUGS.md` and then routes implementation to OpenCode or Codex. If ModForge is active, it re-indexes the edited record; it does not become a second authority.
 
 Routine support triage should use local/free/cheap models when possible. Escalate to Codex only when the report crosses architecture/ownership/persistence boundaries or needs broad implementation work.

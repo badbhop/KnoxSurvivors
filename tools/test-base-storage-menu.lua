@@ -9,7 +9,7 @@ KnoxPersistence={getBase=function(id) assert(id==base.id);return base end,
     setBaseStoragePolicy=function(id,reference,category)
         assert(id==base.id)
         if category=="depot" then return nil,"main_supplies_retired" end
-        assert(category=="food" or category=="tools")
+        assert(category=="food" or category=="tools" or category=="logs" or category=="general")
         writes=writes+1
         reference.category,reference.storageRole=category,category
         reference.toolCupboard=false
@@ -90,6 +90,25 @@ assert(#checked==1 and checked[1].name=="Normal", "current storage priority is c
 click(optionsNamed("Stop Using for Food & Drink")[1])
 assert(base.storage[reference.key]==nil and refreshed==2)
 assert(customNames[2]=="" or customNames[2]==nil, "container name cleared on removal")
+open()
+click(optionsNamed("Use for Logs & Lumber")[1])
+local logReference=KnoxBaseManager.containerReference(object,0,base.id)
+assert(base.storage[logReference.key].storageRole=="logs" and customNames[1]=="Logs & Lumber",
+    "the exposed Logs & Lumber assignment persists through the manager registry")
+open()
+click(optionsNamed("Stop Using for Logs & Lumber")[1])
+assert(base.storage[logReference.key]==nil, "log storage removal only clears its own assignment")
+open()
+click(optionsNamed("Use for General Storage")[1])
+local generalReference=KnoxBaseManager.containerReference(object,0,base.id)
+assert(base.storage[generalReference.key].storageRole=="general"
+    and customNames[1]=="General Storage",
+    "the exposed General Storage assignment persists through the manager registry")
+open()
+assert(#optionsNamed("Assigned: General Storage")==1)
+click(optionsNamed("Stop Using for General Storage")[1])
+assert(base.storage[generalReference.key]==nil,
+    "general storage removal only clears its own assignment")
 sq.x=20
 local before=writes
 assert(not KnoxBaseManager.setStoragePolicy(base.id,object,"food",0) and writes==before,
@@ -99,4 +118,4 @@ kinds[1]="corpse"
 assert(not KnoxBaseManager.setStoragePolicy(base.id,object,"food",0))
 kinds[1]="crate"
 assert(not KnoxBaseManager.setStoragePolicy(base.id,object,"depot",0), "main supplies retired")
-print("Storage menu PASS callback_indices=true fridge=true capacity=true removal=true bounds=true main_retired=true dedupe=true rename=true")
+print("Storage menu PASS callback_indices=true fridge=true logs=true general=true capacity=true removal=true bounds=true main_retired=true dedupe=true rename=true")

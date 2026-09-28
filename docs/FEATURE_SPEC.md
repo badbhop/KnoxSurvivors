@@ -274,7 +274,8 @@ Support player and NPC faction bases with:
 - editable territory/yard;
 - residents;
 - work zones;
-- one shared, high-capacity tool cupboard for all base supplies;
+- multiple assigned Project Zomboid containers with typed storage categories,
+  including General Storage fallback and multiple containers per category;
 - resources;
 - jobs/tasks;
 - defenses.

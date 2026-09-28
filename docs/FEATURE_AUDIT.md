@@ -1,5 +1,14 @@
 # Feature-completion audit
 
+> Historical evidence only — not current truth. Per `docs/production/README.md`
+> and the repository authority model, `docs/production/` owns current status.
+> Goals 13 (Base Setup window), 14 (depot sorting), and 15 (Defense
+> Construction Areas) below are SUPERSEDED by retirement: Notebook is the
+> canonical base UI, central sorting stays retired, and animal-care/general
+> construction are retired. Do not revive these paths; see
+> `docs/design/NPC_SYSTEM_INSPIRATION.md` dev/modder guide for the live
+> retirement evidence.
+
 ### Integrated stabilization pass - 2026-09-24
 
 **Offline verified; live gameplay and UI acceptance pending.** The current

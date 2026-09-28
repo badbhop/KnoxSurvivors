@@ -224,4 +224,100 @@ assert(string.find(contextText, "KnoxOrderCatalog.label(\"follow\")", 1, true)
     and string.find(contextText, "KnoxOrderCatalog.label(\"go_to\")", 1, true),
     "individual companion menu uses canonical order labels")
 
-print("Companion command reliability PASS replacement=true persistence=true dismissal=true")
+-- An ambient organize round is not a persisted task-board claim. Leaving base
+-- duty or disabling hauling must still release its real item/shelf claims and
+-- hand off its native action/route through the existing interruption owner.
+local previousDutyGetter = KnoxPersistence.getSurvivorDuty
+local liveDuty = { mode = "base", baseId = "organize-base", workPriorities = { hauling = true } }
+KnoxPersistence.getSurvivorDuty = function() return liveDuty end
+local oldOrganize = KnoxBaseOrganize
+local organizeCancels, organizeRoutes = 0, 0
+KnoxBaseOrganize = { cancelAction = function(_, plan)
+    organizeCancels = organizeCancels + 1
+    plan.action = nil
+end }
+local organizeItem, organizeShelf = {}, {}
+local function organizeController()
+    local reservations = { items = { [organizeItem] = "organizer" },
+        containers = { [organizeShelf] = "organizer" }, ambientSpots = {} }
+    return setmetatable({
+        id = "organizer", baseId = "organize-base", base = { id = "organize-base" },
+        state = "BASE_ORGANIZE", activeDecision = "organizing",
+        pendingOrganize = { item = organizeItem, destinationPolicy = organizeShelf,
+            phase = "deposit_move", action = {} },
+        reservations = reservations, character = { getCharacterActions = function()
+            return { isEmpty = function() return true end }
+        end },
+        bridge = { cancelNpcMove = function() organizeRoutes = organizeRoutes + 1 end },
+        syncBaseSupplyOrder = function() return false end,
+        syncBaseSupplyRun = function() end,
+        releaseBaseSupplyClaim = function() end,
+        clearLifeIntent = function() end,
+    }, Controller)
+end
+local activeOrganizer = organizeController()
+assert(activeOrganizer:onDutyChanged() and activeOrganizer.pendingOrganize ~= nil
+    and activeOrganizer.state == "BASE_ORGANIZE",
+    "a still-authorized base resident may continue its organizer round")
+liveDuty = { mode = "autonomous", order = "survive" }
+assert(activeOrganizer:onDutyChanged() and activeOrganizer.pendingOrganize == nil
+    and activeOrganizer.state == "IDLE",
+    "leaving base duty interrupts stale ambient organizing")
+assert(activeOrganizer.reservations.items[organizeItem] == nil
+    and activeOrganizer.reservations.containers[organizeShelf] == nil,
+    "duty loss releases both item and destination reservations")
+assert(organizeCancels == 1 and organizeRoutes == 1,
+    "duty loss cancels the organizer action and its native route exactly once")
+liveDuty = { mode = "base", baseId = "organize-base", workPriorities = { hauling = false } }
+activeOrganizer = organizeController()
+assert(activeOrganizer:onDutyChanged() and activeOrganizer.pendingOrganize == nil
+    and organizeCancels == 2 and organizeRoutes == 2,
+    "disabling hauling interrupts an in-progress ambient organize round")
+liveDuty = { mode = "base", baseId = "different-base", workPriorities = { hauling = true } }
+activeOrganizer = organizeController()
+assert(activeOrganizer:onDutyChanged() and activeOrganizer.pendingOrganize == nil
+    and organizeCancels == 3 and organizeRoutes == 3,
+    "a changed base assignment cannot continue organizing the previous base")
+KnoxBaseOrganize = oldOrganize
+KnoxPersistence.getSurvivorDuty = previousDutyGetter
+
+-- A pending vehicle lease is transient ownership, not a durable order. Any
+-- duty change must route it through the existing directive-interruption
+-- owner; a lease-free survivor must not be interrupted for it.
+local vehicleInterrupted = 0
+local leaseController = setmetatable({
+    id = "driver",
+    character = { id = "driver" },
+    syncBaseSupplyOrder = function() return false end,
+    releaseBaseSupplyClaim = function() end,
+    clearLifeIntent = function() end,
+    interruptForDirective = function()
+        vehicleInterrupted = vehicleInterrupted + 1
+        return true
+    end,
+}, Controller)
+local realVehicles = rawget(_G, "KnoxCompanionVehicles")
+local realDutyGetter = KnoxPersistence.getSurvivorDuty
+KnoxPersistence.getSurvivorDuty = function() return { mode = "base", baseId = "duty-base" } end
+rawset(_G, "KnoxCompanionVehicles", {
+    isBusy = function() return true end,
+    driverStatus = function() return nil end,
+})
+assert(leaseController:onDutyChanged() and vehicleInterrupted == 1,
+    "an active vehicle lease forces directive interruption on duty change")
+rawset(_G, "KnoxCompanionVehicles", {
+    isBusy = function() return false end,
+    driverStatus = function() return { phase = "driving" } end,
+})
+assert(leaseController:onDutyChanged() and vehicleInterrupted == 2,
+    "an active driver run forces directive interruption on duty change")
+rawset(_G, "KnoxCompanionVehicles", {
+    isBusy = function() return false end,
+    driverStatus = function() return nil end,
+})
+assert(leaseController:onDutyChanged() and vehicleInterrupted == 2,
+    "a lease-free duty change must not interrupt for vehicles")
+rawset(_G, "KnoxCompanionVehicles", realVehicles)
+KnoxPersistence.getSurvivorDuty = realDutyGetter
+
+print("Companion command reliability PASS replacement=true persistence=true dismissal=true organize_interrupt=true vehicle_lease=true")

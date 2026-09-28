@@ -39,9 +39,9 @@ The launcher:
   `KnoxSurvivors`;
 - verifies both Build 42 `mod.info` files;
 - verifies the Java-agent manifest and its published SHA-256 sidecar;
-- passes Knox's `-javaagent` through a child-process-only `JAVA_TOOL_OPTIONS` value while
-  preserving options already supplied by Steam, the game launch files, or compatible agents
-  such as `-agentlib:zbNative`;
+- passes Knox's `-javaagent` through a child-process-only `JAVA_TOOL_OPTIONS` value;
+- rejects an active ZombieBuddy configuration before launch instead of composing
+  ZombieBuddy and Knox instrumentation in one game process;
 - starts the normal, unmodified platform game launcher.
 
 It does not copy files into the game, patch the game launcher, create services, request
@@ -83,9 +83,9 @@ are not generated or overwritten by this task.
 Steam then keeps Lua and Java runtime versions in the same subscribed item. The launcher
 itself only needs a new GitHub release when launcher discovery or validation code changes.
 
-After launcher source changes, `tools/build-launcher.ps1` rebuilds and verifies the Windows
-archive under `launcher/artifacts/`. Those generated archives remain ignored build output; publish
-them only through the separate launcher release workflow.
+All launcher source, verification, and packaging changes belong in the separate launcher
+repository. This mod repository intentionally contains no launcher project or launcher artifact
+build path; publish launcher archives only through the separate launcher release workflow.
 
 The mod source repository can remain private: neither discovery nor launch downloads
 anything from it. Linux/macOS builds and command fixtures are automated checks, not

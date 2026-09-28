@@ -260,7 +260,8 @@ function Storage.label(policy)    local role = policy ~= nil and policy.storageR
     local labels = {
         supplies = "Main Supplies", food = "Food & Drink", water = "Water",
         medical = "Medical", weapons = "Weapons", ammunition = "Ammunition",
-        tools = "Tools", logs = "Logs & Lumber", building = "Materials", farming = "Farming",
+        tools = "Tools", logs = "Logs & Lumber", general = "General Storage",
+        building = "Materials", farming = "Farming",
         clothing = "Clothing", junk = "Junk",
     }
     return labels[role] or "Storage"
@@ -344,8 +345,14 @@ function Storage.matchesCategory(item, category)
             or displayCategory(item) == "Tool"
     end
     if category == "building" then
+        -- Native Build 42 vehicle parts (e.g. Base.NormalTire1 at 15.0,
+        -- Base.CarBattery1 at 5.0) report DisplayCategory VehicleMaintenance
+        -- with MechanicsItem set. They are bulky workshop materials for base
+        -- and vehicle work, so the Materials shelf owns them; mechanic hand
+        -- tools already resolve to Tools through TOOL_TYPES above.
         return BUILDING_TYPES[full] == true
             or displayCategory(item) == "Material"
+            or displayCategory(item) == "VehicleMaintenance"
     end
     if category == "logs" then
         return LOG_TYPES[full] == true

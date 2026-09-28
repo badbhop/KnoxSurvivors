@@ -98,7 +98,33 @@ function Runtime.register(id, controller)
         id = id,
         controller = controller,
         character = controller.character,
+        lifecycleState = "active",
     }
+    return true
+end
+
+local function getEntry(id)
+    return validId(id) and entries[id] or nil
+end
+
+function Runtime.setLifecycleState(id, state)
+    local entry = getEntry(id)
+    if entry == nil or type(state) ~= "string" or state == "" then return false end
+    entry.lifecycleState = state
+    return true
+end
+
+function Runtime.getLifecycleState(id)
+    local entry = getEntry(id)
+    return entry ~= nil and (entry.lifecycleState or "active") or nil
+end
+
+function Runtime.canAcceptOrders(id)
+    local state = Runtime.getLifecycleState(id)
+    if state == "detached_transient" or state == "detached_grace"
+        or state == "detached_stale" or state == "hibernating" then
+        return false, "companion_detached"
+    end
     return true
 end
 
@@ -111,10 +137,6 @@ function Runtime.unregister(id, controller)
         return true
     end
     return false
-end
-
-local function getEntry(id)
-    return validId(id) and entries[id] or nil
 end
 
 function Runtime.getCharacter(id)

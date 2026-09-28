@@ -5,9 +5,12 @@
   "status": "active",
   "version": "0.3.0-rc1",
   "engine": "Project Zomboid 42.20.4",
-  "description": "Persistent single-player human survivor/NPC mod for Project Zomboid Build 42, coordinated through ModForge with Codex/OpenCode as implementation tools.",
+  "description": "Persistent single-player human survivor/NPC mod for Project Zomboid Build 42. ModForge is an optional coordination/indexing desk; Codex/OpenCode remain fully usable directly from the repository.",
   "production_docs": "docs/production",
   "generated_state": ".modforge/PROJECT_STATE.md",
+  "model_catalog": ".modforge/free-models.json",
+  "default_usage_lane": "free",
+  "paid_model_fallback": false,
   "bootstrap_agents": true,
   "auto_sync": true,
   "sync_interval_minutes": 5,
@@ -31,7 +34,7 @@
     "Prefer the smallest correct change and validate the affected boundary before expanding scope.",
     "Keep routine AI context small; load historical audits and deep research only when relevant.",
     "Codex handles the hardest implementation and system-expansion work; OpenCode is the budget lane for fixes, support, research, compatibility, and scoped collaboration work.",
-    "ModForge coordinates state, priorities, documentation, agents, handoffs, and evidence; it is not the primary implementation engine."
+    "ModForge optionally coordinates state, priorities, documentation, agents, handoffs, and evidence; it is not the primary implementation engine or a prerequisite for development."
   ],
   "watch_repository": true,
   "watch_debounce_ms": 900,

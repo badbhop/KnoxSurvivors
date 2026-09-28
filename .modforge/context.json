@@ -4,6 +4,7 @@
   "always_include": [
     "AGENTS.md",
     ".modforge/project.json",
+    ".modforge/free-models.json",
     "docs/production/PROJECT.md",
     "docs/production/CURRENT_STATE.md",
     "docs/production/WORK_QUEUE.md",

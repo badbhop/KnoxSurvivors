@@ -39,12 +39,58 @@ local function playerOwnsOrIsNear(vehicle)
     return false
 end
 
-local function safeVehicle(vehicle, origin)
-    if vehicle == nil or vehicle:getDriver() ~= nil or playerOwnsOrIsNear(vehicle)
-        or not vehicle:isDriveable() or not vehicle:isEngineRunning()
-        or math.abs(vehicle:getCurrentSpeedKmHour()) > 1 then return false end
+-- Shared admission verdict for one parked vehicle: intrinsic native state
+-- only (driver, engine, driveability, speed, towing, fuel, locks). Returns
+-- true plus "vehicle_ready", or false plus a snake_case reason reusing the
+-- KS_CompanionVehicles drive-admission vocabulary where the meaning matches.
+-- Discovery position/player filters stay in safeVehicle below; drive admission
+-- in KS_CompanionVehicles consumes these same reason strings. Native fuel
+-- evidence: BaseVehicle:getRemainingFuelPercentage() as used by the shipped
+-- ISVehicleDashboard; native lock evidence: BaseVehicle:areAllDoorsLocked().
+-- A sub-1% tank reads as unfueled; that threshold is implementation policy
+-- awaiting live pacing evidence, not a native fuel rule. Missing optional
+-- native methods fail closed with "vehicle_state_unknown" rather than an
+-- invented usable verdict. Locked vehicles are rejected here; forced entry
+-- remains an explicitly deferred future track.
+local LOW_FUEL_PERCENT = 1
+function VehicleTravel.assessReadiness(vehicle)
+    if vehicle == nil then return false, "vehicle_missing" end
+    if vehicle.getDriver ~= nil and vehicle:getDriver() ~= nil then
+        return false, "driver_seat_occupied"
+    end
+    if vehicle.isEngineRunning == nil or not vehicle:isEngineRunning() then
+        return false, "vehicle_engine_off"
+    end
+    if vehicle.isDriveable == nil or not vehicle:isDriveable() then
+        return false, "vehicle_not_driveable"
+    end
+    if vehicle.getCurrentSpeedKmHour ~= nil
+        and math.abs(vehicle:getCurrentSpeedKmHour()) > 1 then
+        return false, "vehicle_moving"
+    end
     if vehicle.getVehicleTowing ~= nil and vehicle:getVehicleTowing() ~= nil
-        or vehicle.getVehicleTowedBy ~= nil and vehicle:getVehicleTowedBy() ~= nil then return false end
+        or vehicle.getVehicleTowedBy ~= nil and vehicle:getVehicleTowedBy() ~= nil then
+        return false, "towing_not_supported"
+    end
+    if vehicle.getRemainingFuelPercentage == nil then
+        return false, "vehicle_state_unknown"
+    end
+    local fueled, percent = pcall(function() return vehicle:getRemainingFuelPercentage() end)
+    if not fueled or (tonumber(percent) or 0) < LOW_FUEL_PERCENT then
+        return false, "vehicle_low_fuel"
+    end
+    if vehicle.areAllDoorsLocked == nil then
+        return false, "vehicle_state_unknown"
+    end
+    local checked, allLocked = pcall(function() return vehicle:areAllDoorsLocked() end)
+    if not checked then return false, "vehicle_state_unknown" end
+    if allLocked then return false, "vehicle_doors_locked" end
+    return true, "vehicle_ready"
+end
+
+local function safeVehicle(vehicle, origin)
+    if VehicleTravel.assessReadiness(vehicle) ~= true then return false end
+    if playerOwnsOrIsNear(vehicle) then return false end
     local square = vehicle:getSquare()
     return square ~= nil and square:getZ() == origin:getZ()
         and distanceSquared(origin, vehicle) <= SEARCH_DISTANCE_SQUARED
@@ -65,16 +111,18 @@ local function vehiclesInCell()
 end
 
 local function boardNearbyMembers(controller, vehicle)
-    local boarded = 0
+    local roster = {}
     for _, member in ipairs(controller.groupMembers or {}) do
         if member ~= nil and member ~= controller.character and member:getVehicle() == nil
             and member:getCurrentSquare() ~= nil and member:getCurrentSquare():getZ() == vehicle:getZ()
             and distanceSquared(member, vehicle) <= SEARCH_DISTANCE_SQUARED then
+            -- Seat exhaustion is an explicit outcome, not a silent skip: only
+            -- committed members join the roster the abort path rolls back.
             local success = KnoxCompanionVehicles.board(member, vehicle)
-            boarded = boarded + (success and 1 or 0)
+            if success then roster[#roster + 1] = { member = member, vehicle = vehicle } end
         end
     end
-    return boarded
+    return roster
 end
 
 function VehicleTravel.tryBegin(controller, destination, ticks)
@@ -97,9 +145,10 @@ function VehicleTravel.tryBegin(controller, destination, ticks)
             if started then
                 -- Failed routing/disabled driving must not strand passengers
                 -- in a vehicle the leader will never drive.
-                local boarded = boardNearbyMembers(controller, vehicle)
+                local roster = boardNearbyMembers(controller, vehicle)
+                KnoxCompanionVehicles.setRunPassengers(controller.character, vehicle, roster)
                 print("[KnoxSurvivors][VehicleTravel] leader=" .. tostring(controller.id)
-                    .. " passengers=" .. tostring(boarded) .. " destination="
+                    .. " passengers=" .. tostring(#roster) .. " destination="
                     .. tostring(destination.x) .. "," .. tostring(destination.y))
                 return true
             end

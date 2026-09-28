@@ -13,11 +13,16 @@ Target: 2026-09-26
 
 GitHub `main` and the uploaded local HEAD were reconciled, post-main source/test work was grouped by subsystem, and overlapping documentation was consolidated. Focused behavioral verification remains M2 work.
 
-## M2 — Stabilization gate
+## M2 — Core completion and stabilization gate
 
-Status: planned
+Status: in_progress
 
-Run focused regression/build checks, fix confirmed failures, and leave no unexplained changed subsystem.
+Complete and connect the existing survivor systems in dependency order: identity/
+persistence/lifecycle, brains/autonomy, movement/pathing, combat/threat,
+storage/base/jobs, companions/orders/UI, purposeful implemented events/factions,
+launcher/runtime compatibility, then performance/default/customization review.
+Run focused regression/build checks as each boundary changes and fix confirmed
+failures without creating overlapping owners.
 
 ## M3 — Full offline release gate
 

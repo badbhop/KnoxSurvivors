@@ -16,8 +16,8 @@ Read these small current-state sources first:
 3. `docs/production/WORK_QUEUE.md` — active work, with stable task IDs.
 4. `docs/production/BUGS.md` — confirmed failures/blockers only.
 5. `docs/production/DECISIONS.md` — settled decisions.
-6. `.modforge/PROJECT_STATE.md` when present — generated coordination snapshot; never hand-edit.
-7. `.modforge/changes/CHANGE_LEDGER.md` **only when relevant** — recent ModForge file-write notes; confirm exact changes with Git.
+6. `.modforge/PROJECT_STATE.md` when present — optional generated coordination snapshot; never hand-edit.
+7. `.modforge/changes/CHANGE_LEDGER.md` **only when relevant** — recent ModForge file-write notes; confirm exact changes with Git. These files are optional and must not block a normal Codex/OpenCode session.
 
 Then load only the authority relevant to the current work:
 
@@ -40,16 +40,29 @@ Before changing code, identify the active task/bug ID or the explicit owner requ
 - Fix the first confirmed failing boundary. Avoid speculative patch stacking, patch chains, and unrelated refactors.
 - Use real Project Zomboid systems/items/resources where practical. Never fabricate supplies, native success, damage, world state, or test evidence.
 - Offline tests prove only what they exercise. Engine-bound behavior remains unverified until the required live Build 42 acceptance passes.
+- Live testing must be tracked and organized, but an unrun live scenario is not automatically a stop-the-world blocker for independent mechanics. Continue bounded work when offline evidence, architecture confidence, and dependency boundaries support it; never relabel the untested boundary as live-verified or release-ready.
+- Prefer Project Zomboid's real code-facing APIs, native systems, assets, items, actions, resources, and runtime state wherever practical. Use exact source/runtime evidence and careful reverse engineering to understand unknown behavior; do not fabricate native success or replace a real boundary with an unsupported simulation merely to make tests green.
 - Keep experimental systems experimental until their documented acceptance gate passes.
 - Do not rewrite large working systems for style.
 - Do not broaden scope without recording why the active task now requires it.
+- Update the existing canonical record first: `WORK_QUEUE.md` for active work, `BUGS.md` for confirmed defects, `DECISIONS.md` for settled choices, and `CURRENT_STATE.md` for current position. Do not create a new broad plan, status, bug ledger, or release snapshot merely to record progress.
+- ModForge, when active, organizes, triages, records evidence, and prepares handoffs; Codex/OpenCode own implementation. Without ModForge, use the same canonical records and Git path directly. A support report may update an existing record when evidence supports it, but vague reports must remain triage until confirmed.
 
 ## Tool routing and authority
 
-- **Codex / Astra — primary heavy-engineering authority:** hardest implementation, architecture-sensitive expansion, cross-system changes, difficult debugging, broad validation, persistence/identity work, and release hardening. Once assigned a heavy work item, the main Codex session owns the technical implementation approach inside the approved project/architecture boundaries and may use its normal Astra/Sol/subagent setup.
+- **Codex / Luna — default cost-controlled Boss and engineering authority:** normal implementation, focused debugging, bounded subsystem work, research, integration, and coordination. Luna may handle broad coherent work when the scope is clear and delegates repetitive support rather than shrinking the session into tiny passes.
 - **OpenCode — budget-engineering authority:** confirmed bug fixes, focused support work, small/medium implementation, cleanup, compatibility investigation, translation/collaboration support, and narrow review/research. Once assigned a bounded item, OpenCode owns that implementation until it either finishes with evidence or escalates the boundary to Codex.
 - **ModForge — production/coordination authority:** current state, roadmap, tasks/bugs, documentation index, decisions, collaboration ledger, evidence, agent/workflow construction, routing, and focused handoffs. ModForge/Boss/Planner do not micromanage or compete with the active implementation owner; they intervene when scope, project vision, architecture, evidence, or release risk is violated.
 - **Human owner — final product/reputation authority:** product direction, release approval, public claims, save-breaking decisions, permissions/credits, and any scope change with reputation/compatibility impact.
+
+Escalation is evidence-gated: the Luna Boss and Terra support path must document
+at least two focused failed attempts (unless the first investigation proves an
+immediate architecture boundary), then `sol-escalation` may run once or twice
+at `gpt-5.6-sol` low. Only if that also fails may `astra-final` run once at
+`gpt-6-astra` medium. Astra may also be explicitly requested for whole-project
+review, major new mechanics/systems, or architecture-sensitive expansion. Sol
+and Astra are never automatic fallbacks and are never used for routine
+planning, documentation, cleanup, testing, or lookups.
 
 Use subagents for independent research/review/planning. Keep dependent implementation in one coherent owner so multiple agents do not fight over the same files.
 
@@ -106,7 +119,7 @@ For engine-level behavior, use exact runtime evidence when available. Prefer: cu
 3. Identify the active `KS-PROD-*` or `BUG-KS-*` record, or the exact owner request.
 4. Read the smallest technical authority that governs the subsystem.
 5. Define acceptance and validation before making the change.
-6. Escalate to Codex if a supposedly narrow task crosses persistence, identity, lifecycle, architecture ownership, or multiple coupled systems.
+6. Escalate within Codex only according to the evidence-gated Luna → Sol → Astra ladder if a supposedly bounded task crosses persistence, identity, lifecycle, architecture ownership, multiple coupled systems, major expansion, or whole-project review.
 
 ## After editing
 
@@ -115,8 +128,17 @@ For engine-level behavior, use exact runtime evidence when available. Prefer: cu
 - Update the canonical production record **only after the evidence supports the new state**.
 - Do not create a new broad status/plan document. Update the existing canonical owner.
 - Do not claim release readiness from implementation alone.
-- When a tracked item changes state, update `docs/production/WORK_QUEUE.md` or `docs/production/BUGS.md`; ModForge will re-index and regenerate `.modforge/PROJECT_STATE.md`.
+- When a tracked item changes state, update `docs/production/WORK_QUEUE.md` or `docs/production/BUGS.md`; if ModForge is active it may re-index and regenerate `.modforge/PROJECT_STATE.md`.
 - `.modforge/PROJECT_STATE.md` is generated and never edited manually.
+
+## OpenCode free-use boundary
+
+- Project OpenCode configuration is `opencode.json`; it defaults to the free OpenCode catalog and allowlists only free model IDs.
+- Use `scripts/start-opencode.ps1` with no profile argument for the free lane. Use `-Profile go` only when the owner explicitly wants OpenCode Go subscription usage; it selects only `opencode-go/...` models and never falls back to the free or paid Zen/API lanes.
+- OpenCode Go is a separate OpenCode subscription/provider, not the ChatGPT Go/Codex allowance. Do not claim ChatGPT Go usage is routed through OpenCode unless the provider explicitly authenticates and reports it as `opencode-go`.
+- ModForge role assignments are centralized in `.modforge/free-models.json`; change that file to swap a free primary/fallback model instead of editing every role definition.
+- Do not add subscription-backed or paid model IDs to that allowlist without explicit owner approval.
+- Use `scripts/start-opencode.ps1` to start from the repository root with normal permission prompts. Authentication, if OpenCode requests it, is a provider login step and is not permission to enable paid usage.
 
 ## Document authority
 

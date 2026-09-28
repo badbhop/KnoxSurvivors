@@ -1,50 +1,44 @@
 # Development testing
 
-## Unattended QA suite
+## Unattended QA vertical slice
 
-Use a disposable save for this suite. In Sandbox settings enable **Enable
-Developer Tools** and **Run Automated Knox QA**. Leave the automatic developer
-scenario set to **None**, load the save, and leave the game running. The player
-is not protected while the suite runs and can be injured or killed. Knox starts the coordinator after the world is
-ready and runs native traversal, base storage/task admission, needs, and
-firearm combat checks without requiring manual orders. It discovers a nearby
-building and ordinary container when the loaded cell provides one, so you do
-not need to prebuild a base or assign a storage role by hand.
+Use a disposable save. In Sandbox settings enable **Enable Developer Tools**
+and **Run Automated Knox QA**, leave the automatic developer scenario set to
+**None**, load the save, and leave the game running. The automatic entry point
+runs only the first controlled vertical slice:
 
-The suite prints one result per scenario and a final summary into the current
-Project Zomboid `DebugLog.txt`. The single run covers equipment and save
-restoration, needs consumption, injury, medical treatment, loot transfer, NPC
-combat, multi-survivor autonomy, traversal, base storage/resident/guard-task
-admission, NPC group-to-faction admission, a nine-job discovery/claim matrix
-with exact-task native work-state assertions and finite-job completion results,
-the faction's distinct indoor settlement arrival, the firearm duel, a hostile
-survivor encounter relationship check, raid planning eligibility, passenger-seat
-boarding availability, indoor night-shelter search, and a real save-capture
-round trip. Parse the newest log after the run with:
+- `QA-START-001` records Build/save/mod/runtime readiness.
+- `QA-ENCOUNTER-001` creates one `ks-dev-*` native survivor fixture and records
+  identity, origin, body, square, group/faction state, and run ownership.
+- `QA-RECRUIT-001` observes recruitment eligibility without changing trust,
+  affiliation, group membership, or companion ownership.
+- `QA-CHECKPOINT-001` writes a per-scenario checkpoint.
+- `QA-CLEANUP-001` removes that run's fixture and verifies no owned body remains.
+
+Each result is `PASS`, `FAIL`, `BLOCKED`, `SKIPPED`, or `HARNESS_ERROR`, and
+includes a run ID and evidence type. `HARNESS_ERROR` means the runner,
+checkpoint, or cleanup path failed; it is not evidence of a gameplay defect.
+The fixture is not proof of natural encounter frequency, social progression,
+recruitment feel, visual presentation, combat, movement, persistence, or normal
+world safety. Those remain separate live checks.
+
+The slice never removes ordinary zombies, survivors, animals, items, or world
+objects. If it cannot create a valid native fixture, it records `BLOCKED` with
+the native reason. It still needs a disposable save because cleanup retires a
+temporary persistent developer identity.
+
+The slice prints results and checkpoints to Project Zomboid `DebugLog.txt`.
+Parse the newest log after the run with:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools/parse-live-qa.ps1
 ```
 
-The JSON report is written to `build/live-qa/latest.json`. A missing world
-fixture is reported as `BLOCKED`; it is never counted as a pass. A timeout or
-assertion failure is `FAIL`. The run is deliberately disposable because it
-creates temporary native survivors, items, zombies, storage policy and base
-records. Each step retries transient failures up to three times and the whole
-run has a global timeout, so one stuck fixture fails its scenario instead of
-hanging the suite. Live raid travel/combat, native driving, long-running
-faction life, and save-after-player-death succession remain separate acceptance
-gates. Farming,
-woodwork, corpse hauling, cooking, barricading, and repair are reported
-`BLOCKED` when the selected real base lacks a suitable target; when a target
-exists, they pass only after the native task reports successful completion. A
-queued claim or unrelated survivor activity cannot produce a pass.
-
-After a faction claims the generated base, verify its residents take different
-indoor arrival positions instead of stacking on the scout's exterior square.
-The log should show the full scenario list, including `faction_admission`, and
-the equipment-through-population probes must no longer report
-`probe_start_rejected evidence=disabled`.
+The JSON report is written to `build/live-qa/latest.json` and includes run
+metadata, results, evidence types, and checkpoints. A missing native fixture is
+`BLOCKED`; unexpected runner exceptions, timeouts, or cleanup failures are
+`HARNESS_ERROR`. The older broad scenario inventory is retained in source for
+future migration, but it is not run by this vertical-slice entry point.
 
 ## Barricade route regression - 2026-09-19
 
@@ -89,6 +83,30 @@ Confirm the leader gives a relevant gesture and nearby followers acknowledge
 without interrupting movement, combat, or jobs. Repeat while one follower is
 busy, far away, or on another floor; gestures should be suppressed or skipped
 while the durable group objective continues normally.
+
+## Bounded NPC leader-order replay - 2026-09-27
+
+Use a disposable Build 42 save with one ordinary loaded travel-group leader and
+two followers. Observe ordinary travel and a regroup route. For developer-assisted
+delivery testing only, resolve the observed leader's group with
+`KnoxPersistence.getTravelGroupFor(observedLeaderId)` and issue an explicit hold
+with `KnoxPersistence.issueTravelGroupLeaderOrder(group.id, group.leaderId,
+'hold', getGameTime():getWorldAgeHours())`; clear it with
+`KnoxPersistence.clearTravelGroupLeaderOrder(group.id, group.leaderId)`. If that
+console path is unavailable, record this replay as developer-assisted/blocked;
+do not add a QA UI or claim an automatic hold policy.
+
+Repeat while a follower has a fence or door transition pending and while a need
+or combat decision owns it. Confirm delivery does not create duplicate route
+requests, traversal/timed actions complete naturally, and any later responsive
+cancellation occurs only after existing priority arbitration. Check failed
+cancellation retry and 15-game-minute expiry. Reload before expiry should retain
+the same valid directive/revision; expiry or cancellation should restore ordinary
+formation. A newly successful leader roam/regroup route may supersede an injected
+hold with follow: record that revision change rather than calling it a failed hold.
+Record leader/follower IDs, order/revision/deadline, controller state, and the
+relevant movement evidence for each step. This is live acceptance only; offline fixtures do not prove native
+route, action, or cancellation behavior.
 
 ## Deferred base-task resume replay - 2026-09-14
 

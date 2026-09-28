@@ -2,12 +2,17 @@
   "schema_version": 2,
   "global_rules": [
     "One active implementation owner per task or bug ID.",
+    "Use one boss lane per workstream: GPT-6 Luna by default; GPT-5.6 Luna for planning; GPT-5.6 Terra for Grunt, bounded support, evidence, and review. After documented repeated failure, one Sol 5.6 low escalation may be used, followed by one Astra medium final escalation only if Sol fails. Never launch Sol or Astra as routine workers/subagents.",
+    "The Luna Boss may handle broad coherent work and should delegate repetitive support to one worker at a time. Use Terra for independent review, compatibility checks, bounded implementation, and harder support work. Use Sol only for an explicitly justified difficult issue or owner request; use Astra only for final escalation, whole-project review, or major new mechanics/systems.",
     "Adjacent discoveries are triaged instead of silently added to scope.",
     "Status advances only when the required evidence exists.",
+    "Update the existing canonical task, bug, decision, or current-state record in place; do not create duplicate plans, status snapshots, bug ledgers, or release documents without an explicit new authority need.",
+    "Use the free role assignments in .modforge/free-models.json by default; paid or subscription-backed models require explicit owner choice and must never be selected by fallback automatically.",
     "Repository-backed WORK_QUEUE and BUGS sections are durable truth; PROJECT_STATE is generated.",
     "Persistence, survivor identity, lifecycle ownership, save migration, or cross-system architecture work escalates to Codex.",
     "Codex/Astra is the primary technical authority for assigned heavy engineering; OpenCode is the technical authority for assigned budget/scoped engineering.",
-    "ModForge/Boss/Planner coordinate scope, priority, constraints and evidence; they do not compete with the active implementation owner inside an approved work item.",
+    "ModForge/Boss/Planner coordinate scope, priority, constraints and evidence when ModForge is active; they do not compete with the active implementation owner inside an approved work item.",
+    "ModForge is optional. Codex/OpenCode/human work may follow AGENTS.md and the canonical production records directly without a ModForge task card, generated state file, or handoff UI.",
     "Debug/console logs are on-demand evidence only; do not preload or continuously ingest them.",
     "Raw game-design inspiration/reference material enters through Design Inbox and is not implementation authority until the owner promotes it through design review.",
     "ModForge source writes are blocked by default; owner-approved ModForge writes must be recorded in the Change Ledger and reviewed by Codex/OpenCode before related implementation continues."
@@ -23,8 +28,8 @@
         "OpenCode may handle isolated supporting fixes only",
         "QA Reviewer checks scope, diff, regression risk, and evidence",
         "Human performs any required live acceptance",
-        "Canonical work item and evidence are updated",
-        "ModForge re-syncs and Boss chooses next approved work"
+        "Existing canonical work item and evidence are updated in place",
+        "If ModForge is active, it re-syncs; otherwise the owner chooses the next approved work from canonical records"
       ]
     },
     "bug_fix": {
@@ -78,7 +83,7 @@
         "Planner defines acceptance when a real bug/task is confirmed",
         "Route narrow fixes to OpenCode and cross-system failures to Codex",
         "QA Reviewer checks regression/live evidence",
-        "Update canonical record and prepare accurate public response"
+        "Update the existing canonical record in place and prepare accurate public response; if ModForge is active, let it re-index afterward"
       ]
     },
     "hotfix": {

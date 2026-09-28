@@ -10,6 +10,8 @@ local function square(x, y, z)
         getY = function() return y end,
         getZ = function() return z end,
         canStand = function() return true end,
+        isBlockedTo = function() return false end,
+        isHoppableTo = function() return false end,
     }
 end
 
@@ -81,6 +83,8 @@ assert(string.find(statusSource, "anchor:isSprinting()", 1, true)
     "a sprinting formation leader requests catch-up before a large gap opens")
 assert(string.find(statusSource, "self:updateFormationMovementPace(anchor)", 1, true),
     "formation posture refreshes before the companion decides it is already at its slot")
+assert(string.find(statusSource, "self:resumeGroupFollowAfterSuccess(ticks)", 1, true),
+    "native group-route completion returns through immediate formation arbitration")
 assert(string.find(statusSource, "signals.play(member, \"yes\")", 1, true),
     "nearby autonomous followers acknowledge leader movement signals")
 
@@ -159,23 +163,24 @@ local fleeController = setmetatable({
 }, Controller)
 zombieCount = 3
 local shouldFlee, assessment = fleeController:assessFlee()
-assert(not shouldFlee and assessment.reason == "flee_retired",
-    "flee retired: survivors hold ground")
+assert(not shouldFlee and assessment.reason == nil,
+    "distant non-targeting threats do not interrupt formation work")
 local ally = { getCurrentSquare = function() return square(1, 0, 0) end }
 fleeController.groupMembers = { ally }
 zombieCount = 5
 shouldFlee = fleeController:assessFlee()
-assert(not shouldFlee, "flee retired")
+assert(not shouldFlee, "allies and distance keep a non-immediate crowd below retreat admission")
 zombieCount = 6
 zombieSquare = square(1, 0, 0)
 shouldFlee, assessment = fleeController:assessFlee()
-assert(not shouldFlee, "flee retired")
+assert(shouldFlee and assessment.reason == "outnumbered",
+    "an overwhelming immediate crowd admits a formation survivor to retreat")
 zombieCount = 1
 zombieSquare = square(2, 0, 0)
 health = 25
 shouldFlee, assessment = fleeController:assessFlee()
-assert(not shouldFlee and assessment.reason == "flee_retired",
-    "flee retired even at critical health")
+assert(shouldFlee and assessment.reason == "critical_health",
+    "critical health plus an immediate threat admits retreat")
 
 local threat = {}
 local owners = { survivor = true }
@@ -203,6 +208,8 @@ local leader = {
     getForwardDirectionY = function() return leaderForwardY end,
 }
 local followerSquare = square(0, 0, 0)
+local followerState = "IdleState"
+local followerActionState = "idle"
 local follower = {
     getX = function() return 0.5 end,
     getY = function() return 0.5 end,
@@ -210,6 +217,8 @@ local follower = {
     getCharacterActions = function()
         return { isEmpty = function() return true end }
     end,
+    getCurrentStateName = function() return followerState end,
+    getCurrentActionContextStateName = function() return followerActionState end,
 }
 local captured = {}
 local moveCount = 0
@@ -336,6 +345,22 @@ assert(supportController.pendingGroupSupport == nil
     "support completion releases all transient ownership")
 supportPlan = nil
 
+local completedGroupFollow = followerController("completed-group-follow", 2)
+completedGroupFollow.state = "GROUP_FOLLOW"
+completedGroupFollow.activeDecision = "follow_group"
+completedGroupFollow.formationMovementPace = "sprint"
+completedGroupFollow.nextFormationRefresh = 999
+local movesBeforeGroupSuccess = moveCount
+completedGroupFollow:resumeGroupFollowAfterSuccess(75)
+assert(completedGroupFollow.state == "IDLE"
+    and completedGroupFollow.activeDecision == "follow_group"
+    and completedGroupFollow.nextThink == 75
+    and completedGroupFollow.nextFormationRefresh == 75
+    and completedGroupFollow.formationMovementPace == nil,
+    "native group-route success re-enters normal arbitration on the next tick")
+assert(moveCount == movesBeforeGroupSuccess,
+    "native group-route success does not issue a duplicate movement request itself")
+
 leaderSquare = square(12, 10, 0)
 assert(left:refreshFormationFollow(120), "moving leader refreshes formation path")
 assert(captured.left:getX() == 11 and captured.left:getY() == 9,
@@ -407,6 +432,23 @@ leader.isSneaking=function() return false end
 companion.nextFormationRefresh=30
 assert(not companion:refreshFormationFollow(20) and moveCount == movesAfterStart,
     "follow refresh does nothing before its cadence expires")
+
+-- Native traversal keeps ownership, but the first landed update must not wait
+-- for a cadence deadline that was scheduled before/during the climb.
+followerActionState = "climbfence"
+companion.nextFormationRefresh = 500
+assert(not companion:refreshFormationFollow(21)
+    and companion.formationTraversalBusy == true
+    and companion.nextFormationRefresh == 51,
+    "native fence traversal is observed without replacing its route")
+followerActionState = "idle"
+local movesBeforeLanding = moveCount
+companion:refreshFormationFollow(22)
+assert(companion.formationTraversalBusy == nil
+    and companion.nextFormationRefresh == 67
+    and moveCount >= movesBeforeLanding,
+    "the first landed update reevaluates immediately instead of standing on the old cadence")
+companion.nextFormationRefresh = 30
 
 followerSquare = square(4, 10, 0)
 assert(not companion:refreshFormationFollow(40),
@@ -649,3 +691,82 @@ assert(external:resumeExternalBaseWork(100), "failed start retains bounded recov
 external.nextThink = 0
 assert(not external:resumeExternalBaseWork(100), "no available work returns home")
 print("External work continuation PASS")
+
+-- Exercise real delivery/arbitration, not a source-text assertion. Native
+-- bridge results are fixtures; native movement itself still needs Build 42.
+local orderHour, orderCancels, actionBusy = 10, 0, false
+getGameTime = function() return { getWorldAgeHours = function() return orderHour end } end
+local savedActions = follower.getCharacterActions
+follower.getCharacterActions = function() return { isEmpty = function() return not actionBusy end } end
+bridge.cancelNpcMove = function() orderCancels = orderCancels + 1; return "MOVE_CANCELLED fixture" end
+local commanded = followerController("commanded", 1)
+commanded.groupLeaderId, commanded.state = "leader", "GROUP_FOLLOW"
+commanded.nextFormationRefresh = 9999
+local function directive(kind, revision)
+    return { kind = kind, revision = revision, leaderId = "leader", groupId = "group", expiresAtHours = 10.25 }
+end
+commanded:setGroupLeader("leader", leader, 1, 3, nil, directive("follow", 1))
+assert(not commanded:applyGroupLeaderOrder(10) and commanded.state == "GROUP_FOLLOW"
+    and orderCancels == 0, "follow delivery does not stop an already-correct route")
+commanded:setGroupLeaderOrder(directive("hold", 2))
+assert(commanded.state == "GROUP_FOLLOW" and orderCancels == 0,
+    "delivery never cancels movement from the relationship coordinator")
+followerState = "ClimbOverFenceState"
+assert(not commanded:refreshFormationFollow(11) and orderCancels == 0,
+    "a pending hold preserves native fence completion")
+followerState = "IdleState"
+actionBusy = true
+assert(not commanded:applyGroupLeaderOrder(12) and orderCancels == 0,
+    "a pending hold preserves native actions such as door interaction")
+actionBusy = false
+assert(commanded:refreshFormationFollow(13) and commanded.state == "IDLE"
+    and commanded.nextThink == 13 and orderCancels == 1,
+    "after landing hold reopens normal priority arbitration before refresh cadence")
+commanded.state, commanded.activeDecision = "GROUP_WAIT", "leader_hold"
+commanded.nextThink = 999
+commanded:setGroupLeaderOrder(directive("hold", 2))
+assert(not commanded:applyGroupLeaderOrder(14) and orderCancels == 1,
+    "repeated delivery does not reset a wait or spam cancellation")
+commanded:setGroupLeaderOrder(directive("follow", 3))
+assert(commanded:applyGroupLeaderOrder(15) and commanded.nextThink == 15,
+    "follow promptly releases a leader-owned hold")
+for _, state in ipairs({ "COMBAT", "FLEEING", "TIMED_ACTION", "MOVING_TO_FOOD",
+    "BASE_TASK_MOVE", "GROUP_SUPPORT", "MOVING_TO_WINDOW_ENTRY", "GROUP_REGROUP" }) do
+    commanded.state = state
+    commanded:setGroupLeaderOrder(nil)
+    commanded:setGroupLeaderOrder(directive("hold", 4))
+    assert(not commanded:applyGroupLeaderOrder(16) and commanded.state == state and orderCancels == 1,
+        "leader orders do not steal ownership from " .. state)
+end
+commanded.state, commanded.nextThink = "IDLE", 0
+assert(commanded:applyGroupLeaderOrder(17) and commanded.groupLeaderOrder.kind == "hold",
+    "the same durable order remains available after interruption ends")
+commanded.state, commanded.activeDecision, commanded.nextThink = "GROUP_WAIT", "leader_hold", 999
+orderHour = 10.25
+assert(commanded:applyGroupLeaderOrder(18) and commanded.groupLeaderOrder == nil,
+    "cached hold expires even before the next relationship refresh")
+orderHour = 10
+commanded.state, commanded.nextThink = "GROUP_WAIT", 100
+commanded:setGroupLeaderOrder(directive("follow", 5))
+assert(not commanded:applyGroupLeaderOrder(19) and commanded.nextThink == 100,
+    "new directives cannot erase existing route failure backoff")
+commanded.state = "GROUP_FOLLOW"
+commanded:setGroupLeaderOrder(directive("hold", 6))
+bridge.cancelNpcMove = function() orderCancels = orderCancels + 1; return "MOVE_CANCEL_FAILED native" end
+assert(not commanded:applyGroupLeaderOrder(20) and commanded.state == "GROUP_FOLLOW",
+    "failed native cancellation is not fabricated as hold success")
+local afterFailure = orderCancels
+assert(not commanded:applyGroupLeaderOrder(21) and orderCancels == afterFailure,
+    "failed cancellation has bounded retry instead of per-tick spam")
+commanded:setGroupLeaderOrder(directive("follow", 7))
+assert(not commanded:applyGroupLeaderOrder(22) and commanded.nextGroupOrderRetry == nil
+    and orderCancels == afterFailure, "superseded hold releases its retry without stopping follow")
+commanded:setGroupLeaderOrder(directive("hold", 8))
+bridge.cancelNpcMove = function() orderCancels = orderCancels + 1; return "MOVE_CANCELLED fixture" end
+assert(commanded:applyGroupLeaderOrder(80), "native cancellation can recover after its retry bound")
+commanded.state, commanded.activeDecision, commanded.nextThink = "GROUP_WAIT", "leader_hold", 999
+commanded:clearGroupLeader()
+assert(commanded:applyGroupLeaderOrder(81) and commanded.groupLeaderOrder == nil,
+    "leader loss releases the cached hold without replacing survivor identity")
+follower.getCharacterActions = savedActions
+print("Leader order arbitration PASS delivery=true traversal=true priority=true expiry=true bounded_retry=true")

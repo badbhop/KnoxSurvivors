@@ -719,6 +719,9 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
             local group = KnoxPersistence.getTravelGroupFor(id)
             local objective = group ~= nil
                 and KnoxPersistence.getTravelGroupObjective(group.id) or nil
+            local leaderOrder = group ~= nil
+                and KnoxPersistence.getTravelGroupLeaderOrder ~= nil
+                and KnoxPersistence.getTravelGroupLeaderOrder(group.id, now) or nil
             if group ~= nil and group.leaderId ~= id then
                 local leader = controllers[group.leaderId]
                 local members = {}
@@ -744,7 +747,8 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
                     leader ~= nil and leader.character or nil,
                     formationSlot,
                     #(group.memberIds or {}),
-                    objective
+                    objective,
+                    leaderOrder
                 )
                 controller:setGroupMembers(members)
             elseif group ~= nil then
@@ -769,6 +773,9 @@ local function assignGroupLeaders(controllers, orderedIds, ticks)
                 controller:clearGroupLeader()
                 controller:setGroupMembers(members)
                 controller:setGroupObjective(objective)
+                if controller.setGroupLeaderOrder ~= nil then
+                    controller:setGroupLeaderOrder(leaderOrder)
+                end
             else
                 controller:clearGroupLeader()
                 controller:setGroupMembers({})

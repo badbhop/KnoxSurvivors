@@ -19,6 +19,9 @@ This is the private production ledger for translators, compatibility partners, e
 - Keep unauthorized forks/reuploads separate from collaboration records.
 - Translation ownership/maintenance should identify language, current maintainer, source, and whether it is official or community-maintained.
 - Before a public release, reconcile this file with player-facing credits/Workshop text.
+- Keep one person/project record per collaborator. Append conversation and work updates to that record instead of creating a new note for every message.
+- Store only the contact reference needed to identify the collaboration. Do not copy private addresses, tokens, or unrelated personal information into the repository.
+- A conversation is not an approval. Record proposed work, confirmed permission, delivered files, review state, and public-credit wording separately.
 
 ## Confirmed project ownership
 
@@ -42,6 +45,49 @@ Add confirmed translators here:
 
 | Language | Contributor / team | Source / fork | Official or community | Permission / notes | Public credit |
 |---|---|---|---|---|---|
+
+### Per-collaborator record template
+
+Use this template inside the appropriate contributor section for each real collaborator. Keep the stable identity and the running work log together.
+
+```markdown
+### COLLAB-<short-id> — <preferred public name>
+
+- Contact reference: <platform/profile or private reference; no secrets>
+- Relationship: <translator / tester / compatibility author / contributor / researcher>
+- Project or language: <scope>
+- Started: YYYY-MM-DD
+- Current status: proposed | active | awaiting handoff | review | integrated | paused | closed
+- Official or community work: <which>
+- Permission/license boundary: <confirmed wording or pending>
+- Public credit wording: <exact approved wording or pending>
+- Canonical tasks/bugs: <KS-PROD-###, BUG-KS-###, or none>
+- Files/package location: <repository path, fork, PR, or external link>
+
+#### Conversation and decision log
+
+| Date | From/To | Topic | Decision or request | Follow-up | Evidence/link |
+|---|---|---|---|---|---|
+| YYYY-MM-DD | owner / collaborator | short topic | confirmed wording, proposal, or unanswered question | person responsible | file, PR, screenshot, or message reference |
+
+#### Work log
+
+| Date | Contributor work | Knox-side work | Result/evidence | Next action |
+|---|---|---|---|---|
+| YYYY-MM-DD | files, translation, test, or report | integration/review needed | exact evidence | owner |
+
+#### Handoff checklist
+
+- [ ] scope and files identified
+- [ ] permission/license recorded
+- [ ] build/version and compatibility context recorded
+- [ ] delivered files preserved or linked
+- [ ] review task/bug linked
+- [ ] public credit wording confirmed
+- [ ] integration/release status recorded
+```
+
+For the PT-BR translator, keep the standalone injector, pending hardcoded-string catalog, overflow report, screenshots/videos, and eventual native-string handoff in one `COLLAB-*` record. Do not treat the standalone addon as official integration until the files are reviewed and merged by the project owner.
 
 ## Mod-author collaboration
 
@@ -69,3 +115,16 @@ The owner reports Knox Survivors is approaching 26,000 active users. At that sca
 5. Keep exchanged code/assets traceable to source and permission.
 6. Review integration and compatibility evidence.
 7. Update this ledger and `CREDITS.md` before release.
+
+## Conversation capture
+
+When the owner pastes a collaborator conversation, the receiving agent should:
+
+1. identify or create the single matching collaborator record;
+2. summarize only decisions, requests, promises, delivered work, risks, and unanswered questions;
+3. append dated entries to the conversation/work tables;
+4. link any concrete issue to the existing `BUGS.md` or `WORK_QUEUE.md` item;
+5. leave vague ideas or unconfirmed claims in the conversation log rather than promoting them to project truth;
+6. return a short reply draft only when the owner asks for one.
+
+Never rewrite the entire conversation into production documentation, and never expose private contact details in a public-facing file.

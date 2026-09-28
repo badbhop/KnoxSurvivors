@@ -599,6 +599,10 @@ function CompanionService.command(player, survivorId, order, suppressSignal)
         or (order ~= "follow" and order ~= "hold" and order ~= "relax") then
         return false, "invalid_command"
     end
+    if KnoxSurvivorRuntime.canAcceptOrders ~= nil then
+        local accepted, reason = KnoxSurvivorRuntime.canAcceptOrders(survivorId)
+        if not accepted then return false, reason end
+    end
     if not KnoxPersistence.updateCompanionOrder(
         survivorId,
         playerId,
@@ -660,6 +664,12 @@ function CompanionService.issueOrder(player, survivorId, kind, payload)
         or KnoxOrderCatalog.normalize(kind)
     if normalizedKind == nil or (resolved == nil and not KnoxOrderCatalog.isKnown(normalizedKind)) then
         return false, resolveResult or "unknown_order"
+    end
+    -- Dismissal is a persistence ownership change and remains safe while a
+    -- shell is detached. Native companion orders wait for lifecycle recovery.
+    if normalizedKind ~= "dismiss" and KnoxSurvivorRuntime.canAcceptOrders ~= nil then
+        local accepted, reason = KnoxSurvivorRuntime.canAcceptOrders(survivorId)
+        if not accepted then return false, reason end
     end
     -- Base residents use the same human-facing search labels as companions,
     -- but their request must remain a durable base duty rather than becoming

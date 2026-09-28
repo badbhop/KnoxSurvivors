@@ -57,16 +57,22 @@ assert(populationSource:find('return nil, "away_mission"', 1, true),
     "nearby population activation must leave assigned away-team members unloaded")
 assert(populationSource:find("allowAwayMission", 1, true),
     "away activation must use an explicit mission-only exception")
+assert(populationSource:find("allowBlockedDispatchRecovery", 1, true)
+    and populationSource:find("blocked_dispatch_recovery", 1, true),
+    "blocked dispatch recovery must require its own explicit activation path")
 
 local autonomySource = assert(io.open(rootPath
     .. "/mod/42/media/lua/client/KS_SurvivorAutonomy.lua", "r")):read("*a")
 assert(autonomySource:find("function Autonomy.dispatchDeveloperScout", 1, true),
     "developer dispatch must use the same autonomy lifecycle owner")
-assert(autonomySource:find("controller:shutdown()", 1, true)
-    and autonomySource:find("bridge:removeNpc(id)", 1, true),
-    "dispatch must capture and remove bodies before marking a team away")
-assert(autonomySource:find('prepareUnloadedResourceHandoff(id, controller, "away_team")', 1, true)
-    and autonomySource:find('prepareUnloadedResourceHandoff(selected, controller, "base_scout")', 1, true)
+assert(autonomySource:find("local function dispatchAwayTeam", 1, true)
+    and autonomySource:find("KnoxPersistence.prepareAwayTeam", 1, true)
+    and autonomySource:find("KnoxPersistence.finalizeAwayTeamDispatch", 1, true)
+    and autonomySource:find("KnoxPersistence.abortAwayTeamDispatch", 1, true),
+    "dispatch must prepare, acknowledge, finalize or abort one durable team handoff")
+assert(autonomySource:find("prepareUnloadedResourceHandoff(entry.id, entry.controller, provisionReason)", 1, true)
+    and autonomySource:find('nil, "away_team")', 1, true)
+    and autonomySource:find('}, "base_scout")', 1, true)
     and autonomySource:find("KnoxUnloadedSurvival.markStored", 1, true),
     "base-owned away teams must pack real home supplies and transfer ledger ownership")
 assert(autonomySource:find("validateAwayTeam", 1, true),
@@ -76,6 +82,9 @@ assert(autonomySource:find("function Autonomy.dispatchBaseScout", 1, true),
 assert(autonomySource:find("candidate.awayMission", 1, true)
     and autonomySource:find("setAwayTeam", 1, true),
     "loaded away members must restore at their mission point and bind the controller")
+assert(autonomySource:find("candidate.blockedDispatchRecovery", 1, true)
+    and autonomySource:find("recoverBlockedAwayTeamMember", 1, true),
+    "blocked members release duty only after canonical restoration registers their body")
 local controllerSource = assert(io.open(rootPath
     .. "/mod/42/media/lua/client/KS_SurvivorAutonomyController.lua", "r")):read("*a")
 assert(controllerSource:find("finishAwayCollection", 1, true)
@@ -96,6 +105,58 @@ assert(returned.statusLabel == "Returned" and returned.remainingHours == 0
     "completed mission reports returned status without mutation")
 assert(persistence.getSurvivorDuty("one").mode == "base")
 assert(persistence.getSurvivorDuty("two").mode == "companion")
+
+local pending, pendingResult = persistence.prepareAwayTeam(
+    "player", "player-1", { "one", "two" }, "scout",
+    { x = 120, y = 230, z = 0 }, 14, 16
+)
+assert(pending ~= nil and pendingResult == "created" and pending.state == "dispatching"
+    and persistence.getSurvivorDuty("one").mode == "away"
+    and persistence.getSurvivorDuty("two").mode == "away",
+    "dispatch ledger reserves the complete roster before native teardown")
+assert(persistence.recordAwayTeamDispatchRemoval(pending.id, "one"))
+local incomplete, incompleteResult = persistence.finalizeAwayTeamDispatch(pending.id, 14)
+assert(incomplete == nil and incompleteResult == "removal_unconfirmed=two",
+    "a partial removal cannot become an outbound mission")
+local aborted, abortResult = persistence.abortAwayTeamDispatch(
+    pending.id, "remove_failed=two", 14
+)
+assert(aborted ~= nil and abortResult == "aborted" and aborted.state == "blocked"
+    and aborted.result.kind == "dispatch_incomplete"
+    and persistence.getSurvivorDuty("one").mode == "away"
+    and persistence.getSurvivorDuty("two").mode == "companion",
+    "an incomplete dispatch holds only confirmed-removed members in blocked away ownership")
+KnoxPersistence = nil
+dofile(rootPath .. "/mod/42/media/lua/client/KS_Persistence.lua")
+persistence = KnoxPersistence
+local blockedRecovery = persistence.getBlockedAwayTeamRecovery("one")
+assert(blockedRecovery ~= nil and blockedRecovery.id == pending.id
+    and persistence.getBlockedAwayTeamRecovery("two") == nil,
+    "blocked ownership survives persistence reload for only acknowledged removed members")
+local recovered, recoverResult = persistence.recoverBlockedAwayTeamMember(pending.id, "one", 14.1)
+assert(recovered and recoverResult == "recovered"
+    and persistence.getSurvivorDuty("one").mode == "base"
+    and persistence.getSurvivorDuty("one").order == "available"
+    and persistence.getSurvivorDuty("two").mode == "companion",
+    "canonical post-materialization recovery restores the saved duty without touching other members")
+assert(persistence.getBlockedAwayTeamRecovery("one") == nil,
+    "a recovered member cannot be recovered twice or retain stale blocked ownership")
+
+local retry = assert(persistence.prepareAwayTeam(
+    "player", "player-1", { "one", "two" }, "scout",
+    { x = 120, y = 230, z = 0 }, 15, 16
+))
+assert(persistence.recordAwayTeamDispatchRemoval(retry.id, "one")
+    and persistence.recordAwayTeamDispatchRemoval(retry.id, "two"))
+local dispatched, dispatchResult = persistence.finalizeAwayTeamDispatch(retry.id, 15)
+assert(dispatched ~= nil and dispatchResult == "dispatched"
+    and dispatched.state == "outbound"
+    and persistence.getAwayTeamForSurvivor("one").id == retry.id,
+    "a retry has one canonical outbound roster after every removal is acknowledged")
+assert(persistence.advanceAwayTeams(16) == 1
+    and persistence.getAwayTeam(retry.id).state == "complete"
+    and persistence.getSurvivorDuty("one").mode == "base",
+    "completed retry restores the original member duty without a duplicate identity")
 
 local supplyTeam = assert(persistence.createAwayTeam(
     "player", "player-1", { "one" }, "food",

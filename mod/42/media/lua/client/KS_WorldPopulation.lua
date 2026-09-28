@@ -1384,55 +1384,65 @@ function WorldPopulation.activationCandidate(id, bridge, options)
         return nil, "not_living"
     end
     local duty = KnoxPersistence.getSurvivorDuty(id)
+    local blockedRecovery = KnoxPersistence.getBlockedAwayTeamRecovery ~= nil
+        and KnoxPersistence.getBlockedAwayTeamRecovery(id) or nil
     -- An away team owns its members' off-world lifecycle until it finishes or
     -- blocks. Normal proximity activation must not pull them back into a loaded
     -- engine shell just because the player passes their recorded origin. The
-    -- single explicit mission path may materialize a member at the persisted
-    -- destination (or return point) once that cell is genuinely relevant.
+    -- explicit mission path may materialize an active mission member at its
+    -- persisted destination (or return point); blocked dispatch recovery is a
+    -- separate explicit path that restores only an acknowledged removed body
+    -- through its canonical persisted record.
     if duty ~= nil and duty.mode == "away" then
-        local allowAway = type(options) == "table"
-            and options.allowAwayMission == true
-        if not allowAway then
-            return nil, "away_mission"
+        if blockedRecovery ~= nil then
+            if type(options) ~= "table" or options.allowBlockedDispatchRecovery ~= true then
+                return nil, "blocked_dispatch_recovery"
+            end
+        else
+            local allowAway = type(options) == "table"
+                and options.allowAwayMission == true
+            if not allowAway then
+                return nil, "away_mission"
+            end
+            local team = KnoxPersistence.getAwayTeamForSurvivor ~= nil
+                and KnoxPersistence.getAwayTeamForSurvivor(id) or nil
+            local missionState = team ~= nil and (team.state == "awaiting_collection"
+                or team.state == "collecting" or team.state == "returning")
+            local destination = nil
+            if missionState then
+                destination = team.state == "returning"
+                    and team.returnDestination or team.destination
+            end
+            local record = KnoxPersistence.getRecord(id)
+            if not missionState or destination == nil or record == nil
+                or not finite(destination.x) or not finite(destination.y)
+                or not finite(destination.z) then
+                return nil, "away_destination_unavailable"
+            end
+            local players = playersFrom(options)
+            local maximumDistance = tonumber(options.maximumDistance)
+            local square = awayDestinationSquare(team, id, destination)
+            if square == nil then return nil, "away_square_not_loaded" end
+            local closeEnough, nearest = withinMaximumDistance(
+                square, players, maximumDistance
+            )
+            if not closeEnough then return nil, "outside_activation_distance" end
+            return {
+                id = id,
+                mode = "restore",
+                record = record,
+                square = square,
+                x = square:getX(),
+                y = square:getY(),
+                z = square:getZ(),
+                exact = true,
+                firstMaterialization = false,
+                distanceSquared = nearest,
+                activationPriority = 0,
+                awayMission = true,
+                awayTeamId = team.id,
+            }, "ready"
         end
-        local team = KnoxPersistence.getAwayTeamForSurvivor ~= nil
-            and KnoxPersistence.getAwayTeamForSurvivor(id) or nil
-        local missionState = team ~= nil and (team.state == "awaiting_collection"
-            or team.state == "collecting" or team.state == "returning")
-        local destination = nil
-        if missionState then
-            destination = team.state == "returning"
-                and team.returnDestination or team.destination
-        end
-        local record = KnoxPersistence.getRecord(id)
-        if not missionState or destination == nil or record == nil
-            or not finite(destination.x) or not finite(destination.y)
-            or not finite(destination.z) then
-            return nil, "away_destination_unavailable"
-        end
-        local players = playersFrom(options)
-        local maximumDistance = tonumber(options.maximumDistance)
-        local square = awayDestinationSquare(team, id, destination)
-        if square == nil then return nil, "away_square_not_loaded" end
-        local closeEnough, nearest = withinMaximumDistance(
-            square, players, maximumDistance
-        )
-        if not closeEnough then return nil, "outside_activation_distance" end
-        return {
-            id = id,
-            mode = "restore",
-            record = record,
-            square = square,
-            x = square:getX(),
-            y = square:getY(),
-            z = square:getZ(),
-            exact = true,
-            firstMaterialization = false,
-            distanceSquared = nearest,
-            activationPriority = 0,
-            awayMission = true,
-            awayTeamId = team.id,
-        }, "ready"
     end
     local players = playersFrom(options)
     local maximumDistance = type(options) == "table"
@@ -1473,6 +1483,8 @@ function WorldPopulation.activationCandidate(id, bridge, options)
             firstMaterialization = false,
             distanceSquared = nearest,
             activationPriority = activationPriority(id),
+            blockedDispatchRecovery = blockedRecovery ~= nil,
+            blockedAwayTeamId = blockedRecovery ~= nil and blockedRecovery.id or nil,
         }, "ready"
     end
 

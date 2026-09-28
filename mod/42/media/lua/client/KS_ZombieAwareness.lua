@@ -12,14 +12,13 @@ _G.KnoxZombieAwareness = ZombieAwareness
 -- local-player lighting. This module supplies only the missing discovery/perception
 -- edge; zombie locomotion, attack state, animation, hit rolls, and damage stay vanilla.
 --
--- Visibility-bit ownership: the shells have no LOS render channel, so the
--- native isCouldSee bit for a shell's viewer index is never maintained and
--- the bite check fails every lunge (attack-ready forever, biteDone never).
--- The close-combat loop below therefore maintains that single bit itself,
--- but ONLY for pairs it has already verified with real line of sight that
--- tick, and clears it on every disengage path. A bit is per-square, so it
--- follows the survivor and can never leak wall-hack vision elsewhere.
+-- Build 42's LightingJNI visibility state belongs to a real local-player
+-- lighting slot. An off-slot survivor shell can read perception through the
+-- native target APIs, but writing setCouldSee for that shell repeatedly throws
+-- from LightingJNI. Keep combat authoritative: do not synthesize that bit, and
+-- let a native bite that cannot complete report its own failure instead.
 local visibilityBits = {}
+local visibilityBitDisabledReported = false
 local AWARENESS_RADIUS_SQUARED = 20 * 20
 local SWITCH_MARGIN = 1.0
 local NPC_INTERCEPT_RADIUS = 3.0
@@ -82,46 +81,23 @@ local function reportFailure(ticks, result)
     end
 end
 
-local function shellViewerIndex(npc)
-    local ok, index = pcall(function() return npc:getIndex() end)
-    if not ok then return nil end
-    index = tonumber(index)
-    if index == nil then return nil end
-    return math.floor(index)
-end
-
-local function setSquareBit(square, index, value)
-    if square == nil or index == nil then return false end
-    local ok = pcall(function() square:setCouldSee(index, value == true) end)
-    return ok
-end
-
--- Hold the shell's visibility bit on its current square while engaged.
--- Re-points when the survivor moves; no-ops when already held.
+-- Do not invoke IsoGridSquare:setCouldSee for off-slot NPC shells. The method
+-- reaches LightingJNI and is unsafe for their viewer index in Build 42.
 local function ensureVisibilityBit(id, npc)
-    local square = npc ~= nil and npc:getCurrentSquare() or nil
-    local index = npc ~= nil and shellViewerIndex(npc) or nil
-    if square == nil or index == nil then return false end
-    local tracked = visibilityBits[id]
-    if tracked ~= nil and tracked.square == square then return true end
-    if tracked ~= nil then
-        setSquareBit(tracked.square, tracked.index, false)
-        visibilityBits[id] = nil
+    if visibilityBits[id] ~= nil then visibilityBits[id] = nil end
+    if not visibilityBitDisabledReported then
+        visibilityBitDisabledReported = true
+        print("[KnoxSurvivors][ZombieAwareness] visibility_bit_disabled"
+            .. " reason=build42_offslot_lightingjni_unsafe")
     end
-    if not setSquareBit(square, index, true) then return false end
-    visibilityBits[id] = { square = square, index = index }
-    return true
+    return false
 end
 
 local function clearVisibilityBit(id)
-    local tracked = visibilityBits[id]
-    if tracked == nil then return end
-    setSquareBit(tracked.square, tracked.index, false)
     visibilityBits[id] = nil
 end
 
--- Drop close combat for a zombie, releasing its visibility bit first so
--- no square keeps phantom wall-hack vision for that viewer index.
+-- Drop close combat and discard any old in-memory visibility bookkeeping.
 local function dropCloseCombat(zombie)
     local entry = closeCombatTargets[zombie]
     closeCombatTargets[zombie] = nil

@@ -95,6 +95,18 @@ Discord: https://discord.gg/cTfd2WWD4s
 
 The repository also contains internal production, architecture, design/research, audit and testing documents under `docs/`. Current engineering state lives in `docs/production/`; NPC design research lives in `docs/design/`. Those records may discuss incomplete work, test gates or future systems and are not player-facing feature promises.
 
+ModForge is optional for development. It can index the canonical production
+records, show tasks/bugs, prepare handoffs and regenerate its coordination
+snapshot, but Codex, OpenCode and human contributors can work normally from
+`AGENTS.md`, Git and `docs/production/` without ModForge installed or running.
+
+OpenCode has two explicit local profiles. The default free profile is started
+with `scripts/start-opencode.ps1`; it uses only the configured free model IDs.
+The optional OpenCode Go subscription profile is started with
+`scripts/start-opencode.ps1 -Profile go`; it uses only `opencode-go/...` models.
+The profiles are separate, and the free profile never falls back to Go or a
+paid API route automatically.
+
 ## Ownership and permission
 
 Knox Survivors' original code and project framework were built from the ground up and are owned by **.exe**. Superb Survivors is an inspiration for the survivor-mod concept, not a source-code dependency of this rebuild. Project Zomboid and its base-game assets belong to The Indie Stone.

@@ -1890,9 +1890,11 @@ function KnoxPersistence.validateAwayTeam(ownerKind, ownerId, memberIds, mission
     return members ~= nil, result
 end
 
+local restoreAwayTeamDuties
+
 function KnoxPersistence.createAwayTeam(
     ownerKind, ownerId, memberIds, missionType, destination,
-    worldAgeHours, etaHours, returnDestination
+    worldAgeHours, etaHours, returnDestination, dispatching
 )
     local members, validation = validateAwayTeamInput(
         ownerKind, ownerId, memberIds, missionType, destination
@@ -1945,11 +1947,15 @@ function KnoxPersistence.createAwayTeam(
             z = math.floor(tonumber(destination.z) or 0),
             label = tostring(destination.label or "Unknown destination"),
         },
-        state = "outbound",
+        -- A dispatching team has durable roster ownership but is not a mission
+        -- until every native body removal has been acknowledged. This lets the
+        -- runtime abort a partial handoff without claiming the team departed.
+        state = dispatching == true and "dispatching" or "outbound",
         departedAtHours = departure,
         etaHours = eta,
         returnDestination = returnPoint,
         result = nil,
+        dispatch = dispatching == true and { removedMemberIds = {} } or nil,
     }
     data.awayTeams[teamId] = team
     for _, id in ipairs(members) do
@@ -1970,12 +1976,135 @@ function KnoxPersistence.createAwayTeam(
     return copySerializable(team), "created"
 end
 
+-- Prepares durable roster/duty ownership before any native shell is removed.
+-- The runtime must either finalize this after every removal is acknowledged or
+-- abort it, restoring the members' previous duties.
+function KnoxPersistence.prepareAwayTeam(
+    ownerKind, ownerId, memberIds, missionType, destination,
+    worldAgeHours, etaHours, returnDestination
+)
+    return KnoxPersistence.createAwayTeam(
+        ownerKind, ownerId, memberIds, missionType, destination,
+        worldAgeHours, etaHours, returnDestination, true
+    )
+end
+
+function KnoxPersistence.recordAwayTeamDispatchRemoval(teamId, survivorId)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    if type(team) ~= "table" or team.state ~= "dispatching" then
+        return false, "dispatch_not_pending"
+    end
+    local member, known = false, false
+    for _, id in ipairs(team.memberIds or {}) do
+        if id == survivorId then member = true break end
+    end
+    if not member then return false, "not_team_member" end
+    team.dispatch = type(team.dispatch) == "table" and team.dispatch
+        or { removedMemberIds = {} }
+    team.dispatch.removedMemberIds = type(team.dispatch.removedMemberIds) == "table"
+        and team.dispatch.removedMemberIds or {}
+    for _, id in ipairs(team.dispatch.removedMemberIds) do
+        if id == survivorId then known = true break end
+    end
+    if not known then table.insert(team.dispatch.removedMemberIds, survivorId) end
+    return true, "recorded"
+end
+
+function KnoxPersistence.finalizeAwayTeamDispatch(teamId, worldAgeHours)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    if type(team) ~= "table" or team.state ~= "dispatching" then
+        return nil, "dispatch_not_pending"
+    end
+    local removed = type(team.dispatch) == "table" and team.dispatch.removedMemberIds or {}
+    local seen = {}
+    for _, id in ipairs(removed) do seen[id] = true end
+    for _, id in ipairs(team.memberIds or {}) do
+        if not seen[id] then return nil, "removal_unconfirmed=" .. tostring(id) end
+    end
+    team.state = "outbound"
+    team.departedAtHours = tonumber(worldAgeHours) or team.departedAtHours
+    team.dispatch = nil
+    return copySerializable(team), "dispatched"
+end
+
+function KnoxPersistence.abortAwayTeamDispatch(teamId, reason, worldAgeHours)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    if type(team) ~= "table" or team.state ~= "dispatching" then
+        return nil, "dispatch_not_pending"
+    end
+    team.state = "blocked"
+    team.blockedAtHours = tonumber(worldAgeHours) or 0
+    team.result = {
+        kind = "dispatch_incomplete",
+        reason = tostring(reason or "native_removal_unconfirmed"),
+        removedMemberIds = copySerializable(type(team.dispatch) == "table"
+            and team.dispatch.removedMemberIds or {}),
+    }
+    restoreAwayTeamDuties(team, worldAgeHours)
+    return copySerializable(team), "aborted"
+end
+
+local function blockedDispatchRemovedMember(team, survivorId)
+    if type(team) ~= "table" or team.state ~= "blocked"
+        or type(team.result) ~= "table" or team.result.kind ~= "dispatch_incomplete" then
+        return false
+    end
+    for _, id in ipairs(team.result.removedMemberIds or {}) do
+        if id == survivorId then return true end
+    end
+    return false
+end
+
+-- A native body acknowledged as removed during a failed dispatch stays owned
+-- by its hibernated ledger until normal record restoration succeeds. Returning
+-- the blocked team here is read-only: no body is invented and no duty changes
+-- until the runtime has actually registered that restored shell.
+function KnoxPersistence.getBlockedAwayTeamRecovery(survivorId)
+    local survivor = type(survivorId) == "string" and root().survivors[survivorId] or nil
+    local duty = survivor ~= nil and survivor.duty or nil
+    if survivor == nil or survivor.alive == false or type(duty) ~= "table"
+        or duty.mode ~= "away" or type(duty.awayTeamId) ~= "string" then
+        return nil
+    end
+    local team = root().awayTeams[duty.awayTeamId]
+    return blockedDispatchRemovedMember(team, survivorId) and copySerializable(team) or nil
+end
+
+-- Called only after canonical record restoration has produced and registered a
+-- real body. It releases the blocked-away hold without changing identity,
+-- inventory/equipment, needs, affiliation, or the historical blocked record.
+function KnoxPersistence.recoverBlockedAwayTeamMember(teamId, survivorId, worldAgeHours)
+    local team = type(teamId) == "string" and root().awayTeams[teamId] or nil
+    local survivor = type(survivorId) == "string" and root().survivors[survivorId] or nil
+    if survivor == nil or survivor.alive == false
+        or not blockedDispatchRemovedMember(team, survivorId) then
+        return false, "blocked_recovery_unavailable"
+    end
+    local duty = survivor.duty
+    if type(duty) ~= "table" or duty.mode ~= "away" or duty.awayTeamId ~= teamId then
+        return false, "blocked_recovery_not_owned"
+    end
+    local previous = duty.previousDuty
+    survivor.duty = type(previous) == "table" and copySerializable(previous) or {
+        mode = "autonomous", order = "survive", revision = 0,
+    }
+    survivor.duty.changedAtHours = tonumber(worldAgeHours) or 0
+    survivor.duty.revision = (tonumber(survivor.duty.revision) or 0) + 1
+    team.result.recoveredMemberIds = type(team.result.recoveredMemberIds) == "table"
+        and team.result.recoveredMemberIds or {}
+    for _, id in ipairs(team.result.recoveredMemberIds) do
+        if id == survivorId then return true, "already_recovered" end
+    end
+    table.insert(team.result.recoveredMemberIds, survivorId)
+    return true, "recovered"
+end
+
 function KnoxPersistence.getAwayTeamReturnDestination(teamId)
     local team = KnoxPersistence.getAwayTeam(teamId)
     return team ~= nil and copySerializable(team.returnDestination) or nil
 end
 
-local function restoreAwayTeamDuties(team, worldAgeHours)
+restoreAwayTeamDuties = function(team, worldAgeHours)
     for _, id in ipairs(team.memberIds or {}) do
         local survivor = ensureSurvivorState(id)
         -- Death is authoritative even if it races the mission timeout.  Do not
@@ -1988,7 +2117,7 @@ local function restoreAwayTeamDuties(team, worldAgeHours)
                 revision = (tonumber(survivor.duty ~= nil
                     and survivor.duty.revision) or 0) + 1,
             }
-        else
+        elseif not blockedDispatchRemovedMember(team, id) then
             local previous = survivor.duty.previousDuty
             survivor.duty = type(previous) == "table" and previous or {
                 mode = "autonomous", order = "survive", revision = 0,
@@ -4234,6 +4363,89 @@ function KnoxPersistence.getTravelGroupObjective(groupId)
         and copySerializable(group.objective) or nil
 end
 
+-- A leader order is a small, explicit group directive. It is separate from
+-- the leader's life-intent summary: the objective describes why a leader is
+-- acting, while this record tells the existing follower arbitration whether to
+-- stay in formation or hold. It never owns native movement or combat.
+local function validTravelGroupLeaderOrder(group, leaderId, order)
+    return type(group) == "table" and type(leaderId) == "string"
+        and group.leaderId == leaderId and containsId(group.memberIds, leaderId)
+        and type(order) == "table"
+        and order.leaderId == leaderId and order.groupId == group.id
+        and KnoxPersistence.isSurvivorAlive(leaderId)
+        and (order.kind == "follow" or order.kind == "hold")
+end
+
+function KnoxPersistence.getTravelGroupLeaderOrder(groupId, worldAgeHours)
+    local group = type(groupId) == "string" and root().travelGroups[groupId] or nil
+    local order = group ~= nil and group.leaderOrder or nil
+    if not validTravelGroupLeaderOrder(group, group ~= nil and group.leaderId or nil, order) then
+        return nil
+    end
+    local faction = group.factionId ~= nil and root().factions[group.factionId] or nil
+    if group.factionId ~= nil and (faction == nil or faction.leaderId ~= order.leaderId) then
+        return nil
+    end
+    local expiry = tonumber(order.expiresAtHours)
+    if not finiteCoordinate(expiry) then return nil end
+    local now = tonumber(worldAgeHours)
+    if now == nil and getGameTime ~= nil and getGameTime() ~= nil then
+        now = tonumber(getGameTime():getWorldAgeHours())
+    end
+    if not finiteCoordinate(now) then return nil end
+    if now >= expiry then
+        group.leaderOrder = nil
+        group.leaderOrderRevision = (tonumber(group.leaderOrderRevision) or 0) + 1
+        return nil
+    end
+    return copySerializable(order)
+end
+
+function KnoxPersistence.issueTravelGroupLeaderOrder(
+    groupId, leaderId, kind, worldAgeHours, expiresAtHours
+)
+    local group = type(groupId) == "string" and root().travelGroups[groupId] or nil
+    local nextOrder = { kind = tostring(kind or ""), leaderId = leaderId, groupId = groupId }
+    if not validTravelGroupLeaderOrder(group, leaderId, nextOrder) then
+        return nil, "invalid_leader_order"
+    end
+    local faction = group.factionId ~= nil and root().factions[group.factionId] or nil
+    if group.factionId ~= nil and (faction == nil or faction.leaderId ~= leaderId) then
+        return nil, "faction_leader_mismatch"
+    end
+    local now = tonumber(worldAgeHours)
+    if not finiteCoordinate(now) or now < 0 then return nil, "invalid_order_time" end
+    -- A default lease is not renewed by repeated travel signals. Only a new
+    -- directive or an expired lease receives a fresh fifteen-game-minute bound.
+    local expiry = expiresAtHours == nil and now + 0.25 or tonumber(expiresAtHours)
+    if not finiteCoordinate(expiry) or expiry <= now then return nil, "expired_order" end
+    local current = KnoxPersistence.getTravelGroupLeaderOrder(groupId, now)
+    if current ~= nil and current.kind == nextOrder.kind
+        and current.leaderId == leaderId
+        and (expiresAtHours == nil or tonumber(current.expiresAtHours) == expiry) then
+        return copySerializable(current), "unchanged"
+    end
+    group.leaderOrderRevision = (tonumber(group.leaderOrderRevision) or 0) + 1
+    nextOrder.groupId = group.id
+    nextOrder.issuedAtHours = now
+    nextOrder.updatedAtHours = now
+    nextOrder.expiresAtHours = expiry
+    nextOrder.revision = group.leaderOrderRevision
+    group.leaderOrder = nextOrder
+    return copySerializable(nextOrder), "issued"
+end
+
+function KnoxPersistence.clearTravelGroupLeaderOrder(groupId, leaderId)
+    local group = type(groupId) == "string" and root().travelGroups[groupId] or nil
+    if group == nil or group.leaderOrder == nil
+        or type(leaderId) ~= "string" or group.leaderId ~= leaderId then
+        return false
+    end
+    group.leaderOrder = nil
+    group.leaderOrderRevision = (tonumber(group.leaderOrderRevision) or 0) + 1
+    return true
+end
+
 function KnoxPersistence.setTravelGroupObjective(
     groupId,
     leaderId,
@@ -4298,6 +4510,8 @@ function KnoxPersistence.removeTravelGroupMember(survivorId)
                 group.leaderId = retained[1]
                 group.objective = nil
                 group.objectiveRevision = (tonumber(group.objectiveRevision) or 0) + 1
+                group.leaderOrder = nil
+                group.leaderOrderRevision = (tonumber(group.leaderOrderRevision) or 0) + 1
             end
             if #retained < 2 then data.travelGroups[groupId] = nil end
             removed = true
@@ -4614,6 +4828,8 @@ function KnoxPersistence.createTravelGroup(memberIds, worldAgeHours)
         factionId = nil,
         objective = nil,
         objectiveRevision = 0,
+        leaderOrder = nil,
+        leaderOrderRevision = 0,
     }
     for _, memberId in ipairs(members) do
         group.memberJoinedAtHours[memberId] = group.formedAtHours
@@ -5771,7 +5987,8 @@ function KnoxPersistence.setBaseStoragePolicy(baseId, reference, category, depot
     end
     local validCategories = {
         food=true, water=true, medical=true, weapons=true,
-        ammunition=true, tools=true, logs=true, building=true, farming=true, clothing=true, junk=true,
+        ammunition=true, tools=true, logs=true, general=true,
+        building=true, farming=true, clothing=true, junk=true,
     }
     if not validCategories[category] then return nil, "unknown_storage_category" end
     local policy = {

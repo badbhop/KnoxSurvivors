@@ -6,7 +6,7 @@ purpose: canonical AI/tool routing workflow
 
 # Knox Survivors — AI development workflow
 
-Updated: 2026-09-26
+Updated: 2026-09-27
 
 ## Goal
 
@@ -20,14 +20,61 @@ The production loop is:
 
 1. **One active implementation owner per task/bug ID.** Subagents may research, plan, inspect, or review, but dependent edits should not be split across competing agents.
 2. **One durable source for each fact.** Active work lives in `WORK_QUEUE.md`; confirmed defects in `BUGS.md`; settled decisions in `DECISIONS.md`. `.modforge/PROJECT_STATE.md` is generated.
-3. **No opportunistic scope creep.** If an agent finds adjacent work that is not required to complete the current item, record/triage it instead of silently fixing it.
-4. **Escalate by boundary, not by frustration.** Narrow reproducible bugs stay in the budget lane. Persistence/identity/lifecycle/architecture/cross-system work moves to Codex.
-5. **Evidence changes status.** Code existing is not the same as offline verified, live verified, or release ready.
-6. **No agent creates work merely to stay busy.** When there is no approved actionable item, return the uncertainty/priorities to the Boss/owner.
+3. **Update existing records before creating anything new.** Progress, support evidence, scope changes, and completion evidence belong in the existing canonical task/bug/decision/current-state sections. Do not create duplicate plans, status snapshots, bug ledgers, or release documents to avoid updating the owner record.
+4. **No opportunistic scope creep.** If an agent finds adjacent work that is not required to complete the current item, record/triage it instead of silently fixing it.
+5. **Escalate by boundary, not by frustration.** Narrow reproducible bugs stay in the budget lane. Persistence/identity/lifecycle/architecture/cross-system work moves to Codex.
+6. **Evidence changes status.** Code existing is not the same as offline verified, live verified, or release ready.
+7. **Deferred live tests are tracked dependencies, not universal blockers.** Continue independent mechanics when the offline evidence and architecture boundary are strong enough, while keeping the live scenario open and clearly unverified. Do not advance the affected release gate or claim native behavior until the live test passes.
+8. **Use the real game boundary.** Prefer Project Zomboid's real APIs, native systems, assets, items, actions, resources, and runtime state. When behavior is unknown, investigate from exact source/runtime evidence and careful reverse engineering rather than fabricating success or building an unsupported parallel simulation.
+9. **No agent creates work merely to stay busy.** When there is no approved actionable item, consult the roadmap/milestones and relevant design references before proposing the next item; return unresolved product choices to the Boss/owner.
 
-## ModForge — production desk
+## Shared documentation and context routing
 
-ModForge is the persistent coordination layer. It should automatically sync the repository on project open, on watched canonical-file changes, and on the configured fallback interval without spending model tokens just to detect changes.
+Codex, OpenCode, and ModForge use the same repository records. They must expose
+the same production/design/testing map to their agents, but they should load
+documents lazily to control context size and usage.
+
+Always establish current truth from:
+
+`AGENTS.md` → `docs/production/PROJECT.md` → `CURRENT_STATE.md` →
+`WORK_QUEUE.md` → `BUGS.md` → `DECISIONS.md`.
+
+Load `QA_RELEASE.md` and `DEVELOPMENT_TESTING.md` when validation or release
+confidence is involved. Load `FEATURE_SPEC.md` and `ARCHITECTURE.md` when the
+implementation boundary requires them. Load `ROADMAP.md`, `MILESTONES.md`,
+`docs/design/README.md`, the relevant design intake/inspiration notes, and
+research history when deciding what to start next or resolving an unknown—not
+as routine context. Load `SUPPORT_AND_TRIAGE.md` for pasted player/tester
+reports and `COLLABORATION.md` for translator/external-author conversations.
+
+The active owner may read the exact source, tests, runtime evidence, or design
+reference needed for the task. No tool should preload the entire repository,
+all historical documents, or all logs.
+
+## Keeping production records synchronized
+
+After meaningful work, update the existing owner record in the same cycle:
+
+- implementation/evidence → `WORK_QUEUE.md` or `BUGS.md`;
+- current position or blocked dependency → `CURRENT_STATE.md`;
+- settled product/architecture choice → `DECISIONS.md`;
+- phase/order change → `ROADMAP.md` and, when relevant, `MILESTONES.md`;
+- acceptance/release evidence change → `QA_RELEASE.md`;
+- tester/player report → `SUPPORT_AND_TRIAGE.md`, then the linked bug/task;
+- collaborator conversation or delivered work → `COLLABORATION.md` and linked bug/task;
+- design/reference decision → relevant `docs/design/` record plus `DECISIONS.md` or `ROADMAP.md`.
+
+Update only when the new evidence or decision supports it. Do not create a new
+status, roadmap, bug, tester, or collaboration document just to avoid updating
+the canonical record. `.modforge/PROJECT_STATE.md` remains generated.
+
+## ModForge — optional production desk
+
+ModForge is an optional local coordination and indexing layer. When it is open,
+it may automatically sync the repository on project open, watched canonical-file
+changes, and the configured fallback interval without spending model tokens just
+to detect changes. When it is not installed, open, or available, the repository
+workflow below remains complete using `AGENTS.md`, Git, and `docs/production/`.
 
 ModForge owns:
 
@@ -44,7 +91,7 @@ ModForge owns:
 - Model Center role profiles and explicit Free / Subscription Allowance / Paid usage lanes;
 - source-write protection and Change Ledger notes when ModForge itself is deliberately allowed to edit repository files.
 
-For imported production tasks/bugs, ModForge is a **view/editor of repository truth**, not an independent second task database. Safe UI changes should write through to the canonical section when there is no external-edit conflict.
+For imported production tasks/bugs, ModForge is a **view/editor of repository truth**, not an independent second task database. Safe UI changes may write through to the canonical section when there is no external-edit conflict. Codex/OpenCode may update the same section directly without waiting for ModForge; repository truth wins on the next sync.
 
 ## Implementation authority hierarchy
 
@@ -56,11 +103,61 @@ For an approved work item, authority is deliberately separated:
 4. **ModForge / Boss / Planner:** production coordination, scope, priority, constraints, evidence, and routing. They do not rewrite the active implementer's approach just to express a different preference.
 5. **Cheap subagents:** research, scoping, cleanup, independent review, and evidence support only unless explicitly promoted.
 
+## Cost-controlled boss and worker lanes
+
+Use one boss lane for a workstream. GPT-6 Luna is the default cost-controlled
+Boss for normal development and coordination. GPT-5.6 Terra is the normal
+support/Grunt and independent-review lane. GPT-5.6 Luna is the Planner lane.
+Sol 5.6 low is an exceptional support/Boss escalation, and Astra medium is the
+final high-tier lane for last resort, whole-project review, or major new
+mechanic/system expansion. Sol and Astra must never be routine workers.
+
+### Escalation ladder
+
+Escalation is evidence-gated and must not happen merely because a task is
+interesting or difficult:
+
+1. Luna/Terra/OpenCode owns the bounded task and makes at least two documented
+   focused attempts, unless the first investigation proves the boundary is
+   immediately architecture-sensitive.
+2. If the same confirmed issue remains unresolved, the Boss may invoke the
+   `.codex/agents/sol-escalation.toml` lane (`gpt-5.6-sol`, low reasoning) for
+   one focused escalation attempt. It must read the previous attempts and may
+   not restart or broaden the work.
+3. If Sol also fails after one or two focused approaches, the Boss may invoke
+   `.codex/agents/astra-final.toml` (`gpt-6-astra`, medium reasoning) exactly
+   once as the final model escalation.
+4. If Astra cannot resolve it, stop and return the issue to the human owner or
+   leave it blocked with evidence. Do not loop, silently spend more premium
+   usage, or claim success.
+
+Each escalation record must include the task/bug ID, attempts already made,
+why they failed, exact remaining uncertainty, model lane requested, and a
+bounded acceptance condition. Routine planning, documentation, testing,
+cleanup, and lookup work never qualifies for this ladder.
+
+Use Luna first for planning, file scoping, documentation maintenance, test reporting, and narrow lookups. Use Terra for independent review, compatibility checks, bounded implementation, or support work that needs more judgment than routine Luna work. Grunt and Planner remain the cheap support roles. Use one support worker at a time by default. For any task classified as planning, lookup, cleanup, test collection, evidence gathering, documentation maintenance, or independent review, assign the appropriate cheap worker first; the boss should only integrate/review the result rather than doing repetitive work itself.
+
+The free OpenCode catalog remains the default for ModForge/OpenCode roles. A free catalog entry is not permission to select a premium Codex model as a subagent, and quota failure must never trigger a paid or subscription-backed fallback.
+
 If an implementation conflicts with recorded project vision, architecture ownership, task scope, or evidence requirements, ModForge/Boss can stop/escalate it. Otherwise the assigned coding tool gets room to work coherently like the project's engineering department.
 
 ## Codex / Astra — heavyweight engineering department
 
-Use Codex for:
+Use the normal Luna Boss for:
+
+- broad but bounded implementation;
+- integration and stabilization across existing systems;
+- focused debugging and research-backed fixes;
+- coordinating cheap planning, evidence, review, and cleanup support.
+
+Use Sol only for:
+
+- a confirmed difficult issue that the Luna Boss/Terra support path has failed
+  to resolve after repeated attempts;
+- an explicit owner request for a higher-tier focused pass.
+
+Use Astra for:
 
 - architecture-sensitive changes;
 - persistence, identity, lifecycle, ownership, reconstruction;
@@ -74,7 +171,12 @@ Normal Codex startup:
 
 `AGENTS.md` → current production docs → generated project state → smallest relevant technical authority → Git status/diff.
 
-The main Codex session (normally Astra for the owner's heavy-engineering workflow, with Sol/other approved models when deliberately chosen) remains the implementation owner. It should use its own normal agent/subagent workflow rather than being reduced to a passive ModForge worker. Cheap subagents should handle planning, file scoping, lookups, and independent review where useful. Do not spend the strongest model on grunt work by default.
+The main Codex session normally runs on GPT-6 Luna for cost-controlled
+development. GPT-5.6 Luna handles planning; GPT-5.6 Terra handles Grunt,
+bounded support, evidence, and independent review. Sol and Astra are separate,
+deliberate exceptions and are never routine subagents. The Boss should keep a
+coherent workstream moving and delegate repetitive support instead of reducing
+the session to many tiny passes.
 
 ## OpenCode — budget implementation/support department
 
@@ -88,9 +190,11 @@ Use OpenCode for:
 - translation/collaboration support;
 - narrow review/research using local/free/cheap models.
 
-OpenCode must stop and escalate instead of stretching a cheap patch when the work crosses persistence, survivor identity, lifecycle ownership, save migration, core architecture, or several coupled systems.
+OpenCode must stop and escalate instead of stretching a cheap patch when the work crosses persistence, survivor identity, lifecycle ownership, save migration, core architecture, or several coupled systems. OpenCode remains the implementation owner for its assigned bounded task; ModForge supplies the contract and records the result.
 
-Project subagents live under `.opencode/agents/`. Model/provider selection is intentionally flexible: prefer local/free/cheap routes, but the owner may deliberately use spare OpenCode subscription/provider allowance for stronger planning/research/support. ModForge must never assume an ambiguous OpenCode route is free; subscription-backed model IDs are explicitly marked in Model Center and require the Subscription Allowance toggle.
+Project subagents live under `.opencode/agents/`. The repository default is now a project-local free-only OpenCode profile in `opencode.json`; role-specific free primary/fallback assignments live in `.modforge/free-models.json`. The owner may deliberately choose another provider outside that profile, but ModForge must never silently change the project to a subscription-backed or paid route.
+
+OpenCode has two explicit local profiles: the default free lane in `opencode.free.json` and the opt-in OpenCode Go subscription lane in `opencode.go.json`. Start them with `scripts/start-opencode.ps1` or `scripts/start-opencode.ps1 -Profile go`. The Go lane uses the `opencode-go` provider only. OpenCode Go is separate from ChatGPT Go/Codex usage; the project must not represent one as the other.
 
 ## ModForge team roles
 
@@ -147,9 +251,25 @@ A handoff is not permission to clean unrelated code.
 2. QA Reviewer checks task contract and scope drift.
 3. Required focused/full/live checks run.
 4. Only then does task/bug status advance.
-5. Canonical repository section is updated (directly or by ModForge write-through).
-6. ModForge re-indexes and regenerates `.modforge/PROJECT_STATE.md`.
-7. Boss chooses the next approved item from fresh state.
+5. Existing canonical repository section is updated in place (directly or by ModForge write-through).
+6. If ModForge is active, it re-indexes and regenerates `.modforge/PROJECT_STATE.md`.
+7. Boss/owner chooses the next approved item from the refreshed canonical state.
+
+## Standalone Codex/OpenCode path
+
+ModForge is not a prerequisite. A normal session can use this compact loop:
+
+1. Read `AGENTS.md`, then `PROJECT.md`, `CURRENT_STATE.md`, `WORK_QUEUE.md`,
+   `BUGS.md` and `DECISIONS.md`.
+2. Check `git status`/`git diff` and identify the active task, bug, or explicit
+   owner request.
+3. Load only the technical authority relevant to the subsystem.
+4. Implement with Codex or OpenCode according to the routing rules above.
+5. Run focused validation, record exact evidence in the existing canonical
+   record, and leave any live-only boundary open.
+
+No ModForge task card, generated state file, Inbox item, or handoff UI is needed
+to perform this path. Those are optional conveniences, not project authority.
 
 ## Context rule
 

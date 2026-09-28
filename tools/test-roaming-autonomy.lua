@@ -120,3 +120,75 @@ assert(Controller.entryCandidateScore("door", false, false, false, true, false, 
 assert(Controller.entryCandidateScore("window", false, false, true, true, true, true, true) == nil,
     "barricaded window remains excluded")
 print("Roaming autonomy PASS useful=true memory=true danger=true stability=true needs=true next_block=true bounded_scan=true onward=true")
+
+-- Actual gameplay caller -> canonical persistence -> relationship delivery.
+-- Only the engine's route acknowledgement is stubbed; no native arrival is claimed.
+local savedData = {}
+ModData = { getOrCreate = function(key)
+    savedData[key] = savedData[key] or {}; return savedData[key]
+end }
+Events = { OnSave = { Add = function() end }, OnGameStart = { Add = function() end } }
+local worldHour = 80
+getGameTime = function() return { getWorldAgeHours = function() return worldHour end } end
+assert(loadfile(projectRoot .. "/mod/42/media/lua/client/KS_Persistence.lua"))()
+KnoxSettings = { allowNPCFactions = function() return false end }
+for _, id in ipairs({ "a-leader", "b-follower", "c-follower", "unrelated" }) do
+    assert(KnoxPersistence.setRecord(id, "fixture-" .. id))
+end
+local group = assert(KnoxPersistence.createTravelGroup({ "a-leader", "b-follower", "c-follower" }, worldHour))
+roaming.id, roaming.recentRoamGoals, roaming.roamGoalOrder = "a-leader", {}, {}
+assert(roaming:beginRoam(300), "recognized leader uses the ordinary roaming path")
+local issued = assert(KnoxPersistence.getTravelGroupLeaderOrder(group.id, worldHour))
+assert(issued.kind == "follow" and issued.leaderId == roaming.id and issued.expiresAtHours == 80.25,
+    "successful native route admission issues a bounded canonical follow order")
+local controllers = { [roaming.id] = roaming }
+for _, id in ipairs({ "b-follower", "c-follower", "unrelated" }) do
+    controllers[id] = setmetatable({ id = id, character = actor, state = "IDLE" }, { __index = Controller })
+end
+assert(loadfile(projectRoot .. "/mod/42/media/lua/client/KS_SurvivorRelationships.lua"))()
+KnoxSurvivorRelationships.coordinate(controllers, { "a-leader", "b-follower", "c-follower", "unrelated" }, 300)
+for _, id in ipairs({ "b-follower", "c-follower" }) do
+    assert(controllers[id].groupLeaderOrder.revision == issued.revision
+        and controllers[id].groupLeaderId == "a-leader", "current followers receive the canonical directive")
+end
+assert(controllers.unrelated.groupLeaderOrder == nil, "unrelated survivors receive no directive")
+assert(controllers["b-follower"]:issueGroupLeaderOrder("hold", 301) == nil,
+    "controller wrapper rejects a non-leader")
+local held = assert(roaming:issueGroupLeaderOrder("hold", 301))
+KnoxSurvivorRelationships.coordinate(controllers, { "a-leader", "b-follower", "c-follower", "unrelated" }, 360)
+assert(controllers["b-follower"].groupLeaderOrder.kind == "hold", "hold follows the same delivery path")
+local savedMove = roaming.bridge.moveNpc
+roaming.bridge.moveNpc = function() return "MOVE_FAILED fixture" end
+roaming.recentRoamGoals, roaming.roamGoalOrder = {}, {}
+assert(not roaming:beginRoam(400), "failed native route remains a failure")
+assert(KnoxPersistence.getTravelGroupLeaderOrder(group.id, worldHour).revision == held.revision,
+    "a failed travel request cannot replace hold with fabricated follow")
+roaming.bridge.moveNpc = savedMove
+roaming.recentRoamGoals, roaming.roamGoalOrder = {}, {}
+assert(roaming:beginRoam(500))
+local moving = assert(KnoxPersistence.getTravelGroupLeaderOrder(group.id, worldHour))
+assert(moving.kind == "follow" and moving.revision > held.revision,
+    "successful leader travel releases an old hold through canonical follow")
+roaming.recentRoamGoals, roaming.roamGoalOrder = {}, {}
+worldHour = 80.1
+assert(roaming:beginRoam(600))
+assert(KnoxPersistence.getTravelGroupLeaderOrder(group.id, worldHour).revision == moving.revision,
+    "subsequent successful routes do not reissue the same live lease")
+AdjacentFreeTileFinder = { Find = function(target) return target end }
+roaming.bridge.moveNpcWithPace = savedMove
+roaming.nextRegroupCallout = 9999
+assert(roaming:beginGroupRegroup(actor, 601), "leader regroup uses existing native route ownership")
+assert(KnoxPersistence.getTravelGroupLeaderOrder(group.id, worldHour).revision == moving.revision,
+    "regroup shares the same deduplicated follow directive")
+assert(KnoxPersistence.clearTravelGroupLeaderOrder(group.id, roaming.id))
+KnoxSurvivorRelationships.coordinate(controllers, { "a-leader", "b-follower", "c-follower", "unrelated" }, 660)
+assert(controllers["b-follower"].groupLeaderOrder == nil and controllers["c-follower"].groupLeaderOrder == nil,
+    "canonical cancellation reaches all current followers")
+actor.isDead = function() return true end
+assert(roaming:issueGroupLeaderOrder("hold", 661) == nil, "a native dead leader cannot issue")
+actor.isDead = nil
+local savedSquare = actor.getCurrentSquare
+actor.getCurrentSquare = function() return nil end
+assert(roaming:issueGroupLeaderOrder("hold", 662) == nil, "a detached leader cannot issue")
+actor.getCurrentSquare = savedSquare
+print("Leader gameplay integration PASS route=true canonical=true delivery=true filtering=true failure=true deduplication=true")

@@ -6,7 +6,7 @@ purpose: canonical research and compatibility index
 
 # Knox Survivors — research and compatibility index
 
-Updated: 2026-09-26
+Updated: 2026-09-28
 
 ## Target environment
 
@@ -46,7 +46,7 @@ Current owner-approved NPC-system research is consolidated in:
 
 `../design/NPC_SYSTEM_INSPIRATION.md`
 
-That document uses Project Zomboid, RimWorld, Survivalist: Invisible Strain, State of Decay 2, Rebuild 3 and Dead State as bounded design references while keeping PZ as the foundation.
+That document uses Project Zomboid, RimWorld, Survivalist: Invisible Strain, State of Decay 2, Rebuild 3 and Dead State as bounded design references while keeping PZ as the foundation. As of 2026-09-28 it also contains the verified TIS vision synthesis (NPCs-as-players, abstract storylets, three manifest stages), the immersive/natural/smooth feel guide, per-system implementation dossiers with Knox owners and must-never rules, and the Codex execution map. Codex should read the dossier for the active subsystem plus `../ARCHITECTURE.md` and `../FEATURE_SPEC.md`; the dossier does not replace task/bug state in `WORK_QUEUE.md`/`BUGS.md`.
 
 The current research is sufficient for the next architecture/design pass. Additional game research is optional and should enter through Design Inbox rather than becoming surprise implementation scope.
 

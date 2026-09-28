@@ -118,8 +118,8 @@ local function materialize(site)
                 if blood >= BLOOD_SQUARES then break end
             end
         end
-        smashWindowsNear(x, y, z, WINDOW_SMASHES)
-        return true
+        local windows = smashWindowsNear(x, y, z, WINDOW_SMASHES)
+        return blood > 0 or windows > 0
     end
     return false
 end
@@ -154,7 +154,7 @@ function Traces.update()
             local ok = false
             local okRun, result = pcall(materialize, site)
             if okRun then ok = result end
-            if persistence.markTraceVisited ~= nil then
+            if ok and persistence.markTraceVisited ~= nil then
                 pcall(persistence.markTraceVisited, site.id)
             end
             if ok then done = done + 1 end

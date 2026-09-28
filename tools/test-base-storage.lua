@@ -171,6 +171,42 @@ assert(not storage.findDepositTrip(base, worker, depotItem), "cross-floor search
 origin.x, origin.z = 11, 0
 assert(storage.findNearbyDeposit(base, worker, depotItem, "building").policy.key == "building",
     "typed policy can be selected directly")
+local generalBase = { id = "general-fallback", storage = {
+    general = { key = "general", x = 12, y = 20, z = 0, objectIndex = 2,
+        containerIndex = 0, containerType = "crate", category = "general",
+        storageRole = "general" },
+} }
+local unclassifiedItem = item("Mod.UnclassifiedSupply")
+local generalDeposit = assert(storage.findNearbyDeposit(generalBase, worker, unclassifiedItem))
+assert(generalDeposit.policy.key == "general"
+    and storage.acceptsDeposit(generalDeposit.policy, unclassifiedItem),
+    "an explicitly assigned General Storage accepts an otherwise unclassified real item")
+for _, fullType in ipairs({ "Base.Log", "Base.TreeBranch", "Base.Twigs", "Base.Firewood" }) do
+    assert(storage.classifyItem(item(fullType)) == "logs",
+        "raw timber and firewood route to Logs & Lumber: " .. fullType)
+end
+local function nativeItem(full, display)
+    local result = item(full)
+    result.getDisplayCategory = function() return display end
+    return result
+end
+for _, fullType in ipairs({ "Base.NormalTire1", "Base.CarBattery1", "Base.NormalBrake1",
+        "Base.SmallGasTank1" }) do
+    local part = nativeItem(fullType, "VehicleMaintenance")
+    assert(storage.classifyItem(part) == "building",
+        "native vehicle parts route to Materials: " .. fullType)
+    assert(storage.matchesCategory(part, "building"),
+        "VehicleMaintenance matches the building role: " .. fullType)
+    assert(not storage.matchesCategory(part, "logs")
+        and not storage.matchesCategory(part, "tools")
+        and not storage.matchesCategory(part, "medical")
+        and not storage.matchesCategory(part, "food"),
+        "vehicle parts do not leak into unrelated typed roles: " .. fullType)
+end
+assert(storage.classifyItem(nativeItem("Base.SheetMetal", "Material")) == "building",
+    "native Material sheets stay on the Materials shelf")
+assert(storage.classifyItem(item("Mod.UnclassifiedSupply")) == "other",
+    "genuinely unclassified items still fall through to General Storage")
 local required = assert(storage.findRequiredTransfer(base, worker, { items = { ["Base.Plank"] = 1 } }))
 assert(required.sourcePolicy.key == "depot")
 assert(storage.requirementsAvailable(base, worker, { items = { ["Base.Plank"] = 1 } }))

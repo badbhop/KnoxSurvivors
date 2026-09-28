@@ -4,10 +4,12 @@ package.path = rootPath .. "/mod/42/media/lua/client/?.lua;" .. package.path
 package.loaded["ISUI/ISPanel"] = true
 
 local drawn = {}
+local lastPanel = nil
 local function stubPanel()
-    return {
+    local panel = {
         initialise = function() end,
-        setWantMouseEvents = function() end,
+        noBackground = function(self) self.background = false end,
+        setWantMouseEvents = function(self, value) self.wantMouseEvents = value end,
         setVisible = function(self, v) self.visible = v end,
         setRenderThisPlayerOnly = function() end,
         addToUIManager = function() end,
@@ -17,7 +19,10 @@ local function stubPanel()
         drawLine2 = function(self, ...) drawn[#drawn + 1] = { ... } end,
         drawText = function() end,
         playerNum = 0,
+        background = true,
     }
+    lastPanel = panel
+    return panel
 end
 ISPanel = {
     derive = function(_, name)
@@ -74,8 +79,27 @@ local north = indicators.noteSpeech(square(100, 70, 0), "near-3", false)
 assert(north ~= nil and north.dir == "N", "north reads north")
 local northwest = indicators.noteSpeech(square(80, 80, 0), "near-4", false)
 assert(northwest ~= nil and northwest.dir == "NW", "northwest reads northwest")
+assert(lastPanel ~= nil and lastPanel.background == false,
+    "render-only overlay disables ISPanel's default black background")
+assert(lastPanel.wantMouseEvents == false,
+    "render-only overlay explicitly passes mouse input through")
+indicators.prerender(0, lastPanel)
+assert(#drawn > 0, "active indicators render line geometry")
+for _, line in ipairs(drawn) do
+    assert(not (line[6] == 0.05 and line[7] == 0.05 and line[8] == 0.05),
+        "indicator contains no same-width black under-stroke")
+end
 -- Too close: audible bubble territory, no arrow needed.
 assert(indicators.noteSpeech(square(105, 100, 0), "close-1", false) == nil,
     "point-blank speech needs no arrow")
+assert(indicators.noteSpeech(square(nil, 100, 0), "stale-1", false) == nil,
+    "missing stale speaker coordinates degrade without an error")
+assert(indicators.noteSpeech(square(130, 100, nil), "stale-z", false) == nil,
+    "missing stale speaker floor degrades without an error")
 
-print("Speech indicators PASS range=true compass=true floors=true close=true")
+now = now + indicators.DURATION_MS + 1
+indicators.prerender(0, lastPanel)
+assert(lastPanel.visible == false, "expired indicators hide their overlay")
+indicators.reset()
+
+print("Speech indicators PASS range=true compass=true style=true input=true expiry=true stale=true")

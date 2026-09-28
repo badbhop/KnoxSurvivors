@@ -178,9 +178,9 @@ KnoxZombieAwareness.update({near={character=npc}},{"near"},585)
 assert(directed==initial+2, "discovery changes must not weaken native pursuit refresh")
 print("Stealth awareness integration PASS no_false_memory=true native_pursuit=true")
 
--- Bite-envelope visibility bits: held only while a zombie actively engages
--- the shell with verified line of sight, moved with the survivor, cleared
--- on every disengage path so no square keeps phantom wall-hack vision.
+-- Build 42 off-slot shells must never write LightingJNI visibility bits. Native
+-- target selection still continues, but bite completion remains an engine-owned
+-- result rather than a synthetic setCouldSee override.
 local function bitSquare(x, y, z)
     local bits = {}
     local s = square(x, y, z)
@@ -206,13 +206,13 @@ local biter = {
 list.get = function(_, index) return index == 0 and biter or nil end
 KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 600)
 assert(biter.target == npc, "adjacent shell is acquired")
-assert(homeSquare._bits[7] == true, "engaged bite envelope holds the shell visibility bit")
+assert(homeSquare._bits[7] ~= true, "off-slot shell never writes a LightingJNI visibility bit")
 local awaySquare = bitSquare(12, 10, 0)
 npc.current = awaySquare
 KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 615)
-assert(homeSquare._bits[7] ~= true, "moved survivor releases the old square")
-assert(awaySquare._bits[7] == true, "bit follows the survivor")
+assert(homeSquare._bits[7] ~= true and awaySquare._bits[7] ~= true,
+    "movement cannot leave or move a synthetic visibility bit")
 biter.dead = true
 KnoxZombieAwareness.update({ near = { character = npc } }, { "near" }, 630)
 assert(awaySquare._bits[7] ~= true, "disengage clears the bit")
-print("Visibility bit ownership PASS engaged=true follows=true cleared=true")
+print("Visibility bit safety PASS no_lightingjni_write=true native_targeting=true")

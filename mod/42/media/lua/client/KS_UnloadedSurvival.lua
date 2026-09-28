@@ -577,6 +577,28 @@ function Simulation.markStored(id, hours)
     return true, "stored"
 end
 
+-- A dispatch may reserve a stored ledger before native body removal. If the
+-- later team/teardown step aborts while that body is still live, return only
+-- ledger ownership to the loaded shell; its already-captured identity,
+-- inventory, equipment and need state remain authoritative.
+function Simulation.rollbackStored(id, hours)
+    local persistence = rawget(_G, "KnoxPersistence")
+    local state = persistence ~= nil and persistence.getUnloadedSurvivalState ~= nil
+        and persistence.getUnloadedSurvivalState(id) or nil
+    if state == nil or state.pendingMaterialization == true then
+        return false, "real_survival_snapshot_required"
+    end
+    local now = tonumber(hours) or nowHours()
+    state.status = "loaded"
+    state.activity = "loaded"
+    state.activitySinceHours = now
+    state.lastHours = now
+    if persistence.setUnloadedSurvivalState(id, state) ~= true then
+        return false, "stored_rollback_persistence_failed"
+    end
+    return true, "stored_rollback_loaded"
+end
+
 -- Starts a durable off-screen trip to an existing base. The caller is
 -- responsible for capturing/removing the active shell first; this function
 -- records only the virtual route and never creates or relocates a world body.
@@ -630,12 +652,13 @@ function Simulation.rollbackBaseReturn(id, hours)
     if state == nil or state.pendingMaterialization == true then
         return false, "real_survival_snapshot_required"
     end
-    local now = tonumber(hours) or nowHours()
+    local rolledBack, result = Simulation.rollbackStored(id, hours)
+    if not rolledBack then
+        return false, result == "stored_rollback_persistence_failed"
+            and "base_return_rollback_persistence_failed" or result
+    end
+    state = persistence.getUnloadedSurvivalState(id)
     state.baseReturn = nil
-    state.status = "loaded"
-    state.activity = "loaded"
-    state.activitySinceHours = now
-    state.lastHours = now
     if persistence.setUnloadedSurvivalState(id, state) ~= true then
         return false, "base_return_rollback_persistence_failed"
     end
@@ -732,34 +755,6 @@ function Simulation.advanceHibernated(id, hours)
         end
     end
     persistence.setUnloadedSurvivalState(id, state)
-    -- Abstract scuffles for travelers: the road leaves bodies. Once per
-    -- day, hibernated wanderers and supply runners risk a fight at their
-    -- virtual position. Survived scuffles chip health through the existing
-    -- damage path and record a trace site (blood where the player may walk).
-    if state.status ~= "dead" and state.virtualX ~= nil then
-        local duty = persistence.getSurvivorDuty ~= nil
-            and persistence.getSurvivorDuty(id) or {}
-        local mode = type(duty) == "table" and tostring(duty.mode or "") or ""
-        local traveling = mode == "autonomous"
-            or (mode == "base" and type(duty.activeSupplyRun) == "table")
-        local day = math.floor((tonumber(targetHours) or 0) / 24)
-        if traveling and (tonumber(state.lastScuffleDay) or -1) < day then
-            state.lastScuffleDay = day
-            local roll = stableHash(tostring(id) .. ":scuffle:" .. tostring(day)) % 100
-            if roll < 20 then
-                state.health = clamp((tonumber(state.health) or 100) - (2 + roll % 4), 0, 100)
-                if persistence.recordTraceSite ~= nil then
-                    persistence.recordTraceSite("fight",
-                        state.virtualX, state.virtualY, state.virtualZ, targetHours)
-                end
-                events[#events + 1] = "scuffle"
-                if state.health <= 0 then
-                    state.status = "dead"
-                end
-            end
-        end
-        persistence.setUnloadedSurvivalState(id, state)
-    end
     if state.status == "dead" then
         persistence.markSurvivorDead(id, targetHours, "unloaded_survival", {
             locationSource = "logical", corpseState = "logical_only",

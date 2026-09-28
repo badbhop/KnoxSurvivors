@@ -36,7 +36,9 @@ Knox uses ZombieBuddy's supported Patch API. Knox should not depend on ZombieBud
 ## Knox Launcher / legacy path
 
 - Enable Knox Survivors.
-- Do not use ZombieBuddy for that launch.
+- Do not use ZombieBuddy for that launch. If it is installed but inactive, the
+  Knox Launcher ignores it; if its startup configuration is active, the launcher
+  blocks before game startup rather than composing the two runtimes.
 - Start through the Knox Launcher / retained Knox Java-agent setup.
 
 Expected fresh log evidence:

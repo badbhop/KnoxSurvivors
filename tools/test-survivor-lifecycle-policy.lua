@@ -21,6 +21,17 @@ assert(not policy.distanceEligible(true, "companion", 101, 100))
 assert(not policy.distanceEligible(false, "autonomous", 101, 100))
 assert(not policy.distanceEligible(true, "autonomous", 99, 100))
 
+should, reason = policy.companionDetachedDecision(true, 25, 100, 20, 10)
+assert(not should and reason == "preserve-native-transient",
+    "recognized climbing/vaulting remains owned by the live native shell")
+should, reason = policy.companionDetachedDecision(false, 25, 100, 1, 10)
+assert(not should and reason == "preserve-companion-grace")
+should, reason = policy.companionDetachedDecision(false, 25, 100, 10, 10)
+assert(should and reason == "hibernate-stale-companion",
+    "unexplained near detachment is bounded instead of preserved forever")
+should, reason = policy.companionDetachedDecision(false, nil, 100, 1, 10)
+assert(should and reason == "hibernate-no-finite")
+
 local autonomyPath = rootPath .. "/mod/42/media/lua/client/KS_SurvivorAutonomy.lua"
 local autonomy = assert(io.open(autonomyPath, "r")):read("*a")
 assert(autonomy:find("DEAD_REMOVE_PENDING", 1, true),
@@ -38,8 +49,21 @@ assert(autonomy:find("return nil, \"dead_identity\"", 1, true),
 assert(autonomy:find("character:getVehicle() ~= nil", 1, true)
     and autonomy:find("Passenger shells are owned by the live vehicle", 1, true),
     "occupied vehicle seats must not be hibernated as detached shells")
-assert(autonomy:find("preserve-companion-detached", 1, true),
-    "detached companions must never hibernate on transient nil squares")
+assert(autonomy:find("recognizedDetachedTransient", 1, true)
+        and autonomy:find("DETACHED_COMPANION_GRACE_CHECKS", 1, true),
+    "companion traversal and unexplained detachment must use separate policies")
+assert(autonomy:find("controller.character == nil and live == nil", 1, true),
+    "a missing controller and bridge shell must still unregister immediately")
+local shutdownAt = assert(autonomy:find("entry.controller:shutdown()", 1, true))
+local storedAt = assert(autonomy:find("KnoxUnloadedSurvival.markStored(", shutdownAt, true))
+local removeAt = assert(autonomy:find("bridge:removeNpc(entry.id)", storedAt, true))
+local unregisterAt = assert(autonomy:find("KnoxSurvivorRuntime.unregister(entry.id", storedAt, true))
+assert(shutdownAt < storedAt and storedAt < removeAt and removeAt < unregisterAt,
+    "hibernate must capture and commit stored ownership before native removal")
+assert(autonomy:find("hibernate-store-failed", storedAt, true),
+    "a failed stored-ledger commit must retain the active runtime shell")
+assert(autonomy:find("recovery=", removeAt, true),
+    "failed native removal must restore loaded ledger ownership before retry")
 
 local registryPath = rootPath .. "/java/src/main/java/com/knoxsurvivors/npc/KnoxNpcRegistry.java"
 local registry = assert(io.open(registryPath, "r")):read("*a")
@@ -52,4 +76,4 @@ assert(not KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 400, 90 * 90), "s
 assert(KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 400, 60 * 60), "closer player releases edge cooldown")
 assert(KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 1000, 90 * 90), "streaming cooldown is bounded")
 assert(KnoxSurvivorLifecyclePolicy.restoreAfterDetach(100, 1, 90 * 90), "clock reset cannot strand a survivor")
-print("Survivor lifecycle policy PASS detached_bounded=true companion_distance_safe=true world_distance=true vehicle_safe=true dead_teardown=true corpse_handoff=true cleanup_retry=true save_boundary=true")
+print("Survivor lifecycle policy PASS detached_bounded=true companion_stale_bounded=true transient_safe=true companion_distance_safe=true world_distance=true vehicle_safe=true dead_teardown=true corpse_handoff=true cleanup_retry=true save_boundary=true")

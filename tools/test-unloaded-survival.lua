@@ -135,6 +135,11 @@ assert(prepared and provisionCalls == 1 and string.find(preparation, "food=3", 1
 assert(simulation.markStored("base", 5) and states.base.status == "hibernated"
         and states.base.lastHours == 5,
     "successful body removal must explicitly transfer the ledger to stored ownership")
+assert(simulation.rollbackStored("base", 5.5) and states.base.status == "loaded"
+        and states.base.activity == "loaded" and states.base.lastHours == 5.5,
+    "a pre-removal handoff failure returns ledger ownership to the live shell")
+assert(simulation.markStored("base", 5.5) and states.base.status == "hibernated",
+    "a later successful handoff can store the same identity without duplication")
 assert(not simulation.prepareBaseResidentForStorage("survivor", baseCharacter, 5)
         and provisionCalls == 1,
     "non-residents cannot withdraw from base storage during hibernation")
@@ -472,48 +477,29 @@ for _ in pairs(destinations) do distinct = distinct + 1 end
 assert(distinct > 1, "stored residents do not all gather at one corner")
 print("Stored territory geometry PASS")
 
--- Abstract road scuffles: hibernated travelers risk one deterministic
--- fight per day. Hits chip health through the existing damage path and
--- record a trace where the player may walk.
-local scuffleTraces = {}
+-- Hibernated travel may advance logical coordinates and real carried needs,
+-- but it cannot invent combat, injuries, blood, or world traces without a
+-- loaded native encounter.
+local fabricatedTraces = {}
 KnoxPersistence.recordTraceSite = function(kind, x, y, z, atHours)
-    scuffleTraces[#scuffleTraces + 1] = { kind = kind, x = x, y = y, at = atHours }
+    fabricatedTraces[#fabricatedTraces + 1] = { kind = kind, x = x, y = y, at = atHours }
     return "trace-test"
 end
-local function djb2(value)
-    local result = 5381
-    value = tostring(value)
-    for index = 1, #value do
-        result = (result * 33 + string.byte(value, index)) % 2147483647
-    end
-    return result
-end
 records.roamer = "record-roamer"
+summaries[records.roamer] = "Base.WaterBottleFull=1;Base.CannedSoup=1"
 states.roamer = {
     hunger = 0.1, thirst = 0.1, fatigue = 0.1, endurance = 0.9,
     health = 100, bleedingParts = 0, lastHours = 0, status = "hibernated",
     virtualX = 1000, virtualY = 2000, virtualZ = 0,
 }
-local expectedHits, expectedChip, scuffleEvents = 0, 0, 0
 for day = 1, 10 do
     states.roamer.hunger, states.roamer.thirst = 0.1, 0.1
     local ok, events = simulation.advanceHibernated("roamer", day * 24)
     assert(ok, "traveler advances off-screen")
-    if events ~= nil and string.find(tostring(events), "scuffle", 1, true) then
-        scuffleEvents = scuffleEvents + 1
-    end
-    local roll = djb2("roamer:scuffle:" .. tostring(day)) % 100
-    if roll < 20 then
-        expectedHits = expectedHits + 1
-        expectedChip = expectedChip + (2 + roll % 4)
-    end
+    assert(events == "advanced" or not string.find(tostring(events), "scuffle", 1, true),
+        "unloaded travel never reports abstract combat")
 end
-assert(expectedHits > 0, "fixture days include at least one scuffle")
-assert(#scuffleTraces == expectedHits, "every scuffle records one trace")
-assert(scuffleEvents == expectedHits, "scuffles surface in advance events")
-assert(states.roamer.health == 100 - expectedChip, "chips match the deterministic rolls")
-assert(states.roamer.lastScuffleDay == 10, "one roll per day at most")
-for _, trace in ipairs(scuffleTraces) do
-    assert(trace.kind == "fight" and trace.at > 0, "traces carry kind and time")
-end
-print("Abstract scuffles PASS traces=true chips=true cadence=true")
+assert(#fabricatedTraces == 0, "unloaded travel never creates a native fight trace")
+assert(states.roamer.health == 100, "unloaded travel never applies abstract combat damage")
+assert(states.roamer.lastScuffleDay == nil, "obsolete scuffle state is not persisted")
+print("Unloaded travel boundary PASS no_abstract_combat=true no_traces=true")

@@ -578,15 +578,15 @@ local function doorIsBarricaded(door)
     return safeDoorFlag(door, "isBarricaded", "IsBarricaded") == true
 end
 
-local function tryToggleDoor(character, door)
+local function tryToggleDoor(character, door, open)
     if door == nil or character == nil then return false end
-    local ok = pcall(function()
+    local ok, changed = pcall(function()
         if door.ToggleDoor ~= nil then door:ToggleDoor(character); return true end
         if door.toggleDoor ~= nil then door:toggleDoor(character); return true end
-        if door.setOpen ~= nil then door:setOpen(true); return true end
+        if door.setOpen ~= nil then door:setOpen(open == true); return true end
         return false
     end)
-    return ok
+    return ok and changed == true
 end
 
 function Controller:openNearbyClosedDoor()
@@ -620,7 +620,7 @@ function Controller:openNearbyClosedDoor()
                         -- Toggle once only. The native state may not refresh
                         -- within this tick; a second toggle would immediately
                         -- close the door we just opened.
-                        local toggled = tryToggleDoor(self.character, object)
+                        local toggled = tryToggleDoor(self.character, object, true)
                         if toggled then
                             self.openedDoors = self.openedDoors or {}
                             self.openedDoors[object] = true
@@ -675,7 +675,9 @@ function Controller:closeOpenedDoors()
                         blocked = movers ~= nil and movers:size() > 1
                     end
                 end)
-                if not blocked then pcall(function() tryToggleDoor(self.character, door) end) end
+                if not blocked then
+                    pcall(function() tryToggleDoor(self.character, door, false) end)
+                end
                 local ok, nowOpen = pcall(function() return doorIsOpen(door) end)
                 if (not ok) or nowOpen ~= true then
                     -- Closed or stale: drop tracking.
@@ -1714,11 +1716,79 @@ local function openEscapeLaneCount(origin, threats)
 end
 
 local function fleeAssessment(self)
-    -- Flee mechanics removed: survivors hold ground and fight via combat and
-    -- formation rules. Retreating produced run-stop-return loops.
-    return false, { reason = "flee_retired", zombies = 0, humans = 0, allies = 1,
-        health = 100, endurance = 1, risk = 0, immediate = 0,
-        escapeLanes = 0, nearestDistanceSquared = math.huge }
+    local origin = self.character ~= nil and self.character:getCurrentSquare() or nil
+    if origin == nil then
+        return false, { reason = "no_square", zombies = 0, humans = 0, allies = 1,
+            health = 100, endurance = 1, risk = 0, immediate = 0,
+            escapeLanes = 0, nearestDistanceSquared = math.huge }
+    end
+    local threats, humans = nearbyRetreatThreats(self, FLEE_SCAN_RADIUS)
+    local health = tonumber(safeMethod(self.character, "getHealth", 100)) or 100
+    if health <= 1 then health = health * 100 end
+    local stats = safeMethod(self.character, "getStats", nil)
+    local enduranceStat = CharacterStat ~= nil and CharacterStat.ENDURANCE or "endurance"
+    local endurance = tonumber(safeMethod(stats, "get", 1, enduranceStat)) or 1
+    local bleeding, severe = injuryRisk(self.character)
+    local reach, skill, condition = weaponCapacity(self.character)
+    condition = tonumber(condition) or 0
+    local allies = nearbyAllyCount(self, FLEE_SCAN_RADIUS)
+    local observed, humansObserved, immediate, close, targeting = 0, 0, 0, 0, 0
+    local nearest = math.huge
+    for _, threat in ipairs(threats) do
+        local square = safeMethod(threat, "getCurrentSquare", nil)
+        if square ~= nil then
+            local distance = distanceSquared(origin, square)
+            local target = targetOf(threat)
+            local targetsUs = target == self.character or targetsGroupMember(self, target)
+            local visible = safeMethod(self.character, "CanSee", false, threat) == true
+            -- Do not retreat from an unseen non-attacker behind a wall. A real
+            -- attacker still counts even if the survivor has not yet acquired
+            -- visual confirmation.
+            if visible or targetsUs then
+                observed = observed + 1
+                if humans[threat] then humansObserved = humansObserved + 1 end
+                nearest = math.min(nearest, distance)
+                if distance <= THREAT_IMMEDIATE_RADIUS * THREAT_IMMEDIATE_RADIUS then
+                    immediate = immediate + 1
+                end
+                if distance <= 36 then close = close + 1 end
+                if targetsUs then targeting = targeting + 1 end
+            end
+        end
+    end
+    local escapeLanes = openEscapeLaneCount(origin, threats)
+    local outnumbered = observed >= math.max(3, allies * 3)
+    local vulnerable = health <= 55 or endurance <= 0.25 or bleeding > 0 or severe > 0
+    local critical = health <= 25 or severe >= 3
+    -- A good real weapon and nearby allies buy room for a small fight; they do
+    -- not make a surrounded or injured survivor fearless.
+    local defence = (reach > 0 and 1 or 0) + math.min(1, skill / 4)
+        + (condition >= 0.5 and 0.5 or 0)
+    local pressure = immediate * 3 + close + targeting * 3
+        + math.max(0, observed - allies * 2) + bleeding * 2 + severe * 3
+        + (endurance <= 0.25 and 2 or 0) + (health <= 55 and 2 or 0) - defence
+    local threatened = immediate > 0 or targeting > 0
+    local retreat = escapeLanes > 0 and threatened and (
+        (outnumbered and pressure >= 7)
+        or (vulnerable and pressure >= 5)
+        or (critical and observed > 0)
+        or (immediate >= 3 and observed > allies * 2)
+    )
+    local reason = nil
+    if retreat then
+        if critical then reason = "critical_health"
+        elseif outnumbered then reason = "outnumbered"
+        elseif endurance <= 0.25 then reason = "exhausted"
+        elseif bleeding > 0 or severe > 0 then reason = "injured"
+        else reason = "overwhelmed" end
+    end
+    return retreat, {
+        reason = reason, zombies = observed - humansObserved, humans = humansObserved,
+        allies = allies, health = health, endurance = endurance, bleeding = bleeding,
+        severe = severe, weaponReach = reach, weaponSkill = skill, weaponCondition = condition,
+        risk = pressure, immediate = immediate, close = close, targeting = targeting,
+        escapeLanes = escapeLanes, nearestDistanceSquared = nearest,
+    }
 end
 
 -- Kept as a controller method so the policy can be verified without starting a
@@ -1728,7 +1798,6 @@ function Controller:assessFlee()
 end
 
 local function retreatIsSafelyClear(self, stillUnsafe, assessment, ticks)
-    if true then return true end
     local pursued = assessment ~= nil and ((assessment.immediate or 0) > 0
         or (assessment.close or 0) > 0 or (assessment.targeting or 0) > 0
         or (assessment.nearestDistanceSquared or math.huge) < FLEE_CLEAR_DISTANCE_SQUARED)
@@ -1760,7 +1829,6 @@ local function appendFleeDirection(directions, x, y)
 end
 
 local function findFleeTarget(self, ticks)
-    if true then return nil end
     local origin = self.character:getCurrentSquare()
     local cell = getCell()
     if origin == nil or cell == nil then return nil end
@@ -1841,7 +1909,6 @@ end
 -- native mover owns the actual traversal, so this target is deliberately short
 -- and chosen by threat distance rather than by a long speculative route.
 local function findEmergencyFleeTarget(self, ticks)
-    if true then return nil end
     local origin = self.character:getCurrentSquare()
     local cell = getCell()
     if origin == nil or cell == nil then return nil end
@@ -3091,6 +3158,7 @@ function Controller.new(id, character, bridge, reservations, ticks)
     self.formationMovementPace = nil
     self.nextFormationRefresh = 0
     self.formationCommitUntil = 0
+    self.formationTraversalBusy = nil
     self.formationFailureCount = 0
     self.movementFailureCount = 0
     self.regroupMember = nil
@@ -3444,7 +3512,7 @@ function Controller:updateFormationMovementPace(anchor)
 end
 
 
-function Controller:setGroupLeader(id, character, formationSlot, groupSize, objective)
+function Controller:setGroupLeader(id, character, formationSlot, groupSize, objective, leaderOrder)
     self.groupLeaderId = id
     self.groupLeader = character
     self.groupFormationSlot = math.max(1, tonumber(formationSlot) or 1)
@@ -3455,6 +3523,7 @@ function Controller:setGroupLeader(id, character, formationSlot, groupSize, obje
         self.groupObjectiveRevision = objectiveRevision
     end
     self.groupObjective = objective
+    self:setGroupLeaderOrder(leaderOrder)
     if id ~= nil then self:clearLifeIntent() end
 end
 
@@ -3464,6 +3533,7 @@ function Controller:clearGroupLeader()
     self.groupFormationSlot = 1
     self.groupSize = 1
     self.groupObjective = nil
+    self:setGroupLeaderOrder(nil)
     self.groupObjectiveRevision = nil
     self.groupObjectiveChanged = false
     self.nextGroupObjectiveAssist = 0
@@ -3511,6 +3581,77 @@ function Controller:setGroupObjective(objective)
         self.lastGroupObjectiveAnnouncement = objectiveKey
         self.nextGroupObjectiveAnnouncementAt = nowTicks + 1800
     end
+end
+
+function Controller:setGroupLeaderOrder(order)
+    local previous = self.groupLeaderOrder
+    local changed = (previous ~= nil) ~= (order ~= nil)
+        or (previous ~= nil and order ~= nil and (
+            previous.groupId ~= order.groupId or previous.leaderId ~= order.leaderId
+            or previous.kind ~= order.kind or previous.revision ~= order.revision))
+    self.groupLeaderOrder = order
+    if changed then self.groupLeaderOrderPending = true end
+end
+
+-- Delivery is not permission to cancel a native action. Consume the changed
+-- directive only in formation-owned states, after the existing danger scan.
+function Controller:applyGroupLeaderOrder(ticks)
+    local order = self.groupLeaderOrder
+    if order ~= nil and (order.leaderId ~= self.groupLeaderId
+        or tonumber(order.expiresAtHours) == nil
+        or currentWorldAgeHours() >= tonumber(order.expiresAtHours)) then
+        self:setGroupLeaderOrder(nil)
+    end
+    if not self.groupLeaderOrderPending then return false end
+    if self.state ~= "GROUP_FOLLOW" and self.state ~= "GROUP_WAIT"
+        and self.state ~= "IDLE" then return false end
+    if self.state ~= "GROUP_FOLLOW" and self.activeDecision ~= "leader_hold"
+        and ticks < (self.nextThink or 0) then return false end
+    if nativeTraversalBusy(self.character) then return false end
+    local actions = safeMethod(self.character, "getCharacterActions", nil)
+    if actions ~= nil and not actions:isEmpty() then return false end
+    local hold = self.groupLeaderOrder ~= nil and self.groupLeaderOrder.kind == "hold"
+    if self.state == "GROUP_FOLLOW" then
+        -- A new follow lease must not stop an already-correct native route.
+        if not hold then
+            self.groupLeaderOrderPending = nil
+            self.nextGroupOrderRetry = nil
+            return false
+        end
+        if ticks < (self.nextGroupOrderRetry or 0) then return false end
+        local ok, result = pcall(function() return self.bridge:cancelNpcMove(self.id) end)
+        if not ok or string.find(tostring(result), "MOVE_CANCELLED", 1, true) ~= 1 then
+            self.nextGroupOrderRetry = ticks + 60
+            self:diag("movement", "leader_order_cancel_failed", { result = tostring(result) })
+            return false
+        end
+    end
+    self.groupLeaderOrderPending = nil
+    self.nextGroupOrderRetry = nil
+    self.formationMovementPace = nil
+    self.activeDecision = nil
+    self.state = "IDLE"
+    self.nextThink = ticks
+    self.nextFormationRefresh = ticks
+    return true
+end
+
+function Controller:issueGroupLeaderOrder(kind, ticks, expiresAtHours)
+    if KnoxPersistence == nil or KnoxPersistence.getTravelGroupFor == nil
+        or KnoxPersistence.issueTravelGroupLeaderOrder == nil then
+        return nil, "group_orders_unavailable"
+    end
+    if safeMethod(self.character, "getCurrentSquare", nil) == nil
+        or safeMethod(self.character, "isDead", false) == true then
+        return nil, "leader_unavailable"
+    end
+    local group = KnoxPersistence.getTravelGroupFor(self.id)
+    if group == nil or group.leaderId ~= self.id then
+        return nil, "not_group_leader"
+    end
+    return KnoxPersistence.issueTravelGroupLeaderOrder(
+        group.id, self.id, kind, currentWorldAgeHours(), expiresAtHours
+    )
 end
 
 function Controller.shouldAssistGroupObjective(objective, leaderDistanceSquared)
@@ -3877,8 +4018,35 @@ end
 -- same tick as the player-facing change.
 function Controller:onDutyChanged()
     if self.pendingRecreation ~= nil then self:interruptForDirective() end
+    local companionVehicles = rawget(_G, "KnoxCompanionVehicles")
+    if companionVehicles ~= nil and self.character ~= nil then
+        -- Vehicle leases are transient ownership held outside the controller.
+        -- Any duty or order change must route them through the existing
+        -- directive-interruption owner (which cancels the lease and, for a
+        -- driver run, rolls back its passenger roster). isBusy both queries
+        -- and expires stale leases; driverStatus covers a live run whose
+        -- boarding lease already cleared. A lease-free survivor is untouched.
+        local leaseBusy = companionVehicles.isBusy ~= nil
+            and companionVehicles.isBusy(self.character) == true
+        local driving = not leaseBusy and companionVehicles.driverStatus ~= nil
+            and companionVehicles.driverStatus(self.character) ~= nil
+        if leaseBusy or driving then self:interruptForDirective() end
+    end
     local duty = KnoxPersistence ~= nil and KnoxPersistence.getSurvivorDuty ~= nil
         and KnoxPersistence.getSurvivorDuty(self.id) or nil
+    local priorities = type(duty) == "table" and duty.workPriorities or nil
+    local organizeNoLongerOwned = self.pendingOrganize ~= nil and (
+        duty == nil or duty.mode ~= "base"
+        or tostring(duty.baseId or "") ~= tostring(self.baseId or "")
+        or (type(priorities) == "table" and priorities.hauling == false))
+    local organizeInterrupted = false
+    if organizeNoLongerOwned then
+        -- Ambient organize rounds are not task-board claims. Retire their real
+        -- item/container reservations and native action/route when the duty or
+        -- hauling preference changes, just as an active base directive does.
+        self:interruptForDirective()
+        organizeInterrupted = true
+    end
     if duty == nil or duty.mode ~= "base" then
         local hadBaseSupply = self.baseSupplyOrder ~= nil
             or self.baseSupplyTrip == true
@@ -3892,7 +4060,7 @@ function Controller:onDutyChanged()
             self.baseTask = nil
             self.baseTaskStartedAt = nil
             self.baseTaskRetryAt = 0
-            self:interruptForDirective()
+            if not organizeInterrupted then self:interruptForDirective() end
         end
         self.baseSupplyOrder = nil
         self.baseSupplyOrderAttempts = 0
@@ -3903,7 +4071,7 @@ function Controller:onDutyChanged()
             self:releaseSupply()
             self.pendingBaseSupplyDeposit = nil
             self:clearLifeIntent()
-            self:interruptForDirective()
+            if not organizeInterrupted then self:interruptForDirective() end
         end
         return true
     end
@@ -4617,6 +4785,20 @@ function Controller:beginGroupFollow(ticks)
     return true
 end
 
+-- Native route success only means the follower reached the last requested
+-- formation tile. The leader may already have moved again, so do not impose a
+-- full formation-refresh wait here. Re-enter normal decision arbitration on
+-- the next controller tick; that path keeps urgent needs, threats, combat,
+-- traversal and route-commit suppression authoritative.
+function Controller:resumeGroupFollowAfterSuccess(ticks)
+    self:resetMovementRecovery()
+    self.formationMovementPace = nil
+    self.activeDecision = "follow_group"
+    self.state = "IDLE"
+    self.nextThink = ticks
+    self.nextFormationRefresh = ticks
+end
+
 function Controller:beginGroupRegroup(member, ticks)
     local memberSquare = member ~= nil and member:getCurrentSquare() or nil
     if memberSquare == nil then
@@ -4638,6 +4820,7 @@ function Controller:beginGroupRegroup(member, ticks)
         self:handleFormationMovementFailure(result, ticks, false)
         return false
     end
+    self:issueGroupLeaderOrder("follow", ticks)
     self:signalFollowers("comehere", ticks)
     self.regroupMember = member
     self.activeDecision = "retrieve_group_member"
@@ -4731,14 +4914,32 @@ function Controller:tryBoardFollowVehicle(ticks)
 end
 
 function Controller:refreshFormationFollow(ticks)
-    if ticks < self.nextFormationRefresh then
+    -- Hold the current route while climbing/vaulting instead of cancelling
+    -- and immediately re-issuing it (the pre/post-climb snap). Check this
+    -- before the normal refresh cadence so the busy -> landed edge cannot be
+    -- hidden behind a timer that was scheduled before the climb began.
+    local traversalBusy = nativeTraversalBusy(self.character)
+    if traversalBusy then
+        if not self.formationTraversalBusy then
+            self.formationTraversalBusy = true
+            self:diag("movement", "traversal_started", {
+                state = tostring(self.state),
+            })
+        end
+        self.nextFormationRefresh = ticks + THINK_MIN_TICKS
         return false
     end
-    -- Hold the current route while climbing/vaulting instead of cancelling
-    -- and immediately re-issuing it (the pre/post-climb snap). The landing
-    -- tick re-enables normal refresh below.
-    if nativeTraversalBusy(self.character) then
-        self.nextFormationRefresh = ticks + THINK_MIN_TICKS
+    if self.formationTraversalBusy then
+        self.formationTraversalBusy = nil
+        self.nextFormationRefresh = ticks
+        self:diag("movement", "traversal_completed", {
+            state = tostring(self.state),
+        })
+    end
+    if self.state == "GROUP_FOLLOW" and self:applyGroupLeaderOrder(ticks) then
+        return true
+    end
+    if ticks < self.nextFormationRefresh then
         return false
     end
     local groupFollow = self.state == "GROUP_FOLLOW"
@@ -8462,6 +8663,7 @@ function Controller:beginRoam(ticks, inheritedIntent)
         self:recordMovementFailure("roam_move", result, ticks)
         return false
     end
+    self:issueGroupLeaderOrder("follow", ticks)
     self:signalFollowers("followme", ticks)
     self.activeDecision = "roam"
     self.state = "ROAMING"
@@ -8959,7 +9161,6 @@ function Controller:beginNightShelter(ticks)
 end
 
 function Controller:recoverFleeMovement(result, ticks)
-    if true then self.fleeTarget=nil; self.fleeRecoveryUntil=nil; return false end
     self.bridge:cancelNpcMove(self.id)
     if self.fleeTarget ~= nil then
         self.failedFleeTarget = { x = self.fleeTarget:getX(), y = self.fleeTarget:getY(),
@@ -8986,7 +9187,6 @@ function Controller.fleePace(assessment)
 end
 
 function Controller:beginFlee(ticks, assessment)
-    if true then return false end
     if self.companionOwnerId ~= nil or self.baseId ~= nil then
         return false
     end
@@ -10012,6 +10212,17 @@ function Controller:think(ticks)
         return
     end
     if self.groupLeader ~= nil and self.groupLeader:getCurrentSquare() ~= nil then
+        self:applyGroupLeaderOrder(ticks)
+        if self.groupLeaderOrder ~= nil and self.groupLeaderOrder.kind == "hold" then
+            -- This explicit leader directive is below threat/need/combat scans
+            -- (which run before think) and does not own a native action. A
+            -- later follow/cancel/expiry simply returns the follower to the
+            -- existing formation branch below.
+            self.activeDecision = "leader_hold"
+            self.state = "GROUP_WAIT"
+            self.nextThink = ticks + 60
+            return
+        end
         if self.groupObjective ~= nil and self.groupObjective.kind == "night_shelter"
             and self:beginNightShelter(ticks) then
             return
@@ -10267,6 +10478,11 @@ function Controller:tick(ticks)
                 -- do not reacquire an attack in this same danger scan.
                 return
             end
+            if self.state == "FLEEING" and flee and self.fleeTarget == nil
+                and ticks >= (self.fleeRecoveryUntil or 0) then
+                self:beginFlee(ticks, assessment)
+                return
+            end
             if self.state == "FLEEING" and retreatIsSafelyClear(self, flee, assessment, ticks) then
                 self.bridge:cancelNpcMove(self.id)
                 self:resetMovementRecovery()
@@ -10351,6 +10567,7 @@ function Controller:tick(ticks)
     end
 
     if self.state == "GROUP_WAIT" then
+        if self:applyGroupLeaderOrder(ticks) then return end
         if ticks >= self.nextThink then
             self.state = "IDLE"
         end
@@ -11411,12 +11628,6 @@ function Controller:tick(ticks)
             and self:refreshFormationFollow(ticks) then
             return
         end
-        if self.state == "FLEEING" then
-            -- Flee retired: old saves stuck in FLEEING exit immediately.
-            self:finishDecision(ticks)
-            self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
-            return
-        end
         local movement = tostring(self.bridge:tickNpc(self.id))
         -- Hang watchdog for job travel (see noteTaskTravelStart): a route
         -- that holds position with no climb/entry action running is failed
@@ -11620,11 +11831,7 @@ function Controller:tick(ticks)
             end
             if self.state == "GROUP_FOLLOW" then
                 self.counts.groupTravel = self.counts.groupTravel + 1
-                self:resetMovementRecovery()
-                self.formationMovementPace = nil
-                self.activeDecision = "follow_group"
-                self.state = "GROUP_WAIT"
-                self.nextThink = ticks + FORMATION_REFRESH_TICKS
+                self:resumeGroupFollowAfterSuccess(ticks)
                 return
             end
             if self.state == "GROUP_REGROUP" then
@@ -11643,9 +11850,9 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "FLEEING" then
-                -- Flee retired.
-                self:finishDecision(ticks)
-                self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
+                self.fleeTarget = nil
+                self.fleeRecoveryUntil = nil
+                self.nextThreatScan = math.min(self.nextThreatScan or ticks, ticks)
                 return
             end
             if self.securityRoute~=nil and (self.state=="BASE_TASK_MOVE"
@@ -11994,9 +12201,7 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "FLEEING" then
-                -- Flee retired.
-                self:finishDecision(ticks)
-                self.nextThink = math.max(self.nextThink or 0, ticks + THINK_MIN_TICKS)
+                self:recoverFleeMovement(movement, ticks)
                 return
             end
             if (self.state=="BASE_TASK_MOVE" and self.baseTask~=nil

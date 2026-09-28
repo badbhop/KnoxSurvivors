@@ -88,12 +88,52 @@ local splats2 = 0
 for _ in pairs(blood) do splats2 = splats2 + 1 end
 assert(splats2 == splats, "visited sites never re-materialize")
 
+-- Failed materialization remains retryable and is consumed only after a real effect.
+blood, smashed, cells = {}, {}, {}
+local failing = square(102, 100, 0)
+failing.splatBlood = function() error("native blood unavailable") end
+cells["102,100,0"] = failing
+stored = { { id = "retry-fight", kind = "fight", x = 102, y = 100, z = 0, visited = false } }
+for i = 1, 130 do traces.update() end
+assert(stored[1].visited == false, "failed fight materialization stays retryable")
+cells["102,100,0"] = square(102, 100, 0)
+for i = 1, 130 do traces.update() end
+assert(stored[1].visited == true and blood["102,100"] == true,
+    "later successful fight materialization is consumed exactly once")
+
+-- A breach with no applied blood or smashed window is not a successful trace.
+blood, smashed, cells = {}, {}, {}
+local emptyBreach = square(102, 100, 0)
+emptyBreach.splatBlood = function() error("native blood unavailable") end
+emptyBreach.getObjects = function() error("native objects unavailable") end
+cells["102,100,0"] = emptyBreach
+stored = { { id = "retry-breach", kind = "breach", x = 102, y = 100, z = 0, visited = false } }
+for i = 1, 130 do traces.update() end
+assert(stored[1].visited == false, "throwing breach materialization stays retryable")
+
+-- The same throwing breach site succeeds later and is consumed exactly once.
+blood, smashed = {}, {}
+cells["102,100,0"] = square(102, 100, 0)
+cells["103,100,0"] = square(103, 100, 0, true)
+for i = 1, 130 do traces.update() end
+assert(stored[1].visited == true, "retried breach marks visited")
+assert(blood["102,100"] == true or #smashed >= 1, "retried breach applies a real effect")
+assert(#smashed <= 4, "retried breach smashes a bounded set")
+local smashedOnce, bloodOnce = #smashed, 0
+for _ in pairs(blood) do bloodOnce = bloodOnce + 1 end
+for i = 1, 130 do traces.update() end
+local smashedTwice, bloodTwice = #smashed, 0
+for _ in pairs(blood) do bloodTwice = bloodTwice + 1 end
+assert(smashedTwice == smashedOnce and bloodTwice == bloodOnce,
+    "retried breach never re-materializes")
+
 -- Breach sites smash nearby windows once.
 blood, smashed = {}, {}
+cells["102,100,0"] = square(102, 100, 0)
 cells["103,100,0"] = square(103, 100, 0, true)
 stored = { { id = "breach", kind = "breach", x = 102, y = 100, z = 0, visited = false } }
 for i = 1, 130 do traces.update() end
 assert(#smashed >= 1 and #smashed <= 4, "breach smashes a bounded set")
 assert(stored[1].visited == true, "breach marks visited")
 
-print("World traces PASS dormant=true bounded=true once=true breach=true")
+print("World traces PASS dormant=true bounded=true once=true breach=true breach-retry=true")

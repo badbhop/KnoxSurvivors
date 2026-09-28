@@ -39,6 +39,30 @@ function LifecyclePolicy.distanceEligible(
         and distanceSquared > activeDistanceSquared
 end
 
+function LifecyclePolicy.companionDetachedDecision(
+    recognizedTransient,
+    finiteDistanceSquared,
+    activeDistanceSquared,
+    grace,
+    graceLimit
+)
+    if recognizedTransient == true then
+        return false, "preserve-native-transient"
+    end
+    grace = math.max(1, math.floor(tonumber(grace) or 1))
+    graceLimit = math.max(1, math.floor(tonumber(graceLimit) or 1))
+    if finiteDistanceSquared == nil then
+        return true, "hibernate-no-finite"
+    end
+    if finiteDistanceSquared > activeDistanceSquared then
+        return true, "hibernate-far"
+    end
+    if grace >= graceLimit then
+        return true, "hibernate-stale-companion"
+    end
+    return false, "preserve-companion-grace"
+end
+
 -- A just-streamed-out square can briefly resolve again at the cell edge.
 -- Wait for a closer player or a bounded retry instead of rebuilding repeatedly.
 function LifecyclePolicy.restoreAfterDetach(detachedAt, ticks, distanceSquared)

@@ -55,9 +55,11 @@ local function compass(dx, dy)
 end
 
 local function drawArrow(panel, cx, cy, dx, dy, dist, r, g, b)
-    -- Shaft toward the speaker plus a two-line head, then the distance.
+    -- Shaft toward the speaker plus a two-line head, then the distance. Keep
+    -- every stroke in the chosen high-contrast colour: an earlier same-width
+    -- black under-stroke could win the one-pixel rasterisation and make the
+    -- whole indicator look black instead of outlined.
     local hx, hy = cx + dx * Indicators.ARROW_LEN, cy + dy * Indicators.ARROW_LEN
-    panel:drawLine2(cx, cy, hx, hy, 0.9, 0.05, 0.05, 0.05)
     panel:drawLine2(cx, cy, hx, hy, 0.9, r, g, b)
     local px, py = -dy, dx
     local s = 6
@@ -75,7 +77,9 @@ function Indicators.noteSpeech(speakerSquare, speakerId, party)
     local okX, sx = pcall(function() return speakerSquare:getX() end)
     local okY, sy = pcall(function() return speakerSquare:getY() end)
     local okZ, sz = pcall(function() return speakerSquare:getZ() end)
-    if not okX or not okY then return nil end
+    sx, sy, sz = tonumber(sx), tonumber(sy), tonumber(sz)
+    if not okX or not okY or not okZ or sx == nil or sy == nil or sz == nil
+        or sx ~= sx or sy ~= sy or sz ~= sz then return nil end
     local primary = nil
     for playerNum = 0, 3 do
         local here = playerSquare(playerNum)
@@ -83,7 +87,9 @@ function Indicators.noteSpeech(speakerSquare, speakerId, party)
             local okHx, hx = pcall(function() return here:getX() end)
             local okHy, hy = pcall(function() return here:getY() end)
             local okHz, hz = pcall(function() return here:getZ() end)
-            if okHx and okHy then
+            hx, hy, hz = tonumber(hx), tonumber(hy), tonumber(hz)
+            if okHx and okHy and okHz and hx ~= nil and hy ~= nil and hz ~= nil
+                and hx == hx and hy == hy and hz == hz then
                 local sameFloor = okHz and okZ and hz == sz
                 local dist = math.floor(math.sqrt((sx - hx) * (sx - hx)
                     + (sy - hy) * (sy - hy)) + 0.5)
@@ -131,12 +137,15 @@ function Indicators.prerender(playerNum, panel)
             local boundY = (sh / 2 - inset) / math.max(0.01, math.abs(ty))
             local bound = math.min(boundX, boundY)
             local cx, cy = sw / 2 + tx * bound, sh / 2 + ty * bound
-            local r, g, b = 1.0, 1.0, 1.0
-            if mark.party then r, g, b = 0.55, 0.9, 0.45 end
+            local r, g, b = 1.0, 0.78, 0.18
+            if mark.party then r, g, b = 0.45, 1.0, 0.55 end
             drawArrow(panel, cx, cy, tx, ty, mark.dist, r, g, b)
         end
     end
-    if empty and panel ~= nil then panel:setVisible(false) end
+    if empty then
+        active[playerNum] = nil
+        if panel ~= nil then panel:setVisible(false) end
+    end
 end
 
 local Overlay = ISPanel:derive("KnoxSpeechIndicatorOverlay")
@@ -160,6 +169,14 @@ function Indicators.panelFor(playerNum)
     end)
     panel = Overlay:new(left, top, sw, sh)
     panel:initialise()
+    -- ISPanel defaults to a half-black background. This is a render-only
+    -- viewport overlay, so leaving that default enabled darkens the world and
+    -- makes the arrow itself look malformed.
+    if panel.noBackground ~= nil then
+        panel:noBackground()
+    else
+        panel.background = false
+    end
     if panel.setWantMouseEvents ~= nil then panel:setWantMouseEvents(false) end
     panel:setVisible(false)
     if panel.setRenderThisPlayerOnly ~= nil then panel:setRenderThisPlayerOnly(playerNum) end
@@ -169,6 +186,14 @@ function Indicators.panelFor(playerNum)
     return panel
 end
 
+function Indicators.reset()
+    for _, panel in pairs(panels) do
+        pcall(function() panel:removeFromUIManager() end)
+    end
+    panels = {}
+    active = {}
+end
+
 if Events ~= nil and Events.OnResolutionChange ~= nil then
     Events.OnResolutionChange.Add(function()
         for _, panel in pairs(panels) do
@@ -176,6 +201,10 @@ if Events ~= nil and Events.OnResolutionChange ~= nil then
         end
         for key in pairs(panels) do panels[key] = nil end
     end)
+end
+
+if Events ~= nil and Events.OnGameStart ~= nil then
+    Events.OnGameStart.Add(Indicators.reset)
 end
 
 return Indicators
