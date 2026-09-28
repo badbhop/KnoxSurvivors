@@ -1,0 +1,42 @@
+# ==============================================================================
+# KNOX SURVIVORS - CODE FIXES & HARDCODED UI REPORT
+# Target File: media/lua/client/KS_BaseManager.lua
+# Knox Version: 0.3.0-rc1 | Build 42 Version: 42.20.4
+# ==============================================================================
+
+[OVERVIEW]
+This document catalogs hardcoded elements, logic constraints, and layout issues 
+found during translation testing. These items require native source code 
+adjustments for proper translation or rendering.
+
+-------------------------------------------------------------------------------
+1. [NOME SUCINTO DO PROBLEMA OU BUG DE LAYOUT]
+-------------------------------------------------------------------------------
+Knox Version: 0.3.0-rc1
+Build 42 Version: 42.20.4
+Menu ID / Location: [FUNÇÃO OU VARIÁVEL NO CÓDIGO - Ex: KS_BaseManager.lua -> self.scrollPanel]
+Media Reference: docs/production/Pending Items/KS_BaseManager_Fixes/[IMAGEM_OU_VIDEO.mp4]
+
+Issue Description:
+  - [Descrição curta do problema visual ou funcional de como o jogo se comporta]
+
+Technical Deduction & Suggested Fix:
+  - Cause: [Por que isso acontece no código, se souber]
+  - Solution: [Sua sugestão de correção em Lua ou aplicação de getText()]
+
+-------------------------------------------------------------------------------
+2. [NOME DO ELEMENTO HARDCODED OU CHAVE FALTANTE]
+-------------------------------------------------------------------------------
+Knox Version: 0.3.0-rc1
+Build 42 Version: 42.20.4
+Menu ID / Location: [EX: ensureFactionZones(base) - Linhas ~120-200]
+Media Reference: docs/production/Pending Items/KS_BaseManager_Fixes/[IMAGEM.png]
+
+Issue Description:
+  - Hardcoded strings prevent runtime translation.
+
+Suggested Fix:
+  * Line ~129: Wrap with getText():
+    `getText("UI_KS_BaseZone_BasePatrol") or "Base Patrol"`
+
+===============================================================================

@@ -1,0 +1,28 @@
+# ==============================================================================
+# KNOX SURVIVORS - LOCALIZATION & UI OVERFLOW REPORT
+# Format: Knox Version / Build 42 Version / Menu ID or Location / Screenshot / EN Source + PT-BR Proposal
+# ==============================================================================
+
+[OVERFLOW-001]
+Knox Version: 0.3.0-rc1
+Build 42 Version: 42.20.4
+Menu ID / Location: Base Work Tab / Guidance Box
+Screenshot: docs/production/Pending Items/screenshots/base_work_no_areas.png
+EN: No work areas choose a type, click Add Area and drag rectangle
+PT-BR Proposal: Sem áreas escolha o tipo, clique em Adicionar e arraste.
+
+[OVERFLOW-002]
+Knox Version: 0.3.0-rc1
+Build 42 Version: 42.20.4
+Menu ID / Location: UI Action Buttons / self.huntButton
+Screenshot: docs/production/Pending Items/screenshots/btn_send_group.png
+EN: Send Group to Hunt
+PT-BR Proposal: Enviar p Caça
+
+[OVERFLOW-003]
+Knox Version: 0.3.0-rc1
+Build 42 Version: 42.20.4
+Menu ID / Location: [NOME DO PAINEL / VARIÁVEL]
+Screenshot: docs/production/Pending Items/screenshots/[NOME_DA_IMAGEM.png]
+EN: [TEXTO ORIGINAL EM INGLÊS]
+PT-BR Proposal: [SUA PROPOSTA ADAPTADA EM PT-BR]
