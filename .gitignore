@@ -37,3 +37,7 @@ scripts/start-opencode.ps1
 # Consolidation into one runner is future work; verify.ps1 stays public.
 tools/test-*.lua
 tools/vehicle-test-world.lua
+
+# Local dev shortcut — kept on disk, not published to git.
+# The underlying tools/run-dev.ps1 stays public.
+Run Knox Survivors Dev.bat
