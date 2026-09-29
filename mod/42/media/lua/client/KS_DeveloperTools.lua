@@ -50,6 +50,19 @@ function DeveloperTools.printStatus()
         local controller = status.controllers ~= nil and status.controllers[id] or nil
         if controller ~= nil then
             print("[KnoxSurvivors][DeveloperTools] " .. controller:status())
+            if controller.recentFailureEvidence ~= nil then
+                for index, failure in ipairs(controller:recentFailureEvidence()) do
+                    print("[KnoxSurvivors][DeveloperTools] recent_failure id=" .. tostring(id)
+                        .. " index=" .. tostring(index)
+                        .. " tick=" .. tostring(failure.tick)
+                        .. " reason=" .. tostring(failure.reason)
+                        .. " state=" .. tostring(failure.state)
+                        .. " decision=" .. tostring(failure.decision)
+                        .. " retryAt=" .. tostring(failure.retryAt or "none")
+                        .. " position=" .. tostring(failure.x or "none") .. ","
+                        .. tostring(failure.y or "none") .. "," .. tostring(failure.z or "none"))
+                end
+            end
         end
     end
     KnoxActivityFeed.event("Developer status written to console.txt.")

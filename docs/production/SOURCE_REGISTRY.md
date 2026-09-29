@@ -36,7 +36,7 @@ not a prerequisite for using the repository.
 | `docs/ARCHITECTURE.md` | TECHNICAL | Architecture, ownership, persistence, identity/lifecycle |
 | `docs/DEVELOPMENT_TESTING.md` | TECHNICAL | Automated/live verification procedures |
 | `docs/FEATURE_AUDIT.md` | HISTORICAL / TECHNICAL EVIDENCE | Single deep implementation/evidence ledger; load targeted sections only |
-| `docs/LAUNCHER.md` | REFERENCE | Retained launcher details |
+| `docs/LAUNCHER.md` | REFERENCE | Retirement notice for deprecated launcher |
 | `docs/LAUNCHER_FREE_MIGRATION.md` | REFERENCE / DESIGN | Long-term Workshop-native migration |
 | `docs/NORMAL_PLAYER_TEST.md` | REFERENCE | Normal-player acceptance procedure |
 | `docs/SANDBOX_SETTINGS.md` | REFERENCE | Sandbox/developer settings |
@@ -54,7 +54,7 @@ The following older documents served the same plan/status/release/migration purp
 - `RELEASE_READINESS.md`
 - `MIGRATION_README.txt`
 - `PLAYER_MIGRATION_NOTE.txt`
-- `ZOMBIEBUDDY_AUTHOR_SIGNING.txt`
+- `OTHER_JAVA_RUNTIME_AUTHOR_SIGNING.txt`
 - `dday_map_v2_render.png`
 - `docs/AGENTS.md`
 - `docs/MILESTONES.md`

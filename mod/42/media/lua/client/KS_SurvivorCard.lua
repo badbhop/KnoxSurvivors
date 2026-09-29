@@ -245,9 +245,23 @@ function KnoxPanel:prerender()
     keyValue("Time Alive", dayLabel(snapshot.daysSurvived))
     keyValue("Known", dayLabel(snapshot.daysKnown))
     keyValue("Personality", snapshot.personalityLabel or "Unknown")
-    local memoryCount = type(snapshot.recentHistory) == "table" and #snapshot.recentHistory or 0
-    keyValue("Recent Memory", snapshot.latestMemory or "None recorded")
-    if memoryCount > 1 then keyValue("Memories Kept", tostring(memoryCount)) end
+    local recentHistory = type(snapshot.recentHistory) == "table" and snapshot.recentHistory or {}
+    if #recentHistory == 0 then
+        keyValue("Recent Memory", "None recorded")
+    else
+        for index = 1, math.min(3, #recentHistory) do
+            local entry = recentHistory[index]
+            local memory = tostring(type(entry) == "table" and entry.label or "Survived offscreen")
+            local detail = type(entry) == "table" and entry.detail or nil
+            if type(detail) == "string" and detail ~= "" then
+                detail = detail:gsub("[\r\n\t]", " ")
+                memory = memory .. " — " .. detail
+            end
+            self:drawText(trimText(UIFont.Small, memory, w), PADDING, y,
+                COL_VALUE[1], COL_VALUE[2], COL_VALUE[3], 1, UIFont.Small)
+            y = y + smallH + 3
+        end
+    end
     y = y + 4
     sectionHeader("Current Job")
     local job = snapshot.duty ~= nil and snapshot.duty.jobPreference or nil
@@ -259,6 +273,7 @@ function KnoxPanel:prerender()
     else
         keyValue("Job", "Automatic")
     end
+    keyValue("Purpose", snapshot.lifeIntent ~= nil and snapshot.lifeIntent.label or nil)
     keyValue("Location", snapshot.locationLabel)
     keyValue("Order", snapshot.orderLabel)
     local status = snapshot.activity or "Idle"
@@ -309,6 +324,8 @@ function KnoxPanel:prerender()
     local trustLabel = trustVal ~= nil and tostring(trustVal) or "Unknown"
     local trustCol = trustVal ~= nil and (trustVal >= 70 and COL_ACCENT or (trustVal >= 40 and COL_VALUE or COL_DIM)) or COL_DIM
     keyValue("Trust", trustLabel, trustCol)
+    keyValue("Meetings", snapshot.relationshipMeetings ~= nil
+        and tostring(math.max(0, math.floor(snapshot.relationshipMeetings))) or nil)
     if snapshot.isSpouse then keyValue("Relationship", "Spouse", COL_ACCENT) end
     keyValue("Group", snapshot.affiliation and snapshot.affiliation.kind or "independent")
     local buttonH = smallH + 10
@@ -488,6 +505,9 @@ local function ensureViews(window)
             kv("Faction", snap.factionName or "None")
             local trustVal = snap.trust ~= nil and math.floor(snap.trust) or nil
             kv("Trust", trustVal ~= nil and tostring(trustVal) or "Unknown")
+            kv("Meetings", snap.relationshipMeetings ~= nil
+                and tostring(math.max(0, math.floor(snap.relationshipMeetings))) or "Unknown")
+            kv("Purpose", snap.lifeIntent and snap.lifeIntent.label or "Unknown")
             if snap.isSpouse then kv("Relationship", "Spouse") end
             kv("Group", snap.affiliation and snap.affiliation.kind or "independent")
             local job = snap.duty and snap.duty.jobPreference or nil

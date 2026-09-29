@@ -44,7 +44,7 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
         if (IMPACT_CLASS.equals(className)) {
             try {
                 byte[] patched = patchHumanForVerification(patchImpactForVerification(classfileBuffer));
-                KnoxAgent.writeLog("combat impact sound patch PASS calls=1 human-pair gates=3");
+                KnoxAgent.writeLog("combat impact sound and human-pair gates PASS calls=4");
                 return patched;
             } catch (IOException exception) {
                 KnoxAgent.writeLog("ERROR combat impact sound patch " + exception.getMessage());
@@ -55,6 +55,7 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             PatchResult result = patch(classfileBuffer);
             lastPatchCount = result.count;
             KnoxCombatGate.markPatchReady(result.count);
+            KnoxCombatGate.markRuntimeReadyIfPatched();
             if (result.count != EXPECTED_PATCH_COUNT) {
                 KnoxAgent.writeLog(
                     "ERROR combat callback patch expected="
@@ -216,20 +217,27 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
                         continue;
                     }
                     if (impact) {
-                        // Exact 42.20.3 audio-only branch: aload 6; isLocalPlayer;
-                        // ifeq end-of-impact-sound; aload_2; HandWeapon.isRanged.
-                        // Same stack shape/byte length; no combat or network gate
-                        // elsewhere in attackCollisionCheck is relaxed.
-                        int offset = codeStart + 1628;
+                        // Exact impact-audio branch shape: aload receiver; isLocalPlayer;
+                        // ifeq +191; aload_2; HandWeapon.isRanged. Locate it by bytecode
+                        // structure because Build 42.21 changed local-variable allocation.
                         int rangedRef = pool.findMethodRef("zombie/inventory/types/HandWeapon", "isRanged", "()Z");
-                        if (codeLength > 1822 && rangedRef > 0
-                            && (bytes[offset - 2] & 0xff) == 0x19 && bytes[offset - 1] == 6
-                            && (bytes[offset] & 0xff) == 0xb6 && readU2(bytes, offset + 1) == originalMethodRef
-                            && (bytes[offset + 3] & 0xff) == 0x99 && readU2(bytes, offset + 4) == 191
-                            && (bytes[offset + 6] & 0xff) == 0x2c
-                            && (bytes[offset + 7] & 0xff) == 0xb6 && readU2(bytes, offset + 8) == rangedRef) {
-                            bytes[offset] = (byte) 0xb8;
-                            writeU2(bytes, offset + 1, helperMethodRef);
+                        int match = -1;
+                        int matchCount = 0;
+                        for (int call = codeStart + 2; call + 10 < codeEnd; call++) {
+                            if (!isAloadReceiver(bytes, call - 2)
+                                || (bytes[call] & 0xff) != 0xb6
+                                || readU2(bytes, call + 1) != originalMethodRef
+                                || (bytes[call + 3] & 0xff) != 0x99
+                                || (short) readU2(bytes, call + 4) != 191
+                                || (bytes[call + 6] & 0xff) != 0x2c
+                                || (bytes[call + 7] & 0xff) != 0xb6
+                                || readU2(bytes, call + 8) != rangedRef) continue;
+                            match = call;
+                            matchCount++;
+                        }
+                        if (matchCount == 1) {
+                            bytes[match] = (byte) 0xb8;
+                            writeU2(bytes, match + 1, helperMethodRef);
                             patched++;
                         }
                         cursor = content + Math.toIntExact(attributeLength);
@@ -247,6 +255,14 @@ public final class KnoxSwipeStateTransformer implements ClassFileTransformer {
             }
         }
         return patched;
+    }
+
+    private static boolean isAloadReceiver(byte[] bytes, int start) {
+        int opcode = bytes[start] & 0xff;
+        if (opcode >= 0x2a && opcode <= 0x2d) return true; // aload_0 through aload_3
+        if (opcode == 0x19) return true; // aload index
+        return start >= 2 && (bytes[start - 2] & 0xff) == 0xc4
+            && (bytes[start - 1] & 0xff) == 0x19; // wide aload index
     }
 
     private static int humanGateOffset(String name, String descriptor) {

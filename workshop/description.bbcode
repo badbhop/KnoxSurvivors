@@ -1,81 +1,70 @@
-[h1]Knox Survivors - Survivor NPC Rebuild[/h1]
-Knox Survivors adds other human survivors to Project Zomboid while trying to keep the vanilla Zomboid feel. It is inspired by the survivor-world idea behind Superb Survivors, but this rebuild was made from the ground up by .exe.
+[h1]🧟 Knox Survivors[/h1]
 
-Survivors use human, player-based NPC bodies and reuse Project Zomboid's existing clothing, items, animations, containers, farming, combat and world systems wherever practical. The goal is a living world - not a free army.
+Knox Survivors adds human survivors to Project Zomboid with the goal of making them feel like other people surviving alongside you.
 
-[b]Current release candidate: 0.3.0-rc1[/b]
-[b]Built for Project Zomboid 42.20.4. Single-player is the focus. Bugs are expected.[/b]
+The original idea was inspired by survivor mods like Superb Survivors, but Knox Survivors and its survivor framework have been built from the ground up by me, .exe.
 
-[h2]Java runtime - choose one[/h2]
-[b]ZombieBuddy is recommended, but it is NOT required.[/b]
+My main goal is to keep everything feeling as close to vanilla Zomboid as possible.
 
-[b]Option A - ZombieBuddy (recommended)[/b]
-[url=https://steamcommunity.com/sharedfiles/filedetails/?id=3619862853]ZombieBuddy - Steam Workshop[/url]
-Use ZombieBuddy to load Knox automatically. No Knox-specific -javaagent line or Knox Launcher is needed on this path.
+Survivors use normal clothing, cosmetics, weapons, items, containers, animations, and game systems wherever possible instead of feeling disconnected from the base game.
 
-[b]Option B - Knox Launcher[/b]
-Players who do not want ZombieBuddy can use the Knox Launcher / legacy Knox Java-agent startup path.
-[url=https://github.com/exe-create/KnoxSurvivorsLauncher/releases]Download the Knox Launcher from GitHub Releases[/url]
+They can survive on their own, scavenge, equip themselves, manage basic needs, fight, meet other survivors, form groups, settle around bases, and die.
 
-[h2]Before you play[/h2]
-[list]
-[*]Choose ONE runtime method per launch.
-[*]If using ZombieBuddy, remove old Knox-only [b]-javaagent:...knox-agent.jar=pz-game[/b] / [b]knox-steam-launch.cmd[/b] startup entries and approve the Knox Java JAR only if you trust the build.
-[*]If using the Knox Launcher, ZombieBuddy is not required.
-[*]Use a fresh save for the rebuild and back up saves you care about. Old Knox survivor data is not guaranteed to migrate.
-[*]This is a release candidate, not a claim that every edge case is finished.
-[/list]
+[h1]🚧 Current State[/h1]
 
-[h2]What is implemented[/h2]
-[list]
-[*]Persistent human survivors with their own identity, appearance, clothing, inventory, equipment, health, needs, traits, skills and relationships.
-[*]World survivors that can roam, scavenge, choose useful equipment, eat, drink, rest, use basic first aid and fight zombies.
-[*]Melee combat plus current firearm and reload support. Firearms are newer and may be rougher than melee.
-[*]Survivor meetings, dialogue, groups, factions, camps and settlement behavior.
-[*]Recruitment and companion orders including Follow, Hold, Return to Base, Dismiss, Go To, Guard and loot-related orders.
-[*]Player/faction bases with residents, work areas, storage categories and queued work.
-[*]Base jobs including guard, patrol, storage sorting, window barricading, farming, tree cutting, log sawing, corpse hauling/cleanup, trough care and damaged-structure repair.
-[*]Companion HUD, survivor information, inventory interaction, activity messages and the current survivor-management UI.
-[*]Save/load and off-screen survivor/needs simulation so the living world does not require every NPC to stay physically loaded.
-[/list]
+Knox Survivors is still actively being developed.
 
-[h2]Not being promised as finished[/h2]
-Full multiplayer NPC support, autonomous survivor driving, raids/large faction events, away-team resource missions and full construction are not advertised as finished features in this release. Pathing, combat, jobs and save/load can still hit bugs during real Build 42 play.
+The current rebuild includes persistent survivors, autonomous survival behavior, recruitment, companion orders, groups, combat, scavenging, base work, and survivor management.
 
-[h2]Install and play[/h2]
-[b]ZombieBuddy path (recommended):[/b]
-1. Install/configure ZombieBuddy and enable Knox Survivors + ZombieBuddy.
-2. Remove old Knox-only launch options/wrappers.
-3. Launch normally through the ZombieBuddy-configured game launch.
-4. Approve the Knox Java JAR if prompted and you trust this build.
+Some systems are still being improved, especially pathfinding, firearms, competing orders, base jobs, and long-running saves.
 
-[b]Knox Launcher path (no ZombieBuddy):[/b]
-1. Enable Knox Survivors.
-2. Do not use ZombieBuddy for this launch.
-3. Launch through the Knox Launcher / existing Knox legacy Java-agent setup.
+[b]Current focus:[/b] Single-player
+[b]Current target:[/b] Project Zomboid Build 42.20–42.21 (42.21 compatibility is being tested)
+[b]Fresh saves are strongly recommended while the rebuild is changing.[/b]
 
-No separate Java installation is required by Knox Survivors.
+[h1]▶️ How To Play[/h1]
 
-[h2]Confirm it loaded[/h2]
-After reaching the main menu, open [b]Documents\Zomboid\KnoxIsoPlayer.log[/b].
+[b]1.[/b] Subscribe to Knox Survivors and its required item, [b]KnoxBridge Runtime[/b]. Let Steam finish downloading both.
 
-ZombieBuddy path:
-[b]runtime start PASS source=zombie-buddy-patch-api[/b]
+[b]2.[/b] The Bridge Workshop item is only a dependency marker; its installer is downloaded separately. On Windows, download and run [url=https://github.com/exe-create/KnoxBridge/releases/latest]KnoxBridgeSetup.exe[/url]. On Linux/macOS, download and extract the KnoxBridgeRuntime ZIP, close Steam, and run [b]sh scripts/setup-unix.sh[/b] (Python 3 required; this path is not live-verified yet). No separate Java installation is needed.
 
-Knox Launcher path:
-[b]runtime start PASS source=legacy-javaagent[/b]
+[b]3.[/b] Enable Knox Survivors in the Mods menu and on a new disposable save. Launch Project Zomboid normally through Steam.
 
-If neither appears, Knox's Java runtime did not start.
+[b]4.[/b] KnoxBridge opens its full-screen [b]Review Java Mods[/b] gate at the main menu before world entry. It lists enabled-mod JARs; new or changed files are blocked by default and stay visible. Select a compatible module to review its SHA-256, then choose [b]Allow[/b] or [b]Keep denied[/b]. Each decision applies only to that exact JAR SHA-256. Turn on [b]Remember next choice[/b] to save the next decision across launches; leave it off for a one-launch choice. If you change your mind before continuing, the deny button becomes [b]Undo pending choice[/b]. Quit and relaunch once only when a choice changes which Java modules load. The displayed author is unverified mod metadata. JARs without KnoxBridge compatibility remain visible but cannot be loaded. The matching alpha8 Bridge update still requires live Build 42 verification.
 
-[h2]Feedback[/h2]
-[url=https://discord.gg/cTfd2WWD4s]Join the Discord[/url] for bug reports and updates. Include your Project Zomboid version, whether the save was fresh, what the survivor was doing, and relevant logs after checking them for personal information.
+[b]Save safety:[/b] the runtime installer changes startup configuration, not save files. Knox save compatibility is not certified for important existing saves; use a disposable new save and back up saves you care about.
 
-Knox Survivors is free. Optional support does not unlock gameplay content.
-[url=https://www.patreon.com/c/stackzyapackz/membership]Optional Patreon support[/url]
+[b]Compatibility:[/b] KnoxBridge loads enabled PZ mods that declare its module descriptor and implement the KnoxBridge API. Java mods for another loader do not load automatically; their authors must port/support KnoxBridge. Java modules run with full game-user permissions and are not sandboxed.
 
-[h2]Credits / ownership[/h2]
-Knox Survivors' original code and framework were built from the ground up and are owned by .exe. Superb Survivors inspired the survivor-mod concept; this rebuild does not claim or depend on its source code. Project Zomboid and its base-game assets belong to The Indie Stone.
+[b]Important:[/b] Use only one Java instrumentation runtime for Project Zomboid at a time. The retired Knox Launcher/legacy agent is unsupported.
 
-Workshop ID: 3749727604
-Mod ID: KnoxSurvivors
-Version: 0.3.0-rc1
+[h1]📌 More Information[/h1]
+
+Check the Discussions tab for:
+
+• 🛠️ Installation Help
+• 📋 Current Features & Limitations
+• 🗺️ Build 42 Roadmap
+• 🐛 Bug Reports & Troubleshooting
+• ⚠️ Compatibility / Known Issues
+• ❓ FAQ
+
+For updates, testing, and community support, join the Knox Survivors Discord.
+
+[url=https://discord.gg/ejh4rZsX9u]Join the Knox Survivors Discord[/url]
+
+[h1]❤️ About the Project[/h1]
+
+Knox Survivors is something I work on because I love Project Zomboid and always wanted a living survivor system of my own.
+
+I do not view the other NPC projects as competition. Different modders are trying different approaches, and I think that is good for the Zomboid community.
+
+If you want to support development:
+
+[url=https://ko-fi.com/drganja]Support Knox Survivors on Ko-fi[/url]
+
+Knox Survivors is developed and owned by .exe.
+
+Superb Survivors is an inspiration for the general survivor-mod concept, not a source-code dependency.
+
+Project Zomboid and its original assets belong to The Indie Stone.

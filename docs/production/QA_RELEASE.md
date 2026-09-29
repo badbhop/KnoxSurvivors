@@ -6,7 +6,7 @@ purpose: canonical verification and release contract
 
 # Knox Survivors — QA and release contract
 
-Updated: 2026-09-26
+Updated: 2026-09-29
 
 ## Evidence levels
 
@@ -39,7 +39,7 @@ world entities.
 
 ## Current release gate
 
-The current worktree needs fresh evidence because source/test work continued after the last retained full offline checkpoint.
+The exact Survivors source candidate `e93ed2655470212a6e78305171ccff63f7893c58` passed the full offline and native payload gates on 2026-09-29. Steam publication/download parity and live Build 42 acceptance remain open; the matching KnoxBridge alpha8 menu review gate is not yet live-verified. The public Knox Survivors Workshop item currently reports a Steam removal and still contains old Setup.cmd/option-2 instructions. GitHub's latest KnoxBridge release remains alpha5. Do not claim release parity until the existing items are updated and verified publicly.
 
 ### Focused/offline gate
 
@@ -64,22 +64,22 @@ At minimum cover:
 - factions/groups/events enabled for the candidate, including loaded ↔ unloaded transitions;
 - vehicle entry/travel only where the candidate advertises/supports it;
 - Survivor Card / Notebook / inventory / health / medical UI at multiple UI scales;
-- ZombieBuddy startup path when shipped;
-- Knox launcher/legacy startup path when shipped;
+- KnoxBridge startup, module allow/deny, and uninstall/restore path;
+- the current KnoxBridge main-menu JAR review gate, optional remembered exact-hash choices, and no-restart behavior when the effective allowed set is unchanged;
 - any direct Steam bootstrap route only after a real Steam startup acceptance.
 
 ## Quick owner playthrough
 
 Use this short checklist after a risky change or before advancing a live gate. Use a disposable save, record the Git revision, and test one startup path at a time. Mark a step **PASS** only when the expected result is observed in the real game; otherwise record **FAIL**, preserve the save/log, and create or update the relevant bug/task.
 
-1. **Startup path** — launch with exactly one route: normal Project Zomboid, Knox launcher, or ZombieBuddy. Example: start the game, confirm the mod loads, enter a disposable save, and record the route.
+1. **Startup path** — install KnoxBridge using the current OS instructions, launch normally through Steam with KnoxBridge as the sole Java runtime, confirm the Knox module loads, enter a disposable save, and record the runtime/build. The separate Knox Survivors Launcher is deprecated and must not be used for acceptance. Keep external Java runtime as a separate alternative and never stack runtime agents.
 2. **Survivor identity** — create or recruit one survivor. Example: note the name/identity, location, equipment, and relationship, then confirm they remain the same after a save/reload.
 3. **Orders and movement** — issue Follow, Hold, or Return. Example: send the survivor through a doorway or around an obstacle, interrupt with a nearby threat, and confirm the order recovers or fails visibly rather than silently hanging.
 4. **Combat** — test one threat, then several. Example: confirm real damage/health changes, weapon or melee behavior, retreat/recovery, and no fabricated combat result.
 5. **Items and work** — transfer a real item and assign one representative job. Example: move an item between inventory/storage, confirm reservations and consumption, then verify the job completes or reports its failure.
 6. **Persistence** — save during active work, travel, or combat and reload. Example: verify identity, location, needs, equipment, inventory, order, relationship, and activity are preserved once.
 7. **Time and off-screen behavior** — travel roughly 300+ tiles away and return, or advance a controlled period. Example: confirm unloaded survivors/events do not invent native outcomes and can retry failed materialization.
-8. **UI and runtime boundary** — inspect the relevant Survivor Card, Notebook, inventory, health, or order UI, then repeat the smallest launcher/ZombieBuddy conflict check when that path changed.
+8. **UI and runtime boundary** — inspect the relevant Survivor Card, Notebook, inventory, health, or order UI; when runtime code changes, verify Bridge discovery, exact-hash allow/deny behavior, and that no competing instrumentation runtime is active.
 
 For each step record only: **PASS/FAIL**, expected result, actual result, save name, runtime path, revision, and the smallest useful log excerpt. A PASS advances evidence; a FAIL becomes a reproducible bug/task; an unrun step remains **unverified**.
 
@@ -98,8 +98,8 @@ Use this when checking a small change or deciding whether a build is worth deepe
 ### Owner full playthrough checklist
 
 The long checklist for a serious playthrough while Codex is away. Setup once: disposable save,
-default sandbox settings, Developer Tools + diagnostics ON, exactly one runtime path
-(normal / Knox launcher / ZombieBuddy), and write down the save name and mod revision.
+default sandbox settings, Developer Tools + diagnostics ON, KnoxBridge as the only
+Java runtime with normal Steam Play, and write down the save name and mod revision.
 Work top to bottom. Tick what passes; anything else becomes a FAIL report (format below) —
 you never need to diagnose, just describe what you saw. Unrun stays unticked.
 
@@ -178,7 +178,7 @@ Look for these concrete symptoms rather than trying to diagnose their cause:
 - unloaded activity creates blood, smashed windows, combat history, loot, death, or terminal outcomes without valid simulation evidence;
 - returning to an unloaded area creates duplicate survivors, stale shells, duplicate events, or failed materialization that cannot retry;
 - the UI shows a different state from the survivor, inventory, health, or order actually observed in the world;
-- launcher and ZombieBuddy both appear active, the wrong runtime loads, or startup reports PASS before the required bridge/patch/combat checks are real;
+- launcher and external Java runtime both appear active, the wrong runtime loads, or startup reports PASS before the required bridge/patch/combat checks are real;
 - performance degrades sharply, survivors spam the same action, or the game becomes unstable during ordinary population/activity levels.
 
 ### Useful report format
@@ -188,7 +188,7 @@ Send or record a failed result in this compact form:
 ```text
 Result: FAIL
 Build/revision:
-Runtime path: normal / Knox launcher / ZombieBuddy
+Runtime path: KnoxBridge via normal Steam Play / other:
 Save:
 Steps: 1) ... 2) ... 3) ...
 Expected:

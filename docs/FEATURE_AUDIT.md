@@ -7608,11 +7608,11 @@ residents cannot indefinitely retain an invalid automatic claim.
 ### Launcher JVM option preservation — 2026-09-05
 
 The launcher previously replaced the inherited `JAVA_TOOL_OPTIONS` value with only the Knox
-agent. That could hide compatible options such as ZombieBuddy's `-agentlib:zbNative` and other
+agent. That could hide compatible options such as external Java runtime's `-agentlib:zbNative` and other
 user/Steam JVM flags. `GameLauncher.MergeJavaToolOptions` now preserves the inherited value and
 adds Knox once, leaving the normal batch/json launch configuration untouched. The launcher
 verifier now covers preservation of an existing agent and memory option. Launcher build and
-verifier pass locally; a real ZombieBuddy + Knox launch remains live-only verification.
+verifier pass locally; a real combined runtime launch remains live-only verification.
 ### Survivor-card off-slot UI error hardening — 2026-09-05
 
 The latest console log contained two UI exceptions from the survivor card: the inventory

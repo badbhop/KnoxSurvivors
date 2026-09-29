@@ -358,4 +358,25 @@ function Trade.quote(player, survivorId, playerItems, survivorItems)
         reason = offered >= requested and "fair_offer" or "offer_too_low" }
 end
 
+-- A gift is a deliberately one-way item transfer, not an unpriced barter.
+-- The recipient still keeps native survival/task reserves, and the transaction
+-- owner revalidates this quote before moving the real item instance.
+function Trade.quoteGift(player, survivorId, playerItems)
+    local context, reason = relationContext(player, survivorId)
+    if context == nil then return nil, reason end
+    if player:getInventory() == context.npc:getInventory() then return nil, "shared_inventory" end
+    local playerStock, npcStock = inventory(player), inventory(context.npc)
+    if playerStock == nil or npcStock == nil then return nil, "inventory_unreadable_or_too_large" end
+    local incoming
+    incoming, reason = offer(playerItems, playerStock)
+    if incoming == nil then return nil, reason end
+    if #incoming == 0 then return nil, "gift_item_required" end
+    local allowed
+    allowed, reason = keepsReserves(npcStock, incoming, {}, context.requirements)
+    if not allowed then return nil, reason end
+    return { acceptable = true, gift = true, offeredValue = values(playerStock, incoming,
+        KnoxSurvivorNeeds.snapshot(context.npc), context.requirements, false), requestedValue = 0,
+        reason = "gift_ready" }
+end
+
 return Trade

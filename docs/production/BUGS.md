@@ -109,22 +109,24 @@ or invalid target, confirming the native blood/window effect before the trace
 is consumed.
 
 ## BUG-KS-003 — Embedded launcher is a conflicting runtime owner
-Status: in_progress
+Status: closed by retirement of the unsupported launcher path (2026-09-29)
 Priority: high
 Owner: Codex / OpenCode
 Type: bug
 
 ### Symptom
 The main mod repository contained a second, stale C# launcher that preserved
-ZombieBuddy's `-agentlib:zbNative` while adding Knox's legacy `-javaagent`,
+external Java runtime's `-agentlib:zbNative` while adding Knox's legacy `-javaagent`,
 contrary to the exactly-one-runtime-path contract. Its embedded source and
-build path have now been retired; live legacy launch behavior remains
-unverified.
+build path were retired. The separate Knox Survivors Launcher is now
+deprecated and unsupported by owner direction; KnoxBridge is the sole
+supported public Knox runtime path. Its GitHub privacy change was requested but
+is still pending, so do not claim the repository is private yet.
 
 ### Reproduction
 Historical reproduction: in the embedded launcher verifier, inherit
 `JAVA_TOOL_OPTIONS=-agentlib:zbNative -Xmx2G` and create a launch plan. The
-verifier required both the ZombieBuddy option and Knox `=pz-game` agent to be
+verifier required both the alternate runtime option and Knox `=pz-game` agent to be
 present, and `tools/build-launcher.ps1` packaged that implementation. Those
 embedded files are no longer present in the main repository.
 
@@ -132,10 +134,10 @@ embedded files are no longer present in the main repository.
 The main repository diff retires all 12 tracked embedded launcher project/source
 files and `tools/build-launcher.ps1`; `docs/LAUNCHER.md` now names the separate
 launcher repository as the sole source, verification, and packaging owner and
-rejects active ZombieBuddy composition. In the sibling
+rejects active external Java runtime composition. In the sibling
 `KnoxSurvivorsLauncher` checkout, `scripts/build.ps1` passed launch-option
 security/native-argument verification, updater metadata/version/checksum
-verification, launcher verification with Knox and ZombieBuddy runtimes
+verification, launcher verification with Knox and multiple Java runtimes
 isolated, and Windows bootstrap verification. The main repository structural
 retirement check passed (13 tracked embedded files deleted),
 `tools/verify.ps1` passed with 112 Lua sources, 174 Lua regression scripts,
@@ -144,22 +146,24 @@ passed. These checks establish offline retirement and verifier behavior only;
 they do not establish a live game launch.
 
 ### Expected
-One launcher source/release owner exists, and no supported build path can
-package a launcher that stacks ZombieBuddy and Knox legacy instrumentation.
+No supported Knox launcher path can package or run a competing instrumentation
+runtime. Players use KnoxBridge through normal Steam startup.
 
 ### Acceptance
-The embedded artifact-producing path is retired, documentation names one
-launcher owner, and the authoritative launcher's offline isolation checks pass.
-Keep the bug open until a live legacy launch with ZombieBuddy disabled produces
-exactly one `runtime start PASS source=legacy-javaagent` line.
+The stale embedded launcher build path is retired, the standalone launcher is
+deprecated, and current-facing instructions direct users to KnoxBridge only.
+No live acceptance is required for the retired launcher path. KnoxBridge live
+startup and gameplay remain tracked separately under `KS-PROD-010` and
+`KS-PROD-005`.
 
 ### Validation
 Offline verification on 2026-09-27: sibling launcher `scripts/build.ps1` passed
-all four launcher/bootstrap checks listed above; the main repository retirement
-check and `tools/verify.ps1` passed (287 checks, 0 failed); `git diff --check`
-passed. Still required: live legacy launch with ZombieBuddy disabled and exactly
-one `runtime start PASS source=legacy-javaagent` line. No live behavior,
-release readiness, staging, or package completion is established here.
+the historical launcher/bootstrap checks; the main repository retirement
+check and `tools/verify.ps1` passed (287 checks, 0 failed). On 2026-09-29,
+current-facing Knox instructions were aligned to KnoxBridge and the separate
+launcher was marked deprecated. The requested GitHub visibility change remains
+unconfirmed. This does not establish current KnoxBridge live behavior or
+release readiness.
 
 ## BUG-KS-008 — Detached companions can remain in a stale-shell limbo
 Status: in_progress
@@ -250,6 +254,22 @@ Still required: rerun one controlled Build 42 zombie encounter and confirm no
 `LightingJNI.bCouldSee` exception while recording the native combat result.
 Multi-zombie threat selection, native damage, and retreat behavior remain
 unverified.
+
+Additional Build 42.20.4 diagnostic evidence collected 2026-09-28 in
+`dev-runs/20260928-021135`: the Knox log contains the one-time
+`visibility_bit_disabled` marker and the console extract contains no
+`LightingJNI`, `bCouldSee`, or `setCouldSee` failure. This supports that the
+unsafe call is no longer being attempted in this run, but is not a standalone
+focused replay or proof of all combat outcomes. The same session includes
+native zombie attacks that reached `AttackDidDamage=true` and reduced survivor
+health (for example, 100 to 96.96 and then 92.40), so the off-slot boundary is
+not a blanket failure to damage survivors.
+
+The controlled `combat_group_horde` scenario in that run ended `PARTIAL`:
+15 survivor hits, zero zombie damage, and no kills. This mixed encounter does
+not change the offline base-danger arbitration coverage or identify a new
+source defect. Do not repeat that source audit without new evidence. Keep the
+one-zombie and small-group native combat replay in Slice D live acceptance.
 
 ## BUG-KS-010 — Speech indicator overlay renders as a dark or malformed layer
 Status: in_progress
@@ -415,6 +435,57 @@ Lua sources, 176 scripts, 288 checks, and 0 failures. This is offline evidence
 only: native timed actions, real item transfer, and base-duty/UI behavior still
 need Build 42 validation and do not establish that the reported visible idling
 is solved.
+
+The latest diagnostic run records the surrounding symptom: in
+`dev-runs/20260928-021135/console-since-launch.txt`, line 2441 reports
+`base_movement:FailedStuck` before line 2483 shows the resident back at
+`BASE_IDLE`; lines 3794 and 3830 record a failed rest route and the resident
+in `BASE_AMBIENT_REST`. These are explicit movement failures that reach existing
+recovery, not evidence that the watchdog timeout itself occurred.
+
+An additional offline watchdog gap is now corrected at the same controller
+owner: `MOVING_TO_REST` that exceeded its movement deadline previously fell
+through generic abandonment instead of taking the existing real ground-rest
+fallback, and timed-out `BASE_PATROL`/`BASE_RETURN` skipped
+`handleBaseMovementFailure`, leaking the selected ambient-square reservation
+and bounded failure record. Both timeout paths now use their existing recovery
+owners. The extended dynamic `test-base-leisure-routing.lua` exercises actual
+`tick` watchdog dispatch for patrol, return and rest, including route
+cancellation, reservation release, backoff and the native rest-action fixture.
+This script is local under ignored `tools/`; it is not a tracked Git change.
+The focused base-life recovery set passed 7/7 and the full offline gate passed
+112 Lua files, 177 scripts, 289 checks, 0 failures. Explicit native movement-
+failure logs already show rest/patrol falling back correctly; no hung watchdog
+route was observed live. Keep the reported visible base-idle behavior open
+until a Build 42 full-day replay covers a never-resolving chair approach and a
+stalled base patrol/return, verifies another resident can claim the released
+square, and confirms the resident can resume an ordinary real-resource job.
+
+Source review for the public food-availability report found a separate current-
+development handoff gap inside this broader base-life report. `Needs.decide()`
+already selects real safe food and the existing action path verifies hunger
+reduction, but ordinary active base-task states returned from `tick()` without
+rechecking needs. A resident could therefore remain committed to work, a task
+action, or a supply transfer after hunger became urgent. The controller now
+checks these ordinary task states on a bounded cadence and yields actionable
+self-care through the existing task suspension owner. The claim remains held;
+native transfer leases are released through their current owner, and normal
+task restoration remains responsible for resumption. Focused claim-suspension,
+needs, task validation/arrival, base action/cooking/security/recovery checks
+passed; the exact-worktree offline gate passed 112 Lua sources, 177 regression
+scripts, 289 checks, 0 failures. Test scripts remain local under ignored
+`tools/` policy. This confirms an offline arbitration gap, not the specific
+September 23 Steam report or native food access. Keep that report open pending
+the live replay below.
+
+Live replay: with one resident assigned ordinary non-guard work and another
+case in a real supply transfer, make the resident hungry while safe edible food
+is in an accessible assigned fridge/pantry. Verify ordinary work yields,
+actual food access and Build 42 eating reduce hunger, the exact task claim is
+retained without duplication, and useful work resumes. Repeat with food only
+inside a nested container and with unavailable/unsafe food to confirm truthful
+failure/retry rather than fabricated relief. Include save/reload while the task
+is suspended if the task claim persists across that state.
 
 For that replay, use a disposable save with a safe, loaded base and two or more
 base residents. Keep player orders, urgent needs, active threats, and in-flight
@@ -1055,6 +1126,221 @@ occupied/player-near vehicle, towing state, and one valid fueled vehicle —
 recording native accessor values, admission reason, boarding, route start, and
 no unintended control takeover. Autonomous movement quality, convoy behavior,
 and native part consumption are separate future gates.
+
+## BUG-KS-031 — Automatic base supply claims ended before storage receipt
+Status: in_progress
+Priority: high
+Owner: Codex
+Type: behavior
+Related: KS-PROD-008, BUG-KS-015
+
+### Confirmed offline defect and correction
+An automatic loaded base supply run previously recorded `collected` as its
+terminal outcome immediately after pickup. That cleared the durable
+`activeSupplyRun` and transient shortage claim before the resident returned and
+the assigned typed-storage container confirmed receipt. Another resident could
+therefore be elected for the same still-unmet shortage while the first real
+item was in transit.
+
+The autonomy owner now records `collected_returning`, persists the
+`base_supply_deposit` return intent, and retains the run/claim until the native
+inventory cleanup path confirms the item left the resident and reached the
+destination. Missing carried items terminate explicitly. Focused election and
+inventory-cleanup regressions verify duplicate-run suppression and release
+only after receipt. Offline fix verified; native transfer, save/reload, and
+container capacity remain live-only under BUG-KS-015/Slice E.
+
+### Validation
+2026-09-28: `test-base-auto-scavenge.lua`, `test-base-needs.lua`,
+`test-inventory-cleanup.lua`, and `tools/verify.ps1 -SkipJava` passed; 112 Lua
+files, 177 regression scripts, 289 checks, 0 failures. `git diff --check`
+passed.
+
+## BUG-KS-032 — Gift and money social acts rewarded trust without transfer
+Status: resolved_offline
+Priority: high
+Owner: Codex
+Type: behavior
+Related: KS-PROD-008, D-020
+
+### Symptom
+The survivor context menu exposed `Offer Gift` and `Give Money`. Both called
+`socialAct`, which increased relationship trust, recorded a meeting, played a
+thank-you response, and returned success without checking or transferring a
+real player-owned item. Knox has no account/balance owner for abstract money.
+
+### Reproduction
+Call `KnoxCompanionService.socialAct(player, survivorId, "offer_gift")` or
+`"give_money"` while the survivor is nearby. Before correction, the offline
+social-act regression asserted the trust increase with no inventory fixture.
+
+### Evidence and correction
+The service's `SOCIAL_ACTS` definitions granted +8/+6 trust; the context menu
+advertised each action; `KS_OrderSignals` also mapped both to a thank-you
+gesture. Neither path touched inventory. Those social-act definitions and stale
+gesture mappings were removed. A distinct `Give Item` entry now opens the
+existing Trade UI in gift mode. It requires explicit selection of an eligible
+real item, rechecks recipient survival/task reserves, then uses the existing
+native transfer journal, capacity check, receipt verification, rollback, and
+survivor capture. The existing `gift` contribution rule grants its modest trust
+increase only after that transaction verifies. `Give Money` remains removed:
+there is no abstract account balance, though real supported currency objects
+can be selected as real items. Direct calls to the old social-act names return
+`unknown_social_act` before relationship, meeting, speech, or gesture mutation.
+
+### Acceptance
+No social-only action may stand in for a gift or money transfer. Gift trust is
+awarded only after the selected real item is received and captured. Abstract
+money remains unsupported; tangible currency follows the same item receipt
+path as any other supported gift.
+
+### Validation
+2026-09-28: local ignored `tools/test-social-acts.lua`,
+`tools/test-trade-valuation.lua`, `tools/test-trade-action.lua`, and
+`tools/test-trade-ui.lua` edits passed (these are not tracked Git evidence).
+Coverage includes missing gift selection, same-instance successful delivery,
+post-receipt contribution reward, rollback with no reward, and menu/UI routing.
+The full `tools/verify.ps1 -SkipJava` gate checked 112 Lua sources and ran 177
+regression scripts (289 checks, 0 failed). `git diff --check` passed. These are
+offline checks; live Build 42 still needs to confirm native gift/barter transfers,
+recipient capacity, action cancellation, and save/reload of the received item.
+
+## BUG-KS-033 — Base-job supply pickup failed to recover entry traversal
+Status: resolved_offline
+Priority: medium
+Owner: Codex
+Type: traversal
+Related: KS-PROD-008
+
+### Confirmed offline defect and correction
+After a resident claimed real tools/materials from assigned base storage, an
+entry-related native movement failure in `BASE_TASK_SUPPLY_MOVE` immediately
+failed the entire task. The same controller already provided bounded
+alternate-window and permission-gated door-break recovery for ordinary base
+work movement, but this earlier storage leg bypassed it. The route now uses the
+existing alternate-entry machinery with the actual assigned container's room
+and approach. Quiet entry retains the exact task/item/container lease; a
+permitted door break retains that lease until success, then resumes the same
+route. If no permitted entry works, the existing task failure path releases
+the claim and exact storage reservations. No transfer or work completion is
+inferred from traversal success.
+
+### Validation
+Local ignored `tools/test-base-task-supply-entry.lua` exercises locked-route
+entry, lease-preserving quiet entry, same-route resumption, one real transfer
+queue after arrival, permitted door-break resumption, and truthful failure with
+reservation release. `test-entry-and-escort.lua`, base-action lifecycle, task
+validation, supply arrival, claim suspension and inventory cleanup regressions
+also pass. The 2026-09-28 offline gate checked 112 Lua sources and ran 178 Lua
+regression scripts (290 checks, 0 failed); Java was skipped. The focused script
+is local under ignored `tools/` policy, not tracked Git evidence.
+
+This does not reproduce or resolve every public locked-door report. Build 42
+must verify native door/window actions, route continuation to a real container,
+item receipt, permission/protection behavior, interruption and save/reload.
+Corpse/fence handling remains bounded by existing drop cooldown and task retry
+owners in offline coverage, but the reported repeated physical fence behavior
+remains live-only and unconfirmed for current development.
+
+## BUG-KS-034 — Base-job completion was reported before task-board acceptance
+Status: resolved_offline
+Priority: high
+Owner: Codex
+Type: base_jobs
+Related: KS-PROD-008
+
+### Confirmed offline defect and correction
+Native executors verify their world result before asking the existing task board
+to finish the claimed task. If ownership had been revoked or reassigned in the
+meantime, the board correctly rejected the stale completion, but the autonomy
+controller had already emitted `task_finished_ok`, advanced automatic-work
+pacing, and several executor callers announced the job as complete. The
+controller now treats the board response as the authoritative task outcome:
+only accepted finishes emit task-finished success/failure and update pacing;
+rejections emit a distinct failure diagnostic/reason, apply bounded retry delay,
+and clear only the stale controller's transient state/reservations. Completion
+speech is gated on board acceptance. Already-applied native world effects are
+not rolled back or misrepresented as undone, and persistence/task-board ownership
+is unchanged.
+
+### Validation
+Local ignored `tools/test-base-task-validation.lua` covers accepted automatic
+completion/pacing, rejected stale ownership, failure evidence, task and supply
+lease cleanup, no false success diagnostic, and no completion announcement.
+Connected base-action lifecycle, task-board/persistence ownership, supply,
+corpse, repair, farming, woodcutting, and base-work regressions were run with
+the full offline verifier. The 2026-09-28 exact-worktree results are recorded
+in `WORK_QUEUE.md` and `CURRENT_STATE.md`. Tests are local under the existing
+ignored `tools/` policy and are not tracked Git evidence.
+
+Build 42 still needs a real base-job completion while its claim is revoked or
+reassigned, including native action result, truthful resident feedback, next
+activity arbitration, and save/reload. Ordinary accepted work also needs a live
+replay to confirm the native result and task-board lifecycle align.
+
+## BUG-KS-035 — Active base supply runs could outlive their shared claim
+Status: resolved_offline
+Priority: high
+Owner: Codex
+Type: base_work
+Related: KS-PROD-008, BUG-KS-031
+
+### Confirmed offline defect and correction
+The shared loaded-world shortage lease expired after 1.5 in-game hours even
+when the same resident's persisted `duty.activeSupplyRun` still owned an
+unfinished search or return. A different resident could then be elected for
+the same shortage, duplicating travel and resource acquisition. The existing
+autonomy owner now rehydrates a transient claim from each same-base resident's
+valid active run before shortage election, including when the resident is
+unloaded or the old transient lease expired. The claim remains ephemeral; the
+persisted duty run remains authoritative and clears only through existing
+terminal supply-run cleanup. No persistence schema, storage owner, or mission
+system changed.
+
+### Validation
+Local ignored `tools/test-base-auto-scavenge.lua` advances world time beyond
+the lease expiry while the first resident still owns an active run, then proves
+the helper cannot start a duplicate and the original durable run remains
+unchanged. Connected supply-planner, inventory-cleanup, and base-needs tests
+passed. `tools/verify.ps1 -SkipJava` checked 112 Lua sources and ran 178
+regression scripts (290 checks, 0 failures); `git diff --check` passed. The
+focused fixture remains local under the repository's ignored `tools/` policy.
+Build 42 still needs a real long-running shortage trip past the lease window,
+including unload/reload, native pickup, return, storage receipt and
+reassessment.
+
+## BUG-KS-036 — Finalized loaded encounters were absent from survivor memory
+Status: resolved_offline
+Priority: high
+Owner: Codex
+Type: social
+Related: KS-PROD-008, D-021
+
+### Confirmed offline defect and correction
+The loaded encounter coordinator committed greetings, declines, hostile
+disposition, and group membership, but none of those final outcomes were added
+to the existing persistent survivor history. That history already feeds later
+dialogue recounts and the Survivor Card, so loaded social life could be real in
+relationships yet forgotten by the same survivors. `KS_OffscreenStories` now
+appends a bounded `meet` fact to each participant's existing canonical ledger;
+it fails closed if that ledger is missing, deduplicates the same participant,
+outcome, and world-time entry, and retains the existing 12-entry cap. The
+relationship owner records only finalized outcomes: hostile means persisted
+hostile disposition (not a successful robbery/fight), joined means a real group
+mutation, and incomplete/interrupted encounters are not recorded. Existing
+dialogue recounts distinguish joining, parting, and hostility without claiming
+an unverified fight.
+
+### Validation
+Focused `test-offscreen-stories.lua`, `test-offscreen-recount.lua`,
+`test-human-encounters.lua`, `test-relationship-coherence.lua`, and
+`test-survivor-view-model.lua` passed.
+`tools/verify.ps1 -SkipJava` checked 112 Lua sources and ran 178 regression
+scripts (290 checks, 0 failures); `git diff --check` passed. Focused test edits
+remain local under ignored `tools/` policy. Build 42 still needs loaded greet,
+decline, join/rejection, and hostile encounter replay, followed by save/reload
+and later dialogue/Card inspection. No native robbery or combat result is
+implied by this history entry.
 
 When a live/offline failure is found, add it using this format so ModForge can import it automatically:
 

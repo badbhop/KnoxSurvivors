@@ -356,11 +356,31 @@ local function restoreSupplyClaim(baseId, kind, survivorId)
     local now = getGameTime() ~= nil and getGameTime():getWorldAgeHours() or 0
     local current = claims[kind]
     if type(current) ~= "table" or current.survivorId == survivorId
+        or current.durable ~= true
         or (tonumber(current.untilHours) or 0) <= now then
-        claims[kind] = { survivorId = survivorId, untilHours = now + 1.5 }
+        claims[kind] = {
+            survivorId = survivorId,
+            untilHours = now + 1.5,
+            durable = true,
+        }
         return true
     end
     return false
+end
+
+function Controller.activeBaseSupplyRun(duty, baseId, survivorId)
+    if type(duty) ~= "table" or duty.mode ~= "base"
+        or tostring(duty.baseId or "") ~= tostring(baseId or "")
+        or (KnoxPersistence ~= nil and KnoxPersistence.isSurvivorAlive ~= nil
+            and KnoxPersistence.isSurvivorAlive(survivorId) == false)
+        or type(duty.activeSupplyRun) ~= "table" then
+        return nil
+    end
+    local kind = tostring(duty.activeSupplyRun.kind or "")
+    if kind ~= "find_food" and kind ~= "find_water" and kind ~= "find_medical" then
+        return nil
+    end
+    return kind
 end
 
 local function distanceSquared(first, second)
@@ -3268,6 +3288,56 @@ function Controller:clearLifeIntent()
     return true
 end
 
+function Controller:diagnosticScalar(value, limit)
+    local text = tostring(value or "none"):gsub("[%c]", " ")
+    if #text > limit then text = text:sub(1, limit) end
+    return text
+end
+
+function Controller:recordRecentFailure(reason, ticks)
+    local history = self.recentFailureHistory
+    if type(history) ~= "table" then
+        history = {}
+        self.recentFailureHistory = history
+    end
+    local point = nil
+    if self.diagPos ~= nil then
+        local ok, value = pcall(function() return self:diagPos() end)
+        if ok then point = value end
+    end
+    local now = tonumber(ticks)
+    if now == nil or now ~= now or now == math.huge or now == -math.huge then now = 0 end
+    local retryAt = tonumber(self.nextThink)
+    if retryAt ~= nil and (retryAt ~= retryAt or retryAt == math.huge or retryAt == -math.huge) then
+        retryAt = nil
+    end
+    history[#history + 1] = {
+        tick = now,
+        reason = self:diagnosticScalar(reason, 160),
+        state = self:diagnosticScalar(self.state, 64),
+        decision = self:diagnosticScalar(self.activeDecision, 96),
+        retryAt = retryAt,
+        x = point ~= nil and tonumber(point.x) or nil,
+        y = point ~= nil and tonumber(point.y) or nil,
+        z = point ~= nil and tonumber(point.z) or nil,
+    }
+    if #history > 12 then table.remove(history, 1) end
+end
+
+-- Return scalar copies only. Diagnostics must never expose mutable controller
+-- history or retain native characters, items, targets, or reservation tables.
+function Controller:recentFailureEvidence()
+    local result = {}
+    for index, entry in ipairs(self.recentFailureHistory or {}) do
+        result[index] = {
+            tick = entry.tick, reason = entry.reason, state = entry.state,
+            decision = entry.decision, retryAt = entry.retryAt,
+            x = entry.x, y = entry.y, z = entry.z,
+        }
+    end
+    return result
+end
+
 function Controller:recordFailure(reason, ticks, cooldown)
     local key = tostring(reason or "unknown")
     self.lastFailure={reason=key,ticks=ticks}
@@ -3279,6 +3349,7 @@ function Controller:recordFailure(reason, ticks, cooldown)
         self.nextThink or 0,
         (ticks or 0) + (cooldown or THINK_MIN_TICKS)
     )
+    self:recordRecentFailure(key, ticks)
     local count = self.failureReasons[key]
     if count == 1 or count % 10 == 0 then
         print("[KnoxSurvivors][Autonomy] id=" .. self.id
@@ -5234,6 +5305,18 @@ function Controller:handleBaseMovementFailure(movement, ticks)
     return true
 end
 
+-- A route that never reports an outcome still owns the same base-life choice
+-- as an explicit native failure. Stop that route, release its furniture claim,
+-- and use the existing real ground-rest fallback rather than abandoning rest.
+function Controller:handleRestMovementFailure(movement, ticks)
+    if self.bridge ~= nil and self.bridge.cancelNpcMove ~= nil then
+        self.bridge:cancelNpcMove(self.id)
+    end
+    self:recordMovementFailure("rest_move", movement, ticks)
+    self:startRecoveryPosture(ticks, false, self.ambientRest == true)
+    return true
+end
+
 -- A native route can fail after the target was valid and loaded: a door can
 -- change state, a streamed square can disappear, or the pathfinder can leave
 -- the survivor on a bad side of an opening. Give a claimed physical task one
@@ -5342,8 +5425,6 @@ function Controller:finishBaseTask(succeeded, reason)
     end
     local snapshot = self:diagTaskSnapshot(task)
     snapshot.reason = tostring(reason)
-    snapshot.ok = succeeded == true
-    self:diag("jobs", succeeded == true and "task_finished_ok" or "task_finished_fail", snapshot)
     local baseId = task.baseId or self.baseId
     local finished, result = KnoxBaseTaskBoard.finish(
         baseId,
@@ -5352,11 +5433,26 @@ function Controller:finishBaseTask(succeeded, reason)
         succeeded == true,
         reason
     )
+    if finished == nil then
+        -- The physical action may already have happened, but the authoritative
+        -- task owner rejected this survivor's completion (for example after a
+        -- duty/claim change). Keep that result distinct from task success.
+        snapshot.ok = false
+        snapshot.reason = tostring(reason) .. ":" .. tostring(result or "rejected")
+        self:diag("jobs", "task_finish_rejected", snapshot)
+        print("[KnoxSurvivors][BaseJobs] finish-failed id=" .. tostring(self.id)
+            .. " task=" .. tostring(task.id) .. " result=" .. tostring(result))
+        self:recordFailure("base_task_finish_rejected:" .. tostring(result or "unknown"),
+            tonumber(self.currentTicks) or 0, BASE_TASK_ACTION_FAILURE_TICKS)
+    else
+        snapshot.ok = succeeded == true
+        self:diag("jobs", succeeded == true and "task_finished_ok" or "task_finished_fail", snapshot)
+    end
     -- RimWorld "anything" pacing: consecutive automatic successes earn one
     -- ambient leisure round so marathon work (endless cooking while the
     -- pantry is full) cannot crowd out company time. Manual player orders
     -- never accrue debt and reset the streak without forcing a break.
-    if succeeded == true and task.auto == true and task.manual ~= true then
+    if finished ~= nil and succeeded == true and task.auto == true and task.manual ~= true then
         local streak = (tonumber(self.consecutiveAutoTasks) or 0) + 1
         if streak >= 3 then
             self.consecutiveAutoTasks = 0
@@ -5364,12 +5460,8 @@ function Controller:finishBaseTask(succeeded, reason)
         else
             self.consecutiveAutoTasks = streak
         end
-    elseif task.manual == true then
+    elseif finished ~= nil and task.manual == true then
         self.consecutiveAutoTasks = 0
-    end
-    if finished == nil then
-        print("[KnoxSurvivors][BaseJobs] finish-failed id=" .. tostring(self.id)
-            .. " task=" .. tostring(task.id) .. " result=" .. tostring(result))
     end
     self:clearBaseTaskRuntimeState()
     return finished ~= nil
@@ -5452,6 +5544,47 @@ function Controller:suspendBaseTaskForThreat(reason)
     if self.baseTask ~= nil then
         self.baseTask.interruptedReason = tostring(reason or "threat")
     end
+    return true
+end
+
+-- Long-running base work must periodically yield to the same urgent needs as
+-- guard, patrol, and cooking. Keep the original persisted task claim attached;
+-- its existing task owner resumes it after self-care succeeds. Native actions
+-- are cancelled through the existing interruption owner, and supply transfers
+-- release their exact item/container lease before self-care takes ownership.
+function Controller:yieldBaseTaskForNeed(ticks)
+    local state = self.state
+    if self.baseTask == nil
+        or (state ~= "BASE_TASK_MOVE" and state ~= "BASE_TASK_SUPPLY_MOVE"
+            and state ~= "BASE_TASK_SUPPLY_WAIT" and state ~= "BASE_TASK_WORK"
+            and state ~= "BASE_TASK_ACTION" and state ~= "BASE_TASK_SUPPLY_TRANSFER") then
+        return false
+    end
+    if (state == "BASE_TASK_MOVE" or state == "BASE_TASK_SUPPLY_MOVE")
+        and nativeTraversalBusy(self.character) then
+        return false
+    end
+    if state == "BASE_TASK_WORK" then
+        if self.baseTask.type == "guard" then return false end
+        local started = self.baseTaskStartedAt or ticks
+        if ticks - started >= KnoxBaseJobs.workDuration(self.baseTask) then
+            return false
+        end
+    end
+    if ticks < (self.nextBaseTaskNeedCheck or 0) then return false end
+    self.nextBaseTaskNeedCheck = ticks + 90
+    local needs = rawget(_G, "KnoxSurvivorNeeds")
+    if needs == nil or needs.decide == nil then return false end
+    local need = needs.decide(self.character, nil)
+    if need == nil or need.kind == "roam"
+        or not Controller.selfCareReady(self.selfCareRetryAt, need.kind, ticks) then
+        return false
+    end
+    if state == "BASE_TASK_MOVE" or state == "BASE_TASK_SUPPLY_MOVE" then
+        self.bridge:cancelNpcMove(self.id)
+    end
+    self:suspendBaseTaskForThreat("needs_interrupt")
+    self.state, self.activeDecision, self.nextThink = "IDLE", nil, ticks
     return true
 end
 
@@ -5711,6 +5844,10 @@ function Controller:beginBaseTaskSupplyOrWork(ticks)
         self.nextThink = self.baseTaskRetryAt
         return true
     end
+    -- Keep the exact real-storage approach with this runtime lease so an
+    -- alternate-entry detour resumes the same pickup route, rather than
+    -- choosing a different tile after crossing a window.
+    self.baseTaskSupplyTransfer.approach = approach
     local moveResult = tostring(self.bridge:moveNpc(self.id, approach))
     if string.find(moveResult, "MOVE_STARTED", 1, true) ~= 1 then
         self:releaseBaseTaskSupplyTransfer()
@@ -5995,14 +6132,19 @@ function Controller:baseSupplyNeed(ticks)
     self.base.supplySearchClaims = nil
     local claims = supplyClaimsFor(self.baseId)
     if claims == nil then return nil end
-    -- Supply trips are shared settlement work.  Keep one short-lived claimant
-    -- per shortage type so every resident does not leave the property to hunt
-    -- for the same food, water, or medicine.  Claims expire naturally if the
-    -- worker fails, unloads, or the shortage remains after a trip.
+    -- Supply trips are shared settlement work. A lease covers an uncommitted
+    -- election, but once the run is persisted it remains the owner until its
+    -- existing terminal path clears activeSupplyRun. Rebuild that transient
+    -- lease before allowing a second resident to answer the same shortage;
+    -- unloaded residents still own their persisted runs.
     for kind, claim in pairs(claims) do
         local claimantDuty = type(claim) == "table"
             and KnoxPersistence.getSurvivorDuty ~= nil
             and KnoxPersistence.getSurvivorDuty(claim.survivorId) or nil
+        local durableKind = Controller.activeBaseSupplyRun(
+            claimantDuty, self.baseId,
+            type(claim) == "table" and claim.survivorId or nil
+        )
         local claimantStillBelongs = claimantDuty ~= nil
             and claimantDuty.mode == "base"
             and tostring(claimantDuty.baseId or "") == tostring(self.baseId or "")
@@ -6013,10 +6155,33 @@ function Controller:baseSupplyNeed(ticks)
                 or KnoxPersistence.getAwayTeamForSurvivor(claim.survivorId) == nil)
             and (KnoxPersistence.isSurvivorAlive == nil
                 or KnoxPersistence.isSurvivorAlive(claim.survivorId))
-        if type(claim) ~= "table"
-            or (tonumber(claim.untilHours) or 0) <= nowHours
-            or not claimantStillBelongs then
+        if type(claim) ~= "table" or not claimantStillBelongs then
             claims[kind] = nil
+        elseif durableKind == kind then
+            claim.untilHours = nowHours + 1.5
+            claim.durable = true
+        elseif claim.durable == true or (tonumber(claim.untilHours) or 0) <= nowHours then
+            claims[kind] = nil
+        end
+    end
+    -- The in-memory lease table can be empty after load, or an old lease can
+    -- expire while its persisted trip is still searching/returning. Restore
+    -- active runs from the existing duty owner before shortage election.
+    if KnoxPersistence.getSurvivorDuty ~= nil then
+        for _, residentId in ipairs(residentIds) do
+            local duty = KnoxPersistence.getSurvivorDuty(residentId)
+            local kind = Controller.activeBaseSupplyRun(duty, self.baseId, residentId)
+            if kind ~= nil then
+                local claim = claims[kind]
+                if type(claim) ~= "table" or claim.durable ~= true
+                    or claim.survivorId == residentId then
+                    claims[kind] = {
+                        survivorId = residentId,
+                        untilHours = nowHours + 1.5,
+                        durable = true,
+                    }
+                end
+            end
         end
     end
     local goal = nil
@@ -6082,6 +6247,7 @@ function Controller:baseSupplyNeed(ticks)
         claims[goal] = {
             survivorId = self.id,
             untilHours = nowHours + 1.5,
+            durable = false,
         }
         self.baseSupplyTrip = true
         self.baseSupplyKind = goal
@@ -6133,7 +6299,31 @@ function Controller:finishBaseSupplyRun(outcome)
         and KnoxPersistence.finishBaseSupplyRun(
             self.id, self.baseId, kind, outcome, currentWorldAgeHours()
         ) or false
+    self.baseSupplyTrip = nil
+    self.baseSupplyKind = nil
     return saved
+end
+
+-- Finding a real item is progress, not completion. Keep the shared and durable
+-- shortage ownership while that item is carried home so another resident does
+-- not launch a duplicate run before the typed-storage transfer is confirmed.
+function Controller:handoffBaseSupplyDelivery(item)
+    if item == nil or self.baseSupplyTrip ~= true or self.baseSupplyKind == nil then
+        return false
+    end
+    self.pendingBaseSupplyDeposit = { item = item }
+    local ok, itemType = pcall(function() return item:getFullType() end)
+    if ok and type(itemType) == "string" and itemType ~= "" then
+        self:setLifeIntent("base_supply_deposit", "returning", nil, itemType)
+    end
+    if KnoxPersistence ~= nil and KnoxPersistence.recordBaseSupplyRun ~= nil then
+        KnoxPersistence.recordBaseSupplyRun(
+            self.id, self.baseId, self.baseSupplyKind, "collected_returning",
+            currentWorldAgeHours()
+        )
+    end
+    self:releaseSupply(true)
+    return true
 end
 
 function Controller:clearExplicitBaseSupplyOrder()
@@ -6169,7 +6359,7 @@ function Controller:recordExplicitBaseSupplyFailure(ticks)
     return true
 end
 
-function Controller:releaseSupply()
+function Controller:releaseSupply(preserveBaseSupplyRun)
     self:releaseBaseRecreation()
     -- A base-task pickup may be interrupted through the generic supply/need
     -- path before it reaches the timed transfer state. Release its exact
@@ -6184,8 +6374,10 @@ function Controller:releaseSupply()
         release(self.reservations, "containers", self.pendingSupply.container, self.id)
         self.pendingSupply = nil
     end
-    self.baseSupplyTrip = nil
-    self.baseSupplyKind = nil
+    if preserveBaseSupplyRun ~= true then
+        self.baseSupplyTrip = nil
+        self.baseSupplyKind = nil
+    end
     self.entryDetour = nil
     self.windowResumeRetryUntil = nil
 end
@@ -6291,7 +6483,7 @@ function Controller:beginWindowDetour(ticks, resumeState)
     return true
 end
 
-function Controller:beginLockedDoorBreak(ticks, resumeState)
+function Controller:beginLockedDoorBreak(ticks, resumeState, preserveBaseTaskSupply)
     if self.pendingSupply == nil or self.pendingSupply.doorBreakAttempted == true then
         return false
     end
@@ -6303,7 +6495,9 @@ function Controller:beginLockedDoorBreak(ticks, resumeState)
         markPendingAreaBlocked(self, ticks, "protected_player_base")
         return false
     end
-    self:releaseBaseTaskSupplyTransfer()
+    if preserveBaseTaskSupply ~= true then
+        self:releaseBaseTaskSupplyTransfer()
+    end
     if not canForceEntry(self, structureSquare) or endurance < LOCKED_DOOR_MIN_ENDURANCE then
         markPendingAreaBlocked(
             self,
@@ -6404,11 +6598,15 @@ function Controller:resumeAfterWindowDetour(ticks)
     end
     self.windowResumeRetryUntil = nil
     self.entryDetour = nil
-    if self.pendingSupply.taskEntry == true then
+    if self.pendingSupply.taskEntry == true
+        or self.pendingSupply.taskSupplyEntry == true then
         self.pendingSupply = nil
     end
     self.state = resumeState
     self.stateStartedAt = ticks
+    if resumeState == "BASE_TASK_SUPPLY_MOVE" then
+        self:noteTaskTravelStart(ticks)
+    end
     if resumeState == "GROUP_FOLLOW" or resumeState == "COMPANION_FOLLOW" then
         self.pendingSupply = nil
     end
@@ -8309,9 +8507,57 @@ function Controller:beginBaseTaskWindowDetour(ticks)
     return true
 end
 
+-- Assigned job materials follow a real container approach, not the work-site
+-- target used by beginBaseTaskWindowDetour. Reuse the same bounded entry
+-- search while keeping this exact item/container lease through a quiet entry.
+function Controller:beginBaseTaskSupplyWindowDetour(ticks)
+    local transfer = self.baseTaskSupplyTransfer
+    local source = transfer ~= nil and transfer.source or nil
+    local container = source ~= nil and source.container or nil
+    local approach = transfer ~= nil and transfer.approach or nil
+    local targetSquare = source ~= nil and source.square or nil
+    if targetSquare == nil and container ~= nil
+        and type(container.getSourceGrid) == "function" then
+        targetSquare = container:getSourceGrid()
+    end
+    if self.state ~= "BASE_TASK_SUPPLY_MOVE" or self.baseTask == nil
+        or container == nil or targetSquare == nil or approach == nil
+        or self.pendingSupply ~= nil or self.entryDetour ~= nil then
+        return false
+    end
+    self.pendingSupply = {
+        container = container,
+        targetSquare = targetSquare,
+        approach = approach,
+        entryAttempts = {},
+        entryAttemptCount = 0,
+        taskSupplyEntry = true,
+    }
+    if self:beginWindowDetour(ticks, "BASE_TASK_SUPPLY_MOVE") then
+        self:diag("jobs", "task_supply_window_detour", self:diagTaskSnapshot(self.baseTask))
+        return true
+    end
+    return false
+end
+
 -- Window options exhausted (or the crossing failed): clear the synthetic
 -- entry context and try the door break before giving up on the task.
 function Controller:fallbackTaskEntryToDoorBreak(ticks)
+    if self.pendingSupply ~= nil and self.pendingSupply.taskSupplyEntry == true then
+        if self.baseTask == nil then
+            self.pendingSupply = nil
+            return false
+        end
+        local resumeState = self.entryDetour ~= nil
+            and self.entryDetour.resumeState or "BASE_TASK_SUPPLY_MOVE"
+        self.entryDetour = nil
+        if self:beginLockedDoorBreak(ticks, resumeState, true) then
+            return true
+        end
+        self.pendingSupply = nil
+        self:failBaseTaskAction(ticks, "assigned_supply_entry_unavailable")
+        return true
+    end
     if self.pendingSupply == nil or self.pendingSupply.taskEntry ~= true then
         return false
     end
@@ -9526,6 +9772,7 @@ function Controller:beginBaseSupplyDeposit(ticks)
     local item = pending.item
     local inventory = self.character:getInventory()
     if inventory == nil or not inventory:contains(item) then
+        self:finishBaseSupplyRun("delivery_item_missing")
         self.pendingBaseSupplyDeposit = nil
         self:clearLifeIntent()
         return false
@@ -9619,6 +9866,7 @@ function Controller:updateInventoryCleanup(ticks)
     else
         if transfer ~= nil and transfer.baseSupply == true then
             self.pendingBaseSupplyDeposit = nil
+            self:finishBaseSupplyRun("deposited")
             self:clearLifeIntent()
         end
         print("[KnoxSurvivors][Autonomy] id=" .. self.id .. " inventory-cleanup="
@@ -10472,8 +10720,13 @@ function Controller:tick(ticks)
         if self.state == "FLEEING" then
             self:recoverFleeMovement("state_timeout", ticks)
             return
-        elseif self.state == "COMPANION_FOLLOW" or self.state == "BASE_RETURN"
-            or self.state == "BASE_PATROL" or self.state == "AWAY_RETURN" then
+        elseif self.state == "BASE_RETURN" or self.state == "BASE_PATROL" then
+            self:handleBaseMovementFailure("state_timeout", ticks)
+            return
+        elseif self.state == "MOVING_TO_REST" then
+            self:handleRestMovementFailure("state_timeout", ticks)
+            return
+        elseif self.state == "COMPANION_FOLLOW" or self.state == "AWAY_RETURN" then
             self.bridge:cancelNpcMove(self.id)
             self.activeDecision = nil
             self.state = "IDLE"
@@ -10550,6 +10803,8 @@ function Controller:tick(ticks)
             end
         end
     end
+
+    if self:yieldBaseTaskForNeed(ticks) then return end
 
     if self.state == "PLAYER_CONVERSATION" then
         self:updatePlayerConversation(ticks)
@@ -10714,7 +10969,7 @@ function Controller:tick(ticks)
         local started = self.baseTaskStartedAt or ticks
         if ticks - started >= KnoxBaseJobs.workDuration(self.baseTask) then
             local taskType = self.baseTask.type
-            self:finishBaseTask(true, "completed_" .. tostring(taskType))
+            local accepted = self:finishBaseTask(true, "completed_" .. tostring(taskType))
             local completionLines = {
                 guard = "All clear here.", patrol = "Patrol route is clear.",
                 barricade = "That opening is secured.",
@@ -10724,9 +10979,11 @@ function Controller:tick(ticks)
                 farm_seed = "The plot is planted.", chop_tree = "The tree is down.",
                 saw_logs = "The logs are cut.",
             }
-            KnoxActivityFeed.speak(self.character,
-                completionLines[taskType] or "That job is finished."
-            )
+            if accepted then
+                KnoxActivityFeed.speak(self.character,
+                    completionLines[taskType] or "That job is finished."
+                )
+            end
             self:finishDecision(ticks)
         end
         return
@@ -11090,8 +11347,10 @@ function Controller:tick(ticks)
                     "corpse_drop_not_released:" .. tostring(transition))
                 return
             end
-            self:finishBaseTask(true, "corpse_hauled")
-            KnoxActivityFeed.speak(self.character, "The body is out of the way.")
+            local accepted = self:finishBaseTask(true, "corpse_hauled")
+            if accepted then
+                KnoxActivityFeed.speak(self.character, "The body is out of the way.")
+            end
             self:finishDecision(ticks)
             return
         end
@@ -11101,8 +11360,8 @@ function Controller:tick(ticks)
             local zoneId = self.baseTask.target ~= nil and self.baseTask.target.zoneId or nil
             local removed, result = KnoxBaseCorpseHandling.burnZoneCorpses(self.base, zoneId)
             if removed ~= nil and removed > 0 then
-                self:finishBaseTask(true, "corpses_burned:" .. tostring(removed))
-                KnoxActivityFeed.speak(self.character, "Burned the pile.")
+                local accepted = self:finishBaseTask(true, "corpses_burned:" .. tostring(removed))
+                if accepted then KnoxActivityFeed.speak(self.character, "Burned the pile.") end
             else
                 self:failBaseTaskAction(ticks, tostring(result or "nothing_to_burn"))
                 return
@@ -11153,11 +11412,11 @@ function Controller:tick(ticks)
             end)
             self:diagActionVerdict("repair", complete,
                 self.baseTaskRepairBefore, afterRepair)
-            self:finishBaseTask(
+            local accepted = self:finishBaseTask(
                 complete,
                 complete and "structure_repaired" or "repair_not_completed"
             )
-            if complete then
+            if complete and accepted then
                 KnoxActivityFeed.speak(self.character, "That should hold now.")
             end
             self:finishDecision(ticks)
@@ -11212,11 +11471,11 @@ function Controller:tick(ticks)
             local finishReason = complete
                 and (taskType == "saw_logs" and "logs_sawn" or "tree_chopped")
                 or (taskType == "saw_logs" and "logs_not_sawn" or "tree_not_chopped")
-            self:finishBaseTask(
+            local accepted = self:finishBaseTask(
                 complete,
                 finishReason
             )
-            if complete then
+            if complete and accepted then
                 KnoxActivityFeed.speak(self.character,
                     taskType == "saw_logs"
                         and "The logs are ready." or "That tree is down."
@@ -11286,11 +11545,11 @@ function Controller:tick(ticks)
             self:diagActionVerdict(self.baseTask.type, complete,
                 self.baseTaskFarmingBefore, afterFarm)
             local taskType = self.baseTask.type
-            self:finishBaseTask(
+            local accepted = self:finishBaseTask(
                 complete,
                 complete and "farming_action_complete" or "farming_action_not_completed"
             )
-                if complete then
+                if complete and accepted then
                     KnoxActivityFeed.speak(self.character,
                         taskType == "farm_harvest" and "Harvest is in."
                         or taskType == "farm_water" and "Crops are watered."
@@ -12270,8 +12529,7 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "MOVING_TO_REST" then
-                self:recordMovementFailure("rest_move", movement, ticks)
-                self:startRecoveryPosture(ticks, false, self.ambientRest == true)
+                self:handleRestMovementFailure(movement, ticks)
                 return
             end
             if self.state == "MOVING_TO_BASE_CANDIDATE" then
@@ -12301,6 +12559,23 @@ function Controller:tick(ticks)
                 return
             end
             if self.state == "BASE_TASK_SUPPLY_MOVE" then
+                if Controller.isEntryTraversalFailure(movement) then
+                    local lockedDoor = string.find(
+                        movement, "FAILED_LOCKED_DOOR", 1, true) ~= nil
+                    if not lockedDoor and self:openNearbyClosedDoor() then
+                        return
+                    end
+                    if self:beginBaseTaskSupplyWindowDetour(ticks) then
+                        return
+                    end
+                    if lockedDoor and self:fallbackTaskEntryToDoorBreak(ticks) then
+                        return
+                    end
+                    if self.pendingSupply ~= nil
+                        and self.pendingSupply.taskSupplyEntry == true then
+                        self.pendingSupply = nil
+                    end
+                end
                 self:finishBaseTask(false, "assigned_supply_movement_failed:" .. movement)
                 self:recordMovementFailure("base_task_supply_move", movement, ticks)
                 self:finishDecision(ticks)
@@ -12582,9 +12857,11 @@ function Controller:tick(ticks)
             local recoveredBaseItem = returnToBase
                 and self.pendingSupply ~= nil and self.pendingSupply.item or nil
             if returnToBase then
-                self:finishBaseSupplyRun(
-                    recoveredBaseItem ~= nil and "collected" or "empty"
-                )
+                if recoveredBaseItem == nil then
+                    self:finishBaseSupplyRun("empty")
+                else
+                    self:handoffBaseSupplyDelivery(recoveredBaseItem)
+                end
             end
             -- An explicit owner order repeats until expiry, failure budget,
             -- or cancellation: after deposit the base loop starts the next
@@ -12592,15 +12869,8 @@ function Controller:tick(ticks)
             if explicitBaseSupply and recoveredBaseItem == nil then
                 self:recordExplicitBaseSupplyFailure(ticks)
             end
-            self:releaseSupply()
-            if returnToBase and recoveredBaseItem ~= nil then
-                self.pendingBaseSupplyDeposit = { item = recoveredBaseItem }
-                local ok, recoveredType = pcall(function()
-                    return recoveredBaseItem:getFullType()
-                end)
-                if ok and type(recoveredType) == "string" and recoveredType ~= "" then
-                    self:setLifeIntent("base_supply_deposit", "returning", nil, recoveredType)
-                end
+            if not (returnToBase and recoveredBaseItem ~= nil) then
+                self:releaseSupply()
             end
             self:finishDecision(ticks)
             if retrievedNeedVerified and retrievedNeedKind ~= nil
@@ -12814,6 +13084,7 @@ function Controller:status()
         .. " baseScout=" .. tostring(self.counts.baseScout)
         .. " robberies=" .. tostring(self.counts.robberies)
         .. " failures=" .. tostring(self.counts.failures)
+        .. " recentFailures=" .. tostring(#(self.recentFailureHistory or {}))
         .. " baseTask=" .. tostring(self.baseTask ~= nil
             and self.baseTask.type or "none")
         .. " camp=" .. tostring(self.campId or "none")

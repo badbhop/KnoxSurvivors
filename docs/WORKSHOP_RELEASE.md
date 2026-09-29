@@ -1,5 +1,11 @@
 # Workshop Preview Release
 
+> **Historical launcher release procedure.** The current KnoxBridge candidate
+> does not use the Knox Launcher. Do not follow this document to prepare a new
+> release; use `docs/production/QA_RELEASE.md` and
+> `docs/production/RUNTIME_AND_MIGRATION.md` for current acceptance and runtime
+> ownership. This page is retained as the record for the older launcher preview.
+
 Prefer publishing and verifying the Workshop mod before advertising a matching launcher
 release. The launcher rejects the legacy Workshop package by design.
 
@@ -109,8 +115,8 @@ game arguments. Existing `%command%` wrappers, duplicate Knox entries, and ambig
 separators are rejected for manual review. The helper writes no Steam, game, save,
 or environment settings.
 
-ZombieBuddy and the direct Knox Java-agent route are separate runtime choices. Do
-not merge a ZombieBuddy agent option into this Knox-only line.
+external Java runtime and the direct Knox Java-agent route are separate runtime choices. Do
+not merge an alternate runtime agent option into this Knox-only line.
 
 Before calling this route live-verified:
 
@@ -155,7 +161,7 @@ For a runtime-selection fix, require these additional checks:
   Confine any environment adjustment to the game process; preserve other PATH entries
   and agent options. Do not uninstall system Java or rewrite global environment values.
 - Preserve `-javaagent`, `-agentlib` and `-agentpath` options and their order, including
-  ZombieBuddy's actual installed configuration. Check Project REM's installed hooks
+  external Java runtime's actual installed configuration. Check Project REM's installed hooks
   rather than assuming that preserving a name or dependency proves compatibility.
 - Validate paths with spaces and separate Steam libraries, existing game arguments,
   and operation both with and without an external Java installation. Any one-time
@@ -166,6 +172,6 @@ For a runtime-selection fix, require these additional checks:
   reject unsupported or ambiguous input rather than silently changing it. This parser
   check is not an actual Steam launch.
 - Distinguish command preservation from gameplay compatibility. Require a real run
-  with the installed ZombieBuddy/Project REM versions, fresh loading evidence, and
+  with the installed external Java runtime/Project REM versions, fresh loading evidence, and
   representative gameplay before claiming that combination is supported. Arbitrary
   agents can still conflict when they patch the same game methods.

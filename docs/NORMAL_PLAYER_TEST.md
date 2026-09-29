@@ -1,58 +1,56 @@
-# Test the Workshop download, not the development copy
+# Test the subscribed Knox Survivors release
 
-The upload package is prepared for existing Workshop item **3749727604**. The source
-repository stays private. This procedure does not require any source files to run the mod.
+Use a disposable single-player save. This checks the subscriber installation and
+supported KnoxBridge startup path, not the local development copy or full gameplay
+acceptance.
 
-## Before uploading
+## Prepare
 
-1. Close Project Zomboid completely. Keep Steam running.
-2. Keep the backup of the old downloaded mod and use a fresh test save. That recovered
-   old copy is not confirmed to be the latest public release.
-3. Move the two development copies out of `%USERPROFILE%\Zomboid\mods` into a backup
-   folder outside Zomboid's mod locations:
-   - `KnoxSurvivors`
-   - `KnoxSurvivors-pre-rebuild-20260822`
-   Both currently declare `id=KnoxSurvivors`, regardless of their folder names.
-   Do not delete them or change unrelated mods. Do not run the development launcher
-   afterward: its deployment step would put a local copy back.
+1. Subscribe to Knox Survivors and its required KnoxBridge Runtime Workshop item.
+   Wait for Steam to finish both downloads.
+2. Close Project Zomboid. Move any local `KnoxSurvivors` development folders out
+   of `%USERPROFILE%\Zomboid\mods` into a backup folder outside Zomboid's mod
+   locations. Do not delete them or disturb other mods.
+3. Download the official KnoxBridge player setup from
+   [GitHub Releases](https://github.com/exe-create/KnoxBridge/releases/latest).
+   On Windows, run `KnoxBridgeSetup.exe` and choose install/update. The installer
+   uses Project Zomboid's bundled Java.
+4. Enable Knox Survivors in the PZ Mods menu. Start Project Zomboid normally
+   through Steam; do not use the retired Knox Survivors Launcher or another Java
+   instrumentation runtime.
 
-## Upload the prepared item
+## First startup and short gameplay check
 
-1. Start Project Zomboid through Steam for the uploader only.
-2. Open Workshop and the create/update screen.
-3. Select the prepared `KnoxSurvivors` folder. Confirm existing item **3749727604**,
-   the early-rebuild title, original artwork, description, and public visibility.
-4. Update the existing item, not a new item. Wait for upload success, then quit the game.
-5. Let Steam download the update through the existing subscription.
+1. In the updated KnoxBridge Workshop version, open **Review Java Mods** at the
+   main menu. Confirm the Knox module is listed by exact JAR name/hash, keep
+   unknown files denied, and allow only modules you trust. Choices apply after
+   a full restart. The displayed author is unverified metadata. This UI is not
+   in the currently published Bridge package and must not be claimed tested
+   until a new disposable Build 42 replay passes. Never bypass an antivirus
+   malware detection.
+2. At the main menu, confirm the current run has a fresh KnoxBridge log and that
+   Knox reports its bridge/module ready. Record the exact Project Zomboid build,
+   Knox version, runtime, and save name.
+3. Create a new disposable save. Check survivor visibility, travel a short route,
+   interact and recruit if eligible, issue Follow/Hold, and observe one safe
+   zombie encounter only if convenient. Do not treat a missing encounter as a
+   population count.
+4. Save, quit, and reload once. Record whether identity, equipment, relationship,
+   and any companion order remain coherent. This is a test result, not a claim
+   that all save migration or long-term persistence is supported.
 
-The folder to upload is `%USERPROFILE%\Zomboid\Workshop\KnoxSurvivors`.
-Do not manually copy its files into `steamapps/workshop/content`: that would bypass
-the download we need to verify.
+If startup or gameplay fails, stop and preserve the smallest useful evidence:
+the exact symptom, game/build, Knox version, runtime path, save type, and a log
+excerpt from the reproduction time. Useful logs are `%USERPROFILE%\Zomboid\console.txt`
+and `%USERPROFILE%\Zomboid\KnoxBridge\knoxbridge.log`.
 
-## Launch as a subscriber
+## Boundaries
 
-1. Download `KnoxSurvivorsLauncher-windows.zip` from the public
-   [KnoxSurvivorsLauncher releases page](https://github.com/exe-create/KnoxSurvivorsLauncher/releases).
-   Anonymous download/checksum verification is complete; this gameplay smoke test is
-   still needed after Steam supplies the updated mod.
-2. Extract the full ZIP into a new folder, for example Desktop/Knox Survivors Player Test.
-3. Open `Launch Knox Survivors.cmd`. Wait for READY, then press PLAY KNOX SURVIVORS.
-4. Enable Knox Survivors in Mods and use a **new** single-player test save on 42.20.4.
-   Do not use an old Knox save to test migration; that is a separate unverified issue.
-5. Check spawn/visibility, short travel, one zombie encounter, recruitment/Follow/Hold,
-   inventory interaction, then quit and reload to check identity and equipment.
-
-If READY fails or an error repeats, stop and capture the message. Do not verify against
-the local staging folder as a substitute. The launcher log must show the subscribed
-Workshop location ending in `steamapps/workshop/content/108600/3749727604`; game logs
-must confirm the Knox Java bridge and Lua mod loaded from that installation.
-
-Support logs: `%USERPROFILE%\KnoxSurvivors\launcher.log` and
-`%USERPROFILE%\Zomboid\console.txt`, plus the current Knox runtime log when present.
-
-## Release boundary
-
-The launcher preview is public and updated upload files are prepared; that does not
-publish the Steam item or prove gameplay. Windows/Linux/macOS CI passes are build/startup-fixture
-checks, not real Linux/macOS game runs. Keep the release marked early/preview and
-gather those live reports separately.
+- KnoxBridge is the only supported Knox Java runtime path. The separate Knox
+  Survivors Launcher is deprecated/private and must not be used.
+- Linux/macOS setup is implemented but has not been live-verified; this checklist
+  does not certify those platforms.
+- Use a new save for testing and back up saves you care about. Migration from
+  older Knox NPC data is not guaranteed.
+- A successful startup does not prove native movement, combat, transfers,
+  save/reload, or release readiness.

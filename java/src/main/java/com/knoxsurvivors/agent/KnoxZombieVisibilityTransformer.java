@@ -44,6 +44,7 @@ public final class KnoxZombieVisibilityTransformer implements ClassFileTransform
             PatchResult result = patch(classfileBuffer);
             lastPatchCount = result.count;
             KnoxCombatGate.markVisibilityPatchReady(result.count);
+            KnoxCombatGate.markRuntimeReadyIfPatched();
             if (result.count != EXPECTED_PATCH_COUNT) {
                 KnoxAgent.writeLog(
                     "ERROR zombie visibility patch expected="

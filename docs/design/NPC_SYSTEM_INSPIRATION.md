@@ -442,6 +442,8 @@ PZ-native behaviour: durable primary (Follow/Hold) + traversal policy + temporar
 
 Knox owners: `KS_CompanionService.lua`, `KS_PartyCommands.lua`, `KS_OrderCatalog.lua`/`KS_OrderSignals.lua`, `KS_RadialOrders.lua`, `KS_CompanionHUD.lua`, `KS_SurvivorCard.lua`, Notebook, `KS_MapOrders.lua` overlay, `KS_SpeechIndicators.lua`, `KS_ActivityFeed.lua`. Related: `BUG-KS-008`, `BUG-KS-010`, `BUG-KS-011`, `BUG-KS-021`.
 
+**Player-facing hub direction:** the Survivor Journal should be the main vanilla-style entry point for existing world history, survivors, groups/factions, relationships, bases, work/schedules, areas/storage and missions. It reads authoritative view data from those owners and creates no parallel state. Keep Knox interfaces visually cohesive, readable, mostly translucent, and draggable/resizable where that helps. The existing direction/Arrow UI stays the single survivor-locating overlay: visibility alone must not capture right-click, aiming, or other world input; intentionally interacting with its controls may consume input. Improve its readability/size/placement and allow dragging without creating a replacement overlay. Treat this as the future UI architecture, not a reason to defer core simulation fixes or rebuild every screen at once.
+
 Inspiration translation: TIS observations/character-sheet + mission-pick intuition; Survivalist command-mode clarity without constant re-issue.
 
 Must never: stale-shell order writes changing persisted orders, HUD stealing input, overlay backgrounds blocking right-click, map markers from a parallel ledger.
@@ -453,6 +455,8 @@ Acceptance: orders survive interruption/unload/save; speech renders readable and
 Should feel like people remembering what you actually did — gratitude, grudges, gossip that fades, invitations earned over time.
 
 PZ-native behaviour: encounters recorded by persistent IDs on same-level awareness range only; names, first/recent times, meeting counts, nearby hours, shared roaming/loot/combat. Pair/faction disposition owns friendliness; trust/reputation have fixed reasons, per-kind cooldowns, rolling 24h budgets, clock-rollback safety. Greeting needs approach/face/agreement without combat; joining needs familiarity + shared activity; hostility blocks talk/recruit and is not erased by unrelated help. Player hits create real trust loss + faction consequence; defense credit needs native attacker/target/floor/range evidence.
+
+Loaded greetings, declines, hostile dispositions, and group join results now enter the existing bounded survivor history after finalization. Later dialogue/Card views consume those facts; interrupted encounters and assumed robbery/combat results are excluded. Behavior-level memory consequences remain a later connected slice.
 
 Knox owners: persistence relationships, `KS_SurvivorDialogue.lua`, encounter observer, trust/reputation, trade/quotation. Related: `BUG-KS-025`.
 

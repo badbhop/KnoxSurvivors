@@ -46,8 +46,9 @@ Work in dependency order:
 7. **Events, factions and world life** — complete only implemented systems with a
    clear purpose, reusing the existing event/lifecycle boundaries and avoiding
    fabricated supplies, bodies or world effects.
-8. **Launcher/runtime compatibility** — update the launcher only when the mod's
-   runtime/payload boundary requires it; verify one startup path at a time.
+8. **Runtime compatibility** — keep KnoxBridge as the only supported Knox
+   startup path; verify its installer, module approval, and game integration.
+   The separate Knox Survivors Launcher is deprecated and out of scope.
 9. **Performance, defaults and customization** — measure expensive loops, keep
    safe balanced defaults, expose meaningful player settings, and document the
    cost/behavior tradeoffs.

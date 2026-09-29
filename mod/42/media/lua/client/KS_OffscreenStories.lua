@@ -596,6 +596,53 @@ function Stories.historyFor(id)
     return copy
 end
 
+--- Append a finalized loaded encounter to the existing survivor history.
+-- The loaded relationship coordinator owns when an encounter is real; this
+-- owner only stores the bounded fact. Missing ledgers are not synthesized.
+function Stories.recordLoadedEncounter(id, otherId, outcome, hours)
+    if type(id) ~= "string" or id == "" or type(otherId) ~= "string"
+        or otherId == "" or id == otherId then
+        return false, "invalid_identity"
+    end
+    local allowed = {
+        friendly = true,
+        joined = true,
+        declined = true,
+        parted = true,
+        hostile = true,
+    }
+    if allowed[outcome] ~= true then return false, "invalid_outcome" end
+    local persist = persistence()
+    if persist == nil or persist.getUnloadedSurvivalState == nil
+        or persist.setUnloadedSurvivalState == nil then
+        return false, "history_unavailable"
+    end
+    local okRead, state = pcall(persist.getUnloadedSurvivalState, id)
+    if not okRead or type(state) ~= "table" then
+        return false, "canonical_history_missing"
+    end
+    local atHours = tonumber(hours) or nowHours()
+    if type(state.history) == "table" then
+        for _, entry in ipairs(state.history) do
+            if type(entry) == "table" and entry.kind == "meet"
+                and entry.with == otherId and entry.outcome == outcome
+                and tonumber(entry.t) == atHours then
+                return true, "already_recorded"
+            end
+        end
+    end
+    pushHistory(state, {
+        kind = "meet",
+        with = otherId,
+        outcome = outcome,
+        detail = "a loaded survivor encounter",
+        t = atHours,
+    })
+    local okWrite, saved = pcall(persist.setUnloadedSurvivalState, id, state)
+    if not okWrite or saved ~= true then return false, "history_write_failed" end
+    return true, "recorded"
+end
+
 local function boundedText(value, maximum)
     if value == nil then return nil end
     local valueText = tostring(value):gsub("[%c]", " "):match("^%s*(.-)%s*$")

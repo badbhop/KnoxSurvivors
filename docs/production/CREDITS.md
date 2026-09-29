@@ -24,7 +24,7 @@ This file is the release-prep source for attribution. `COLLABORATION.md` holds t
 
 ## Runtime integration
 
-- **ZombieBuddy** — optional runtime integration path supported by Knox Survivors. This entry describes interoperability and should not be presented as a claim that ZombieBuddy authored Knox Survivors.
+- **external Java runtime** — historical interoperability research/reference only. It is not bundled, required, or a supported startup path for the current KnoxBridge candidate, and is not an author of Knox Survivors.
 
 ## Translators and collaborators
 

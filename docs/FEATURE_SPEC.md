@@ -591,6 +591,12 @@ meet
 → travel
 → establish settlement.
 
+Loaded social outcomes enter the existing bounded personal history only after
+the greeting, disposition change, group mutation, or rejected join is finalized.
+Later dialogue and survivor views read that history. An entry records hostility,
+not an unverified fight, robbery, or transfer; interrupted encounters are not
+remembered as completed outcomes.
+
 ## Settlement
 
 storage/organizing
