@@ -605,9 +605,10 @@ announced on 2026-09-28.
   including enabled-mod discovery, trust, entrypoint, and its harmless patch.
 - Keep the existing mod ID (`KnoxSurvivors`) and current mod files; do not make
   a duplicate package or Workshop item for 42.21.
-- Set the supported metadata range to 42.20–42.21 and label 42.21 as under test
-  until live acceptance passes. Do not upload a new Workshop build before the
-  owner reviews the test results.
+- Set the metadata range to 42.20–42.21 and label 42.21 as under test until
+  live acceptance passes. The owner reports the candidate Workshop items have
+  been uploaded/updated; this does not close the live acceptance or release
+  gate.
 - Knox module metadata and entrypoint must use KnoxBridge; remove ZombieBuddy
   metadata and compile dependencies from the Workshop payload while retaining
   the direct Knox legacy agent only as a source rollback path.
@@ -647,7 +648,9 @@ KnoxBridge Workshop staging is intentionally marker-only and contains no
 runtime JAR, native bootstrap, installer, or setup scripts because Steam does
 not distribute these installer artifacts. The player package is separate:
 Windows standalone installer; Linux/macOS ZIP plus Python helper (implemented,
-not live verified). The Bridge item is staged private without an ID. The owner
-must upload it, then add it as Knox's Steam Required Item before the subscribe
-test. The old installed Steam Workshop subscription and source trees were
-preserved. These are upload preparation checks, not a new live test.
+not live verified). The owner reports uploading/updating both Workshop items
+after this staging. The current public Knox listing still needs owner review for
+Bridge access, Required Item linkage, and setup instructions matching the actual
+downloadable package. The old installed Steam Workshop subscription and source
+trees were preserved. Publication does not prove module startup, gameplay,
+save/reload, or cross-platform acceptance.

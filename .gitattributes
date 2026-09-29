@@ -3,3 +3,14 @@
 *.gradle text eol=lf
 *.kts text eol=lf
 *.lua text eol=lf
+
+# Keep engineering-only records in the repository for maintainers, but omit
+# them from downloadable source snapshots used by players.
+AGENTS.md export-ignore
+docs/production/** export-ignore
+docs/design/** export-ignore
+docs/FEATURE_AUDIT.md export-ignore
+docs/FEATURE_SPEC.md export-ignore
+docs/ARCHITECTURE.md export-ignore
+docs/DEVELOPMENT_TESTING.md export-ignore
+docs/SANDBOX_SETTINGS.md export-ignore

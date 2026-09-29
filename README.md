@@ -4,9 +4,9 @@ Knox Survivors is a survivor/NPC mod for Project Zomboid Build 42, inspired by t
 
 The rebuild uses human, player-based NPC bodies and leans on the game's existing clothing, items, animations, world objects, combat systems, containers, farming and other vanilla systems wherever practical. Survivors are meant to feel like people trying to stay alive in the same world as you, not disposable followers or a free army.
 
-**Current release candidate:** `0.3.0-rc1` (Project Zomboid `42.20.4`)
+**Current release candidate:** `0.3.0-rc1`, targeting Project Zomboid Build `42.20–42.21`.
 
-**Current compatibility-test target:** Project Zomboid `42.21.0` Stable; compatibility is not yet verified.
+**Build 42.21 compatibility is still being tested and is not yet verified.**
 **Focus:** Single-player
 
 ## What is in the mod now
@@ -88,7 +88,9 @@ Discord: https://discord.gg/cTfd2WWD4s
 
 ## Development documentation
 
-The repository also contains internal production, architecture, design/research, audit and testing documents under `docs/`. Current engineering state lives in `docs/production/`; NPC design research lives in `docs/design/`. Those records may discuss incomplete work, test gates or future systems and are not player-facing feature promises.
+The Git repository contains internal production, architecture, design and test
+records for maintainers. They are not part of the Workshop mod download or the
+player installation package, and they are not player-facing feature promises.
 
 ModForge is optional for development. It can index the canonical production
 records, show tasks/bugs, prepare handoffs and regenerate its coordination

@@ -161,8 +161,10 @@ urgent hunger during a supply transfer and unavailable-food recovery.
 - The configured local Workshop `Contents` folder was replaced from current
   source and now declares `42.20–42.21`. The prior 125 files are backed up in
   ignored `build/pre-knoxbridge-full-stage-backup`. The staged payload scan
-  found no ZombieBuddy references. This is local staging only; no upload was
-  made.
+  found no ZombieBuddy references. This records staging before the owner
+  reported uploading/updating both Knox Survivors and KnoxBridge Workshop items.
+  Publication/access and Required Item linkage still need owner-side
+  confirmation; upload is not gameplay or release-gate evidence.
 - Current Knox Workshop staging now mirrors the Knox source mod and includes
   the built KnoxBridge module JAR at the descriptor's exact path
   (`42/media/java/knox-agent.jar`). Its `mod.info` declares
@@ -173,9 +175,13 @@ urgent hunger during a supply transfer and unavailable-food recovery.
   and the Workshop description. Steam does not distribute the installer/runtime
   files from that item. Players must get the setup package from the KnoxBridge
   GitHub release; Windows has a standalone installer while Linux/macOS use a ZIP
-  plus Python setup helper. Linux/macOS setup is not live verified. The Bridge
-  Workshop ID and Knox's Required Items link still need owner publishing.
-  Neither Workshop item was uploaded by Codex.
+  plus Python setup helper. Linux/macOS setup is not live verified. The owner
+  reports that both Workshop items have since been uploaded/updated.
+  Confirm the Bridge item is accessible to intended testers and linked as Knox's
+  Required Item. The current public Knox page still presents Windows-only setup
+  instructions and says the Bridge item is private; reconcile public copy with
+  release assets before inviting general users. This owner report is publication
+  status only, not new live gameplay evidence.
 - Single-player is the supported focus.
 - KnoxBridge is the active Workshop runtime target. The direct Knox legacy
   agent remains only as a source rollback path during migration.
