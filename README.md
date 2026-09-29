@@ -52,21 +52,20 @@ it does not install the runtime. Download the player setup package from
   and edits only the selected Steam account's Project Zomboid launch option.
   This route is implemented but has not been live-verified on either OS.
 
-Enable Knox Survivors in the PZ Mods menu and start the game normally through
-Steam. On first launch, KnoxBridge asks before loading an unknown Java module.
-Review its module ID and SHA-256 and allow or deny only if you trust it; the
-displayed author is unverified. If the startup dialog is unavailable, close the
-game and use the setup tool's trust-management option. Java modules run with
+Enable KnoxBridge Runtime and Knox Survivors in the PZ Mods menu and start
+through Steam. The new Bridge-owned **Review Java Mods** screen is planned for
+the next Bridge package and Workshop update; it is not part of the currently
+published player download. Once released, it will list enabled-mod JARs, block
+unknown hashes by default, and save exact-file allow/deny choices for the next
+full launch. The displayed author is unverified metadata. Java modules run with
 the game's full account permissions; KnoxBridge is not a sandbox.
 
 KnoxBridge loads only enabled PZ mods that declare its module descriptor and
-implement the KnoxBridge API. Existing Java mods written for a different
-loader, including ZombieBuddy-specific mods, do not load automatically; their
-authors must port or explicitly support KnoxBridge.
+implement the KnoxBridge API. Existing Java mods for other loaders do not load
+automatically; their authors must port or explicitly support KnoxBridge.
 
-The old Knox Survivors Launcher is deprecated and unsupported. Do not download
-or use it, or combine it with KnoxBridge. ZombieBuddy is also a separate
-alternative; never run two Java instrumentation runtimes in one game process.
+The old Knox Survivors Launcher is deprecated and unsupported. Use only one
+Java instrumentation runtime in a game process.
 
 Use a new disposable save for testing. Runtime installation changes startup
 configuration, not save files, but Knox gameplay/save compatibility is not

@@ -10,7 +10,7 @@ Updated: 2026-09-28
 
 ## Active runtime
 
-The Workshop candidate uses KnoxBridge as its only Java runtime bootstrap. KnoxBridge is a separate required runtime install; after setup, users enable Knox Survivors in the PZ Mods menu and launch normally through Steam. The Windows bootstrap is stored in Project Zomboid's own JSON VM arguments; the Linux/macOS helper edits the selected Steam account's launch option. Setup exposes exact-JAR SHA-256 ALLOW/DENY decisions. The Knox Workshop payload contains no ZombieBuddy dependency or startup path.
+The Workshop candidate uses KnoxBridge as its only Java runtime bootstrap. KnoxBridge is a separate required runtime install; after setup, users enable Knox Survivors in the PZ Mods menu and launch normally through Steam. The Windows bootstrap is stored in Project Zomboid's own JSON VM arguments; the Linux/macOS helper edits the selected Steam account's launch option. Setup exposes exact-JAR SHA-256 ALLOW/DENY decisions. The Knox Workshop payload contains no external Java runtime dependency or startup path.
 
 Knox declares `com.knoxsurvivors.knox-module` in `mod/42/knoxbridge.properties`. The Knox module reuses the existing Java bridge, NPC runtime, and direct transformers. Lua survivor simulation and save schema are unchanged. The module uses KnoxBridge's `system` class-loader policy because transformed PZ classes must resolve Knox's helper methods; this grants module code normal JVM permissions and is not a sandbox.
 

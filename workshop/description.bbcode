@@ -30,13 +30,13 @@ Some systems are still being improved, especially pathfinding, firearms, competi
 
 [b]3.[/b] Enable Knox Survivors in the Mods menu and on a new disposable save. Launch Project Zomboid normally through Steam.
 
-[b]4.[/b] On first launch, KnoxBridge blocks an unknown module until you decide. Exit the game, reopen the downloaded KnoxBridge setup, choose module trust management, verify the module ID and SHA-256, then type [b]ALLOW[/b] or [b]DENY[/b] for that exact JAR. Start the game again through Steam. You can also disable the mod in the normal PZ Mods menu.
+[b]4.[/b] At the main menu, open KnoxBridge's [b]Review Java Mods[/b] screen. It lists discovered JAR files from enabled mods; new or changed files are denied by default. Select a compatible module to review its SHA-256, then choose [b]Allow[/b] or [b]Keep denied[/b]. Your exact-file decision is saved for future launches and takes effect after a full restart. Normal approval does not require the installer. The displayed author is unverified mod metadata. JARs without KnoxBridge compatibility remain visible but cannot be loaded.
 
 [b]Save safety:[/b] the runtime installer changes startup configuration, not save files. Knox save compatibility is not certified for important existing saves; use a disposable new save and back up saves you care about.
 
 [b]Compatibility:[/b] KnoxBridge loads enabled PZ mods that declare its module descriptor and implement the KnoxBridge API. Java mods for another loader do not load automatically; their authors must port/support KnoxBridge. Java modules run with full game-user permissions and are not sandboxed.
 
-[b]Important:[/b] KnoxBridge is the only supported Knox Java startup path. Do not run it together with ZombieBuddy or the retired Knox Launcher/legacy agent.
+[b]Important:[/b] Use only one Java instrumentation runtime for Project Zomboid at a time. The retired Knox Launcher/legacy agent is unsupported.
 
 [h1]📌 More Information[/h1]
 

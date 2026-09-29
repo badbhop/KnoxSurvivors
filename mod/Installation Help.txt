@@ -13,7 +13,7 @@ https://github.com/exe-create/KnoxBridge/releases/latest
 Windows:
 1. Download and run KnoxBridgeSetup.exe.
 2. Choose **1** to install/update and follow the prompts. It uses PZ's bundled
-   Java; do not add custom Steam Launch Options or install another Java runtime.
+   Java; do not add custom Steam Launch Options or install external Java runtime.
 
 Linux/macOS:
 1. Download and extract the KnoxBridgeRuntime ZIP.
@@ -23,13 +23,14 @@ Linux/macOS:
 Then enable Knox Survivors in the PZ Mods menu and start Project Zomboid
 normally through Steam. Use a new disposable save while this candidate is tested.
 
-FIRST-RUN MODULE APPROVAL
-The first launch records Knox's exact Java module hash and blocks it pending
-approval. Exit the game, run the downloaded KnoxBridge setup again, choose
-module trust management, check the module ID and SHA-256, then type **ALLOW** or
-**DENY** for that exact JAR. Restart through Steam. A changed JAR has a new hash
-and needs a new decision. You can also disable the mod itself in the normal PZ
-Mods menu.
+JAVA MODULE REVIEW
+The upcoming Bridge Workshop update adds a main-menu Review Java Mods screen.
+It will list JAR files found under enabled mods; new or changed hashes remain
+denied until the player allows that exact file. Allow/deny choices are saved
+for future launches and apply after a full restart. The displayed author is
+unverified metadata. This screen is not included in the currently published
+Bridge package yet; do not use installer trust controls for normal approval.
+JARs without Bridge compatibility remain visible but cannot be loaded.
 
 CHECK
 After reaching the main menu, open Documents\Zomboid\KnoxIsoPlayer.log and

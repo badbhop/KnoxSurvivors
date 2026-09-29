@@ -21,11 +21,13 @@ acceptance.
 
 ## First startup and short gameplay check
 
-1. If KnoxBridge shows an approval dialog, verify the Knox Survivors module ID
-   and review its SHA-256. Allow only the module you intended to install and
-   trust. The displayed author is unverified metadata. If the dialog is skipped
-   or unavailable, the module remains blocked; use the setup trust-management
-   option instead. Never bypass an antivirus malware detection.
+1. In the updated KnoxBridge Workshop version, open **Review Java Mods** at the
+   main menu. Confirm the Knox module is listed by exact JAR name/hash, keep
+   unknown files denied, and allow only modules you trust. Choices apply after
+   a full restart. The displayed author is unverified metadata. This UI is not
+   in the currently published Bridge package and must not be claimed tested
+   until a new disposable Build 42 replay passes. Never bypass an antivirus
+   malware detection.
 2. At the main menu, confirm the current run has a fresh KnoxBridge log and that
    Knox reports its bridge/module ready. Record the exact Project Zomboid build,
    Knox version, runtime, and save name.

@@ -324,13 +324,13 @@ Type: compatibility
 Confirm the release candidate starts through the supported runtime path(s) from a real subscribed/published-style install.
 
 ### Acceptance
-- ZombieBuddy path produces fresh `runtime start PASS` and the later
-  `ZombieBuddy patch readiness PASS` evidence when used; the earlier line alone
+- selected runtime path produces fresh `runtime start PASS` and the later
+  `Knox patch readiness PASS` evidence when used; the earlier line alone
   is only bridge startup and does not prove that hooks applied.
 - The selected path also produces `Lua bridge exposed global=KnoxJavaBridge`
   and Lua-side `[KnoxSurvivors][Bridge] PASS` evidence.
 - The deprecated Knox Survivors Launcher is not an acceptance path. Do not
-  launch it or compose it with KnoxBridge or ZombieBuddy. Its separate repository
+  launch it or compose it with KnoxBridge or external Java runtime. Its separate repository
   has been requested to become private; that visibility change remains pending
   owner-side settings confirmation.
 - Do not advertise or test the retired standalone launcher or direct legacy Knox agent as supported setup paths. Test KnoxBridge via normal Steam startup only.
@@ -347,7 +347,7 @@ checksum, runtime-isolation, and Windows-bootstrap checks; this historical
 evidence does not make it a supported path. The main repository retirement
 check and verifier also passed at that time. Before live acceptance, isolate
 the local `<Zomboid-mods>\KnoxSurvivors` shadow copy and use KnoxBridge as the
-only Knox Java runtime. ZombieBuddy may be tested separately as an alternative,
+only Knox Java runtime. Alternate runtime testing must be performed separately,
 never stacked with KnoxBridge.
 
 ### Definition of Done
@@ -606,7 +606,7 @@ announced on 2026-09-28.
   live acceptance passes. The owner reports the candidate Workshop items have
   been uploaded/updated; this does not close the live acceptance or release
   gate.
-- Knox module metadata and entrypoint must use KnoxBridge; remove ZombieBuddy
+- Knox module metadata and entrypoint must use KnoxBridge; remove external Java runtime
   metadata and compile dependencies from the Workshop payload while retaining
   the direct Knox legacy agent only as a source rollback path.
 - Audit every required Knox Java hook against the installed 42.21 JAR and test

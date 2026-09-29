@@ -34,7 +34,7 @@ This is the private production ledger for translators, compatibility partners, e
 | Project | Relationship | Notes | Contribution claim |
 |---|---|---|---|
 | Project Zomboid / The Indie Stone | Base game / engine | Knox targets Project Zomboid Build 42 and uses native game systems/assets under the game's normal modding context | Not a Knox contributor |
-| ZombieBuddy | Historical Java-runtime interoperability reference | Not bundled or required by the current KnoxBridge candidate; ZombieBuddy-specific modules need an explicit KnoxBridge port | Reference only; do not imply authorship of Knox |
+| external Java runtime | Historical Java-runtime interoperability reference | Not bundled or required by the current KnoxBridge candidate; modules that use other Java runtimes need an explicit KnoxBridge port | Reference only; do not imply authorship of Knox |
 | Superb Survivors | Concept inspiration | README explicitly identifies inspiration for the survivor-mod concept, not a source-code dependency | Inspiration only |
 
 ## Translators
@@ -172,7 +172,7 @@ _No repository-backed external co-author/contributor record is confirmed in the 
 
 | Project / mod | What was tested | Evidence | Status | Owner |
 |---|---|---|---|---|
-| ZombieBuddy | Knox Java runtime bootstrap / Patch API path | `docs/production/RUNTIME_AND_MIGRATION.md`, `README.md`, runtime logs/tests | Supported path; live release compatibility still follows release gates | Knox project |
+| external Java runtime | Knox Java runtime bootstrap / Patch API path | `docs/production/RUNTIME_AND_MIGRATION.md`, `README.md`, runtime logs/tests | Supported path; live release compatibility still follows release gates | Knox project |
 
 ## Support-scale coordination
 

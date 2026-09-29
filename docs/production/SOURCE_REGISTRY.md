@@ -54,7 +54,7 @@ The following older documents served the same plan/status/release/migration purp
 - `RELEASE_READINESS.md`
 - `MIGRATION_README.txt`
 - `PLAYER_MIGRATION_NOTE.txt`
-- `ZOMBIEBUDDY_AUTHOR_SIGNING.txt`
+- `OTHER_JAVA_RUNTIME_AUTHOR_SIGNING.txt`
 - `dday_map_v2_render.png`
 - `docs/AGENTS.md`
 - `docs/MILESTONES.md`

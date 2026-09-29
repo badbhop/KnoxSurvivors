@@ -24,7 +24,7 @@ Use KnoxBridge Runtime as the only supported Knox Java startup path:
 4. Enable Knox Survivors in the Project Zomboid Mods menu and launch normally
    through Steam.
 
-KnoxBridge and ZombieBuddy are separate alternatives. Never configure or run
+KnoxBridge and external Java runtime are separate alternatives. Never configure or run
 both instrumentation runtimes in one Project Zomboid process. The old direct
 Knox agent path is not a user setup option.
 

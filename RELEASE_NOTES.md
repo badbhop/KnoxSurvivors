@@ -6,7 +6,7 @@
 - The separate Knox Survivors Launcher is deprecated and unsupported. The owner
   has requested that its source repository be made private; that repository
   setting remains pending confirmation. Do not download or use old launcher
-  releases, and never combine them with KnoxBridge or ZombieBuddy.
+  releases, and never combine them with KnoxBridge or external Java runtime.
 - The KnoxBridge Workshop item is being updated to include the compile-time API
   and author/player guides. Player runtime setup remains a separate GitHub
   Releases download; Workshop upload of the revised payload is not yet confirmed.
@@ -15,7 +15,7 @@
 
 ## Maintenance update — 2026-09-23
 
-- Fixed runtime detection that left the bridge disconnected or reported the wrong ZombieBuddy version after launch; this historical note does not imply the old Knox Launcher remains supported.
+- Fixed runtime detection that left the bridge disconnected or reported the incorrect runtime version after launch; this historical note does not imply the old Knox Launcher remains supported.
 - Fixed a health-probe scope error that caused repeated log errors.
 - Removed automatic god/ghost/invisibility protection from the QA player; old QA flags are cleared on exit.
 

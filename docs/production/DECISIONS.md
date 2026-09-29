@@ -42,9 +42,9 @@ requested its repository be made private, a setting change still pending
 confirmation. Do not distribute, recommend, or use old launcher builds.
 Retain its source only as a historical archive.
 The direct Knox Java agent remains a source rollback artifact, not a player
-setup option. Never stack KnoxBridge with ZombieBuddy or another instrumentation
+setup option. Never stack KnoxBridge with external Java runtime or another instrumentation
 runtime. Java modules must explicitly implement the KnoxBridge contract;
-arbitrary or ZombieBuddy-specific JARs are not assumed compatible.
+arbitrary or JARs that use other Java runtimes are not assumed compatible.
 
 Source: `README.md`, `docs/production/RUNTIME_AND_MIGRATION.md`,
 `docs/production/RESEARCH_AND_COMPATIBILITY.md`.

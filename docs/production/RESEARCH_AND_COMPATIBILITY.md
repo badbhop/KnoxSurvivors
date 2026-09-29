@@ -21,7 +21,7 @@ The current 42.21 compatibility work is tracked in `WORK_QUEUE.md` as KS-PROD-01
 ## Runtime compatibility
 
 The current Knox candidate uses KnoxBridge as its only supported Java runtime
-path. ZombieBuddy is historical interoperability research, not the current
+path. external Java runtime is historical interoperability research, not the current
 technical baseline or a supported Knox startup path. The separate Knox
 Survivors Launcher is deprecated and unsupported; the owner has requested that
 its repository become private, but the setting still needs to be changed and
@@ -30,7 +30,7 @@ and must not be stacked with KnoxBridge. See `RUNTIME_AND_MIGRATION.md`.
 
 KnoxBridge discovers only PZ-enabled mods with a valid `knoxbridge.properties`
 descriptor and an entrypoint implementing the versioned KnoxBridge API. It does
-not load arbitrary Java archives or ZombieBuddy-specific modules unchanged;
+not load arbitrary Java archives or modules that use other Java runtimes unchanged;
 their authors must port or explicitly support KnoxBridge. Its Workshop item
 contains the dependency marker, compile-time API, and guides; player runtime
 setup is downloaded separately, and the

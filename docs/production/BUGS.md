@@ -116,7 +116,7 @@ Type: bug
 
 ### Symptom
 The main mod repository contained a second, stale C# launcher that preserved
-ZombieBuddy's `-agentlib:zbNative` while adding Knox's legacy `-javaagent`,
+external Java runtime's `-agentlib:zbNative` while adding Knox's legacy `-javaagent`,
 contrary to the exactly-one-runtime-path contract. Its embedded source and
 build path were retired. The separate Knox Survivors Launcher is now
 deprecated and unsupported by owner direction; KnoxBridge is the sole
@@ -126,7 +126,7 @@ is still pending, so do not claim the repository is private yet.
 ### Reproduction
 Historical reproduction: in the embedded launcher verifier, inherit
 `JAVA_TOOL_OPTIONS=-agentlib:zbNative -Xmx2G` and create a launch plan. The
-verifier required both the ZombieBuddy option and Knox `=pz-game` agent to be
+verifier required both the alternate runtime option and Knox `=pz-game` agent to be
 present, and `tools/build-launcher.ps1` packaged that implementation. Those
 embedded files are no longer present in the main repository.
 
@@ -134,10 +134,10 @@ embedded files are no longer present in the main repository.
 The main repository diff retires all 12 tracked embedded launcher project/source
 files and `tools/build-launcher.ps1`; `docs/LAUNCHER.md` now names the separate
 launcher repository as the sole source, verification, and packaging owner and
-rejects active ZombieBuddy composition. In the sibling
+rejects active external Java runtime composition. In the sibling
 `KnoxSurvivorsLauncher` checkout, `scripts/build.ps1` passed launch-option
 security/native-argument verification, updater metadata/version/checksum
-verification, launcher verification with Knox and ZombieBuddy runtimes
+verification, launcher verification with Knox and multiple Java runtimes
 isolated, and Windows bootstrap verification. The main repository structural
 retirement check passed (13 tracked embedded files deleted),
 `tools/verify.ps1` passed with 112 Lua sources, 174 Lua regression scripts,

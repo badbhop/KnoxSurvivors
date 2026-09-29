@@ -71,7 +71,7 @@ At minimum cover:
 
 Use this short checklist after a risky change or before advancing a live gate. Use a disposable save, record the Git revision, and test one startup path at a time. Mark a step **PASS** only when the expected result is observed in the real game; otherwise record **FAIL**, preserve the save/log, and create or update the relevant bug/task.
 
-1. **Startup path** — install KnoxBridge using the current OS instructions, launch normally through Steam with KnoxBridge as the sole Java runtime, confirm the Knox module loads, enter a disposable save, and record the runtime/build. The separate Knox Survivors Launcher is deprecated and must not be used for acceptance. Keep ZombieBuddy as a separate alternative and never stack runtime agents.
+1. **Startup path** — install KnoxBridge using the current OS instructions, launch normally through Steam with KnoxBridge as the sole Java runtime, confirm the Knox module loads, enter a disposable save, and record the runtime/build. The separate Knox Survivors Launcher is deprecated and must not be used for acceptance. Keep external Java runtime as a separate alternative and never stack runtime agents.
 2. **Survivor identity** — create or recruit one survivor. Example: note the name/identity, location, equipment, and relationship, then confirm they remain the same after a save/reload.
 3. **Orders and movement** — issue Follow, Hold, or Return. Example: send the survivor through a doorway or around an obstacle, interrupt with a nearby threat, and confirm the order recovers or fails visibly rather than silently hanging.
 4. **Combat** — test one threat, then several. Example: confirm real damage/health changes, weapon or melee behavior, retreat/recovery, and no fabricated combat result.
@@ -177,7 +177,7 @@ Look for these concrete symptoms rather than trying to diagnose their cause:
 - unloaded activity creates blood, smashed windows, combat history, loot, death, or terminal outcomes without valid simulation evidence;
 - returning to an unloaded area creates duplicate survivors, stale shells, duplicate events, or failed materialization that cannot retry;
 - the UI shows a different state from the survivor, inventory, health, or order actually observed in the world;
-- launcher and ZombieBuddy both appear active, the wrong runtime loads, or startup reports PASS before the required bridge/patch/combat checks are real;
+- launcher and external Java runtime both appear active, the wrong runtime loads, or startup reports PASS before the required bridge/patch/combat checks are real;
 - performance degrades sharply, survivors spam the same action, or the game becomes unstable during ordinary population/activity levels.
 
 ### Useful report format
