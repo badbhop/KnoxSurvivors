@@ -71,7 +71,7 @@ At minimum cover:
 
 Use this short checklist after a risky change or before advancing a live gate. Use a disposable save, record the Git revision, and test one startup path at a time. Mark a step **PASS** only when the expected result is observed in the real game; otherwise record **FAIL**, preserve the save/log, and create or update the relevant bug/task.
 
-1. **Startup path** — install KnoxBridge using the current OS instructions, launch normally through Steam with KnoxBridge as the sole Java runtime, confirm the Knox module loads, enter a disposable save, and record the runtime/build. Keep launcher and ZombieBuddy paths out of Knox acceptance.
+1. **Startup path** — install KnoxBridge using the current OS instructions, launch normally through Steam with KnoxBridge as the sole Java runtime, confirm the Knox module loads, enter a disposable save, and record the runtime/build. The separate Knox Survivors Launcher is deprecated and must not be used for acceptance. Keep ZombieBuddy as a separate alternative and never stack runtime agents.
 2. **Survivor identity** — create or recruit one survivor. Example: note the name/identity, location, equipment, and relationship, then confirm they remain the same after a save/reload.
 3. **Orders and movement** — issue Follow, Hold, or Return. Example: send the survivor through a doorway or around an obstacle, interrupt with a nearby threat, and confirm the order recovers or fails visibly rather than silently hanging.
 4. **Combat** — test one threat, then several. Example: confirm real damage/health changes, weapon or melee behavior, retreat/recovery, and no fabricated combat result.

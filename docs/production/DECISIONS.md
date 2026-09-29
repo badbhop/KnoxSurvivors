@@ -6,7 +6,7 @@ purpose: canonical settled decision ledger
 
 # Knox Survivors — active project decisions
 
-Updated: 2026-09-28
+Updated: 2026-09-29
 
 These are settled operating/product decisions extracted from the current repository documentation. Agents should not reopen them without new evidence or owner direction.
 
@@ -36,13 +36,15 @@ Source: `README.md`, `docs/production/QA_RELEASE.md`, `RELEASE_NOTES.md`.
 
 ## D-005 — KnoxBridge is the sole supported Knox Java runtime path
 
-The current Knox candidate uses KnoxBridge. Do not advertise the standalone
-Knox Launcher or a direct Knox Java-agent path as alternatives, and never stack
-KnoxBridge with ZombieBuddy or another instrumentation runtime. Preserve the
-old launcher/source only as a migration artifact until Bridge acceptance and
-rollback gates are complete. Java modules must explicitly implement the
-KnoxBridge contract; arbitrary or ZombieBuddy-specific JARs are not assumed
-compatible.
+KnoxBridge is the only supported public Knox Java runtime/setup path. The
+separate Knox Survivors Launcher is deprecated and unsupported; the owner has
+requested its repository be made private, a setting change still pending
+confirmation. Do not distribute, recommend, or use old launcher builds.
+Retain its source only as a historical archive.
+The direct Knox Java agent remains a source rollback artifact, not a player
+setup option. Never stack KnoxBridge with ZombieBuddy or another instrumentation
+runtime. Java modules must explicitly implement the KnoxBridge contract;
+arbitrary or ZombieBuddy-specific JARs are not assumed compatible.
 
 Source: `README.md`, `docs/production/RUNTIME_AND_MIGRATION.md`,
 `docs/production/RESEARCH_AND_COMPATIBILITY.md`.

@@ -40,8 +40,9 @@ Use a fresh save for this rebuild and back up saves you care about. Migration fr
 
 Knox Survivors uses the separate KnoxBridge Runtime. Subscribe to both Workshop
 items after KnoxBridge is linked as a Required Item. The Bridge Workshop item
-only provides the dependency marker; Steam cannot run its installer. Download
-the separate setup package from [KnoxBridge Releases](https://github.com/exe-create/KnoxBridge/releases/latest).
+provides the dependency marker, compile-time API, and setup/mod-author guides;
+it does not install the runtime. Download the player setup package from
+[KnoxBridge Releases](https://github.com/exe-create/KnoxBridge/releases/latest).
 
 - **Windows:** run `KnoxBridgeSetup.exe`, choose install/update, and follow the
   prompts. It uses Project Zomboid's bundled Java; no separate Java install is
@@ -52,16 +53,20 @@ the separate setup package from [KnoxBridge Releases](https://github.com/exe-cre
   This route is implemented but has not been live-verified on either OS.
 
 Enable Knox Survivors in the PZ Mods menu and start the game normally through
-Steam. On first launch, KnoxBridge reports an unknown Java module hash and does
-not load that module. Close the game, reopen setup, choose module trust
-management, verify the module ID and SHA-256, then type `ALLOW` or `DENY` for
-that exact JAR hash. Restart the game. Java modules run with the game's full
-account permissions; KnoxBridge is not a sandbox.
+Steam. On first launch, KnoxBridge asks before loading an unknown Java module.
+Review its module ID and SHA-256 and allow or deny only if you trust it; the
+displayed author is unverified. If the startup dialog is unavailable, close the
+game and use the setup tool's trust-management option. Java modules run with
+the game's full account permissions; KnoxBridge is not a sandbox.
 
 KnoxBridge loads only enabled PZ mods that declare its module descriptor and
 implement the KnoxBridge API. Existing Java mods written for a different
 loader, including ZombieBuddy-specific mods, do not load automatically; their
 authors must port or explicitly support KnoxBridge.
+
+The old Knox Survivors Launcher is deprecated and unsupported. Do not download
+or use it, or combine it with KnoxBridge. ZombieBuddy is also a separate
+alternative; never run two Java instrumentation runtimes in one game process.
 
 Use a new disposable save for testing. Runtime installation changes startup
 configuration, not save files, but Knox gameplay/save compatibility is not

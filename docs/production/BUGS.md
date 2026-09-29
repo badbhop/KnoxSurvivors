@@ -109,7 +109,7 @@ or invalid target, confirming the native blood/window effect before the trace
 is consumed.
 
 ## BUG-KS-003 — Embedded launcher is a conflicting runtime owner
-Status: in_progress
+Status: closed by retirement of the unsupported launcher path (2026-09-29)
 Priority: high
 Owner: Codex / OpenCode
 Type: bug
@@ -118,8 +118,10 @@ Type: bug
 The main mod repository contained a second, stale C# launcher that preserved
 ZombieBuddy's `-agentlib:zbNative` while adding Knox's legacy `-javaagent`,
 contrary to the exactly-one-runtime-path contract. Its embedded source and
-build path have now been retired; live legacy launch behavior remains
-unverified.
+build path were retired. The separate Knox Survivors Launcher is now
+deprecated and unsupported by owner direction; KnoxBridge is the sole
+supported public Knox runtime path. Its GitHub privacy change was requested but
+is still pending, so do not claim the repository is private yet.
 
 ### Reproduction
 Historical reproduction: in the embedded launcher verifier, inherit
@@ -144,22 +146,24 @@ passed. These checks establish offline retirement and verifier behavior only;
 they do not establish a live game launch.
 
 ### Expected
-One launcher source/release owner exists, and no supported build path can
-package a launcher that stacks ZombieBuddy and Knox legacy instrumentation.
+No supported Knox launcher path can package or run a competing instrumentation
+runtime. Players use KnoxBridge through normal Steam startup.
 
 ### Acceptance
-The embedded artifact-producing path is retired, documentation names one
-launcher owner, and the authoritative launcher's offline isolation checks pass.
-Keep the bug open until a live legacy launch with ZombieBuddy disabled produces
-exactly one `runtime start PASS source=legacy-javaagent` line.
+The stale embedded launcher build path is retired, the standalone launcher is
+deprecated, and current-facing instructions direct users to KnoxBridge only.
+No live acceptance is required for the retired launcher path. KnoxBridge live
+startup and gameplay remain tracked separately under `KS-PROD-010` and
+`KS-PROD-005`.
 
 ### Validation
 Offline verification on 2026-09-27: sibling launcher `scripts/build.ps1` passed
-all four launcher/bootstrap checks listed above; the main repository retirement
-check and `tools/verify.ps1` passed (287 checks, 0 failed); `git diff --check`
-passed. Still required: live legacy launch with ZombieBuddy disabled and exactly
-one `runtime start PASS source=legacy-javaagent` line. No live behavior,
-release readiness, staging, or package completion is established here.
+the historical launcher/bootstrap checks; the main repository retirement
+check and `tools/verify.ps1` passed (287 checks, 0 failed). On 2026-09-29,
+current-facing Knox instructions were aligned to KnoxBridge and the separate
+launcher was marked deprecated. The requested GitHub visibility change remains
+unconfirmed. This does not establish current KnoxBridge live behavior or
+release readiness.
 
 ## BUG-KS-008 — Detached companions can remain in a stale-shell limbo
 Status: in_progress

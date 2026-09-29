@@ -18,6 +18,11 @@ Knox declares `com.knoxsurvivors.knox-module` in `mod/42/knoxbridge.properties`.
 
 The direct Knox `premain` entry and source remain in the repository as a rollback path while the KnoxBridge module is validated. They are not selected by Workshop metadata. Never run the legacy agent and KnoxBridge together in one PZ process.
 
+The separate Knox Survivors Launcher is deprecated and unsupported. Do not
+download or use its old releases; current player setup is KnoxBridge only. The
+owner requested that the launcher repository be made private, but repository
+privacy must not be reported complete until GitHub confirms the setting.
+
 ## 42.21 verification
 
 On normal Steam Play, the installed runtime reported PZ 42.21.0 / Java 25.0.1, discovered the actual enabled roots for the independent test module and Knox Survivors, blocked both unknown hashes, then loaded both after exact-hash approval and restart. The test entrypoint initialized and registered its harmless probe. Knox initialized through the `system` class-loader policy; required combat and visibility patches reported ready, `KnoxJavaBridge` was exposed, and combat-impact/human-pair gates reported PASS. Later in the same live game session, Knox logged a real NPC probe spawn, movement transitions, combat attacks, and zombie health reaching zero; one movement attempt reported `FailedStuck`. Save/reload was not tested. The game JSON comparison confirms all original settings match after removing only KnoxBridge-owned VM arguments. The full prior Workshop `Contents` tree was backed up before local staging replacement; no other mods, settings, or saves were targeted.

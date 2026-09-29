@@ -329,29 +329,26 @@ Confirm the release candidate starts through the supported runtime path(s) from 
   is only bridge startup and does not prove that hooks applied.
 - The selected path also produces `Lua bridge exposed global=KnoxJavaBridge`
   and Lua-side `[KnoxSurvivors][Bridge] PASS` evidence.
-- The separate authoritative Knox launcher/legacy path rejects an active
-  ZombieBuddy configuration before starting the game; an installed but inactive
-  ZombieBuddy is ignored and never composed into the Knox launch. Live launch
-  behavior remains unverified until the legacy-path acceptance below is run.
-- Direct Steam `-javaagent` route is only called supported after an actual Steam startup acceptance.
+- The deprecated Knox Survivors Launcher is not an acceptance path. Do not
+  launch it or compose it with KnoxBridge or ZombieBuddy. Its separate repository
+  has been requested to become private; that visibility change remains pending
+  owner-side settings confirmation.
+- Do not advertise or test the retired standalone launcher or direct legacy Knox agent as supported setup paths. Test KnoxBridge via normal Steam startup only.
 - No test intentionally loads duplicate runtime paths.
 - One representative live zombie detection/attack/damage sequence succeeds on
   the selected path so startup text is not treated as gameplay proof.
 
 ### Validation
 Follow `README.md`, `docs/production/RUNTIME_AND_MIGRATION.md`, and
-`docs/WORKSHOP_RELEASE.md`. The separate launcher repository is the current
-launcher authority; the embedded C# artifact path tracked by `BUG-KS-003` has
-been retired. On 2026-09-27, its `scripts/build.ps1` passed launch-option
-security/native-argument, updater metadata/version/checksum, runtime isolation,
-and Windows bootstrap verification. The main repository retirement check and
-`tools/verify.ps1` also passed (112 Lua sources, 174 regression scripts, Java
-included, 287 checks, 0 failed). These are offline checks, not live startup or
-staging/package evidence. Before the live matrix, isolate
-the current local `<Zomboid-mods>\KnoxSurvivors` shadow copy (same Mod ID,
-no Java payload). Use ZombieBuddy alone for one run, launcher v0.3.3 with
-ZombieBuddy disabled for the second, then verify the launcher blocks a third
-duplicate-runtime preflight.
+`docs/production/QA_RELEASE.md`. The old standalone launcher is deprecated and
+not part of the supported runtime matrix. On 2026-09-27, its source passed
+offline launch-option security/native-argument, updater metadata/version/
+checksum, runtime-isolation, and Windows-bootstrap checks; this historical
+evidence does not make it a supported path. The main repository retirement
+check and verifier also passed at that time. Before live acceptance, isolate
+the local `<Zomboid-mods>\KnoxSurvivors` shadow copy and use KnoxBridge as the
+only Knox Java runtime. ZombieBuddy may be tested separately as an alternative,
+never stacked with KnoxBridge.
 
 ### Definition of Done
 Runtime support claims match live evidence.
@@ -644,9 +641,9 @@ The local Workshop `Contents` payload was replaced from source after a verified
 backup of its previous 125 files. It declares `42.20–42.21`; its KnoxBridge
 module JAR now stages at the descriptor path and has a verified SHA-256 match
 to the built JAR. Both Knox metadata trees declare `require=KnoxBridgeRuntime`.
-KnoxBridge Workshop staging is intentionally marker-only and contains no
-runtime JAR, native bootstrap, installer, or setup scripts because Steam does
-not distribute these installer artifacts. The player package is separate:
+KnoxBridge Workshop staging contains the dependency marker, compile-time API
+JAR, and player/mod-author guides; it excludes the runtime agent, native
+bootstrap, installer, and setup scripts. The player package is separate:
 Windows standalone installer; Linux/macOS ZIP plus Python helper (implemented,
 not live verified). The owner reports uploading/updating both Workshop items
 after this staging. The current public Knox listing still needs owner review for

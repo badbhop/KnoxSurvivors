@@ -35,7 +35,7 @@ wording or a link outside the repository when permission/privacy requires it.
 - Report date: YYYY-MM-DD
 - Game/build: <exact Build 42 version if known>
 - Knox version/commit: <version, workshop revision, or unknown>
-- Launcher/runtime: <normal / Knox launcher / ZombieBuddy / unknown>
+- Runtime path: <KnoxBridge / normal Steam without Knox runtime / ZombieBuddy / deprecated Knox Launcher / unknown>
 - Save: <new / existing / disposable / unknown>
 - Mods/setup: <relevant list or unknown>
 - Exact symptom: <what the player saw>
@@ -91,7 +91,8 @@ A player needs setup/runtime/save/feature guidance and there is no confirmed def
 Record:
 - game build;
 - Knox version;
-- runtime path (ZombieBuddy or Knox launcher/legacy path);
+- runtime path (KnoxBridge, normal Steam without a Knox runtime, ZombieBuddy,
+  deprecated Knox Launcher, or unknown);
 - whether this is a new or existing save;
 - relevant settings/mod list when compatibility may matter;
 - concise symptom and logs/screenshots when available.
