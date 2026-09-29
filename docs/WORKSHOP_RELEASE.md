@@ -1,5 +1,11 @@
 # Workshop Preview Release
 
+> **Historical launcher release procedure.** The current KnoxBridge candidate
+> does not use the Knox Launcher. Do not follow this document to prepare a new
+> release; use `docs/production/QA_RELEASE.md` and
+> `docs/production/RUNTIME_AND_MIGRATION.md` for current acceptance and runtime
+> ownership. This page is retained as the record for the older launcher preview.
+
 Prefer publishing and verifying the Workshop mod before advertising a matching launcher
 release. The launcher rejects the legacy Workshop package by design.
 

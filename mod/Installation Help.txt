@@ -1,30 +1,53 @@
-KNOX SURVIVORS 0.3.0-rc1 - INSTALLATION HELP
+KNOX SURVIVORS 0.3.0-rc1 - INSTALL AND PLAY
 
-Knox Survivors supports TWO Java runtime options. ZombieBuddy is recommended, but it is not required.
+WHAT TO SUBSCRIBE TO
+Subscribe to both Knox Survivors and its required dependency, KnoxBridge Runtime.
+The Knox Survivors Workshop page should list KnoxBridge Runtime under Required
+Items. Steam will download the dependency automatically when that link is set.
 
-OPTION A - ZOMBIEBUDDY (RECOMMENDED)
-1. Install/configure ZombieBuddy using its official instructions.
-   Steam Workshop item: 3619862853
-2. Enable Knox Survivors. Enable ZombieBuddy when using this path.
-3. Remove OLD Knox-only startup options such as:
-   - -javaagent:...knox-agent.jar=pz-game
-   - knox-steam-launch.cmd
-4. Launch Project Zomboid normally through the ZombieBuddy-configured launch.
-5. If ZombieBuddy asks to load Knox's Java JAR, approve it only if you trust the build.
+ONE-TIME RUNTIME SETUP
+The Bridge Workshop item is only a dependency marker; it does not contain the
+installer. Download the setup package from:
+https://github.com/exe-create/KnoxBridge/releases/latest
 
-Expected log:
-  runtime start PASS source=zombie-buddy-patch-api
+Windows:
+1. Download and run KnoxBridgeSetup.exe.
+2. Choose **1** to install/update and follow the prompts. It uses PZ's bundled
+   Java; do not add custom Steam Launch Options or install another Java runtime.
 
-OPTION B - KNOX LAUNCHER (NO ZOMBIEBUDDY)
-1. Enable Knox Survivors.
-2. Do not use ZombieBuddy for this launch.
-3. Start Project Zomboid using the Knox Launcher / existing Knox legacy Java-agent setup.
+Linux/macOS:
+1. Download and extract the KnoxBridgeRuntime ZIP.
+2. Close Steam, then run `sh scripts/setup-unix.sh` from the extracted folder.
+   Python 3 is required. This setup path is implemented but not live-verified.
 
-Expected log:
-  runtime start PASS source=legacy-javaagent
+Then enable Knox Survivors in the PZ Mods menu and start Project Zomboid
+normally through Steam. Use a new disposable save while this candidate is tested.
+
+FIRST-RUN MODULE APPROVAL
+The first launch records Knox's exact Java module hash and blocks it pending
+approval. Exit the game, run the downloaded KnoxBridge setup again, choose
+module trust management, check the module ID and SHA-256, then type **ALLOW** or
+**DENY** for that exact JAR. Restart through Steam. A changed JAR has a new hash
+and needs a new decision. You can also disable the mod itself in the normal PZ
+Mods menu.
 
 CHECK
-Open Documents\Zomboid\KnoxIsoPlayer.log after reaching the menu.
-If no runtime PASS line appears, Knox's Java runtime did not start.
+After reaching the main menu, open Documents\Zomboid\KnoxIsoPlayer.log and
+Documents\Zomboid\KnoxBridge\knoxbridge.log. Look for Knox module load PASS and
+KnoxJavaBridge exposure. If the Knox module is missing, check that the runtime
+was installed, the dependency is enabled, and the displayed hash was approved.
 
-Target game: Project Zomboid 42.20.4
+Use a disposable save and back up saves you care about. The installer changes
+game startup configuration, not save files; Knox save compatibility is not
+certified for important existing saves. Single-player is the focus; bugs are
+expected. Do not run KnoxBridge at the same time as another Java instrumentation
+bootstrap.
+
+KnoxBridge loads only enabled PZ mods that declare its module descriptor and
+implement the KnoxBridge API. Existing Java mods for other loaders do not load
+automatically; their authors must port/support KnoxBridge. Java modules run with
+the game's full permissions and are not sandboxed.
+
+If KnoxBridge Runtime remains private, only accounts allowed to access that
+Workshop item can use Knox Survivors; make the dependency public before a public
+Knox release.

@@ -4,8 +4,9 @@ Knox Survivors is a survivor/NPC mod for Project Zomboid Build 42, inspired by t
 
 The rebuild uses human, player-based NPC bodies and leans on the game's existing clothing, items, animations, world objects, combat systems, containers, farming and other vanilla systems wherever practical. Survivors are meant to feel like people trying to stay alive in the same world as you, not disposable followers or a free army.
 
-**Current release candidate:** `0.3.0-rc1`  
-**Target game version:** Project Zomboid `42.20.4`  
+**Current release candidate:** `0.3.0-rc1` (Project Zomboid `42.20.4`)
+
+**Current compatibility-test target:** Project Zomboid `42.21.0` Stable; compatibility is not yet verified.
 **Focus:** Single-player
 
 ## What is in the mod now
@@ -35,51 +36,45 @@ This release candidate is not advertising unfinished systems as complete. In par
 
 Use a fresh save for this rebuild and back up saves you care about. Migration from old Knox Survivors NPC data is not guaranteed.
 
-## Java runtime options
+## Java runtime
 
-Knox Survivors needs its Java runtime, but **ZombieBuddy is optional**. Players can use either supported startup path:
+Knox Survivors uses the separate KnoxBridge Runtime. Subscribe to both Workshop
+items after KnoxBridge is linked as a Required Item. The Bridge Workshop item
+only provides the dependency marker; Steam cannot run its installer. Download
+the separate setup package from [KnoxBridge Releases](https://github.com/exe-create/KnoxBridge/releases/latest).
 
-- **Recommended: ZombieBuddy.** ZombieBuddy loads Knox's `java/knox-agent.jar` automatically. Knox does not need its old `-javaagent` line or Knox Launcher on this path.
-- **Alternative: Knox Launcher.** Players who do not want ZombieBuddy can keep using the Knox Launcher / legacy Knox Java-agent startup path.
+- **Windows:** run `KnoxBridgeSetup.exe`, choose install/update, and follow the
+  prompts. It uses Project Zomboid's bundled Java; no separate Java install is
+  needed.
+- **Linux/macOS:** extract the release ZIP, close Steam, and run
+  `sh scripts/setup-unix.sh` from the extracted folder. This requires Python 3
+  and edits only the selected Steam account's Project Zomboid launch option.
+  This route is implemented but has not been live-verified on either OS.
 
-Do not use both startup methods intentionally at the same time. Knox contains duplicate-start protection, but one runtime path per launch is the clean setup.
+Enable Knox Survivors in the PZ Mods menu and start the game normally through
+Steam. On first launch, KnoxBridge reports an unknown Java module hash and does
+not load that module. Close the game, reopen setup, choose module trust
+management, verify the module ID and SHA-256, then type `ALLOW` or `DENY` for
+that exact JAR hash. Restart the game. Java modules run with the game's full
+account permissions; KnoxBridge is not a sandbox.
 
-### Option A - ZombieBuddy (recommended)
+KnoxBridge loads only enabled PZ mods that declare its module descriptor and
+implement the KnoxBridge API. Existing Java mods written for a different
+loader, including ZombieBuddy-specific mods, do not load automatically; their
+authors must port or explicitly support KnoxBridge.
 
-1. Install/configure ZombieBuddy using its supported instructions.
-2. Enable Knox Survivors. Enabling the ZombieBuddy mod is recommended when using its runtime.
-3. Remove old Knox-only launch options such as `-javaagent:...knox-agent.jar=pz-game` and do not use `knox-steam-launch.cmd` for this path.
-4. Launch Project Zomboid normally through the ZombieBuddy-configured game launch.
-5. If ZombieBuddy asks whether Knox Survivors' Java JAR may load, approve it only if you trust the build.
-
-Successful log entry:
-
-`runtime start PASS source=zombie-buddy-patch-api`
-
-### Option B - Knox Launcher (no ZombieBuddy)
-
-1. Enable Knox Survivors.
-2. Do not use ZombieBuddy for this launch.
-3. Start Project Zomboid through the Knox Launcher / existing Knox legacy Java-agent setup.
-4. The launcher loads the same Knox `java/knox-agent.jar` through Knox's retained `premain` entry.
-
-Successful log entry:
-
-`runtime start PASS source=legacy-javaagent`
+Use a new disposable save for testing. Runtime installation changes startup
+configuration, not save files, but Knox gameplay/save compatibility is not
+certified for important existing saves. Back up any save before testing. The
+Knox Launcher is no longer a supported startup path; never combine a legacy
+Knox agent with KnoxBridge or another instrumentation runtime.
 
 ## Confirming the runtime loaded
 
-After reaching the Project Zomboid main menu, check:
-
-`Documents\Zomboid\KnoxIsoPlayer.log`
-
-Look for a fresh runtime PASS line matching the startup method you chose. The combat callback and zombie visibility transformers also log their patch results when their target classes load or are retransformed.
-
-If Java systems are unavailable, make sure you actually launched through one of the two supported Java-runtime paths. If using ZombieBuddy, also check whether it denied the Knox JAR and restart Project Zomboid after changing approval.
-
-## Migration / rollback note
-
-The ZombieBuddy integration changes the runtime bootstrap, not Knox's save schema or survivor record format. The legacy Knox `premain` entry remains in the JAR so the Knox Launcher remains a supported alternative for players who do not want ZombieBuddy.
+After reaching the Project Zomboid main menu, check
+`%USERPROFILE%\Zomboid\KnoxBridge\knoxbridge.log` for a fresh
+`module loaded id=com.knoxsurvivors.knox-module` line. Check
+`Documents\Zomboid\KnoxIsoPlayer.log` for Knox module and patch diagnostics.
 
 The most version-sensitive code remains Knox's narrow bytecode edits in `CombatManager`, `SwipeStatePlayer`, and `IsoZombie`. A Project Zomboid update or another Java mod patching the same exact methods still requires live compatibility testing.
 

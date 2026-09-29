@@ -1,100 +1,27 @@
 <!-- modforge-doc
 authority: canonical
 load: on-demand
-purpose: supported Java runtime paths, player migration and ZombieBuddy trust/signing
+purpose: current supported KnoxBridge module runtime and migration boundary
 -->
 
-# Knox Survivors — runtime, migration and signing
+# Knox Survivors — KnoxBridge runtime and migration
 
-Updated: 2026-09-26
+Updated: 2026-09-28
 
-## Supported runtime paths
+## Active runtime
 
-Knox Survivors currently supports two alternative Java bootstrap paths:
+The Workshop candidate uses KnoxBridge as its only Java runtime bootstrap. KnoxBridge is a separate required runtime install; after setup, users enable Knox Survivors in the PZ Mods menu and launch normally through Steam. The Windows bootstrap is stored in Project Zomboid's own JSON VM arguments; the Linux/macOS helper edits the selected Steam account's launch option. Setup exposes exact-JAR SHA-256 ALLOW/DENY decisions. The Knox Workshop payload contains no ZombieBuddy dependency or startup path.
 
-1. **ZombieBuddy Patch API path — recommended**
-2. **Knox Launcher / retained legacy Java-agent path — fallback**
+Knox declares `com.knoxsurvivors.knox-module` in `mod/42/knoxbridge.properties`. The Knox module reuses the existing Java bridge, NPC runtime, and direct transformers. Lua survivor simulation and save schema are unchanged. The module uses KnoxBridge's `system` class-loader policy because transformed PZ classes must resolve Knox's helper methods; this grants module code normal JVM permissions and is not a sandbox.
 
-Use exactly one path per launch. Do not intentionally stack ZombieBuddy and the Knox legacy `-javaagent` path.
+## Rollback boundary
 
-Both paths load the Knox Java runtime/bridge used by the current NPC implementation. The integration changes bootstrap behavior; it does not intentionally change the Knox survivor save schema.
+The direct Knox `premain` entry and source remain in the repository as a rollback path while the KnoxBridge module is validated. They are not selected by Workshop metadata. Never run the legacy agent and KnoxBridge together in one PZ process.
 
-## ZombieBuddy path
+## 42.21 verification
 
-- Install/configure ZombieBuddy using its official instructions.
-- Enable Knox Survivors and ZombieBuddy for this path.
-- Remove obsolete Knox-only startup entries such as `-javaagent:...knox-agent.jar=pz-game` and `knox-steam-launch.cmd`.
-- Launch through the ZombieBuddy-configured game startup.
-- If ZombieBuddy asks permission to load Knox's Java JAR, approve it only when the build is trusted.
+On normal Steam Play, the installed runtime reported PZ 42.21.0 / Java 25.0.1, discovered the actual enabled roots for the independent test module and Knox Survivors, blocked both unknown hashes, then loaded both after exact-hash approval and restart. The test entrypoint initialized and registered its harmless probe. Knox initialized through the `system` class-loader policy; required combat and visibility patches reported ready, `KnoxJavaBridge` was exposed, and combat-impact/human-pair gates reported PASS. Later in the same live game session, Knox logged a real NPC probe spawn, movement transitions, combat attacks, and zombie health reaching zero; one movement attempt reported `FailedStuck`. Save/reload was not tested. The game JSON comparison confirms all original settings match after removing only KnoxBridge-owned VM arguments. The full prior Workshop `Contents` tree was backed up before local staging replacement; no other mods, settings, or saves were targeted.
 
-Expected fresh log evidence:
+NPC creation, movement/order, zombie awareness/combat, save/reload, deny and changed-hash behavior, and live 42.20 remain open. The staged Workshop files are local and have not been uploaded. Knox's use of the system class loader grants normal JVM permissions and is not a sandbox.
 
-`runtime start PASS source=zombie-buddy-patch-api`
-
-Knox uses ZombieBuddy's supported Patch API. Knox should not depend on ZombieBuddy's private instrumentation state.
-
-## Knox Launcher / legacy path
-
-- Enable Knox Survivors.
-- Do not use ZombieBuddy for that launch. If it is installed but inactive, the
-  Knox Launcher ignores it; if its startup configuration is active, the launcher
-  blocks before game startup rather than composing the two runtimes.
-- Start through the Knox Launcher / retained Knox Java-agent setup.
-
-Expected fresh log evidence:
-
-`runtime start PASS source=legacy-javaagent`
-
-The retained `premain` path exists as a supported fallback/rollback path while the Java runtime remains required.
-
-## Player migration rules
-
-- ZombieBuddy is optional and should not be made a hard Workshop Required Item while the legacy path remains supported.
-- Existing ZombieBuddy users should remove the old Knox-only `-javaagent`/wrapper startup path.
-- Knox Launcher users may continue using the launcher without ZombieBuddy.
-- Use one startup method per game launch.
-- Back up saves that matter and use a fresh save for release-candidate acceptance.
-- Bootstrap migration does not by itself prove compatibility with every Project Zomboid update or Java mod.
-
-## Live verification
-
-After reaching the Project Zomboid menu, inspect:
-
-`Documents\Zomboid\KnoxIsoPlayer.log`
-
-The selected runtime path must produce a fresh matching PASS line. Static package/build checks cannot replace a real Build 42.20.4 startup and gameplay acceptance.
-
-Version-sensitive Knox Java edits currently include narrow behavior around:
-
-- `CombatManager`;
-- `SwipeStatePlayer`;
-- `IsoZombie`.
-
-A Project Zomboid update or another Java mod modifying the same methods may require renewed compatibility work.
-
-## ZombieBuddy author/trust signing
-
-Project Zomboid `mod.info` already identifies the author as `.exe`, but ZombieBuddy's cryptographic trust identity is separate.
-
-A signed release should place these together:
-
-- `knox-agent.jar`
-- `knox-agent.jar.zbs`
-
-The `.zbs` sidecar must be generated from the project owner's private Ed25519 key and SteamID64.
-
-Rules:
-
-- never commit or share the private signing key;
-- regenerate the `.zbs` sidecar whenever the JAR changes;
-- publish the corresponding public key in the supported ZombieBuddy trust mechanism;
-- never package a fake or generic signature.
-
-ZombieBuddy signing reference:
-https://github.com/zed-0xff/ZombieBuddy/blob/master/doc/ModSigning.md
-
-## Long-term launcher-free direction
-
-The long-term Workshop-native direction remains documented in `docs/LAUNCHER_FREE_MIGRATION.md`. It is a migration design, not proof that current Java runtime dependencies can be removed today.
-
-Do not retire the current runtime path until the replacement passes its documented lifecycle, save compatibility, combat, movement, inventory, vehicle and release acceptance gates.
+The candidate metadata range is 42.20–42.21, with 42.21 labeled as testing. Offline transformer checks are not live gameplay proof.

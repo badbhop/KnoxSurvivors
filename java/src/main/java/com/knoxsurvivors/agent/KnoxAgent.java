@@ -3,8 +3,6 @@ package com.knoxsurvivors.agent;
 import com.knoxsurvivors.bridge.KnoxBridgeBootstrap;
 import java.io.IOException;
 import java.lang.instrument.Instrumentation;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,8 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class KnoxAgent {
     private static final String LOG_NAME = "KnoxIsoPlayer.log";
     private static final String GAME_MODE = "pz-game";
-    private static final String ZB_V2_PATCH_API = "me.zed_0xff.zombie_buddy.Patch";
-    private static final String ZB_LOADER = "me.zed_0xff.zombie_buddy.Loader";
     private static final Set<String> RETRANSFORM_TARGETS = Set.of(
         "zombie.ai.states.SwipeStatePlayer",
         "zombie.CombatManager",
@@ -39,76 +35,13 @@ public final class KnoxAgent {
         startRuntime("legacy-agentmain", arguments, instrumentation, true);
     }
 
-    /**
-     * ZombieBuddy Java-mod entry point.
-     *
-     * Released ZombieBuddy 2.x intentionally keeps Instrumentation private. Knox therefore
-     * uses its supported @Patch API on 2.x. A future ZombieBuddy build that exposes the
-     * official Loader.getInstrumentation() API can still use Knox's original transformers.
-     */
-    public static void startFromZombieBuddy() {
-        if (classAvailable(ZB_V2_PATCH_API)) {
-            startZombieBuddyPatchRuntime();
-            return;
-        }
-
-        // Future/alternate official API path. Never reflect into private/package fields.
-        try {
-            Class<?> loaderClass = Class.forName(ZB_LOADER);
-            Method getter = loaderClass.getMethod("getInstrumentation");
-            Object value = getter.invoke(null);
-            if (!(value instanceof Instrumentation instrumentation)) {
-                writeLog("ERROR ZombieBuddy instrumentation handle is unavailable");
-                return;
-            }
-            startRuntime("zombie-buddy-instrumentation", GAME_MODE, instrumentation, true);
-        } catch (InvocationTargetException exception) {
-            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            writeLog("ERROR ZombieBuddy instrumentation lookup failed: "
-                + cause.getClass().getName() + ": " + cause.getMessage());
-        } catch (NoSuchMethodException exception) {
-            writeLog("ERROR ZombieBuddy does not expose a supported Knox runtime API. "
-                + "Use ZombieBuddy 2.3.2+ with its Patch API or use the Knox Survivors Launcher.");
-        } catch (ReflectiveOperationException | LinkageError exception) {
-            writeLog("ERROR ZombieBuddy is not available to Knox Survivors: "
-                + exception.getClass().getName() + ": " + exception.getMessage());
-        }
-    }
-
-    private static void startZombieBuddyPatchRuntime() {
-        writeLog("runtime bootstrap source=zombie-buddy-patch-api arguments=" + GAME_MODE);
-        if (!STARTED.compareAndSet(false, true)) {
-            writeLog("runtime already started; duplicate bootstrap ignored source=zombie-buddy-patch-api");
-            return;
-        }
-        runtimeSource = "zombie-buddy-patch-api";
-        try {
-            KnoxBridgeBootstrap.startWithoutInstrumentation();
-            writeLog("ZombieBuddy Patch API mode armed; waiting for patch application marker");
-            writeLog("runtime start PASS source=zombie-buddy-patch-api");
-        } catch (Throwable throwable) {
-            writeLog("ERROR runtime start source=zombie-buddy-patch-api "
-                + throwable.getClass().getName() + ": " + throwable.getMessage());
-        }
-    }
-
-    private static boolean classAvailable(String className) {
-        try {
-            ClassLoader loader = Thread.currentThread().getContextClassLoader();
-            if (loader == null) loader = ClassLoader.getSystemClassLoader();
-            Class.forName(className, false, loader);
-            return true;
-        } catch (ClassNotFoundException | LinkageError unavailable) {
-            return false;
-        }
+    /** Entry point for the KnoxBridge module. */
+    public static void startFromKnoxBridge(Instrumentation instrumentation) {
+        startRuntime("knoxbridge", GAME_MODE, instrumentation, true);
     }
 
     public static boolean isLegacyRuntimeActive() {
         return runtimeSource.startsWith("legacy-");
-    }
-
-    public static boolean isZombieBuddyPatchRuntime() {
-        return "zombie-buddy-patch-api".equals(runtimeSource);
     }
 
     public static String getRuntimeSource() {

@@ -1,5 +1,10 @@
 # Launcher-free Workshop migration
 
+> **Superseded direction:** KnoxBridge is now the current candidate bootstrap.
+> This document's proposed native/zero-setup backend was not implemented and is
+> not the current plan. Keep it as historical design context only; see
+> [`docs/production/RUNTIME_AND_MIGRATION.md`](production/RUNTIME_AND_MIGRATION.md).
+
 ## Goal
 
 This document describes the long-term **zero-setup** target. The immediate Windows

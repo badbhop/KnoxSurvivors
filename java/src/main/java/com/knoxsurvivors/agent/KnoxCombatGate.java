@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class KnoxCombatGate {
     private static final String SHELL_CLASS = "com.knoxsurvivors.engine.KnoxIsoPlayerShell";
     private static final ThreadLocal<Object> targetVisibilityCandidate = new ThreadLocal<>();
-    private static final AtomicBoolean ZB_READY_LOGGED = new AtomicBoolean(false);
+    private static final AtomicBoolean RUNTIME_READY_LOGGED = new AtomicBoolean(false);
     private static volatile boolean patchReady;
     private static volatile int patchedCallCount;
     private static volatile boolean visibilityPatchReady;
@@ -41,12 +41,6 @@ public final class KnoxCombatGate {
         }
     }
 
-    /** ZombieBuddy Patch API helper: capture the already-computed native index without recursion. */
-    public static void captureTargetVisibilityIndexResult(Object target, int nativeIndex) {
-        if (isKnoxShell(target)) targetVisibilityCandidate.set(target);
-        else targetVisibilityCandidate.remove();
-    }
-
     /** Legacy transformer helper. */
     public static boolean allowTargetVisibility(Object square, int playerIndex) {
         Object target = targetVisibilityCandidate.get();
@@ -59,13 +53,6 @@ public final class KnoxCombatGate {
         } catch (ReflectiveOperationException exception) {
             return false;
         }
-    }
-
-    /** ZombieBuddy Patch API helper: preserve native result unless the pending target is a Knox shell. */
-    public static boolean finishTargetVisibility(Object square, int playerIndex, boolean nativeResult) {
-        Object target = targetVisibilityCandidate.get();
-        targetVisibilityCandidate.remove();
-        return isKnoxShell(target) || nativeResult;
     }
 
     public static void clearTargetVisibilityCandidate() {
@@ -82,21 +69,10 @@ public final class KnoxCombatGate {
         visibilityPatchReady = calls == KnoxZombieVisibilityTransformer.EXPECTED_PATCH_COUNT;
     }
 
-    /**
-     * ZombieBuddy applies Knox's supported @Patch hooks before GameLoadingState exits.
-     * The marker patch calls this after the patch pipeline is live, satisfying the same
-     * fail-closed readiness gates used by the legacy transformer path.
-     */
-    public static void markZombieBuddyPatchesReady() {
-        if (!KnoxAgent.isZombieBuddyPatchRuntime()) return;
-        patchedCallCount = KnoxSwipeStateTransformer.EXPECTED_PATCH_COUNT;
-        visibilityPatchedCallCount = KnoxZombieVisibilityTransformer.EXPECTED_PATCH_COUNT;
-        patchReady = true;
-        visibilityPatchReady = true;
-        if (ZB_READY_LOGGED.compareAndSet(false, true)) {
-            KnoxAgent.writeLog("ZombieBuddy patch readiness PASS callbacks="
+    static void markRuntimeReadyIfPatched() {
+        if (patchReady && visibilityPatchReady && RUNTIME_READY_LOGGED.compareAndSet(false, true))
+            KnoxAgent.writeLog("KnoxBridge required combat patches ready callbacks="
                 + patchedCallCount + " visibility=" + visibilityPatchedCallCount);
-        }
     }
 
     public static boolean isPatchReady() {

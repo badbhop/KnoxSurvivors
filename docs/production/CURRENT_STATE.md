@@ -154,12 +154,60 @@ urgent hunger during a supply transfer and unavailable-food recovery.
 ## Current release state
 
 - Public release line: `0.3.0-rc1`.
-- Target: Project Zomboid `42.20.4`.
+- Existing public candidate target: Project Zomboid `42.20.4`.
+- Current compatibility-test target: Project Zomboid `42.21.0` Stable. The
+  existing mod files now declare support metadata through 42.21, but Knox
+  gameplay compatibility is not verified yet; see `KS-PROD-010`.
+- The configured local Workshop `Contents` folder was replaced from current
+  source and now declares `42.20–42.21`. The prior 125 files are backed up in
+  ignored `build/pre-knoxbridge-full-stage-backup`. The staged payload scan
+  found no ZombieBuddy references. This is local staging only; no upload was
+  made.
+- Current Knox Workshop staging now mirrors the Knox source mod and includes
+  the built KnoxBridge module JAR at the descriptor's exact path
+  (`42/media/java/knox-agent.jar`). Its `mod.info` declares
+  `require=KnoxBridgeRuntime`. The prior staged copy and safety backup are
+  outside the upload `Contents` folder. Current upload staging is limited to
+  Knox's mod folder plus the existing Workshop preview/metadata.
+- KnoxBridge's Workshop staging is marker-only: Bridge metadata, poster images,
+  and the Workshop description. Steam does not distribute the installer/runtime
+  files from that item. Players must get the setup package from the KnoxBridge
+  GitHub release; Windows has a standalone installer while Linux/macOS use a ZIP
+  plus Python setup helper. Linux/macOS setup is not live verified. The Bridge
+  Workshop ID and Knox's Required Items link still need owner publishing.
+  Neither Workshop item was uploaded by Codex.
 - Single-player is the supported focus.
-- ZombieBuddy and the retained Knox launcher are alternative runtime paths; use one per launch.
+- KnoxBridge is the active Workshop runtime target. The direct Knox legacy
+  agent remains only as a source rollback path during migration.
 - Focused candidate checks and the complete Lua regression suite are current;
   the full build/staging/package gate in `KS-PROD-003` remains open.
 - Engine-bound behavior still requires live Build 42.20.4 acceptance.
+- On 2026-09-28 KnoxBridge was updated in the installed PZ directory and
+  launched through normal Steam Play in PZ 42.21.0 / Java 25.0.1. PZ's actual
+  enabled list resolved KnoxBridgeIndependentTest and KnoxSurvivors to their
+  selected roots. Both unknown JARs were blocked on the first run, then exact
+  hashes were allowed for this requested local test. On restart, both modules
+  loaded; the independent module initialized and registered its harmless
+  probe, and Knox initialized with its required combat/visibility patches
+  ready. `KnoxJavaBridge` was exposed. This proves startup, discovery, trust,
+  module entrypoints, patch readiness, and bridge exposure, not in-world NPC
+  behavior or persistence.
+- Knox now has a `knoxbridge.properties` module descriptor and Java entrypoint;
+  its source no longer requires the ZombieBuddy API. Module migration,
+  Build 42.21 transformer checks, and the live runtime/module boundary are
+  verified. NPC creation, movement, combat, save/reload, changed-hash/deny
+  policy, and 42.20 live compatibility remain open beyond the limited probe
+  below. See `KS-PROD-010`.
+- During the 42.21 KnoxBridge session, the Knox log recorded native probe
+  `ks-dev-1` spawned, door/fence movement transitions, live combat start with a
+  baseball bat, attack requests, and zombie health reaching zero. A movement
+  route also recorded `FailedStuck`; treat this as narrow bridge/patch/runtime
+  evidence, not reliable pathing acceptance. Save/reload was not observed.
+- The current KnoxBridge uninstaller restored `ProjectZomboid64.json` to the
+  exact backed-up SHA-256. Ordinary Steam startup then succeeded with no new
+  KnoxBridge log entry. Reinstall/health check and a second normal Steam launch
+  rediscovered and loaded both approved modules. No saves or mod list files
+  were targeted by the installer or Workshop staging task.
 - The loaded base-supply loop now retains its shortage claim and durable return
   intent until typed storage confirms receipt; see `BUG-KS-031` and KS-PROD-008
   Slice E. Native transfer, capacity, save/reload, and shortage reevaluation
@@ -222,8 +270,8 @@ passed `test-world-traces.lua`, `test-event-runtime.lua`, and
 | Bases and jobs | Base ownership, task claims, supply planning and job scheduling implemented; organizer and base-life watchdog cleanup use existing interruption/recovery owners | Offline verified | BUG-KS-013 remains in progress; native timed action, transfer, base-duty/UI behavior, visible base-life and task completion remain unverified | Dynamic organizer duty-change regression; seven focused base-life/recovery checks including `test-base-leisure-routing.lua` patrol/return/rest watchdog dispatch; full offline gate: 112 Lua sources, 177 scripts, 289 checks, 0 failures | None recorded | Codex / OpenCode | Observe a full day at a two-resident base; force stalled rest and patrol/return routes, verify fallback/released claims, then complete one real-resource job |
 | Companions, orders and UI | Companion directives, order routing, card/notebook and HUD implemented; stale-shell detachment has bounded hibernation/recovery handling; speech overlay is transparent and input-pass-through configured | Offline verified | BUG-KS-008 lifecycle and BUG-KS-010 rendered indicator/right-click behavior remain open for live validation | Focused lifecycle/order/persistence tests plus speech style/input/expiry/stale-coordinate regression pass | Owner observed a black/ugly arrow and apparent right-click loss before the correction; corrected rendering and input behavior have not been replayed live | Codex | Replay the speech indicator in Build 42, visually confirm projection/colour, and open world context menus outside and over the Activity Feed |
 | Events, factions, raids and world activity | Persistent event/faction systems; unloaded raids retain stored travel/arrival and pause at the native active/objective boundary | Blocked | BUG-KS-001 remains open until live loaded → unloaded → loaded replay; BUG-KS-002 native trace replay remains required | Six focused event/trace tests passed; full Lua verification: 112 sources, 174 scripts, 286 checks, 0 failed | None recorded | Codex | Run the disposable-save raid replay and inspect loaded combat, history, trace, and roster ownership |
-| Launcher/runtime compatibility | Separate launcher repository is the sole launcher source, verification, and packaging owner; embedded project/build path retired | In progress | BUG-KS-003 remains open pending live legacy launch with ZombieBuddy disabled and exactly one runtime PASS | Sibling `scripts/build.ps1` security, updater, runtime-isolation, and Windows-bootstrap checks passed; main repo retirement check and `tools/verify.ps1` passed (112 Lua sources, 174 scripts, Java included, 287 checks, 0 failed); no live startup evidence | None recorded | OpenCode / Human | Run live legacy launch with ZombieBuddy disabled; confirm exactly one `runtime start PASS source=legacy-javaagent` line |
-| ZombieBuddy compatibility | Patch API integration and Lua bridge implemented | Offline verified | Runtime-start PASS alone does not prove patch readiness or live hook behavior; must not be stacked with Knox legacy agent | Java/bridge offline checks recorded; KS-PROD-006 lists required readiness markers | None recorded | OpenCode / Human | ZombieBuddy-only live startup: patch readiness, Java bridge exposure, Lua bridge PASS, then real combat |
+| Launcher/runtime compatibility | KnoxBridge is the only supported Knox candidate runtime; separate launcher/direct-agent path is retired from player instructions and retained only as migration rollback | In progress | KS-PROD-010: live deny/changed-hash behavior, Linux/macOS startup, save/reload, and full gameplay acceptance remain open | KnoxBridge runtime `verify` passed 29 checks; Windows and Unix setup now expose exact-hash ALLOW/DENY with focused offline fixtures and packaged-helper verification; Knox Java `check` passed against PZ 42.21 and Bridge API alpha3; existing 42.21 Steam evidence covers an earlier packaged installer | Limited Windows startup/module acceptance documented; no Linux/macOS live startup or Knox save/reload evidence | Codex / Human | Validate the current installer, trust decisions, and Knox gameplay on disposable saves before release; retire old public launcher links after owner review |
+| ZombieBuddy compatibility | Not a supported Knox startup path; old notes are historical, and KnoxBridge is the active runtime target | Not started | Existing ZombieBuddy-specific Java modules are not compatible unless ported; competing instrumentation must not be stacked | Source-level competing-bootstrap block; no live compatibility/stacking test; published ZombieBuddy page describes an older B42 range | None recorded | Codex / Human | Keep compatibility claims limited to KnoxBridge modules; do not use ZombieBuddy as the technical baseline |
 | Performance, defaults and customization | Conservative defaults and configurable limits/settings exist in implemented systems | Implemented | No end-to-end live performance measurement or unified customization acceptance recorded | Regression suite passes; no dedicated performance acceptance recorded | None recorded | Codex / OpenCode | Measure population/action loop cost and verify meaningful settings in a fresh save |
 | Vehicles and driving | Shared admission verdict (driver/engine/driveability/speed/towing/fuel/locks with reason codes) consumed by travel discovery and drive admission; group boarding commits an explicit roster rolled back on any abort/arrival; duty/order changes arbitrate vehicle leases (takeover preserves riders); boarding yields to danger/critical needs; refused exits retry boundedly once stopped; arrival exits each passenger once with the driver staying and one truthful feed line; unrecoverable exits report once; native part storage routes to Materials; geometry/routing and seat leases unchanged | Offline verified | BUG-KS-030 remains open; native fuel/condition/lock semantics, real boarding, multi-car driving runs, convoy spacing, control release, and part consumption remain unverified | Focused vehicle matrix on both shared and fallback paths, roster/rollback, duty-arbitration, urgency, stranded-recovery, and arrival/give-up coverage, plus full offline gate: 112 Lua sources, 177 scripts, 289 checks, 0 failures | None recorded | Codex / OpenCode | Disposable-save replay over real parked vehicles in every admission state plus one valid fueled vehicle; convoys and native consumption are separate future gates |
 

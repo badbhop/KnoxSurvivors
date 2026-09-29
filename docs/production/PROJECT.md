@@ -12,8 +12,9 @@ Updated: 2026-09-28
 
 Knox Survivors is a single-player Project Zomboid Build 42 survivor/NPC mod rebuilt from the ground up by **.exe**. Its goal is a persistent living human population that uses Project Zomboid's existing systems wherever practical and still feels like the base game rather than a separate follower or colony game.
 
-Current public release line: `0.3.0-rc1`.
-Target game version: Project Zomboid `42.20.4`.
+Current public release line: `0.3.0-rc1`, targeting Project Zomboid `42.20.4`.
+Current compatibility-test target: Project Zomboid `42.21.0` Stable. Knox
+Survivors is not yet verified or advertised as compatible with 42.21.
 
 ## The fantasy
 

@@ -15,25 +15,9 @@ val localProperties = Properties().apply {
 }
 val pzHome = providers.gradleProperty("pzHome")
     .orElse(localProperties.getProperty("pzHome") ?: "")
-val zombieBuddyJar = providers.gradleProperty("zombieBuddyJar")
-    .orElse(localProperties.getProperty("zombieBuddyJar") ?: "")
-
-fun resolvedZombieBuddyJar(): File {
-    val configured = zombieBuddyJar.get().trim()
-    if (configured.isNotEmpty()) return file(configured)
-    val gameDirectory = file(pzHome.get())
-    val directJar = gameDirectory.resolve("ZombieBuddy.jar")
-    if (directJar.isFile) return directJar
-
-    // ZombieBuddy is normally installed as a Workshop mod, not beside the game jar.
-    val steamRoot = gameDirectory.parentFile?.parentFile?.parentFile
-    val workshopItems = steamRoot?.resolve("steamapps/workshop/content/108600")
-    return workshopItems?.listFiles()
-        ?.sortedBy { it.name }
-        ?.map { it.resolve("mods/ZombieBuddy/libs/ZombieBuddy.jar") }
-        ?.firstOrNull { it.isFile }
-        ?: directJar
-}
+val knoxBridgeApiJar = providers.gradleProperty("knoxBridgeApiJar")
+    .orElse(localProperties.getProperty("knoxBridgeApiJar")
+        ?: rootProject.projectDir.parentFile.resolve("KnoxBridgeRuntime/runtime-api/build/libs/runtime-api-0.1.0-alpha3.jar").absolutePath)
 
 java {
     toolchain {
@@ -43,9 +27,7 @@ java {
 
 dependencies {
     compileOnly(files(pzHome.map { file(it).resolve("projectzomboid.jar") }))
-    // Compile-only: the Steam package includes Knox's adapter but never bundles
-    // ZombieBuddy itself. The Knox Launcher/legacy agent path does not load it.
-    compileOnly(files(providers.provider { resolvedZombieBuddyJar() }))
+    compileOnly(files(knoxBridgeApiJar))
 }
 
 tasks.register("verifyGameJar") {
@@ -63,21 +45,21 @@ tasks.register("verifyGameJar") {
     }
 }
 
-tasks.register("verifyZombieBuddyApi") {
+tasks.register("verifyKnoxBridgeApi") {
     group = "verification"
-    description = "Checks for the optional compile-only ZombieBuddy Patch API used by the dual-runtime package."
+    description = "Checks for the KnoxBridge module API used by the Workshop runtime module."
 
     doLast {
-        val jar = resolvedZombieBuddyJar()
+        val jar = file(knoxBridgeApiJar.get())
         require(jar.isFile) {
-            "ZombieBuddy.jar not found at ${jar.absolutePath}. Subscribe to ZombieBuddy or set zombieBuddyJar in local.properties to build the dual-runtime Workshop package."
+            "KnoxBridge API jar not found at ${jar.absolutePath}. Build KnoxBridge runtime-api or set knoxBridgeApiJar in local.properties."
         }
-        logger.lifecycle("ZombieBuddy Patch API found; hooks are compile-only and are not bundled.")
+        logger.lifecycle("KnoxBridge module API found; API classes are supplied by the runtime.")
     }
 }
 
 tasks.compileJava {
-    dependsOn("verifyGameJar", "verifyZombieBuddyApi")
+    dependsOn("verifyGameJar", "verifyKnoxBridgeApi")
     options.encoding = "UTF-8"
     options.release = 17
 }

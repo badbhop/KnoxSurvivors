@@ -15,14 +15,9 @@ public final class KnoxBridgeBootstrap {
 
     private KnoxBridgeBootstrap() { }
 
-    /** Legacy agent path: use Instrumentation to observe already-loaded game classes. */
+    /** Uses instrumentation to observe already-loaded game classes. */
     public static void start(Instrumentation instrumentation) {
         startWatchdog(instrumentation);
-    }
-
-    /** ZombieBuddy path: no raw Instrumentation access is required. */
-    public static void startWithoutInstrumentation() {
-        startWatchdog(null);
     }
 
     private static void startWatchdog(Instrumentation instrumentation) {
@@ -32,8 +27,7 @@ public final class KnoxBridgeBootstrap {
         );
         watchdog.setDaemon(true);
         watchdog.start();
-        KnoxAgent.writeLog("Lua bridge watchdog started source="
-            + (instrumentation == null ? "classloader" : "instrumentation"));
+        KnoxAgent.writeLog("Lua bridge watchdog started source=knoxbridge-instrumentation");
     }
 
     private static void exposeWhenReady(Instrumentation instrumentation) {
@@ -184,21 +178,8 @@ public final class KnoxBridgeBootstrap {
     }
 
     private static Class<?> findLuaManagerClass(Instrumentation instrumentation) {
-        if (instrumentation != null) {
-            for (Class<?> loadedClass : instrumentation.getAllLoadedClasses()) {
-                if (LUA_MANAGER_CLASS.equals(loadedClass.getName())) return loadedClass;
-            }
-            return null;
-        }
-
-        // ZombieBuddy v2 does not expose its Instrumentation handle. A non-initializing class
-        // lookup is sufficient here; all Lua fields are still polled until PZ has made them stable.
-        ClassLoader context = Thread.currentThread().getContextClassLoader();
-        for (ClassLoader loader : new ClassLoader[]{context, ClassLoader.getSystemClassLoader()}) {
-            if (loader == null) continue;
-            try {
-                return Class.forName(LUA_MANAGER_CLASS, false, loader);
-            } catch (ClassNotFoundException ignored) { }
+        for (Class<?> loadedClass : instrumentation.getAllLoadedClasses()) {
+            if (LUA_MANAGER_CLASS.equals(loadedClass.getName())) return loadedClass;
         }
         return null;
     }

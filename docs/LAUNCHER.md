@@ -1,5 +1,12 @@
 # Launcher
 
+> **Retired for the current KnoxBridge candidate.** This page is historical
+> launcher documentation and is not a supported installation or startup path.
+> Use [`docs/production/RUNTIME_AND_MIGRATION.md`](production/RUNTIME_AND_MIGRATION.md)
+> and the player instructions in `README.md`. Do not stack the old launcher or
+> direct agent with KnoxBridge. The separate launcher repository is retained
+> only for migration/archive purposes pending owner handling of existing users.
+
 > Release prerequisite: verify the downloaded Workshop item contains the tested IsoPlayer
 > build and matching Java checksum before advertising either launch method. Local staging
 > alone does not establish the current public payload.

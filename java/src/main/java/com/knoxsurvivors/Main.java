@@ -1,12 +1,16 @@
 package com.knoxsurvivors;
 
 import com.knoxsurvivors.agent.KnoxAgent;
+import com.knoxbridge.api.KnoxModule;
+import com.knoxbridge.api.ModuleContext;
 
-/** ZombieBuddy Java-mod entry point. */
-public final class Main {
-    private Main() { }
+/** KnoxBridge module entry point for the existing Knox Java runtime. */
+public final class Main implements KnoxModule {
+    public Main() { }
 
-    public static void main(String[] args) {
-        KnoxAgent.startFromZombieBuddy();
+    @Override
+    public void initialize(ModuleContext context) {
+        context.logger().accept("Knox module init start runtime=" + context.runtimeVersion());
+        KnoxAgent.startFromKnoxBridge(context.instrumentation());
     }
 }

@@ -586,3 +586,68 @@ Lua sources and ran 178 regression scripts (290 checks, 0 failures). Focused
 test edits remain local under ignored `tools/` policy. Build 42 still needs
 native loaded encounter outcome, save/reload, and later dialogue/Card replay;
 this offline path does not prove engine encounter or native robbery behavior.
+
+## KS-PROD-010 — Test Knox Survivors on Build 42.21
+Status: in progress
+Priority: high
+Owner: Codex + Human
+Type: compatibility / live-test
+
+### Goal
+Use the existing Knox Survivors mod ID and files, with one metadata range
+covering Build 42.20 through 42.21. Test the same mod on both builds and do not
+claim verified 42.21 gameplay support until its live gates pass. The owner
+retargeted compatibility testing after Project Zomboid 42.21.0 Stable was
+announced on 2026-09-28.
+
+### Acceptance
+- Verify the independent KnoxBridge test module in a real 42.21 game context,
+  including enabled-mod discovery, trust, entrypoint, and its harmless patch.
+- Keep the existing mod ID (`KnoxSurvivors`) and current mod files; do not make
+  a duplicate package or Workshop item for 42.21.
+- Set the supported metadata range to 42.20–42.21 and label 42.21 as under test
+  until live acceptance passes. Do not upload a new Workshop build before the
+  owner reviews the test results.
+- Knox module metadata and entrypoint must use KnoxBridge; remove ZombieBuddy
+  metadata and compile dependencies from the Workshop payload while retaining
+  the direct Knox legacy agent only as a source rollback path.
+- Audit every required Knox Java hook against the installed 42.21 JAR and test
+  the migrated bridge/transformers without changing survivor Lua simulation or
+  save schema.
+- On a disposable 42.21 world, verify Knox module approval/load, bridge exposure,
+  one survivor creation, movement/order, zombie awareness/combat, and save/reload.
+- Verify uninstall/restore removes only KnoxBridge startup ownership, ordinary
+  Steam starts without it, then reinstall and verify again.
+- Keep the package marked experimental until its test evidence is reviewed;
+  public upload/release remains subject to owner approval.
+
+### Current evidence and dependency
+Normal Steam Play on 2026-09-28 reported PZ `42.21.0`, Java `25.0.1`, and
+successful `ZomboidFileSystem.loadMods(List)` transformation. PZ supplied the
+enabled roots `KnoxBridgeIndependentTest` and `KnoxSurvivors`; their unknown
+hashes were blocked on the first run. After exact-hash approval and restart,
+both modules loaded, the independent entrypoint initialized/registered its
+probe, and Knox reported required combat/visibility patches ready plus
+`KnoxJavaBridge` exposure. This closes the generic bootstrap/discovery/trust/
+module-entrypoint gate and the Knox module bootstrap gate. In the same live
+session Knox logged native probe `ks-dev-1` spawned, door/fence movement
+transitions, baseball-bat attacks, and zombie health reaching zero. One route
+reported `FailedStuck`; this is narrow runtime/combat evidence, not pathing
+acceptance. Save/reload, deny or changed-hash policy, and 42.20 live
+compatibility remain open. The actual uninstall restored the exact original JSON hash;
+normal Steam launched without a new KnoxBridge log entry, then reinstall and a
+second Steam launch rediscovered and loaded both approved modules. No saves or
+mod-list files were targeted.
+
+The local Workshop `Contents` payload was replaced from source after a verified
+backup of its previous 125 files. It declares `42.20–42.21`; its KnoxBridge
+module JAR now stages at the descriptor path and has a verified SHA-256 match
+to the built JAR. Both Knox metadata trees declare `require=KnoxBridgeRuntime`.
+KnoxBridge Workshop staging is intentionally marker-only and contains no
+runtime JAR, native bootstrap, installer, or setup scripts because Steam does
+not distribute these installer artifacts. The player package is separate:
+Windows standalone installer; Linux/macOS ZIP plus Python helper (implemented,
+not live verified). The Bridge item is staged private without an ID. The owner
+must upload it, then add it as Knox's Steam Required Item before the subscribe
+test. The old installed Steam Workshop subscription and source trees were
+preserved. These are upload preparation checks, not a new live test.

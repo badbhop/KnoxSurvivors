@@ -72,7 +72,7 @@ public final class KnoxHumanCombatGate {
 
     /**
      * Returns a Knox-specific single-player override, or null when native checkPVP should remain
-     * authoritative. ZombieBuddy's supported Patch API uses this without recursively calling the
+     * authoritative. The runtime module uses this without recursively calling the
      * patched native method.
      */
     public static Boolean overridePVP(Object attacker, Object victim) {

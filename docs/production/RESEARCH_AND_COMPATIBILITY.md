@@ -11,21 +11,28 @@ Updated: 2026-09-28
 ## Target environment
 
 - Project Zomboid Build 42.
-- Current repository target: **stable `42.20.4`**.
-- Project Zomboid `42.21` was released to the **Unstable** branch on 2026-09-23; this does not silently change Knox's production target.
+- Current compatibility-test target: **stable `42.21.0`**, following the owner's 2026-09-28 direction and The Indie Stone's [42.21 Stable release announcement](https://projectzomboid.com/blog/news/2026/09/42-21-stable-released/).
+- The existing `KnoxSurvivors` mod ID and files now declare a `42.20`–`42.21` metadata range so the same mod can be tested on both builds. This does not claim Knox Survivors already works on 42.21.
 - Single-player is the current supported focus.
 - Windows is the primary documented test platform.
 
-Retargeting Knox to a newer unstable/stable build requires an explicit compatibility work item and renewed engine-sensitive verification.
+The current 42.21 compatibility work is tracked in `WORK_QUEUE.md` as KS-PROD-010. It requires renewed engine-sensitive verification before a new public Workshop upload.
 
 ## Runtime compatibility
 
-Two alternative Java runtime paths are currently documented:
+The current Knox candidate uses KnoxBridge as its only supported Java runtime
+path. ZombieBuddy is historical interoperability research, not the current
+technical baseline or a supported Knox startup path. The separate Knox Launcher
+is retired from current player instructions; the direct Knox agent remains in
+source only as a migration/rollback artifact and must not be stacked with
+KnoxBridge. See `RUNTIME_AND_MIGRATION.md`.
 
-1. ZombieBuddy Patch API path (recommended).
-2. Knox launcher / retained legacy Java-agent path.
-
-Use one path per launch. See `RUNTIME_AND_MIGRATION.md`.
+KnoxBridge discovers only PZ-enabled mods with a valid `knoxbridge.properties`
+descriptor and an entrypoint implementing the versioned KnoxBridge API. It does
+not load arbitrary Java archives or ZombieBuddy-specific modules unchanged;
+their authors must port or explicitly support KnoxBridge. Its Workshop item is
+a dependency marker only. Runtime setup is downloaded separately, and the
+Linux/macOS path is implemented but lacks live OS acceptance.
 
 Runtime PASS evidence and static packaging checks do not replace real gameplay/release acceptance.
 
