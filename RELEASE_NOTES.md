@@ -7,11 +7,12 @@
   has requested that its source repository be made private; that repository
   setting remains pending confirmation. Do not download or use old launcher
   releases, and never combine them with KnoxBridge or external Java runtime.
-- The KnoxBridge Workshop item is being updated to include the compile-time API
-  and author/player guides. Player runtime setup remains a separate GitHub
-  Releases download; Workshop upload of the revised payload is not yet confirmed.
-- First-time KnoxBridge module approval is presented during startup when the
-  UI is available. If not, the setup trust-management option remains fallback.
+- KnoxBridge player setup remains a separate GitHub Releases download. Its
+  alpha8 Workshop candidate adds a full-screen main-menu review gate for
+  enabled-mod JARs, with unknown files blocked by default and an optional
+  remember toggle for exact-hash allow/deny choices. Changed module-load choices
+  require one quit/relaunch; unchanged choices do not. The staged Bridge update
+  still needs live Build 42 replay and Steam publication confirmation.
 
 ## Maintenance update — 2026-09-23
 

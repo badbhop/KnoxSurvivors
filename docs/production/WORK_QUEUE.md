@@ -6,7 +6,7 @@ purpose: canonical active work queue
 
 # Knox Survivors — active production work queue
 
-Updated: 2026-09-28
+Updated: 2026-09-29
 
 The sections below are deliberately machine-friendly so ModForge can populate its task board automatically. Keep confirmed bugs in `BUGS.md` instead of hiding them here.
 
@@ -79,7 +79,7 @@ full offline/package gate and live Build 42 acceptance remain separate queue
 items and are not implied by this completion.
 
 ## KS-PROD-003 — Run the full offline candidate gate
-Status: in_progress
+Status: done
 Priority: high
 Owner: Codex
 Type: release
@@ -92,6 +92,8 @@ Run the complete syntax/regression/Java/build/package verification on the same c
 - Exact check counts, revision/worktree state, and packaging result are recorded.
 
 ### Validation
+On 2026-09-29 the exact Survivors source candidate `e93ed2655470212a6e78305171ccff63f7893c58` passed `tools/verify.ps1`: 112 Lua sources, 178 Lua regression scripts, 291 checks, 0 failures, including the Java check/build. `gradlew.bat prepareWorkshopUpload` staged the existing item `3749727604`; the PZ native payload validator passed the staged Contents layout, metadata, preview, Bridge descriptor, single agent JAR, checksum and premain checks (126 staged files). The worktree's release-doc changes do not touch gameplay source. Steam upload/download and live gameplay acceptance remain separate gates.
+
 On 2026-09-28, `tools/verify.ps1` (full, Java included) checked 112 Lua sources and ran 177
 Lua scripts (290 checks, 0 failed, including `java-check-build`) on worktree `decbda5`
 plus 5 uncommitted files (`KS_CompanionVehicles.lua`, `KS_SurvivorAutonomyController.lua`,
@@ -497,7 +499,7 @@ affiliation continuity, and duplicate-body prevention remain for the later
 Build 42 disposable-save replay.
 
 ## KS-PROD-007 — Refresh candidate evidence and public-facing documentation
-Status: todo
+Status: in_progress
 Priority: high
 Owner: ModForge + Codex
 Type: documentation
@@ -511,7 +513,7 @@ Bring release documentation forward to the exact candidate after verification.
 - Generated ModForge state agrees with the canonical repository docs.
 
 ### Validation
-Cross-check the exact candidate revision, test results, live acceptance, and open bugs.
+Cross-check the exact candidate revision, test results, live acceptance, and open bugs. On 2026-09-29 the Survivors player docs and Workshop description were reconciled with the alpha8 Bridge review flow. The Bridge UI still needs live Build 42 replay, Steam uploads/download parity has not been confirmed, and generated ModForge state has not been checked.
 
 ### Definition of Done
 One coherent release story exists across ModForge, production docs, and player-facing docs.

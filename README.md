@@ -53,12 +53,14 @@ it does not install the runtime. Download the player setup package from
   This route is implemented but has not been live-verified on either OS.
 
 Enable KnoxBridge Runtime and Knox Survivors in the PZ Mods menu and start
-through Steam. The new Bridge-owned **Review Java Mods** screen is planned for
-the next Bridge package and Workshop update; it is not part of the currently
-published player download. Once released, it will list enabled-mod JARs, block
-unknown hashes by default, and save exact-file allow/deny choices for the next
-full launch. The displayed author is unverified metadata. Java modules run with
-the game's full account permissions; KnoxBridge is not a sandbox.
+through Steam. The Bridge-owned **Review Java Mods** gate opens at the main menu
+and lists enabled-mod JARs before world entry. Unknown hashes stay blocked until
+allowed. Turn on **Remember choices** to save exact-file allow/deny decisions
+across launches; leave it off to apply them once. Restart only when a choice
+changes which Java modules load. The displayed author is unverified metadata.
+Java modules run with the game's full account permissions; KnoxBridge is not a
+sandbox. This alpha8 Bridge UI update is staged but still needs a live Build 42
+replay before its behavior can be called verified.
 
 KnoxBridge loads only enabled PZ mods that declare its module descriptor and
 implement the KnoxBridge API. Existing Java mods for other loaders do not load

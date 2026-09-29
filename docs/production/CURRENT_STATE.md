@@ -6,27 +6,22 @@ purpose: current production position and immediate goal
 
 # Knox Survivors — current production state
 
-Updated: 2026-09-28
+Updated: 2026-09-29
 
 ## Repository baseline
 
-The connected GitHub repository is `exe-create/KnoxSurvivors`. The local
-checkout is on `main` at `8c78129973afbb227e56adefa2f5ba5d3dd7b1c4`
-(`Bounded vehicle boarding interruption safety; record PT-BR collaboration`).
-GitHub remote parity was not checked in this cycle.
+The connected GitHub repository is `exe-create/KnoxSurvivors`. Release candidate
+source remains commit `e93ed2655470212a6e78305171ccff63f7893c58` on `main`; its
+remote head matched at verification. This cycle changes release documentation
+and a staging verifier only, not survivor gameplay source.
 
 ## Current worktree
 
-At this cycle's start, the worktree already contained uncommitted production
-documentation updates from the preceding combat/base-danger evidence review;
-those edits were preserved. The worktree includes the prior base-supply
-delivery fix and this cycle's base-life watchdog recovery fix in
-`KS_SurvivorAutonomyController.lua`; related canonical records are updated.
-The regression harnesses under `tools/` are ignored by the repository-wide
-`.gitignore`; their local edits were exercised but are not tracked Git changes.
-The latest commit bounds vehicle boarding interruption when danger or critical
-needs arise and records Portuguese-Brazilian collaboration state. This does not
-establish native vehicle or combat behavior.
+This cycle started clean at source candidate `e93ed2655470212a6e78305171ccff63f7893c58`
+(`Clarify KnoxBridge setup and Workshop guidance`), matching GitHub `main`.
+Current tracked changes are release documentation. No Knox Survivors gameplay
+source has changed. `tools/` is repository-ignored; the local Workshop payload
+verifier was aligned to the KnoxBridge module path for this release check.
 
 The changed implementation is concentrated in these connected areas:
 
@@ -79,6 +74,7 @@ These are concise anchors only; detailed implementation history remains in `../F
 - **2026-09-25:** GitHub `main` was at the prior baseline `7f56dcb`.
 - **2026-09-26:** commit `163b789` consolidated production documentation and coordination contracts, and committed the associated base/storage/UI/autonomy/event/off-screen implementation and regression tests.
 - **2026-09-28:** local `main` advanced through bounded vehicle admission/boarding interruption changes to `8c78129`. The latest saved Build 42 diagnostic run is `dev-runs/20260928-021135`; it shows both successful native zombie damage and a mixed-group horde scenario that remained `PARTIAL`.
+- **2026-09-29:** release guidance was reconciled with KnoxBridge alpha8; the full Survivors offline gate and native Workshop payload validation passed on the unchanged gameplay candidate `e93ed26`.
 
 ## Last retained offline evidence
 
@@ -100,6 +96,24 @@ scripts (289 checks, 0 failed). Focused `test-base-auto-scavenge.lua`,
 `test-base-needs.lua`, and `test-inventory-cleanup.lua` passed. `git diff --check`
 passed. Java checks were intentionally skipped under the offline-first cycle;
 workshop staging/package verification remains outstanding.
+
+## 2026-09-29 release candidate verification
+
+The full `tools/verify.ps1` gate passed on source candidate `e93ed26`: 112 Lua
+sources, 178 regression scripts, 291 checks, 0 failures, including the Java
+check/build. `gradlew.bat prepareWorkshopUpload` staged the existing Workshop
+item `3749727604` from that source. The installed Build 42 native payload
+validator passed the staged `Contents`, metadata, preview, KnoxBridge module
+descriptor, single module JAR, SHA-256 sidecar, and premain check. The stage has
+126 files. Steam publication/download and gameplay remain unverified.
+
+The matching KnoxBridge `0.1.0-alpha8` candidate now stages the main-menu
+review gate and remember/one-launch choice handoff. Its offline Java/UI/package
+and Windows bootstrap checks pass, but its live Build 42 gate/restart flow still
+needs replay. No new KnoxBridge Workshop upload has been confirmed in this
+cycle; do not call the Bridge and Steam payloads in parity until that upload is
+verified. Windows Defender flagged prior setup artifacts; any flagged binary
+remains withdrawn.
 
 Fresh exact-worktree evidence on 2026-09-28 after the base-life recovery and
 Survivor Card semantic integration updates: `tools/verify.ps1 -SkipJava`

@@ -6,7 +6,7 @@ purpose: canonical verification and release contract
 
 # Knox Survivors — QA and release contract
 
-Updated: 2026-09-26
+Updated: 2026-09-29
 
 ## Evidence levels
 
@@ -39,7 +39,7 @@ world entities.
 
 ## Current release gate
 
-The current worktree needs fresh evidence because source/test work continued after the last retained full offline checkpoint.
+The exact Survivors source candidate `e93ed2655470212a6e78305171ccff63f7893c58` passed the full offline and native payload gates on 2026-09-29. Steam publication/download parity and live Build 42 acceptance remain open; the matching KnoxBridge alpha8 menu review gate is not yet live-verified.
 
 ### Focused/offline gate
 
@@ -65,6 +65,7 @@ At minimum cover:
 - vehicle entry/travel only where the candidate advertises/supports it;
 - Survivor Card / Notebook / inventory / health / medical UI at multiple UI scales;
 - KnoxBridge startup, module allow/deny, and uninstall/restore path;
+- the current KnoxBridge main-menu JAR review gate, optional remembered exact-hash choices, and no-restart behavior when the effective allowed set is unchanged;
 - any direct Steam bootstrap route only after a real Steam startup acceptance.
 
 ## Quick owner playthrough
