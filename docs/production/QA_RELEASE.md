@@ -39,7 +39,7 @@ world entities.
 
 ## Current release gate
 
-The exact Survivors source candidate `e93ed2655470212a6e78305171ccff63f7893c58` passed the full offline and native payload gates on 2026-09-29. Steam publication/download parity and live Build 42 acceptance remain open; the matching KnoxBridge alpha8 menu review gate is not yet live-verified.
+The exact Survivors source candidate `e93ed2655470212a6e78305171ccff63f7893c58` passed the full offline and native payload gates on 2026-09-29. Steam publication/download parity and live Build 42 acceptance remain open; the matching KnoxBridge alpha8 menu review gate is not yet live-verified. The public Knox Survivors Workshop item currently reports a Steam removal and still contains old Setup.cmd/option-2 instructions. GitHub's latest KnoxBridge release remains alpha5. Do not claim release parity until the existing items are updated and verified publicly.
 
 ### Focused/offline gate
 

@@ -110,10 +110,14 @@ descriptor, single module JAR, SHA-256 sidecar, and premain check. The stage has
 The matching KnoxBridge `0.1.0-alpha8` candidate now stages the main-menu
 review gate and remember/one-launch choice handoff. Its offline Java/UI/package
 and Windows bootstrap checks pass, but its live Build 42 gate/restart flow still
-needs replay. No new KnoxBridge Workshop upload has been confirmed in this
-cycle; do not call the Bridge and Steam payloads in parity until that upload is
-verified. Windows Defender flagged prior setup artifacts; any flagged binary
-remains withdrawn.
+needs replay. Read-only release checks on 2026-09-29 found GitHub's latest
+KnoxBridge release is still alpha5, whose instructions use installer option 2.
+The public Survivors Workshop page for item `3749727604` reports that Steam
+removed the item from the community and still shows the obsolete Setup.cmd /
+option-2 instructions. The local alpha8 Bridge and Survivors stages have not
+been uploaded; GitHub and Steam are not in parity. Steam upload and public-page
+recovery need owner-side Steam Workshop access. Windows Defender flagged prior
+setup artifacts; any flagged binary remains withdrawn.
 
 Fresh exact-worktree evidence on 2026-09-28 after the base-life recovery and
 Survivor Card semantic integration updates: `tools/verify.ps1 -SkipJava`

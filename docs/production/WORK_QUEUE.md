@@ -513,7 +513,7 @@ Bring release documentation forward to the exact candidate after verification.
 - Generated ModForge state agrees with the canonical repository docs.
 
 ### Validation
-Cross-check the exact candidate revision, test results, live acceptance, and open bugs. On 2026-09-29 the Survivors player docs and Workshop description were reconciled with the alpha8 Bridge review flow. The Bridge UI still needs live Build 42 replay, Steam uploads/download parity has not been confirmed, and generated ModForge state has not been checked.
+Cross-check the exact candidate revision, test results, live acceptance, and open bugs. On 2026-09-29 the Survivors player docs and Workshop description were reconciled with the alpha8 Bridge review flow. The Bridge UI still needs live Build 42 replay. Read-only release checks found GitHub still on Bridge alpha5 and the public Survivors Workshop page removed with stale Setup.cmd/option-2 instructions; the new Steam uploads are pending owner-side Workshop access. Generated ModForge state has not been checked.
 
 ### Definition of Done
 One coherent release story exists across ModForge, production docs, and player-facing docs.
